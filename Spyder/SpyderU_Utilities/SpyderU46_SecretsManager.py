@@ -147,7 +147,7 @@ class SecretsManager:
 
         sm = get_secrets()
         token     = sm.get("TRADIER_API_TOKEN")
-        api_key   = sm.get("MASSIVE_API_KEY", required=True)
+        api_key   = sm.get("TRADIER_API_KEY", required=True)
 
         # Persist a new secret to the encrypted YAML file:
         sm.set("MY_SECRET", "s3cr3t_v4lue")
@@ -337,10 +337,6 @@ class SecretsManager:
     @property
     def tradier_sandbox_token(self) -> str | None:
         return self.get("TRADIER_SANDBOX_TOKEN")
-
-    @property
-    def massive_api_key(self) -> str | None:
-        return self.get("MASSIVE_API_KEY")
 
     @property
     def telegram_bot_token(self) -> str | None:

@@ -48,6 +48,7 @@ Change Log:
 # ==============================================================================
 import sys
 import datetime
+from datetime import timezone
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -361,7 +362,7 @@ class PlotlyChartWidget(QWidget):
         """Load sample OHLCV data for initial display."""
         # Generate realistic sample data
         periods = 100
-        dates = pd.date_range(end=datetime.datetime.now(), periods=periods, freq="5min")
+        dates = pd.date_range(end=datetime.datetime.now(timezone.utc), periods=periods, freq="5min")
 
         # Generate realistic OHLCV data with some volatility
         np.random.seed(42)  # For reproducible sample data
@@ -740,7 +741,7 @@ class PlotlyChartWidget(QWidget):
         if timeframe in freq_map:
             periods = 100
             dates = pd.date_range(
-                end=datetime.datetime.now(), periods=periods, freq=freq_map[timeframe]
+                end=datetime.datetime.now(timezone.utc), periods=periods, freq=freq_map[timeframe]
             )
 
             # Regenerate data with new frequency

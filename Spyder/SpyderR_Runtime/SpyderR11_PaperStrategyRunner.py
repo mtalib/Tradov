@@ -55,9 +55,11 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -74,6 +76,7 @@ from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import (
 )
 
 logger = SpyderLogger.get_logger("SpyderR11_PaperStrategyRunner")
+_ET_TZ = ZoneInfo("America/New_York")
 
 
 # ==============================================================================
@@ -536,12 +539,14 @@ class PaperStrategyRunner:
         risk_manager: RiskManagerProtocol | None = None,
         starting_equity: float = DEFAULT_STARTING_EQUITY,
         adapters: list[StrategyAdapter] | None = None,
+        sandbox_replayer: Any | None = None,
     ) -> None:
         self._client = data_client
         self._harness = harness
         self._max_concurrent = max_concurrent_positions
         self._risk_manager = risk_manager
         self._starting_equity = float(starting_equity)
+        self._sandbox_replayer = sandbox_replayer
 
         self._positions: list[SimulatedPosition] = []
         self._cumulative_sim_pnl: float = 0.0
@@ -549,6 +554,8 @@ class PaperStrategyRunner:
         # Simple per-strategy cooldown to avoid thrashing on rejected signals
         self._last_entry_attempt: dict[str, datetime] = {}
         self._entry_cooldown = timedelta(minutes=5)
+        self._no_entry_summary_interval = timedelta(seconds=30)
+        self._last_no_entry_summary_ts: datetime | None = None
 
         # Build the adapter registry. Callers may pass their own list; the
         # default wires the two shipped strategies gated by the enable_* flags.
@@ -605,7 +612,12 @@ class PaperStrategyRunner:
             A dict with keys: ``spy_price``, ``open_positions``,
             ``closes_this_tick``, ``opens_this_tick``, ``sim_pnl``.
         """
-        now = now_et or datetime.now()
+        if now_et is None:
+            now = datetime.now(_ET_TZ)
+        elif now_et.tzinfo is None:
+            now = now_et.replace(tzinfo=_ET_TZ)
+        else:
+            now = now_et.astimezone(_ET_TZ)
 
         # 1) Pull SPY + VIX quotes in one batched call
         spy_quote, vix_price = self._get_spy_and_vix()
@@ -625,18 +637,49 @@ class PaperStrategyRunner:
 
         # 3) Entry evaluation — iterate adapters (respect overall + per-strategy caps)
         opens = 0
+        no_entry_reasons: list[str] = []
         for adapter in self._adapters:
             if len(self._positions) >= self._max_concurrent:
+                no_entry_reasons.append(f"{adapter.name}:max_concurrent_cap")
                 break
             if self._count_open(adapter.name) >= adapter.max_open:
+                no_entry_reasons.append(f"{adapter.name}:strategy_open_cap")
                 continue
             if not adapter.within_entry_window(now):
+                no_entry_reasons.append(f"{adapter.name}:outside_entry_window")
                 continue
             if not self._cooldown_ok(adapter.name, now):
+                # When a strategy already has an open position, cooldown spam
+                # is not actionable. Suppress it so logs emphasize real gates.
+                if self._count_open(adapter.name) <= 0:
+                    no_entry_reasons.append(f"{adapter.name}:cooldown")
                 continue
-            self._last_entry_attempt[adapter.name] = now
-            if self._try_enter(adapter, ctx):
+            opened, reject_reason = self._try_enter(adapter, ctx)
+            if opened:
                 opens += 1
+                self._last_entry_attempt[adapter.name] = now
+            else:
+                no_entry_reasons.append(f"{adapter.name}:{reject_reason}")
+
+        top_no_entry_reason = ""
+        no_entry_reason_counts: dict[str, int] = {}
+        if no_entry_reasons:
+            counts = Counter(no_entry_reasons)
+            top_no_entry_reason, _ = counts.most_common(1)[0]
+            no_entry_reason_counts = dict(counts)
+
+        if opens == 0 and no_entry_reasons:
+            should_log_summary = (
+                self._last_no_entry_summary_ts is None
+                or (now - self._last_no_entry_summary_ts) >= self._no_entry_summary_interval
+            )
+            if should_log_summary:
+                self._last_no_entry_summary_ts = now
+                logger.info(
+                    "No-entry summary: adapters=%d top_reason=%s",
+                    len(self._adapters),
+                    top_no_entry_reason,
+                )
 
         return {
             "spy_price": spy_price,
@@ -644,6 +687,8 @@ class PaperStrategyRunner:
             "closes_this_tick": closes,
             "opens_this_tick": opens,
             "sim_pnl": self._cumulative_sim_pnl,
+            "top_no_entry_reason": top_no_entry_reason,
+            "no_entry_reason_counts": no_entry_reason_counts,
         }
 
     def close_all_positions(self, reason: str = "session_end") -> int:
@@ -651,7 +696,7 @@ class PaperStrategyRunner:
         closed = 0
         for pos in list(self._positions):
             if pos.is_open:
-                self._close_position(pos, reason=reason, now=datetime.now())
+                self._close_position(pos, reason=reason, now=datetime.now(timezone.utc))
                 closed += 1
         return closed
 
@@ -667,6 +712,24 @@ class PaperStrategyRunner:
             "by_strategy": by_strategy,
             "portfolio_greeks": {"delta": d, "gamma": g, "vega": v},
         }
+
+    def flush_deferred_sandbox_replay(self, max_records: int = 50) -> dict[str, Any] | None:
+        """Flush deferred sandbox replay queue when replay service is enabled."""
+        if self._sandbox_replayer is None:
+            return None
+        try:
+            report = self._sandbox_replayer.flush(max_records=max_records)
+            logger.info(
+                "Deferred sandbox replay flush: processed=%s sent=%s failed=%s pending=%s",
+                report.get("processed", 0),
+                report.get("sent", 0),
+                report.get("failed", 0),
+                report.get("pending_total", 0),
+            )
+            return report
+        except Exception as exc:
+            logger.warning("Deferred sandbox replay flush failed: %s", exc)
+            return None
 
     # ------------------------------------------------------------------
     # Tradier data helpers
@@ -876,17 +939,17 @@ class PaperStrategyRunner:
             return f"portfolio_vega_cap (|{new_v:.1f}| > {MAX_PORTFOLIO_VEGA:.1f})"
         return None
 
-    def _try_enter(self, adapter: StrategyAdapter, ctx: MarketContext) -> bool:
+    def _try_enter(self, adapter: StrategyAdapter, ctx: MarketContext) -> tuple[bool, str]:
         """Evaluate adapter → regime gate → size → risk gate → Greek gate → fill."""
         # 1) Regime gate (cheap, no data fetch beyond the VIX already in ctx)
         regime_reject = adapter.regime_gate(ctx)
         if regime_reject is not None:
             logger.info("Regime REJECT %s: %s", adapter.name, regime_reject)
-            return False
+            return False, f"regime:{regime_reject}"
 
         proposal = adapter.evaluate_entry(ctx, self)
         if proposal is None:
-            return False
+            return False, "no_candidate"
 
         contracts = self._size_position(proposal.max_loss)
 
@@ -897,16 +960,16 @@ class PaperStrategyRunner:
                 "Risk REJECT %s: %s (requested=%d)",
                 adapter.name, reason or "unspecified", contracts,
             )
-            return False
+            return False, f"risk:{reason or 'unspecified'}"
         contracts = max(1, min(contracts, max_qty)) if max_qty > 0 else contracts
         if contracts <= 0:
-            return False
+            return False, "risk:max_qty_zero"
 
         # 3) Portfolio Greek gate (lightweight E15 stand-in)
         greek_reject = self._greek_gate(proposal, contracts)
         if greek_reject is not None:
             logger.info("Greek REJECT %s: %s", adapter.name, greek_reject)
-            return False
+            return False, f"greek:{greek_reject}"
 
         # Stamp contracts on every leg (preserving per-leg Greeks)
         legs = [
@@ -965,7 +1028,7 @@ class PaperStrategyRunner:
                 proposal.strategy, position.position_id, contracts,
                 proposal.credit_received, proposal.max_loss, ctx.spy_price,
             )
-        return True
+        return True, "opened"
 
     # ------------------------------------------------------------------
     # Exit evaluation
@@ -1044,6 +1107,25 @@ class PaperStrategyRunner:
         self._harness.record_trade(
             pnl=realized, placed=False, filled=True, won=won,
         )
+
+        if self._sandbox_replayer is not None:
+            try:
+                replay_legs = [
+                    {
+                        "option_symbol": leg.option_symbol,
+                        "side": leg.side,
+                    }
+                    for leg in pos.legs
+                ]
+                self._sandbox_replayer.enqueue_close_legs(
+                    position_id=pos.position_id,
+                    strategy=pos.strategy,
+                    reason=reason,
+                    legs=replay_legs,
+                    contracts=pos.contracts,
+                )
+            except Exception as exc:
+                logger.warning("Deferred sandbox replay enqueue failed for %s: %s", pos.position_id, exc)
 
         logger.info(
             "CLOSE %s (%s) %s: realized=$%.2f [reason=%s, credit=$%.2f debit=$%.2f]",
@@ -1203,16 +1285,33 @@ def create_paper_strategy_runner_from_env(harness: Any) -> PaperStrategyRunner:
     try:
         from Spyder.SpyderE_Risk.SpyderE01_RiskManager import get_risk_manager
         risk_manager = get_risk_manager(portfolio_value=starting_equity)
+        # Paper sessions can run without broker position sync; avoid startup-only
+        # cold-state vetoes that block autonomous entry loops indefinitely.
+        if hasattr(risk_manager, "_account_state_synced"):
+            setattr(risk_manager, "_account_state_synced", True)
+        # Paper runner frequently operates without full S07 quality feeds
+        # (vol-surface/dealer-flow), so keep this guard telemetry-only here.
+        if hasattr(risk_manager, "_enforce_decision_quality_slo"):
+            setattr(risk_manager, "_enforce_decision_quality_slo", False)
         logger.info("PaperStrategyRunner: risk gate = SpyderE01.RiskManager")
     except Exception as exc:
         logger.warning("Could not build E01 RiskManager (%s) — running without risk gate", exc)
         risk_manager = None
+
+    sandbox_replayer = None
+    try:
+        from Spyder.SpyderR_Runtime.SpyderR16_PaperSandboxReplay import create_paper_sandbox_replay_from_env  # noqa: E501
+
+        sandbox_replayer = create_paper_sandbox_replay_from_env()
+    except Exception as exc:
+        logger.warning("Deferred sandbox replay unavailable: %s", exc)
 
     return PaperStrategyRunner(
         data_client=client,
         harness=harness,
         risk_manager=risk_manager,
         starting_equity=starting_equity,
+        sandbox_replayer=sandbox_replayer,
     )
 
 

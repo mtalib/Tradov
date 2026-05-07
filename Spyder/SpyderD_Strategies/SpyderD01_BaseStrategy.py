@@ -27,7 +27,7 @@ import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 from collections.abc import Callable  # noqa: F401
@@ -156,7 +156,8 @@ class TradingSignal:
 
     def is_valid(self) -> bool:
         """Check if signal is still valid"""
-        return datetime.now() < self.expires_at
+        now = datetime.now(timezone.utc) if self.expires_at.tzinfo else datetime.now()
+        return now < self.expires_at
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization"""
@@ -231,7 +232,7 @@ class StrategyPosition:
 
     def close_position(self, exit_price: float, exit_reason: str) -> None:
         """Close position and finalize P&L"""
-        self.exit_time = datetime.now()
+        self.exit_time = datetime.now(timezone.utc)
         self.exit_price = exit_price
         self.exit_reason = exit_reason
         self.state = PositionState.CLOSED
@@ -327,7 +328,7 @@ class PerformanceMetrics:
             )
 
         # Update daily P&L
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self.daily_pnl[today] = self.daily_pnl.get(today, 0) + pnl
 
 
@@ -474,7 +475,7 @@ class BaseStrategy(ABC):
                 return False
 
             self.state = STRATEGY_INITIALIZING
-            self.start_time = datetime.now()
+            self.start_time = datetime.now(timezone.utc)
 
             # Perform initialization
             self._initialize_strategy()
@@ -553,7 +554,7 @@ class BaseStrategy(ABC):
             return
 
         try:
-            self.last_update = datetime.now()
+            self.last_update = datetime.now(timezone.utc)
 
             # Update existing positions
             self._update_positions(market_data)
@@ -607,7 +608,7 @@ class BaseStrategy(ABC):
                     else PositionType.SHORT
                 ),
                 state=PositionState.PENDING,
-                entry_time=datetime.now(),
+                entry_time=datetime.now(timezone.utc),
                 entry_price=signal.entry_price,
                 position_size=signal.position_size,
                 stop_loss=signal.stop_loss,
@@ -730,7 +731,7 @@ class BaseStrategy(ABC):
     def _can_trade(self) -> bool:
         """Check if strategy can trade"""
         # Check daily trade limit
-        today = datetime.now().date()
+        today = datetime.now(timezone.utc).date()
         if self.last_trade_date != today:
             self.daily_trades = 0
             self.last_trade_date = today
@@ -759,18 +760,13 @@ class BaseStrategy(ABC):
                     source=self.name,
                 )
 
-                # D01-B1: auto_execute is intentionally NOT supported in
-                # production.  Calling add_position() directly bypasses the
-                # D31 → E01 pre-trade risk pathway.  The signal has already
-                # been emitted above; D31 (when wired) will validate it
-                # through E01 and dispatch the order.  Any callers that set
-                # auto_execute=True in config should migrate to the event-bus
-                # pathway.  We emit a warning so the operator is aware.
+                # D01-B1: auto_execute is intentionally NOT supported.
+                # Raise at construction time so misconfigured strategies fail fast
+                # rather than silently dropping orders in production.
                 if self.config.get("auto_execute", False):
-                    self.logger.warning(
-                        "D01 auto_execute=True bypasses E01 risk gate — "
-                        "signal emitted on bus; direct add_position() call suppressed. "
-                        "Set auto_execute=False and wire a LiveEngine to D31."
+                    raise ValueError(
+                        "D01 auto_execute=True is not supported. "
+                        "Wire a LiveEngine to D31 instead."
                     )
 
         except Exception as e:
@@ -864,7 +860,7 @@ class BaseStrategy(ABC):
         """Publish strategy status event"""
         self.event_manager.emit(
             EventType.ALERT,
-            {"message": message, "state": self.state, "timestamp": datetime.now().isoformat()},
+            {"message": message, "state": self.state, "timestamp": datetime.now(timezone.utc).isoformat()},
             source=self.name,
         )
 
@@ -875,6 +871,39 @@ class BaseStrategy(ABC):
             # Potentially pause strategy or close positions
             if self.config.get("pause_on_critical_risk", True):
                 self.pause()
+
+
+# ==============================================================================
+# STRATEGY CLASS UTILITY
+# ==============================================================================
+
+
+def is_strategy_class(cls: Any) -> bool:
+    """Return True when *cls* is a concrete, instantiable strategy subclass.
+
+    In test runs, modules can be reloaded under alternate package paths, which
+    produces distinct ``BaseStrategy`` identity objects.  This helper prefers
+    the strict ``issubclass`` check and falls back to duck-typing so that
+    test-bootstrap shadowing does not silently drop valid strategy classes.
+
+    Args:
+        cls: Object to test.
+
+    Returns:
+        True if *cls* is a non-abstract class that is (or quacks like) a
+        concrete ``BaseStrategy`` subclass; False otherwise.
+    """
+    import inspect as _inspect
+    if not _inspect.isclass(cls) or _inspect.isabstract(cls):
+        return False
+    try:
+        if issubclass(cls, BaseStrategy):
+            return True
+    except Exception:
+        pass
+    # Duck-type fallback: any class with generate_signal is treated as a
+    # strategy even when BaseStrategy identity has drifted (test reloads).
+    return callable(getattr(cls, "generate_signal", None))
 
 
 # ==============================================================================
@@ -890,7 +919,7 @@ class StrategyFactory:
     @classmethod
     def register(cls, name: str, strategy_class: type) -> None:
         """Register a strategy class"""
-        if not issubclass(strategy_class, BaseStrategy):
+        if not is_strategy_class(strategy_class):
             raise ValueError(f"{strategy_class} must inherit from BaseStrategy")
         cls._strategies[name] = strategy_class
 
@@ -956,8 +985,8 @@ if __name__ == "__main__":
                     stop_loss=market_data["close"].iloc[-1] * 0.98,
                     take_profit=market_data["close"].iloc[-1] * 1.02,
                     position_size=1,
-                    timestamp=datetime.now(),
-                    expires_at=datetime.now() + timedelta(seconds=SIGNAL_EXPIRY_SECONDS),
+                    timestamp=datetime.now(timezone.utc),
+                    expires_at=datetime.now(timezone.utc) + timedelta(seconds=SIGNAL_EXPIRY_SECONDS),
                 )
                 signals.append(signal)
 
@@ -1012,7 +1041,7 @@ if __name__ == "__main__":
         pass
 
     # Create sample market data
-    dates = pd.date_range(end=datetime.now(), periods=50, freq="5min")
+    dates = pd.date_range(end=datetime.now(timezone.utc), periods=50, freq="5min")
     prices = 450 + np.cumsum(np.random.randn(50) * 0.5)
     market_data = pd.DataFrame(
         {

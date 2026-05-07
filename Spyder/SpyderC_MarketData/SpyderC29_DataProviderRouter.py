@@ -9,7 +9,6 @@ Purpose: Data provider selection and routing based on ACTIVE_DATA_PROVIDER
 Reads the ACTIVE_DATA_PROVIDER (or DATA_PROVIDER) environment variable and
 returns the appropriate market data client.  Currently supports:
     tradier  — SpyderB40_TradierClient  (default; primary live market data)
-    massive  — SpyderC27_MassiveClient  (optional fallback / extended data)
 
 Any code that needs a market data provider should call get_data_provider()
 rather than importing a provider directly.  This decouples strategy/risk code
@@ -34,24 +33,14 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def _is_massive_disabled() -> bool:
-    """Return whether Massive usage is disabled for the current process."""
-    return os.environ.get("SPYDER_DISABLE_MASSIVE", "1").lower().strip() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
 # ==============================================================================
 # PROVIDER ENUM
 # ==============================================================================
 
 
 class DataProvider(StrEnum):
-    """Supported market data providers."""
+    """Supported market data providers.  Tradier is the sole provider."""
 
-    MASSIVE = "massive"
     TRADIER = "tradier"
 
     @classmethod
@@ -59,11 +48,11 @@ class DataProvider(StrEnum):
         """
         Read the active provider from environment variables.
 
-        Checks ``ACTIVE_DATA_PROVIDER`` first, then falls back to
-        ``DATA_PROVIDER``.  Defaults to :attr:`TRADIER` if neither is set.
+        Tradier is the only supported provider.  Any value other than
+        ``"tradier"`` is logged as a warning and ignored.
 
         Returns:
-            DataProvider: The active provider enum value.
+            DataProvider: Always :attr:`TRADIER`.
         """
         raw = (
             os.environ.get("ACTIVE_DATA_PROVIDER")
@@ -71,26 +60,10 @@ class DataProvider(StrEnum):
             or "tradier"
         ).lower().strip()
 
-        if raw == "massive":
-            if _is_massive_disabled():
-                logger.info(
-                    "Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE; using tradier"  # noqa: E501
-                )
-                return cls.TRADIER
-            return cls.MASSIVE
-        if raw == "polygon":
-            if _is_massive_disabled():
-                logger.info(
-                    "Polygon/Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE; using tradier"  # noqa: E501
-                )
-                return cls.TRADIER
-            return cls.MASSIVE
-        if raw == "tradier":
-            return cls.TRADIER
-
-        logger.warning(
-            "Unknown DATA_PROVIDER '%s'; defaulting to 'tradier'", raw
-        )
+        if raw not in {"tradier", ""}:
+            logger.warning(
+                "DATA_PROVIDER='%s' is not supported; Tradier is the only provider.", raw
+            )
         return cls.TRADIER
 
 
@@ -118,7 +91,7 @@ class DataProviderRouter:
 
         router = DataProviderRouter()
         client = router.get_client()
-        # client is a TradierClient or MassiveClient depending on environment
+        # client is a TradierClient
     """
 
     def __init__(self, api_key: str | None = None, **kwargs: Any) -> None:
@@ -142,7 +115,7 @@ class DataProviderRouter:
         Return the cached market data client, constructing it on first call.
 
         Returns:
-            The provider client instance (e.g., :class:`MassiveClient`).
+            The provider client instance (e.g., :class:`TradierClient`).
         """
         if self._client is None:
             self._client = self._build_client()
@@ -165,34 +138,13 @@ class DataProviderRouter:
     # ------------------------------------------------------------------
 
     def _build_client(self) -> Any:
-        """Construct and return the provider-specific client instance."""
-        if self._provider == DataProvider.TRADIER:
-            client = self._build_tradier_client()
-        else:
-            client = self._build_massive_client()
-
+        """Construct and return the Tradier client instance."""
+        client = self._build_tradier_client()
         logger.debug(
-            "DataProviderRouter: built %s client for provider '%s'",
+            "DataProviderRouter: built %s client",
             type(client).__name__,
-            self._provider.value,
         )
         return client
-
-    def _build_massive_client(self) -> Any:
-        """Construct a MassiveClient from env or the provided api_key."""
-        if _is_massive_disabled():
-            raise RuntimeError(
-                "Massive client construction blocked by SPYDER_DISABLE_MASSIVE"
-            )
-
-        from SpyderC_MarketData.SpyderC27_MassiveClient import (  # type: ignore[import]
-            MassiveClient,
-            create_massive_client_from_env,
-        )
-
-        if self._api_key:
-            return MassiveClient(api_key=self._api_key, **self._kwargs)
-        return create_massive_client_from_env()
 
     def _build_tradier_client(self) -> Any:
         """Construct a TradierClient configured for the active trading environment."""

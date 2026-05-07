@@ -25,7 +25,7 @@ import sys
 import sqlite3
 import tarfile
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass
@@ -199,7 +199,7 @@ class SystemUtilities:
             space_freed_mb=total_freed,
             errors=all_errors,
             status=status,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
         self.logger.info(f"Cleanup complete: {total_deleted} files deleted, {total_freed:.2f} MB freed")
@@ -220,7 +220,7 @@ class SystemUtilities:
         files_deleted = 0
         space_freed = 0.0
         errors = []
-        cutoff_date = datetime.now() - timedelta(days=retention_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
 
         try:
             if LOGS_DIR.exists():
@@ -256,7 +256,7 @@ class SystemUtilities:
             space_freed_mb=space_freed,
             errors=errors,
             status=status,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     def cleanup_temp_files(self) -> CleanupReport:
@@ -298,7 +298,7 @@ class SystemUtilities:
             space_freed_mb=space_freed,
             errors=errors,
             status=status,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     def cleanup_old_backups(self, retention_days: int = DEFAULT_BACKUP_RETENTION_DAYS) -> CleanupReport:
@@ -316,7 +316,7 @@ class SystemUtilities:
         files_deleted = 0
         space_freed = 0.0
         errors = []
-        cutoff_date = datetime.now() - timedelta(days=retention_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
 
         if BACKUP_DIR.exists():
             for backup_file in BACKUP_DIR.glob("spyder_backup_*.tar.gz"):
@@ -342,7 +342,7 @@ class SystemUtilities:
             space_freed_mb=space_freed,
             errors=errors,
             status=status,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
 
     # ==========================================================================
@@ -363,7 +363,7 @@ class SystemUtilities:
         Returns:
             BackupInfo if successful, None otherwise
         """
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         backup_id = f"spyder_backup_{backup_type.value}_{timestamp}"
         backup_file = BACKUP_DIR / f"{backup_id}.tar.gz"
 
@@ -426,7 +426,7 @@ class SystemUtilities:
             backup_info = BackupInfo(
                 backup_id=backup_id,
                 backup_type=backup_type,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 size_mb=size_mb,
                 files_count=files_count,
                 location=backup_file,
@@ -530,7 +530,7 @@ class SystemUtilities:
             self.logger.error("Invalid export format: %s", format)
             return None
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         export_file = EXPORT_DIR / f"spyder_export_{timestamp}.{format}"
 
         try:
@@ -681,7 +681,7 @@ class SystemUtilities:
         report.append("=" * 60)
         report.append("SPYDER SYSTEM MAINTENANCE REPORT")
         report.append("=" * 60)
-        report.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
         report.append("")
 
         # Disk space
@@ -771,7 +771,7 @@ def perform_weekly_maintenance() -> bool:
 
     # Generate and save report
     report = utils.generate_maintenance_report()
-    report_file = LOGS_DIR / f"maintenance_report_{datetime.now().strftime('%Y%m%d')}.txt"
+    report_file = LOGS_DIR / f"maintenance_report_{datetime.now(timezone.utc).strftime('%Y%m%d')}.txt"
     with open(report_file, "w") as f:
         f.write(report)
 

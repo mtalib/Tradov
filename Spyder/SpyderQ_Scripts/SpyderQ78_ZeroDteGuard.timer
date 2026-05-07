@@ -1,0 +1,22 @@
+# ===============================================================================
+# SPYDER - Autonomous Options Trading System
+#
+# Unit: SpyderQ78_ZeroDteGuard.timer
+# Group: Q (Scripts/Services)
+# Purpose: Host-layer signal at 15:45 ET weekdays to reinforce the in-app
+#          A04/D31 Zero-DTE no-new-risk cutoff.  Emits a risk event via the
+#          Spyder CLI helper so strategies stop opening new 0DTE positions
+#          even if the scheduler missed the in-app job.
+# ===============================================================================
+
+[Unit]
+Description=SPYDER Zero-DTE Risk Cutoff Timer — weekday 15:45 ET
+Documentation=file:///home/adam/Projects/Spyder/docs/README.md
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 15:45:00 America/New_York
+Persistent=false
+Unit=SpyderQ78_ZeroDteGuard.service
+
+[Install]
+WantedBy=timers.target

@@ -29,11 +29,23 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
-from datetime import datetime
-from datetime import time as dt_time
+from datetime import datetime, timezone
+from datetime import time as dt_time, timezone
 from enum import Enum
 from typing import Any
 from collections.abc import Callable
+
+try:
+    from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import now_et as _now_et
+except ImportError:
+    try:
+        import pytz as _pytz
+        def _now_et() -> datetime:  # type: ignore[misc]
+            return datetime.now(_pytz.timezone("US/Eastern"))
+    except ImportError:
+        import zoneinfo as _zi
+        def _now_et() -> datetime:  # type: ignore[misc]
+            return datetime.now(_zi.ZoneInfo("America/New_York"))
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -140,6 +152,10 @@ class SystemConfig:
     enable_paper_trading: bool
     enable_ml_predictions: bool
     enable_risk_management: bool
+    autonomous_session: dict[str, Any]
+    enable_x16_veto: bool = True
+    enable_y03_trade_veto: bool = True
+    enable_y05_veto_consumption: bool = True
 
 
 @dataclass
@@ -196,6 +212,11 @@ class MasterController:
 
         # Component references
         self.components = {}
+        # v27 SPEC-3: lock around components dict to prevent torn reads /
+        # KeyError-during-iteration when parallel startup phases mutate while
+        # the health-monitor thread reads. RLock so the same thread can call
+        # nested helpers (like _initialize_component) without deadlocking.
+        self._components_lock = threading.RLock()
         # N04 OptionsGreeksCalculator singleton — wired after Risk Management phase
         self._n04_calculator: Any | None = None
 
@@ -229,6 +250,15 @@ class MasterController:
             # Use default configuration
             config_data = self._get_default_config()
 
+        autonomous_session = config_data.get("autonomous_session")
+        if not isinstance(autonomous_session, dict):
+            readiness_cfg = config_data.get("autonomous_readiness", {})
+            if isinstance(readiness_cfg, dict):
+                maybe_session = readiness_cfg.get("session_window")
+                autonomous_session = maybe_session if isinstance(maybe_session, dict) else None
+        if not isinstance(autonomous_session, dict):
+            autonomous_session = self._get_default_autonomous_session()
+
         return SystemConfig(
             trading_mode=TradingMode(config_data.get("trading_mode", "paper")),
             environment=config_data.get("environment", "development"),
@@ -246,10 +276,34 @@ class MasterController:
             enable_paper_trading=config_data.get("enable_paper_trading", True),
             enable_ml_predictions=config_data.get("enable_ml_predictions", True),
             enable_risk_management=config_data.get("enable_risk_management", True),
+            autonomous_session=autonomous_session,
+            enable_x16_veto=config_data.get("enable_x16_veto", True),
+            enable_y03_trade_veto=config_data.get("enable_y03_trade_veto", True),
+            enable_y05_veto_consumption=config_data.get("enable_y05_veto_consumption", True),
         )
+
+    def _get_default_autonomous_session(self) -> dict[str, Any]:
+        """Default autonomous session controls for SPY options."""
+        return {
+            "primary_start_et": "09:30",
+            "primary_end_et": "16:15",
+            "first_entry_not_before_et": "09:35",
+            "zero_dte_no_new_risk_cutoff_et": "15:45",
+            "broker_cutoff_et": "16:00",
+            "broker_cutoff_buffer_minutes": 10,
+            "pin_risk_monitor_end_et": "17:30",
+            "fail_closed_if_cutoff_unknown_live": True,
+        }
 
     def _get_default_config(self) -> dict[str, Any]:
         """Get default configuration — env vars take precedence over hardcoded defaults."""
+
+        def _env_bool(name: str, default: bool) -> bool:
+            value = os.environ.get(name)
+            if value is None:
+                return default
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+
         return {
             "trading_mode": os.environ.get("TRADING_MODE", "paper"),
             "environment": os.environ.get("ENVIRONMENT", "development"),
@@ -265,7 +319,53 @@ class MasterController:
             "enable_paper_trading": True,
             "enable_ml_predictions": True,
             "enable_risk_management": True,
+            "autonomous_session": {
+                "primary_start_et": os.environ.get("SPYDER_SESSION_PRIMARY_START_ET", "09:30"),
+                "primary_end_et": os.environ.get("SPYDER_SESSION_PRIMARY_END_ET", "16:15"),
+                "first_entry_not_before_et": os.environ.get("SPYDER_FIRST_ENTRY_NOT_BEFORE_ET", "09:35"),
+                "zero_dte_no_new_risk_cutoff_et": os.environ.get("SPYDER_ZERO_DTE_NO_NEW_RISK_CUTOFF_ET", "15:45"),
+                "broker_cutoff_et": os.environ.get("SPYDER_BROKER_CUTOFF_ET", "16:00"),
+                "broker_cutoff_buffer_minutes": int(os.environ.get("SPYDER_BROKER_CUTOFF_BUFFER_MINUTES", "10")),
+                "pin_risk_monitor_end_et": os.environ.get("SPYDER_PIN_RISK_MONITOR_END_ET", "17:30"),
+                "fail_closed_if_cutoff_unknown_live": _env_bool("SPYDER_FAIL_CLOSED_IF_CUTOFF_UNKNOWN_LIVE", True),
+            },
+            "enable_x16_veto": _env_bool("ENABLE_X16_VETO", True),
+            "enable_y03_trade_veto": _env_bool("ENABLE_Y03_TRADE_VETO", True),
+            "enable_y05_veto_consumption": _env_bool("ENABLE_Y05_VETO_CONSUMPTION", True),
         }
+
+    def _session_time(self, key: str, default_hhmm: str) -> dt_time:
+        """Read HH:MM from autonomous session config with safe fallback."""
+        raw = self.config.autonomous_session.get(key, default_hhmm)
+        try:
+            parsed = datetime.strptime(str(raw).strip(), "%H:%M")
+            return dt_time(parsed.hour, parsed.minute)
+        except Exception:
+            parsed = datetime.strptime(default_hhmm, "%H:%M")
+            return dt_time(parsed.hour, parsed.minute)
+
+    def _in_primary_trading_window(self, now_et: datetime | None = None) -> bool:
+        """Return True when current ET time is in configured primary trading window."""
+        now = now_et or _now_et()
+        current_time = now.time()
+        start_et = self._session_time("primary_start_et", "09:30")
+        end_et = self._session_time("primary_end_et", "16:15")
+        return start_et <= current_time < end_et
+
+    def _is_live_mode(self) -> bool:
+        """Return True when controller runs in live trading mode."""
+        return self.config.trading_mode == TradingMode.LIVE
+
+    def _has_valid_broker_cutoff(self) -> bool:
+        """Validate configured broker cutoff time for fail-closed live gating."""
+        try:
+            raw = self.config.autonomous_session.get("broker_cutoff_et")
+            if raw is None:
+                return False
+            datetime.strptime(str(raw).strip(), "%H:%M")
+            return True
+        except Exception:
+            return False
 
     # ==================================================================================
     # MODULE REGISTRY
@@ -390,7 +490,7 @@ class MasterController:
             logger.info("Environment: %s", self.config.environment)
             logger.info("=" * 80)
 
-            self.startup_time = datetime.now()
+            self.startup_time = datetime.now(timezone.utc)
             self.status = SystemStatus.STARTING
 
             # Define startup sequence
@@ -415,7 +515,7 @@ class MasterController:
 
             self.status = SystemStatus.RUNNING
 
-            elapsed = (datetime.now() - self.startup_time).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - self.startup_time).total_seconds()
             logger.info(f"SYSTEM STARTUP COMPLETE in {elapsed:.2f} seconds")
 
             # Generate startup report
@@ -634,7 +734,9 @@ class MasterController:
             # Import and initialize the actual module
             component = self._initialize_component(module_id)
             if component:
-                self.components[module_id] = component
+                # v27 SPEC-3: serialize writes against parallel startup phases.
+                with self._components_lock:
+                    self.components[module_id] = component
                 module.status = ModuleStatus.RUNNING
                 logger.info("✓ Module started: %s", module_id)
                 return True
@@ -686,6 +788,9 @@ class MasterController:
             return _load("SpyderL_ML.SpyderL18_EnhancedMLIntegration", "EnhancedMLEngine")
 
         if module_id == "X16_MetaCoordinator":
+            if not self.config.enable_x16_veto:
+                logger.info("X16 MetaCoordinator disabled by config (enable_x16_veto=false)")
+                return {"module_id": module_id, "status": "disabled"}
             return _load("SpyderX_Agents.SpyderX16_MetaCoordinator", "MetaCoordinator")
 
         # ── Broker client — requires env-var credentials ──────────────────────
@@ -793,13 +898,20 @@ class MasterController:
                 for agent_cls in [
                     SpyderY01_MarketSenseAgent,
                     SpyderY02_StrategyPilotAgent,
-                    SpyderY03_RiskSentinelAgent,
                     SpyderY04_AlphaLearnerAgent,
-                    SpyderY05_ExecutionOptimizerAgent,
                     SpyderY06_NewsSentinelAgent,
                     SpyderY07_TradeJournalAgent,
                 ]:
                     scheduler.register(agent_cls)
+
+                scheduler.register(
+                    SpyderY03_RiskSentinelAgent,
+                    enable_trade_veto=self.config.enable_y03_trade_veto,
+                )
+                scheduler.register(
+                    SpyderY05_ExecutionOptimizerAgent,
+                    enable_veto_consumption=self.config.enable_y05_veto_consumption,
+                )
 
                 # Y08 MetaOrchestrator gets the telegram_bot too
                 scheduler.register(
@@ -1016,7 +1128,7 @@ class MasterController:
             logger.info("SYSTEM SHUTDOWN INITIATED - Reason: %s", reason)
             logger.info("=" * 80)
 
-            self.shutdown_time = datetime.now()
+            self.shutdown_time = datetime.now(timezone.utc)
             self.status = SystemStatus.STOPPING
 
             # Disable trading first
@@ -1042,7 +1154,7 @@ class MasterController:
 
             self.status = SystemStatus.STOPPED
 
-            elapsed = (datetime.now() - self.shutdown_time).total_seconds()
+            elapsed = (datetime.now(timezone.utc) - self.shutdown_time).total_seconds()
             logger.info(f"SYSTEM SHUTDOWN COMPLETE in {elapsed:.2f} seconds")
 
             return True
@@ -1110,17 +1222,19 @@ class MasterController:
         module = self.modules[module_id]
 
         try:
-            # Stop the actual component
-            if module_id in self.components:
-                # Call cleanup method if available
-                component = self.components[module_id]
+            # v27 SPEC-3: read+delete must be atomic against parallel startup.
+            with self._components_lock:
+                component = self.components.get(module_id)
+                if component is not None:
+                    del self.components[module_id]
+            # Call cleanup method if available (released lock — these can block).
+            if component is not None:
                 if hasattr(component, "stop_all"):
                     component.stop_all()
                 elif hasattr(component, "stop"):
                     component.stop()
                 elif hasattr(component, "shutdown"):
                     component.shutdown()
-                del self.components[module_id]
 
             module.status = ModuleStatus.STOPPED
             logger.info("✓ Module stopped: %s", module_id)
@@ -1202,10 +1316,7 @@ class MasterController:
                 self._handle_failed_modules()
 
                 # Sleep for monitoring interval (interruptible)
-                if hasattr(self, '_shutdown_event'):
-                    self._shutdown_event.wait(timeout=10)
-                else:
-                    time.sleep(10)  # thread-safe: time.sleep() intentional
+                self.shutdown_event.wait(timeout=10)
 
             except Exception as e:
                 logger.error("Health monitor error: %s", e, exc_info=True)
@@ -1224,7 +1335,15 @@ class MasterController:
             module_health[module_id] = module.status.value
 
         # Trading metrics (placeholder)
-        active_positions = len(self.components.get("B03_PositionTracker", {}).get("positions", []))
+        pt = self.components.get("B03_PositionTracker")
+        if pt is not None and hasattr(pt, "positions"):
+            try:
+                pos_data = pt.positions
+                active_positions = len(pos_data) if isinstance(pos_data, dict) else 0
+            except Exception:
+                active_positions = 0
+        else:
+            active_positions = 0
         daily_pnl = 0  # Would get from position tracker
         risk_utilization = 0  # Would get from risk manager
 
@@ -1233,7 +1352,7 @@ class MasterController:
         error_rate = total_errors / max(len(self.modules), 1)
 
         return HealthMetrics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             cpu_usage=cpu_usage,
             memory_usage=memory.percent,
             disk_usage=disk.percent,
@@ -1281,7 +1400,7 @@ class MasterController:
             if module.status == ModuleStatus.STARTING:
                 # Check if it's been starting for too long
                 if module.metadata.get("start_time"):
-                    elapsed = (datetime.now() - module.metadata["start_time"]).total_seconds()
+                    elapsed = (datetime.now(timezone.utc) - module.metadata["start_time"]).total_seconds()
                     if elapsed > 300:  # 5 minutes
                         logger.error("Module %s stuck in STARTING state", module_id)
                         module.status = ModuleStatus.ERROR
@@ -1295,13 +1414,13 @@ class MasterController:
                 if module.restart_attempts < 3:
                     # Check cooldown period
                     if module.last_restart:
-                        cooldown = (datetime.now() - module.last_restart).total_seconds()
+                        cooldown = (datetime.now(timezone.utc) - module.last_restart).total_seconds()
                         if cooldown < 60:  # 1 minute cooldown
                             continue
 
                     logger.info("Attempting to restart module %s", module_id)
                     module.restart_attempts += 1
-                    module.last_restart = datetime.now()
+                    module.last_restart = datetime.now(timezone.utc)
                     module.status = ModuleStatus.RESTARTING
 
                     # Attempt restart
@@ -1332,7 +1451,7 @@ class MasterController:
     def _update_market_state(self):
         """Update current market state"""
 
-        now = datetime.now()
+        now = _now_et()  # US Eastern Time — market hours are expressed in ET
         current_time = now.time()
         weekday = now.weekday()
 
@@ -1343,8 +1462,8 @@ class MasterController:
 
         # Define market hours (US Eastern Time)
         pre_market_start = dt_time(4, 0)
-        market_open = dt_time(9, 30)
-        market_close = dt_time(16, 0)
+        market_open = self._session_time("primary_start_et", "09:30")
+        market_close = self._session_time("primary_end_et", "16:15")
         after_hours_end = dt_time(20, 0)
 
         # Determine market state
@@ -1470,6 +1589,22 @@ class MasterController:
             logger.info("Trading already enabled")
             return
 
+        self._update_market_state()
+        if self.market_state != MarketState.MARKET_OPEN or not self._in_primary_trading_window():
+            logger.warning(
+                "Trading gate denied: market_state=%s in_primary_window=%s",
+                self.market_state.value,
+                self._in_primary_trading_window(),
+            )
+            return
+
+        fail_closed = bool(
+            self.config.autonomous_session.get("fail_closed_if_cutoff_unknown_live", True)
+        )
+        if self._is_live_mode() and fail_closed and not self._has_valid_broker_cutoff():
+            logger.error("Trading gate denied in live mode: broker cutoff config missing/invalid")
+            return
+
         logger.info("Enabling trading")
 
         # Start order manager (registers persistence thread and optional SSE stream)
@@ -1506,6 +1641,29 @@ class MasterController:
             except Exception as e:
                 logger.warning("D31: set_live_engine failed: %s", e)
 
+        # Wire D31 and E01 to the agent message bus.
+        # GAP-4: activates Y01 → D31 market-regime updates.
+        # GAP-2: activates Y02 → D31 validated-signal advisory tracking.
+        # GAP-3: activates Y03 → E01 circuit-breaker veto channel.
+        message_bus = self.components.get("I06_AgentMessageBus")
+        if message_bus is not None:
+            if orchestrator is not None and hasattr(orchestrator, "subscribe_agent_bus"):
+                try:
+                    orchestrator.subscribe_agent_bus(message_bus)
+                    logger.info(
+                        "D31: subscribed to agent bus "
+                        "(Y01 regime updates + Y02 signal advisory active)"
+                    )
+                except Exception as e:
+                    logger.warning("D31: subscribe_agent_bus failed: %s", e)
+            risk_mgr = self.components.get("E01_RiskManager")
+            if risk_mgr is not None and hasattr(risk_mgr, "wire_agent_bus"):
+                try:
+                    risk_mgr.wire_agent_bus(message_bus)
+                    logger.info("E01: wired to agent bus (Y03 circuit-breaker veto active)")
+                except Exception as e:
+                    logger.warning("E01: wire_agent_bus failed: %s", e)
+
         # Start E19 portfolio risk monitor in a background daemon thread
         e19 = self.components.get("E19_UnifiedRiskCoordinator")
         if e19 is not None:
@@ -1519,9 +1677,36 @@ class MasterController:
                 try:
                     while self.trading_enabled:
                         try:
+                            # v27 SPEC-14: pull real positions from B03 and
+                            # NLV from E01 cached balances each cycle. Passing
+                            # [] and 0.0 forever meant E19 never detected
+                            # breaches.
+                            positions: list = []
+                            portfolio_value: float = 0.0
+                            try:
+                                pt = self.components.get("B03_PositionTracker")
+                                if pt is not None and hasattr(pt, "positions"):
+                                    pos_data = pt.positions
+                                    if isinstance(pos_data, dict):
+                                        positions = list(pos_data.values())
+                                    elif isinstance(pos_data, list):
+                                        positions = pos_data
+                            except Exception as _pt_exc:
+                                logger.debug("E19 monitor: position pull failed: %s", _pt_exc)
+                            try:
+                                rm = self.components.get("E01_RiskManager")
+                                if rm is not None:
+                                    cached = getattr(rm, "_cached_account_balances", {}) or {}
+                                    portfolio_value = float(
+                                        cached.get("net_liquidation", 0.0) or 0.0
+                                    )
+                            except Exception as _nlv_exc:
+                                logger.debug("E19 monitor: NLV pull failed: %s", _nlv_exc)
+
                             profile = _loop.run_until_complete(
                                 e19.calculate_unified_risk_profile(
-                                    positions=[], portfolio_value=0.0
+                                    positions=positions,
+                                    portfolio_value=portfolio_value,
                                 )
                             )
                             if profile and getattr(profile, "breach_count", 0) > 0:
@@ -1541,7 +1726,11 @@ class MasterController:
             logger.info("E19 portfolio risk monitor thread started (60s interval)")
 
         # Start strategy components
-        for module_id, component in self.components.items():
+        # v27 SPEC-3: snapshot under lock, then iterate without holding it
+        # (strategy.start() may block; we don't want to serialize startups).
+        with self._components_lock:
+            _strategy_snapshot = list(self.components.items())
+        for module_id, component in _strategy_snapshot:
             if module_id.startswith("D") and hasattr(component, "start"):
                 try:
                     component.start()
@@ -1621,7 +1810,7 @@ class MasterController:
             "modules_failed": sum(
                 1 for m in self.modules.values() if m.status == ModuleStatus.ERROR
             ),
-            "startup_duration": (datetime.now() - self.startup_time).total_seconds(),
+            "startup_duration": (datetime.now(timezone.utc) - self.startup_time).total_seconds(),
         }
 
         logger.info("Startup Report:")
@@ -1642,7 +1831,7 @@ class MasterController:
             "modules_stopped": sum(
                 1 for m in self.modules.values() if m.status == ModuleStatus.STOPPED
             ),
-            "shutdown_duration": (datetime.now() - self.shutdown_time).total_seconds(),
+            "shutdown_duration": (datetime.now(timezone.utc) - self.shutdown_time).total_seconds(),
         }
 
         logger.info("Shutdown Report:")
@@ -1687,7 +1876,7 @@ class MasterController:
                     payload={
                         "event": event_type,
                         "data": data,
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
                     },
                     sender="MasterController",
                 )
@@ -1720,7 +1909,7 @@ class MasterController:
             "market_state": self.market_state.value,
             "trading_enabled": self.trading_enabled,
             "uptime": (
-                (datetime.now() - self.startup_time).total_seconds() if self.startup_time else 0
+                (datetime.now(timezone.utc) - self.startup_time).total_seconds() if self.startup_time else 0
             ),
             "modules": {
                 "total": len(self.modules),
@@ -1836,25 +2025,31 @@ if __name__ == "__main__":
             while True:
                 time.sleep(1)
 
-                now = datetime.now()
+                # v27 FIX: market open/close are ET — UTC was 4-5h offset.
+                now = _now_et()
                 date_key = now.date()
 
-                # Market open at 9:30 AM
+                # Market open at configured session start (ET)
                 open_key = (date_key, "open")
+                session_open = master._session_time("primary_start_et", "09:30")
                 if (
                     open_key not in _fired
-                    and now.hour == 9
-                    and now.minute >= 30
+                    and now.hour == session_open.hour
+                    and now.minute >= session_open.minute
                     and master.market_state != MarketState.MARKET_OPEN
                 ):
                     master.handle_market_open()
                     _fired.add(open_key)
 
-                # Market close at 4:00 PM
+                # Market close at configured session close (ET)
                 close_key = (date_key, "close")
+                session_close = master._session_time("primary_end_et", "16:15")
                 if (
                     close_key not in _fired
-                    and now.hour >= 16
+                    and (
+                        now.hour > session_close.hour
+                        or (now.hour == session_close.hour and now.minute >= session_close.minute)
+                    )
                     and master.market_state == MarketState.MARKET_OPEN
                 ):
                     master.handle_market_close()

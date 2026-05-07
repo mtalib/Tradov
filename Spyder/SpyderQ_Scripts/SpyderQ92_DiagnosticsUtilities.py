@@ -28,7 +28,7 @@ import json
 import importlib
 import platform
 import pkg_resources
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, field
@@ -132,7 +132,6 @@ CONFIG_FILES = [
 NETWORK_ENDPOINTS = {
     "Tradier API": ("api.tradier.com", 443),
     "Tradier Sandbox": ("sandbox.tradier.com", 443),
-    "Massive API": ("api.polygon.io", 443),
     "Prometheus": ("localhost", 9090),
     "Grafana": ("localhost", 3000),
     "Web Dashboard": ("localhost", 8080),
@@ -172,7 +171,7 @@ class DiagnosticResult:
     message: str
     details: dict[str, Any] = field(default_factory=dict)
     duration_ms: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class SystemInfo:
@@ -279,7 +278,7 @@ class DiagnosticsUtilities:
         total_duration = (time.time() - start_time) * 1000
 
         report = DiagnosticReport(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             system_info=system_info,
             test_results=self.results,
             summary=summary,
@@ -969,7 +968,7 @@ class DiagnosticsUtilities:
     def save_report(self, report: DiagnosticReport, filename: str | None = None) -> Path:
         """Save diagnostic report to file."""
         if not filename:
-            filename = f"diagnostic_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            filename = f"diagnostic_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
 
         report_path = LOGS_DIR / filename
 

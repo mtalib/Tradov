@@ -23,6 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import logging
+import re
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -52,6 +53,10 @@ class GUILogHandler(QObject, logging.Handler):
         'automation', 'strategy', 'signal', 'trade', 'order',
         'execution', 'position', 'risk', 'alert'
     }
+
+    _EVENT_MANAGER_HANDLER_CHURN = re.compile(
+        r"^Handler\s+.+\s+(subscribed to|unsubscribed)\s+.+$"
+    )
 
     def __init__(self, dashboard=None):
         """
@@ -94,6 +99,9 @@ class GUILogHandler(QObject, logging.Handler):
             record: LogRecord instance containing log information
         """
         try:
+            if self._should_suppress_record(record):
+                return
+
             # Format the message
             msg = self.format(record)
             level = record.levelname
@@ -120,6 +128,22 @@ class GUILogHandler(QObject, logging.Handler):
             # Don't let logging errors crash the application
             # Use standard error handler
             self.handleError(record)
+
+    def _should_suppress_record(self, record: logging.LogRecord) -> bool:
+        """Return True for low-value repetitive records that should not hit GUI logs."""
+        # Never suppress warnings/errors/criticals.
+        if record.levelno >= logging.WARNING:
+            return False
+
+        logger_name = (record.name or "").strip()
+        message = (record.getMessage() or "").strip()
+
+        # EventManager handler subscribe/unsubscribe churn can flood startup logs.
+        if logger_name.endswith("SpyderA05_EventManager"):
+            if self._EVENT_MANAGER_HANDLER_CHURN.match(message):
+                return True
+
+        return False
 
     def _handle_log_message(self, level: str, message: str, logger_name: str):
         """

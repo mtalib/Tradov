@@ -34,7 +34,6 @@ from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import (
     MultiRateLimiter,
     rate_limit,
     acquire_tradier,
-    acquire_massive,
     _global_limiters
 )
 
@@ -373,15 +372,6 @@ class TestPreconfiguredInfrastructure(unittest.IsolatedAsyncioTestCase):
         self.assertIn("tradier", _global_limiters._limiters)
 
         limiter = _global_limiters._limiters["tradier"]
-        self.assertEqual(limiter.bucket.fill_rate, 10.0)  # 10 req/sec
-
-    async def test_massive_rate_limiter_exists(self):
-        """Test Massive rate limiter is pre-configured."""
-        await acquire_massive()
-
-        self.assertIn("massive", _global_limiters._limiters)
-
-        limiter = _global_limiters._limiters["massive"]
         self.assertEqual(limiter.bucket.fill_rate, 10.0)  # 10 req/sec
 
     def test_tradier_breaker_configuration(self):

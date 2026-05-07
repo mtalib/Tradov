@@ -32,7 +32,7 @@ Features:
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -168,14 +168,14 @@ class TradeJournal:
         >>> entry = TradeJournalEntry(
         ...     entry_id="TJ_20260317_001",
         ...     order_id="ORD_12345",
-        ...     timestamp=datetime.now(),
+        ...     timestamp=datetime.now(timezone.utc),
         ...     symbol="SPY 420C 2026-03-21",
         ...     strategy_name="IronCondor",
         ...     signal_source="IV_RANK_HIGH",
         ...     signal_strength=0.85,
         ...     signal_quality=SignalQuality.STRONG,
-        ...     entry_reason="IV rank >80, neutral market regime, high premium",
-        ...     market_regime="NEUTRAL",
+        ...     entry_reason="IV rank >80, range market regime, high premium",
+        ...     market_regime="RANGE",
         ...     volatility_regime="HIGH",
         ...     risk_check_result="PASSED",
         ...     position_size=10,
@@ -374,7 +374,7 @@ class TradeJournal:
                 """, (
                     outcome.value,
                     exit_price,
-                    datetime.now().isoformat(),
+                    datetime.now(timezone.utc).isoformat(),
                     realized_pnl,
                     realized_pnl_pct,
                     exit_reason,
@@ -538,14 +538,14 @@ if __name__ == "__main__":
     entry = TradeJournalEntry(
         entry_id="TJ_DEMO_001",
         order_id="ORD_DEMO_001",
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         symbol="SPY 420C 2026-03-21",
         strategy_name="IronCondor",
         signal_source="IV_RANK_HIGH",
         signal_strength=0.85,
         signal_quality=SignalQuality.STRONG,
-        entry_reason="IV rank >80, neutral market regime, high premium available",
-        market_regime="NEUTRAL",
+        entry_reason="IV rank >80, range market regime, high premium available",
+        market_regime="RANGE",
         volatility_regime="HIGH",
         risk_check_result="PASSED",
         position_size=10,

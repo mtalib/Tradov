@@ -128,3 +128,62 @@ def test_s07_liquidity_diagnostics_returns_empty_payload_when_chain_unavailable(
     assert result is False
     assert updated["LIQUIDITY_DIAGNOSTICS"] == {}
     assert len(errors) == 1
+
+
+def test_s07_liquidity_diagnostics_accepts_list_payload_fallback(monkeypatch):
+    orch = CustomMetricsOrchestrator(config={"auto_start": False})
+    orch.current_metrics["OGL"] = 585.0
+
+    now = datetime.now()
+    chain_rows = [
+        {
+            "symbol": "SPY",
+            "strike": 585.0,
+            "expiry": now + timedelta(days=1),
+            "option_type": "call",
+            "bid": 1.00,
+            "ask": 1.12,
+            "mid_price": 1.06,
+            "spread": 0.12,
+            "volume": 100,
+            "open_interest": 700,
+            "timestamp": now,
+        }
+    ]
+
+    monkeypatch.setattr(orch, "_load_options_chain_dataframe", lambda: chain_rows)
+
+    updated = {}
+    errors = []
+    result = orch._update_liquidity_diagnostics_metrics(updated, errors)
+
+    assert result is True
+    assert errors == []
+    payload = updated["LIQUIDITY_DIAGNOSTICS"]
+    assert payload["data"]["candidate_count"] == 1
+    assert payload["data"]["source"] == "SpyderB40_TradierClient"
+
+
+def test_s07_deduped_issue_logging_suppresses_repeated_messages():
+    orch = CustomMetricsOrchestrator(config={"auto_start": False})
+    orch.logger.warning = MagicMock()
+
+    orch._log_deduped_issue("dup-channel", "repeat-me", level="warning")
+    orch._log_deduped_issue("dup-channel", "repeat-me", level="warning")
+
+    assert orch.logger.warning.call_count == 1
+
+
+def test_s07_update_error_summary_dedupes_same_error_keys():
+    orch = CustomMetricsOrchestrator(config={"auto_start": False})
+    orch.logger.warning = MagicMock()
+    orch.error_occurred = MagicMock()
+
+    errs = [
+        "FRED update error: timeout",
+        "options analytics update failed: no expirations",
+    ]
+    orch._emit_update_error_summary(errs, success_count=10)
+    orch._emit_update_error_summary(errs, success_count=10)
+
+    assert orch.logger.warning.call_count == 1

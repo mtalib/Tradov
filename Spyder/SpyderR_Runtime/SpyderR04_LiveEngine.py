@@ -29,7 +29,7 @@ import threading
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -319,6 +319,12 @@ class LiveEngine:
         self._regime_metrics: dict[str, Any] = {}
         self._positions_cache_lock = threading.Lock()
 
+        # Optional A02 gate bridge: run decision-flow gates before R04 checks.
+        self.trading_engine = None
+        self._a02_decision_gate_enabled = (
+            os.environ.get("R04_USE_A02_DECISION_FLOW_GATE", "false").strip().lower() == "true"
+        )
+
         # H05 TradingSessionDB — live database.  Injected by R12
         # SessionSupervisor via set_session_db() after construction.
         # Records every confirmed fill so live history is persisted in an
@@ -331,7 +337,54 @@ class LiveEngine:
         # env) are refused to avoid swapping broker identity mid-session.
         self._register_hot_reload_callback()
 
-        self.logger.info("LiveEngine initialized for account %s", config.account_id)
+        self.logger.debug("LiveEngine initialized for account %s", config.account_id)
+
+    def set_trading_engine(self, trading_engine: Any) -> None:
+        """Attach TradingEngine for optional A02 decision-flow preflight gating."""
+        self.trading_engine = trading_engine
+
+    def _run_a02_decision_gate(self, order: dict[str, Any]) -> tuple[bool, str]:
+        """Optionally run A02 Data->Regime->Strategy->Risk gates before R04 checks."""
+        if not self._a02_decision_gate_enabled:
+            return True, ""
+
+        engine = self.trading_engine
+        if engine is None:
+            return True, ""
+
+        gate_fn = getattr(engine, "_run_decision_flow_pipeline", None)
+        if gate_fn is None:
+            return True, ""
+
+        strategy_id = str(
+            order.get("strategy_id")
+            or order.get("strategy")
+            or order.get("source")
+            or "live_engine"
+        )
+        side = str(order.get("side") or order.get("action") or "buy").strip().lower()
+        action = "SELL" if side.startswith("sell") else "BUY"
+        signal = {
+            "symbol": order.get("symbol"),
+            "action": action,
+            "quantity": int(order.get("quantity", 0) or 0),
+            "price": order.get("price") or order.get("limit_price"),
+            "strategy_type": strategy_id,
+            "metadata": {
+                "strategy_id": strategy_id,
+                "strategy_type": strategy_id,
+                "source": "R04_LiveEngine",
+            },
+        }
+
+        try:
+            gate_ok, gate_reason = gate_fn(strategy_id, signal, include_execution=False)
+            if gate_ok:
+                return True, ""
+            return False, str(gate_reason)
+        except Exception as exc:
+            self.logger.warning("A02 decision-flow preflight failed open: %s", exc)
+            return True, ""
 
     # A24 (v14): fields whose change requires a full restart, not a reload.
     _STRUCTURAL_CONFIG_FIELDS: frozenset = frozenset({"account_id", "env", "environment"})
@@ -393,7 +446,7 @@ class LiveEngine:
             bool: True if initialization successful
         """
         try:
-            self.logger.info("Initializing live engine...")
+            self.logger.debug("Initializing live engine...")
 
             # Verify broker connection
             if not self._verify_broker_connection():
@@ -415,7 +468,7 @@ class LiveEngine:
             self._start_monitoring()
 
             self.state = ExecutionState.CONNECTED
-            self.logger.info("Live engine initialized successfully")
+            self.logger.debug("Live engine initialized successfully")
             return True
 
         except Exception as e:
@@ -437,7 +490,8 @@ class LiveEngine:
 
             # Perform pre-trading checks
             if not self._perform_pre_trading_checks():
-                self.logger.error("Pre-trading checks failed")
+                mode_label = "Paper" if self._mode_name() == "paper" else "Live"
+                self.logger.error("%s pre-trading checks failed", mode_label)
                 return False
 
             # Create trading session
@@ -684,6 +738,17 @@ class LiveEngine:
             # Check if trading is active
             if self.state != ExecutionState.TRADING:
                 return {"status": "rejected", "reason": f"Trading not active: {self.state.value}"}
+
+            # Optional A02 preflight gate bridge (Data->Regime->Strategy->Risk).
+            a02_ok, a02_reason = self._run_a02_decision_gate(order)
+            if not a02_ok:
+                self.logger.warning("Live engine A02 gate blocked order: %s", a02_reason)
+                self._event_manager.emit(
+                    EventType.RISK_VIOLATION,
+                    {"symbol": order.get("symbol"), "reason": a02_reason},
+                    source="LiveEngine.a02_decision_gate",
+                )
+                return {"status": "rejected", "reason": a02_reason}
 
             # Regime gate — SWAN / GEX / DIX (mirrors paper engine R08)
             regime_ok, regime_reason = self._regime_allows_entry()
@@ -1052,7 +1117,7 @@ class LiveEngine:
         positions surface immediately rather than after the TTL elapses.
         """
         # ``time`` is shadowed by ``datetime.time`` at module scope, so use the
-        # already-standard ``datetime.now().timestamp()`` pattern for elapsed math.
+        # already-standard ``datetime.now(timezone.utc).timestamp()`` pattern for elapsed math.
         now = datetime.now(_ET).timestamp()
         with self._positions_cache_lock:
             if (
@@ -1152,9 +1217,26 @@ class LiveEngine:
                 checks_passed = False
 
         # Account balance check
-        account_info = self.broker.get_account_info()
-        if account_info.get("buying_power", 0) < 1000:
+        if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+            account_info = self.broker.get_account_info() or {}
+        elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+            raw = self.broker.get_account_balances()
+            account_info = raw.get("balances", raw) if isinstance(raw, dict) else {}
+        else:
+            account_info = {}
+        margin = account_info.get("margin", {}) if isinstance(account_info, dict) else {}
+        buying_power = (
+            account_info.get("buying_power")
+            or margin.get("option_buying_power")
+            or margin.get("stock_buying_power")
+            or account_info.get("total_cash")
+            or 0
+        )
+        is_paper = getattr(self, "mode", None) == TradingMode.PAPER
+        if float(buying_power) < 1000 and not is_paper:
             self.logger.warning("Low buying power")
+        elif float(buying_power) < 1000 and is_paper:
+            self.logger.debug("Paper account buying power pre-sync: %.2f", float(buying_power))
 
         # Risk limits check
         if not self.risk_manager.check_daily_limits():
@@ -1478,9 +1560,15 @@ class LiveEngine:
             Portfolio value in USD
         """
         try:
-            # Get from broker interface
-            account_info = self.broker.get_account_info()
-            return account_info.get('total_equity', 0.0)
+            # Get from broker interface — B40 uses get_account_balances(); B04 uses get_account_info()
+            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+                account_info = self.broker.get_account_info() or {}
+            elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+                raw = self.broker.get_account_balances()
+                account_info = raw.get("balances", raw) if isinstance(raw, dict) else {}
+            else:
+                account_info = {}
+            return float(account_info.get("total_equity", 0.0) or 0.0)
         except Exception as e:
             self.logger.error("Error getting portfolio value: %s", e)
             return 0.0
@@ -1592,18 +1680,22 @@ class LiveEngine:
         )
 
     def _check_position_size_limit(self) -> SafetyCheck:
+        # v27 fix: previously returned PASSED unconditionally, giving the
+        # FALSE impression of safety coverage. Defer the actual gate to
+        # E01.validate_signal (which enforces max_position_size + concentration)
+        # and surface this as WARNING so operators see the missing native check.
         return SafetyCheck(
             check_name="position_size",
-            result=SafetyCheckResult.PASSED,
-            message="Position sizes within limits",
+            result=SafetyCheckResult.WARNING,
+            message="R04 native position-size check is a stub; relying on E01.validate_signal",
             timestamp=datetime.now(_ET),
         )
 
     def _check_portfolio_exposure(self) -> SafetyCheck:
         return SafetyCheck(
             check_name="portfolio_exposure",
-            result=SafetyCheckResult.PASSED,
-            message="Portfolio exposure within limits",
+            result=SafetyCheckResult.WARNING,
+            message="R04 native portfolio-exposure check is a stub; relying on E01.validate_signal",
             timestamp=datetime.now(_ET),
         )
 
@@ -1617,10 +1709,13 @@ class LiveEngine:
         )
 
     def _check_market_volatility(self) -> SafetyCheck:
+        # v27 fix: previously PASSED unconditionally. Surface as WARNING so
+        # the missing native check is visible — actual VIX gating lives in
+        # D31._classify_market_regime_unified and E09 VolatilityRiskManager.
         return SafetyCheck(
             check_name="volatility",
-            result=SafetyCheckResult.PASSED,
-            message="Volatility within normal range",
+            result=SafetyCheckResult.WARNING,
+            message="R04 native volatility check is a stub; relying on D31 regime gating + E09",
             timestamp=datetime.now(_ET),
         )
 
@@ -1793,11 +1888,20 @@ class LiveEngine:
 
         Writes ~/.spyder_kill_lock containing {reason, ts, account_id}.
         The launcher refuses to start while this file is present.
+
+        v27 SPEC-19: paper mode normally skips the lock-file (so dev iteration
+        is not blocked), but operators can opt in via
+        ``SPYDER_KILL_LOCK_FORCE=1`` to drill the live-mode persistence path
+        before launch.
         """
         account_id = str(getattr(self.config, "account_id", "unknown") or "unknown")
-        if account_id.upper().startswith("PAPER"):
+        force = os.environ.get("SPYDER_KILL_LOCK_FORCE", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        if account_id.upper().startswith("PAPER") and not force:
             self.logger.critical(
-                "🔓 Paper mode kill-switch: lock file persistence skipped (reason=%s)",
+                "🔓 Paper mode kill-switch: lock file persistence skipped (reason=%s). "
+                "Set SPYDER_KILL_LOCK_FORCE=1 to drill the live-mode lock-file path.",
                 reason,
             )
             return
@@ -2361,6 +2465,7 @@ def create_live_engine(
     event_manager: Any = None,
     fill_reconciler: Any = None,
     position_tracker: Any = None,
+    trading_engine: Any = None,
 ) -> LiveEngine:
     """
     Factory function to create live engine.
@@ -2388,9 +2493,22 @@ def create_live_engine(
         require_confirmation=config.get("require_confirmation", True),
     )
 
-    return LiveEngine(broker, risk_manager, live_config, telegram_bot=telegram_bot,
-                      event_manager=event_manager, fill_reconciler=fill_reconciler,
-                      position_tracker=position_tracker)
+    engine = LiveEngine(
+        broker,
+        risk_manager,
+        live_config,
+        telegram_bot=telegram_bot,
+        event_manager=event_manager,
+        fill_reconciler=fill_reconciler,
+        position_tracker=position_tracker,
+    )
+    if trading_engine is not None:
+        engine.set_trading_engine(trading_engine)
+
+    if bool(config.get("use_a02_decision_flow_gate", False)):
+        engine._a02_decision_gate_enabled = True
+
+    return engine
 
 
 # ==============================================================================

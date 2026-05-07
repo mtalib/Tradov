@@ -112,7 +112,7 @@ class PositionTracker:
         )
         self._reconciliation_thread.start()
 
-        self.logger.info("Background threads started")
+        self.logger.debug("Background threads started")
 
     def _stop_background_threads(self):
         """Stop all background threads."""
@@ -141,7 +141,7 @@ class PositionTracker:
         self._running = True
         self._shutdown_event.clear()
         self._start_background_threads()
-        self.logger.info("PositionTracker started")
+        self.logger.debug("PositionTracker started")
 
     def stop(self) -> None:
         """Stop all background monitoring threads gracefully."""
@@ -202,7 +202,7 @@ class PositionTracker:
                     }
                     for sym, pos in restored.items()
                 }
-            self.logger.info("Loaded %d persisted positions from %s", len(self.positions), target)
+            self.logger.debug("Loaded %d persisted positions from %s", len(self.positions), target)
             return True
         except Exception as exc:
             self.logger.error("load_state failed for %s: %s", target, exc)
@@ -271,7 +271,7 @@ class PositionTracker:
                     tolerance,
                 )
         if not divergence:
-            self.logger.info("PositionTracker reconciliation OK (symbols=%d)", len(symbols))
+            self.logger.debug("PositionTracker reconciliation OK (symbols=%d)", len(symbols))
         return not divergence
 
     # ==========================================================================
@@ -539,12 +539,35 @@ class PositionTracker:
                             # Positions we have but broker doesn't
                             orphaned = internal_symbols - broker_symbols
                             if orphaned:
-                                self.logger.warning("Orphaned positions detected: %s", orphaned)
+                                # v27 SPEC-17: require N consecutive cycles of
+                                # observed orphan-state before submitting a
+                                # market close. A single stale fetch should not
+                                # trigger a position-flatten — that previously
+                                # could short the underlying when broker data
+                                # was momentarily unavailable.
+                                if not hasattr(self, "_orphan_strikes"):
+                                    self._orphan_strikes = {}
+                                ORPHAN_CONFIRM_CYCLES = 3
                                 for symbol in orphaned:
-                                    self.logger.warning(
-                                        "Initiating auto-close for orphaned position: %s", symbol
-                                    )
-                                    self._handle_orphaned_position(symbol)
+                                    strikes = self._orphan_strikes.get(symbol, 0) + 1
+                                    self._orphan_strikes[symbol] = strikes
+                                    if strikes >= ORPHAN_CONFIRM_CYCLES:
+                                        self.logger.warning(
+                                            "Orphaned position confirmed after %d cycles, "
+                                            "auto-closing: %s",
+                                            strikes, symbol,
+                                        )
+                                        self._handle_orphaned_position(symbol)
+                                        self._orphan_strikes.pop(symbol, None)
+                                    else:
+                                        self.logger.info(
+                                            "Possible orphan %s (%d/%d cycles) — waiting for confirmation",
+                                            symbol, strikes, ORPHAN_CONFIRM_CYCLES,
+                                        )
+                                # Reset strikes for symbols that are no longer orphaned.
+                                for sym in list(self._orphan_strikes.keys()):
+                                    if sym not in orphaned:
+                                        self._orphan_strikes.pop(sym, None)
 
                             # Positions broker has but we don't
                             missing = broker_symbols - internal_symbols

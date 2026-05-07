@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 import asyncio
@@ -200,7 +200,7 @@ class FederatedRound:
     selected_clients: list[str]
     model_updates: list[ModelUpdate]
     aggregation_result: AggregationResult | None = None
-    start_time: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     end_time: datetime | None = None
     success: bool = False
 
@@ -551,7 +551,7 @@ class FederatedClient:
                     "loss": avg_loss,
                     "privacy_spent": self.privacy.get_privacy_spent(),
                 },
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
             )
 
             # Sign update
@@ -853,7 +853,7 @@ class FederatedCoordinator:
             model_type=model_type,
             architecture=architecture,
             version=MODEL_VERSION,
-            metadata={"created": datetime.now(), "coordinator_id": "main"},
+            metadata={"created": datetime.now(timezone.utc), "coordinator_id": "main"},
         )
 
         self.global_models[model_type] = federated_model
@@ -965,12 +965,12 @@ class FederatedCoordinator:
                         for u in current_round.model_updates
                     ]
                 ),
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
             )
 
             # Update round
             current_round.aggregation_result = result
-            current_round.end_time = datetime.now()
+            current_round.end_time = datetime.now(timezone.utc)
             current_round.success = True
 
             # Track performance
@@ -1193,7 +1193,7 @@ class FederatedCoordinator:
         report.append("=" * 60)
         report.append("FEDERATED LEARNING REPORT")
         report.append("=" * 60)
-        report.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
         report.append(f"Total Rounds: {self.current_round}")
         report.append(f"Registered Clients: {len(self.clients)}")
         report.append("")

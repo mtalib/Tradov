@@ -36,7 +36,7 @@ Change Log:
 # ==============================================================================
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 # ==============================================================================
@@ -112,7 +112,7 @@ class ProbabilisticSharpeResult:
     num_observations: int
     skewness: float
     kurtosis: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class OptionsAdjustedSharpe:

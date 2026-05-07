@@ -93,6 +93,7 @@ except ImportError:
 import asyncio
 import threading
 from typing import Any
+from collections import defaultdict
 from collections.abc import Callable
 from enum import Enum
 from dataclasses import dataclass, field
@@ -126,6 +127,7 @@ from Spyder.SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit
 from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
 from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator
 from Spyder.SpyderU_Utilities.SpyderU45_RetryWithBackoff import retry_async
+from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import is_tradier_active_window
 
 # ==============================================================================
 # CONSTANTS
@@ -135,17 +137,60 @@ TRADIER_SANDBOX_URL = "https://sandbox.tradier.com/v1"
 TRADIER_STREAM_URL = "https://stream.tradier.com/v1"
 TRADIER_WS_URL = "wss://ws.tradier.com/v1"
 TRADIER_SANDBOX_WS_URL = "wss://sandbox-ws.tradier.com/v1"
-DEFAULT_TIMEOUT = 30  # seconds (sandbox can be slow; 10 s was too tight)
+DEFAULT_TIMEOUT = 60  # seconds (21-symbol live basket can take >30 s under load)
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0  # exponential backoff factor
 WS_PING_INTERVAL = 30  # seconds between WebSocket pings
 WS_PING_TIMEOUT = 10   # seconds to wait for pong response
 SESSION_TTL = 270.0    # session token refresh threshold (4.5 min; Tradier TTL is 5 min)
+TIMEOUT_METRICS_WINDOW_SECONDS = 300.0
+
+
+def _is_opra_vetter_required() -> bool:
+    """Return True when OPRA vetting is configured as mandatory.
+
+    Environment variable:
+        SPYDER_OPRA_REQUIRE_VETTER=true|1|yes|on
+    """
+    raw = str(os.environ.get("SPYDER_OPRA_REQUIRE_VETTER", "false")).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 # ==============================================================================
 # MODULE LOGGER
 # ==============================================================================
 logger = SpyderLogger.get_logger(__name__)
+
+# Rolling timeout counters for objective endpoint-level stability checks.
+_TIMEOUT_METRICS_LOCK = threading.Lock()
+_TIMEOUT_METRICS = {
+    "window_start_mono": time.monotonic(),
+    "counts": defaultdict(int),
+}
+
+
+def _record_timeout_metric(endpoint: str, kind: str) -> None:
+    """Record timeout-like transport failures and emit 5-minute summaries."""
+    now_mono = time.monotonic()
+    with _TIMEOUT_METRICS_LOCK:
+        window_start = float(_TIMEOUT_METRICS.get("window_start_mono", now_mono))
+        elapsed = now_mono - window_start
+        counts = _TIMEOUT_METRICS["counts"]
+
+        # Emit summary for the completed window before accounting new event.
+        if elapsed >= TIMEOUT_METRICS_WINDOW_SECONDS and counts:
+            summary = ", ".join(
+                f"{k}={v}" for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            )
+            logger.warning(
+                "Tradier transport timeout summary (last %ds): %s",
+                int(TIMEOUT_METRICS_WINDOW_SECONDS),
+                summary,
+            )
+            counts.clear()
+            _TIMEOUT_METRICS["window_start_mono"] = now_mono
+
+        key = f"{kind}:{endpoint}"
+        counts[key] += 1
 
 # ==============================================================================
 # ENUMS
@@ -536,6 +581,14 @@ class TradierClient:
         # Rate limit snapshot updated after every successful API call (ENH-03)
         self._last_rate_limit: RateLimitInfo | None = None
 
+        # Last-known-good balances snapshot for transient timeout degradation.
+        self._cached_balances: dict[str, Any] | None = None
+        self._cached_balances_ts: float = 0.0
+        self._balances_stale_ttl_seconds: int = max(
+            30,
+            int(os.environ.get("SPYDER_BALANCE_STALE_TTL_SECONDS", "180")),
+        )
+
         logger.debug("TradierClient initialized for %s environment", environment.value)
 
     def _create_session(self) -> requests.Session:
@@ -547,12 +600,22 @@ class TradierClient:
         """
         session = requests.Session()
 
-        # Configure retry strategy
+        # Configure retry strategy.
+        #
+        # v27 SPEC-4 phase 6a: only idempotent HTTP methods are auto-retried.
+        # POST/PUT/DELETE are EXCLUDED — a 5xx response on an order-mutating
+        # request may have actually succeeded at the broker, and a urllib3
+        # auto-retry would produce duplicate fills (or a duplicate cancel
+        # racing a fresh fill). Application-level retries for order endpoints
+        # must use the Tradier ``tag`` field for idempotent dedup
+        # (see SPEC-4 phase 6b/6c).
         retry_strategy = Retry(
             total=MAX_RETRIES,
+            read=0,               # never retry on read timeout — return immediately so
+                                  # the caller can use stale data instead of hanging 3×60 s
             backoff_factor=RETRY_BACKOFF,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"]
+            allowed_methods=["HEAD", "GET", "OPTIONS"],
         )
 
         # Mount retry adapter
@@ -574,7 +637,8 @@ class TradierClient:
         endpoint: str,
         params: dict[str, Any] | None = None,
         data: dict[str, Any] | None = None,
-        json_data: dict[str, Any] | None = None
+        json_data: dict[str, Any] | None = None,
+        timeout: int | None = None,
     ) -> dict[str, Any]:
         """
         Make HTTP request to Tradier API.
@@ -607,7 +671,7 @@ class TradierClient:
                 params=params,
                 data=data,
                 json=json_data,
-                timeout=self.timeout
+                timeout=timeout if timeout is not None else self.timeout
             )
 
             # Handle different status codes
@@ -665,11 +729,13 @@ class TradierClient:
                 raise TradierAPIError(error_msg)
 
         except requests.exceptions.Timeout:
+            _record_timeout_metric(endpoint, "timeout")
             error_msg = f"Request timeout after {self.timeout}s: {endpoint}"
             logger.warning(error_msg)  # transient; full traceback is noise
             raise TradierAPIError(error_msg)  # noqa: B904
 
         except requests.exceptions.ConnectionError as e:
+            _record_timeout_metric(endpoint, "connection")
             # Includes ReadTimeoutError wrapped by urllib3 after max retries.
             # Log as warning — these are transient network conditions on sandbox.
             detail = str(e).strip()
@@ -677,13 +743,22 @@ class TradierClient:
                 detail = "request failed"
             else:
                 detail = detail.splitlines()[0]
-            error_msg = f"Connection error: {detail}"
+            error_msg = f"Connection error on {endpoint}: {detail}"
             logger.warning(error_msg)
             raise TradierAPIError(error_msg)  # noqa: B904
 
         except (TradierAuthenticationError, TradierValidationError,
                 TradierRateLimitError, TradierServerError, TradierAPIError):
             raise  # Re-raise Tradier-specific errors without wrapping
+
+        except requests.exceptions.RetryError as e:
+            _record_timeout_metric(endpoint, "retry")
+            # RetryError wraps repeated 5xx/gateway-timeout responses from upstream.
+            # Logged as warning — transient sandbox/network condition, not a code bug.
+            first_line = str(e).splitlines()[0] if str(e) else "max retries exceeded"
+            error_msg = f"Transient retry error on {endpoint}: {first_line}"
+            logger.warning(error_msg)
+            raise TradierAPIError(error_msg) from e  # noqa: B904
 
         except Exception as e:
             error_msg = f"Unexpected error: {str(e)}"
@@ -738,7 +813,31 @@ class TradierClient:
             >>> print(balances["balances"]["total_equity"])
         """
         logger.debug("Fetching balances for account %s", self.account_id)
-        return self._make_request("GET", f"/accounts/{self.account_id}/balances")
+        endpoint = f"/accounts/{self.account_id}/balances"
+        try:
+            payload = self._make_request("GET", endpoint)
+        except TradierAPIError as exc:
+            if self._cached_balances is not None:
+                age_s = time.time() - self._cached_balances_ts
+                if age_s <= self._balances_stale_ttl_seconds:
+                    logger.warning(
+                        "Balances endpoint degraded (%s); using cached snapshot "
+                        "age=%.1fs (ttl=%ss)",
+                        exc,
+                        age_s,
+                        self._balances_stale_ttl_seconds,
+                    )
+                    return self._cached_balances
+            logger.warning(
+                "Balances fetch failed and no fresh cache is available: %s",
+                exc,
+            )
+            raise
+
+        if isinstance(payload, dict) and "balances" in payload:
+            self._cached_balances = payload
+            self._cached_balances_ts = time.time()
+        return payload
 
     def get_positions(self) -> dict[str, Any]:
         """
@@ -930,9 +1029,14 @@ class TradierClient:
         if stop_price is not None:
             payload["stop"] = stop_price
 
-        # P0-9: Tradier idempotency tag — prevents duplicate fills on retry.
-        if tag is not None:
-            payload["tag"] = tag
+        # P0-9 / v27 SPEC-4 phase 6b: Tradier idempotency tag — prevents
+        # duplicate fills on application-level retries. If the caller did
+        # not supply a tag, auto-generate a uuid-based one so EVERY order
+        # carries an idempotency key. Tradier dedupes within ≤24h on tag.
+        if tag is None:
+            import uuid
+            tag = f"spyder-{uuid.uuid4().hex[:16]}"
+        payload["tag"] = tag
 
         return self._make_request(
             "POST",
@@ -1425,9 +1529,33 @@ class TradierClient:
             params["option_type"] = option_type.lower()
 
         logger.debug("Fetching option chain with greeks for %s exp %s", symbol, expiration)
-        response = self._make_request("GET", "/markets/options/chains", params=params)
+        # SPY chains with greeks can be 180+ contracts — allow 60 s to avoid
+        # spurious ReadTimeoutError on slow Tradier responses.
+        response = self._make_request("GET", "/markets/options/chains", params=params, timeout=60)
 
-        return self._parse_greeks_from_chain(response, symbol)
+        raw = self._parse_greeks_from_chain(response, symbol)
+
+        # Route through the central N14 vetting pipeline before returning.
+        # This ensures all consumers receive only structurally valid, market-quality
+        # contracts with bounded Greeks — regardless of which strategy calls this method.
+        try:
+            from Spyder.SpyderN_OptionsAnalytics.SpyderN14_OptionsDataVetter import get_vetter
+            raw = get_vetter().vet(raw)
+        except Exception as _vet_exc:  # pragma: no cover — import-time guard
+            if _is_opra_vetter_required():
+                msg = (
+                    "get_option_chain_with_greeks: N14 vetter unavailable and "
+                    "SPYDER_OPRA_REQUIRE_VETTER=true; refusing unvetted OPRA data"
+                )
+                logger.error(msg, exc_info=True)
+                raise TradierAPIError(msg) from _vet_exc
+            logger.warning(
+                "get_option_chain_with_greeks: N14 vetter unavailable (%s) — "
+                "returning unvetted data",
+                _vet_exc,
+            )
+
+        return raw
 
     @staticmethod
     def _parse_greeks_from_chain(
@@ -1445,6 +1573,7 @@ class TradierClient:
             List of GreekData objects.
         """
         result = []
+        rejected = 0
         options = response.get("options", {})
         if not options:
             return result
@@ -1457,6 +1586,44 @@ class TradierClient:
             greeks_data = opt.get("greeks", {}) or {}
             bid = opt.get("bid", 0.0) or 0.0
             ask = opt.get("ask", 0.0) or 0.0
+            sym = opt.get("symbol", "")
+
+            # --- Inline data-quality sanity guards ---
+            # Crossed market: bid/ask both present but inverted — data error.
+            if bid > 0 and ask > 0 and bid >= ask:
+                logger.debug(
+                    "_parse_greeks_from_chain: dropping %s — crossed market "
+                    "(bid=%.4f >= ask=%.4f)",
+                    sym, bid, ask,
+                )
+                rejected += 1
+                continue
+
+            # Delta outside [-1, 1] is a calculation error on Tradier's side.
+            raw_delta = greeks_data.get("delta", 0.0) or 0.0
+            if raw_delta != 0.0 and not (-1.0 <= raw_delta <= 1.0):
+                logger.debug(
+                    "_parse_greeks_from_chain: dropping %s — delta %.4f outside [-1,1]",
+                    sym, raw_delta,
+                )
+                rejected += 1
+                continue
+
+            # Negative IV is a math impossibility; zero IV on traded options is
+            # suspicious but allowed (e.g. far-OTM illiquid strikes).
+            raw_iv = (
+                greeks_data.get("mid_iv", 0.0)
+                or greeks_data.get("smv_vol", 0.0)
+                or 0.0
+            )
+            if raw_iv < 0.0:
+                logger.debug(
+                    "_parse_greeks_from_chain: dropping %s — negative IV %.6f",
+                    sym, raw_iv,
+                )
+                rejected += 1
+                continue
+
             mid = round((bid + ask) / 2, 4) if (bid + ask) > 0 else 0.0
 
             gd = GreekData(
@@ -1471,16 +1638,33 @@ class TradierClient:
                 mid=mid,
                 volume=opt.get("volume", 0) or 0,
                 open_interest=opt.get("open_interest", 0) or 0,
-                delta=greeks_data.get("delta", 0.0) or 0.0,
+                delta=raw_delta,
                 gamma=greeks_data.get("gamma", 0.0) or 0.0,
                 theta=greeks_data.get("theta", 0.0) or 0.0,
                 vega=greeks_data.get("vega", 0.0) or 0.0,
                 rho=greeks_data.get("rho", 0.0) or 0.0,
-                iv=greeks_data.get("mid_iv", 0.0) or greeks_data.get("smv_vol", 0.0) or 0.0,
+                iv=raw_iv,
                 in_the_money=(opt.get("in_the_money") is True),
             )
             result.append(gd)
 
+        if rejected:
+            total = rejected + len(result)
+            reject_ratio = (rejected / total) if total > 0 else 0.0
+            is_after_hours = not bool(is_tradier_active_window())
+            if reject_ratio >= 0.05:
+                log_fn = logger.warning
+            elif is_after_hours:
+                log_fn = logger.debug
+            else:
+                log_fn = logger.info
+            log_fn(
+                "_parse_greeks_from_chain: dropped %d/%d contracts for %s "
+                "(crossed markets / invalid Greeks)",
+                rejected,
+                total,
+                underlying,
+            )
         return result
 
     def find_options_by_delta(
@@ -1756,8 +1940,11 @@ class TradierClient:
         if price is not None:
             payload["price"] = str(price)
 
-        if tag:
-            payload["tag"] = tag
+        # v27 SPEC-4 phase 6b: auto-generate idempotency tag if caller omitted.
+        if not tag:
+            import uuid
+            tag = f"spyder-multileg-{uuid.uuid4().hex[:16]}"
+        payload["tag"] = tag
 
         # Add legs as indexed arrays
         for i, leg in enumerate(legs):

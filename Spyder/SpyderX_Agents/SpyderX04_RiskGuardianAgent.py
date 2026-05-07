@@ -26,7 +26,7 @@ import asyncio
 import json
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -140,7 +140,7 @@ class RiskMetrics:
     sortino_ratio: float
     beta: float
     risk_contribution: dict[str, float]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class RiskAssessment:
@@ -268,7 +268,7 @@ class SpyderX04_RiskGuardianAgent:
 
             # Store in history
             self.risk_history.append({
-                'timestamp': datetime.now(),
+                'timestamp': datetime.now(timezone.utc),
                 'metrics': risk_metrics,
                 'portfolio_value': portfolio.get('total_value', 0)
             })
@@ -619,7 +619,7 @@ class SpyderX04_RiskGuardianAgent:
 
             # Cache result
             self.risk_cache[cache_key] = assessment
-            self.cache_timestamps[cache_key] = datetime.now()
+            self.cache_timestamps[cache_key] = datetime.now(timezone.utc)
 
             self.performance_metrics['ai_queries'] += 1
 
@@ -728,8 +728,8 @@ Format as JSON with keys: risk_level, summary, key_risks, recommendations, hedge
             active=True,
             level=level,
             triggered_metrics=triggers,
-            activation_time=datetime.now(),
-            estimated_reset_time=datetime.now() + timedelta(minutes=30),
+            activation_time=datetime.now(timezone.utc),
+            estimated_reset_time=datetime.now(timezone.utc) + timedelta(minutes=30),
             override_allowed=(level != 'EMERGENCY')
         )
 
@@ -775,7 +775,7 @@ Format as JSON with keys: risk_level, summary, key_risks, recommendations, hedge
         if cache_key not in self.cache_timestamps:
             return False
 
-        age = (datetime.now() - self.cache_timestamps[cache_key]).total_seconds()
+        age = (datetime.now(timezone.utc) - self.cache_timestamps[cache_key]).total_seconds()
         return age < RISK_CACHE_TTL
 
     def _generate_risk_cache_key(

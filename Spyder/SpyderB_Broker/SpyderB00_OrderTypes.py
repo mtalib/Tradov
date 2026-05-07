@@ -31,7 +31,7 @@ Key Features:
 import json
 import uuid
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -420,7 +420,7 @@ class OrderRequest:
     last_fill_price: float = 0.0
 
     # Timestamps
-    created_time: datetime = field(default_factory=datetime.now)
+    created_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     submitted_time: datetime | None = None
     filled_time: datetime | None = None
 

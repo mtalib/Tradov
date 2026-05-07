@@ -23,7 +23,7 @@ Description:
 import sys
 import threading
 import queue
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -373,7 +373,7 @@ class OptionsFlowTracker:
         vol_oi_ratio = volume / oi if oi > 0 else 0
 
         flow = OptionsFlow(
-            timestamp=trade_data.get('timestamp', datetime.now()),
+            timestamp=trade_data.get('timestamp', datetime.now(timezone.utc)),
             symbol=trade_data['symbol'],
             strike=trade_data['strike'],
             expiry=trade_data['expiry'],
@@ -485,7 +485,7 @@ class OptionsFlowTracker:
                 unusual_indicators += 1
 
         # Near expiry with high activity
-        days_to_expiry = (flow.expiry - datetime.now()).days
+        days_to_expiry = (flow.expiry - datetime.now(timezone.utc)).days
         if days_to_expiry <= 7 and flow.size >= 500:
             unusual_indicators += 1
 
@@ -505,7 +505,7 @@ class OptionsFlowTracker:
         self.sweep_tracker[key].append(flow)
 
         # Remove old flows outside window
-        cutoff = datetime.now() - timedelta(seconds=SWEEP_TIME_WINDOW)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=SWEEP_TIME_WINDOW)
         self.sweep_tracker[key] = [
             f for f in self.sweep_tracker[key]
             if f.timestamp > cutoff
@@ -532,7 +532,7 @@ class OptionsFlowTracker:
         self.repeat_tracker[key].append(flow.timestamp)
 
         # Remove old timestamps
-        cutoff = datetime.now() - timedelta(hours=1)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
         self.repeat_tracker[key] = [
             t for t in self.repeat_tracker[key]
             if t > cutoff
@@ -600,7 +600,7 @@ class OptionsFlowTracker:
         Returns:
             Sentiment enum
         """
-        cutoff = datetime.now() - timedelta(seconds=window)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=window)
         recent_flows = [
             f for f in self.symbol_flows[symbol]
             if f.timestamp > cutoff
@@ -645,7 +645,7 @@ class OptionsFlowTracker:
 
         # Store sentiment
         self.current_sentiment[symbol] = sentiment
-        self.sentiment_history[symbol].append((datetime.now(), sentiment))
+        self.sentiment_history[symbol].append((datetime.now(timezone.utc), sentiment))
 
         return sentiment
 
@@ -698,7 +698,7 @@ class OptionsFlowTracker:
         Returns:
             FlowToxicity object
         """
-        cutoff = datetime.now() - timedelta(seconds=window)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=window)
         recent_flows = [
             f for f in self.symbol_flows[symbol]
             if f.timestamp > cutoff
@@ -706,7 +706,7 @@ class OptionsFlowTracker:
 
         if not recent_flows:
             return FlowToxicity(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 symbol=symbol,
                 toxicity_score=0.0,
                 adverse_selection=0.0,
@@ -740,7 +740,7 @@ class OptionsFlowTracker:
         adverse_selection = avg_toxicity * 0.5  # Proxy
 
         return FlowToxicity(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             symbol=symbol,
             toxicity_score=avg_toxicity,
             adverse_selection=adverse_selection,
@@ -814,8 +814,8 @@ class OptionsFlowTracker:
         return AggregatedFlow(
             symbol=symbol,
             time_window=timedelta(seconds=FLOW_WINDOW),
-            start_time=datetime.now(),
-            end_time=datetime.now() + timedelta(seconds=FLOW_WINDOW),
+            start_time=datetime.now(timezone.utc),
+            end_time=datetime.now(timezone.utc) + timedelta(seconds=FLOW_WINDOW),
             total_call_volume=0,
             total_put_volume=0,
             total_call_premium=0.0,
@@ -852,7 +852,7 @@ class OptionsFlowTracker:
         # Unusual activity alert
         if flow.is_unusual:
             alert = FlowAlert(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 alert_type="UNUSUAL_ACTIVITY",
                 symbol=flow.symbol,
                 message=f"Unusual options activity: {flow.symbol} {flow.strike} {flow.option_type}",
@@ -865,7 +865,7 @@ class OptionsFlowTracker:
         # Sweep alert
         if flow.is_sweep:
             alert = FlowAlert(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 alert_type="SWEEP_DETECTED",
                 symbol=flow.symbol,
                 message=f"Sweep order detected: {flow.symbol} {flow.strike} {flow.option_type}",
@@ -878,7 +878,7 @@ class OptionsFlowTracker:
         # Large block alert
         if flow.is_block and flow.premium >= self.min_premium * 10:
             alert = FlowAlert(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 alert_type="LARGE_BLOCK",
                 symbol=flow.symbol,
                 message=f"Large block trade: ${flow.premium:,.0f} in {flow.symbol}",
@@ -891,7 +891,7 @@ class OptionsFlowTracker:
         # Repeat buying alert
         if flow.is_repeat:
             alert = FlowAlert(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 alert_type="REPEAT_BUYING",
                 symbol=flow.symbol,
                 message=f"Repeat buying detected: {flow.symbol} {flow.strike} {flow.option_type}",
@@ -994,7 +994,7 @@ class OptionsFlowTracker:
         if not recent_flows:
             return MarketMakerActivity(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 net_position_delta=0.0,
                 hedging_flow=0.0,
                 pin_risk_management=False,
@@ -1015,7 +1015,7 @@ class OptionsFlowTracker:
         # Check for pin risk management (near expiry, ATM activity)
         pin_risk = False
         for flow in recent_flows:
-            days_to_expiry = (flow.expiry - datetime.now()).days
+            days_to_expiry = (flow.expiry - datetime.now(timezone.utc)).days
             moneyness = flow.strike / flow.underlying_price
 
             if days_to_expiry <= 1 and 0.98 <= moneyness <= 1.02:
@@ -1032,7 +1032,7 @@ class OptionsFlowTracker:
 
         mm_activity = MarketMakerActivity(
             symbol=symbol,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             net_position_delta=net_delta,
             hedging_flow=hedging_ratio,
             pin_risk_management=pin_risk,
@@ -1067,7 +1067,7 @@ class OptionsFlowTracker:
 
         summary = {
             'symbol': symbol,
-            'timestamp': datetime.now(),
+            'timestamp': datetime.now(timezone.utc),
             'volumes': {
                 'total_call_volume': agg.total_call_volume,
                 'total_put_volume': agg.total_put_volume,
@@ -1125,10 +1125,10 @@ if __name__ == "__main__":
     test_flows = [
         # Unusual large call sweep
         {
-            'timestamp': datetime.now(),
+            'timestamp': datetime.now(timezone.utc),
             'symbol': 'SPY',
             'strike': 590,
-            'expiry': datetime.now() + timedelta(days=7),
+            'expiry': datetime.now(timezone.utc) + timedelta(days=7),
             'option_type': 'CALL',
             'size': 5000,
             'price': 2.50,
@@ -1143,10 +1143,10 @@ if __name__ == "__main__":
         },
         # Block put trade
         {
-            'timestamp': datetime.now() - timedelta(seconds=30),
+            'timestamp': datetime.now(timezone.utc) - timedelta(seconds=30),
             'symbol': 'SPY',
             'strike': 580,
-            'expiry': datetime.now() + timedelta(days=14),
+            'expiry': datetime.now(timezone.utc) + timedelta(days=14),
             'option_type': 'PUT',
             'size': 1000,
             'price': 3.20,
@@ -1161,10 +1161,10 @@ if __name__ == "__main__":
         },
         # Repeat call buying
         {
-            'timestamp': datetime.now() - timedelta(seconds=60),
+            'timestamp': datetime.now(timezone.utc) - timedelta(seconds=60),
             'symbol': 'SPY',
             'strike': 588,
-            'expiry': datetime.now() + timedelta(days=3),
+            'expiry': datetime.now(timezone.utc) + timedelta(days=3),
             'option_type': 'CALL',
             'size': 300,
             'price': 1.85,

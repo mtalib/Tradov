@@ -20,7 +20,7 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -68,7 +68,7 @@ def get_et_time_string(include_timezone: bool = True) -> str:
 
     except Exception:
         # Fallback to local time if ET fails
-        return datetime.now().strftime(SIMPLE_TIME_FORMAT)
+        return datetime.now(timezone.utc).strftime(SIMPLE_TIME_FORMAT)
 
 def get_et_time_for_dashboard() -> str:
     """
@@ -89,7 +89,7 @@ def get_current_et_datetime() -> datetime:
     try:
         return datetime.now(EASTERN_TZ)
     except Exception:
-        return datetime.now()
+        return datetime.now(timezone.utc)
 
 # ==============================================================================
 # SIMPLE CLASS (Optional - for caching if needed)
@@ -117,7 +117,7 @@ class SimpleETDisplay:
                 return et_now.strftime(SIMPLE_TIME_FORMAT)
         except Exception as e:
             self.logger.error("ET time error: %s", e)
-            return datetime.now().strftime(SIMPLE_TIME_FORMAT)
+            return datetime.now(timezone.utc).strftime(SIMPLE_TIME_FORMAT)
 
 # ==============================================================================
 # MODULE-LEVEL INSTANCE (if caching needed)

@@ -34,7 +34,7 @@ Key Features:
 import json
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
@@ -241,7 +241,7 @@ class StrategyPerformance:
     max_drawdown: float
     trade_count: int
     days_active: int
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class RotationPlan:
@@ -296,7 +296,7 @@ class StrategyRotation:
         self.current_regime = MarketRegime.RANGE_BOUND
         self.regime_confidence = 0.5
         self.regime_history = deque(maxlen=1000)
-        self.regime_start = datetime.now()
+        self.regime_start = datetime.now(timezone.utc)
         self.regime_features = {}
 
         # Strategy performance tracking
@@ -401,7 +401,7 @@ class StrategyRotation:
             additional_data: Other market indicators
         """
         with self._lock:
-            timestamp = datetime.now()
+            timestamp = datetime.now(timezone.utc)
 
             # Store raw data
             self.price_data.append(price)
@@ -609,7 +609,7 @@ class StrategyRotation:
             return False
 
         # Check if we've been in current regime long enough
-        days_in_regime = (datetime.now() - self.regime_start).days
+        days_in_regime = (datetime.now(timezone.utc) - self.regime_start).days
         # Look for confirmation over multiple periods
         # This is simplified - would check recent predictions
         return days_in_regime >= MIN_REGIME_DAYS
@@ -625,7 +625,7 @@ class StrategyRotation:
         transition = RegimeTransition(
             from_regime=self.current_regime,
             to_regime=new_regime,
-            transition_time=datetime.now(),
+            transition_time=datetime.now(timezone.utc),
             confidence=confidence,
             transition_type=self._determine_transition_type(new_regime),
             expected_duration=self._estimate_regime_duration(new_regime),
@@ -636,14 +636,14 @@ class StrategyRotation:
         old_regime = self.current_regime
         self.current_regime = new_regime
         self.regime_confidence = confidence
-        self.regime_start = datetime.now()
+        self.regime_start = datetime.now(timezone.utc)
 
         # Record in history
         regime_state = RegimeState(
             regime=new_regime,
             confidence=confidence,
             indicators={},  # Would populate with actual indicators
-            start_time=datetime.now(),
+            start_time=datetime.now(timezone.utc),
             duration_days=0,
             strength=confidence,
             volatility=self.regime_features.get('volatility', 0),
@@ -722,7 +722,7 @@ class StrategyRotation:
         risk_score = self._calculate_rotation_risk(from_regime, to_regime, adjustments)
 
         plan = RotationPlan(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             reason=RotationReason.REGIME_CHANGE,
             current_strategies=self.active_strategies.copy(),
             target_strategies=target_strategies,
@@ -852,7 +852,7 @@ class StrategyRotation:
             # Create rotation event
             event = RotationEvent(
                 plan=plan,
-                execution_time=datetime.now(),
+                execution_time=datetime.now(timezone.utc),
                 strategies_added=[],
                 strategies_removed=[],
                 strategies_scaled={},
@@ -923,7 +923,7 @@ class StrategyRotation:
                 payload={
                     'regime': regime.value,
                     'confidence': confidence,
-                    'timestamp': datetime.now().isoformat(),
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
                     'active_strategies': self.active_strategies,
                     'features': self.regime_features
                 }
@@ -949,7 +949,7 @@ class StrategyRotation:
         with self._lock:
             # Store raw performance
             self.strategy_performance[strategy_id][regime].append({
-                'date': datetime.now().date(),
+                'date': datetime.now(timezone.utc).date(),
                 'return': daily_return,
                 'trades': trades
             })
@@ -1043,7 +1043,7 @@ class StrategyRotation:
             'current_regime': self.current_regime.value,
             'confidence': self.regime_confidence,
             'regime_start': self.regime_start.isoformat(),
-            'days_in_regime': (datetime.now() - self.regime_start).days,
+            'days_in_regime': (datetime.now(timezone.utc) - self.regime_start).days,
             'active_strategies': self.active_strategies,
             'in_transition': self.in_transition,
             'regime_features': self.regime_features,
@@ -1118,7 +1118,7 @@ class StrategyRotation:
 
         # Create rotation plan
         plan = RotationPlan(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             reason=reason,
             current_strategies=self.active_strategies.copy(),
             target_strategies=target_strategies,
@@ -1241,7 +1241,7 @@ class StrategyRotation:
                     'regimes': list(self.regime_history),
                     'rotations': list(self.rotation_history),
                     'performance': dict(self.strategy_performance),
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }, f, default=_json_default, indent=2)
 
             self.logger.info("Regime history saved")

@@ -70,6 +70,7 @@ class DataFreshnessMonitor:
         rth_threshold_s: float = _DEFAULT_RTH_THRESHOLD_S,
         ooh_threshold_s: float = _DEFAULT_OOH_THRESHOLD_S,
         poll_interval_s: float = _POLL_INTERVAL_S,
+        startup_grace_s: float = 0.0,
     ) -> None:
         """
         Initialise the DataFreshnessMonitor.
@@ -83,6 +84,9 @@ class DataFreshnessMonitor:
             ooh_threshold_s: Seconds without a tick before DATA_STALE outside RTH.
             poll_interval_s: How often (in seconds) the background loop checks
                 freshness.  Lower = more responsive, higher = less CPU.
+            startup_grace_s: Seconds after ``start()`` during which stale
+                declarations are suppressed.  Allows the data feed time to
+                connect before the first DATA_STALE event can fire.
         """
         self.logger = SpyderLogger.get_logger(__name__)
         self._em = event_manager or get_event_manager()
@@ -90,6 +94,8 @@ class DataFreshnessMonitor:
         self._rth_threshold_s = rth_threshold_s
         self._ooh_threshold_s = ooh_threshold_s
         self._poll_interval_s = poll_interval_s
+        self._startup_grace_s = startup_grace_s
+        self._start_monotonic: float = 0.0  # set in start()
 
         # Per-symbol state
         self._last_tick: dict[str, float] = {}   # symbol → epoch seconds
@@ -120,6 +126,7 @@ class DataFreshnessMonitor:
             self._em.subscribe(EventType.MARKET_DATA_TICK, self._on_market_data),
         ]
 
+        self._start_monotonic = time.monotonic()
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._monitor_loop,
@@ -129,9 +136,10 @@ class DataFreshnessMonitor:
         self._running = True
         self._thread.start()
         self.logger.info(
-            "DataFreshnessMonitor started — RTH=%.1fs OOH=%.1fs",
+            "DataFreshnessMonitor started — RTH=%.1fs OOH=%.1fs grace=%.1fs",
             self._rth_threshold_s,
             self._ooh_threshold_s,
+            self._startup_grace_s,
         )
         return True
 
@@ -184,6 +192,12 @@ class DataFreshnessMonitor:
 
     def _check_freshness(self) -> None:
         """Classify each watched symbol as fresh or stale and emit transitions."""
+        # Suppress stale declarations during the startup grace window so the
+        # data feed has time to connect before the first DATA_STALE can fire.
+        if self._startup_grace_s > 0 and self._start_monotonic > 0:
+            if time.monotonic() - self._start_monotonic < self._startup_grace_s:
+                return
+
         threshold = self._current_threshold()
         now = time.monotonic()
 
@@ -277,6 +291,7 @@ def create_freshness_monitor(
     event_manager: Any = None,
     rth_threshold_s: float = _DEFAULT_RTH_THRESHOLD_S,
     ooh_threshold_s: float = _DEFAULT_OOH_THRESHOLD_S,
+    startup_grace_s: float = 0.0,
 ) -> DataFreshnessMonitor:
     """
     Factory convenience wrapper for ``DataFreshnessMonitor``.
@@ -286,6 +301,8 @@ def create_freshness_monitor(
         event_manager: Shared EventManager instance.
         rth_threshold_s: RTH staleness threshold in seconds.
         ooh_threshold_s: Out-of-hours staleness threshold in seconds.
+        startup_grace_s: Seconds after start() during which DATA_STALE is
+            suppressed, giving the data feed time to connect.
 
     Returns:
         A configured (but not yet started) ``DataFreshnessMonitor``.
@@ -295,4 +312,5 @@ def create_freshness_monitor(
         symbols=symbols,
         rth_threshold_s=rth_threshold_s,
         ooh_threshold_s=ooh_threshold_s,
+        startup_grace_s=startup_grace_s,
     )

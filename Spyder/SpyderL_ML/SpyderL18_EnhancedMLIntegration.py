@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -371,7 +371,7 @@ class EnhancedMLEngine:
 
         return MLPrediction(
             model_type=ModelType.PRICE_PREDICTOR,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             prediction=final_prediction,
             confidence=confidence,
             feature_importance=feature_importance,
@@ -403,7 +403,7 @@ class EnhancedMLEngine:
 
         return MLPrediction(
             model_type=ModelType.VOLATILITY_FORECASTER,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             prediction=vol_pred,
             confidence=confidence,
             feature_importance=self._get_feature_importance('volatility'),
@@ -436,7 +436,7 @@ class EnhancedMLEngine:
 
         return MLPrediction(
             model_type=ModelType.REGIME_CLASSIFIER,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             prediction=regime,
             confidence=confidence,
             feature_importance=self._get_feature_importance('regime'),
@@ -482,7 +482,7 @@ class EnhancedMLEngine:
 
         return MLPrediction(
             model_type=ModelType.STRATEGY_SELECTOR,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             prediction=selected,
             confidence=confidence,
             feature_importance={},
@@ -521,7 +521,7 @@ class EnhancedMLEngine:
 
         return MLPrediction(
             model_type=ModelType.RISK_ESTIMATOR,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             prediction=risk_metrics,
             confidence=confidence,
             feature_importance=self._get_feature_importance('risk'),
@@ -568,7 +568,7 @@ class EnhancedMLEngine:
 
         return MLPrediction(
             model_type=ModelType.ENTRY_OPTIMIZER,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             prediction=entry_details,
             confidence=entry_score,
             feature_importance={},
@@ -589,7 +589,7 @@ class EnhancedMLEngine:
             'features': features,
             'outcome': actual_outcome,
             'model_type': model_type,
-            'timestamp': datetime.now()
+            'timestamp': datetime.now(timezone.utc)
         })
 
         # Check if update needed
@@ -1189,7 +1189,7 @@ if __name__ == "__main__":
 
     # Create sample features
     sample_features = FeatureSet(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         price_features=np.random.randn(100),
         volume_features=np.random.randn(50),
         technical_features=np.random.randn(30),

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum, auto
 from collections import defaultdict
 import threading
@@ -230,9 +230,9 @@ class GreeksCacheManager:
         with self.lock:
             if symbol in self.cache:
                 # Check TTL
-                if (datetime.now() - self.access_times[symbol]).seconds <= self.ttl:
+                if (datetime.now(timezone.utc) - self.access_times[symbol]).seconds <= self.ttl:
                     self.stats['hits'] += 1
-                    self.access_times[symbol] = datetime.now()
+                    self.access_times[symbol] = datetime.now(timezone.utc)
                     return self.cache[symbol]
                 else:
                     # Stale data
@@ -249,7 +249,7 @@ class GreeksCacheManager:
                 self._evict_oldest()
 
             self.cache[symbol] = greeks
-            self.access_times[symbol] = datetime.now()
+            self.access_times[symbol] = datetime.now(timezone.utc)
             self.stats['updates'] += 1
 
     def _evict_oldest(self) -> None:
@@ -637,9 +637,9 @@ class GreeksBasedStrategy(BaseStrategy):
 
                 if not greeks or greeks.cache_status == GreeksCacheStatus.STALE:
                     # Fetch from OPRA
-                    start_time = datetime.now()
+                    start_time = datetime.now(timezone.utc)
                     greeks = self._fetch_greeks_from_opra(symbol)
-                    latency_ms = (datetime.now() - start_time).total_seconds() * 1000
+                    latency_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
 
                     if greeks:
                         greeks.latency_ms = latency_ms
@@ -683,7 +683,7 @@ class GreeksBasedStrategy(BaseStrategy):
 
             # Derive BSM Greeks via N04 for accuracy; fall back to hardcoded defaults
             _sim_spot = 450.0
-            _tte = max((expiry - datetime.now()).total_seconds() / (365 * 24 * 3600), 1e-6)
+            _tte = max((expiry - datetime.now(timezone.utc)).total_seconds() / (365 * 24 * 3600), 1e-6)
             _sim_iv = 0.20
             _sim_rf = 0.05
             _opt_type_str = 'CALL' if option_type == 'call' else 'PUT'
@@ -714,7 +714,7 @@ class GreeksBasedStrategy(BaseStrategy):
 
             # Build snapshot (in production this would come from OPRA)
             return GreeksSnapshot(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 symbol=symbol,
                 strike=strike,
                 expiry=expiry,
@@ -753,10 +753,10 @@ class GreeksBasedStrategy(BaseStrategy):
 
             # Create Greeks snapshot
             greeks = GreeksSnapshot(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 symbol=symbol,
                 strike=update.get('strike', 0),
-                expiry=update.get('expiry', datetime.now()),
+                expiry=update.get('expiry', datetime.now(timezone.utc)),
                 option_type=update.get('option_type', 'call'),
                 delta=update.get('delta', 0),
                 gamma=update.get('gamma', 0),
@@ -978,7 +978,7 @@ class GreeksBasedStrategy(BaseStrategy):
             for _symbol, greeks in self.greeks_cache.cache.items():
                 if greeks.cache_status == GreeksCacheStatus.FRESH:
                     # Check DTE for vega trading (30-60 days optimal)
-                    dte = (greeks.expiry - datetime.now()).days
+                    dte = (greeks.expiry - datetime.now(timezone.utc)).days
 
                     if 30 <= dte <= 60:
                         if greeks.vega > max_vega:
@@ -1021,8 +1021,8 @@ class GreeksBasedStrategy(BaseStrategy):
                 stop_loss=0,  # Managed by Greeks
                 take_profit=0,  # Managed by Greeks
                 position_size=abs(contracts),
-                timestamp=datetime.now(),
-                expires_at=datetime.now() + timedelta(seconds=30),  # Short expiry for fast execution  # noqa: E501
+                timestamp=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),  # Short expiry for fast execution  # noqa: E501
                 metadata={
                     'strategy': 'greeks_based',
                     'greeks_data': {
@@ -1058,7 +1058,7 @@ class GreeksBasedStrategy(BaseStrategy):
             for symbol in position.contracts:
                 greeks = self.greeks_cache.get(symbol)
                 if greeks:
-                    dte = (greeks.expiry - datetime.now()).days
+                    dte = (greeks.expiry - datetime.now(timezone.utc)).days
 
                     # Pin risk exists near expiry with high gamma
                     if dte <= 1 and abs(greeks.gamma) > 0.05:
@@ -1116,7 +1116,7 @@ class GreeksBasedStrategy(BaseStrategy):
 
                 # Put-call parity: C - P = S - K * e^(-r*t)
                 r = 0.05  # Risk-free rate
-                t = (expiry - datetime.now()).days / 365
+                t = (expiry - datetime.now(timezone.utc)).days / 365
 
                 theoretical_diff = call.underlying_price - strike * np.exp(-r * t)
                 actual_diff = call.mid - put.mid
@@ -1134,7 +1134,7 @@ class GreeksBasedStrategy(BaseStrategy):
                         edge=edge,
                         edge_percent=edge_percent,
                         confidence=0.9,
-                        expiry_time=datetime.now() + timedelta(minutes=5),
+                        expiry_time=datetime.now(timezone.utc) + timedelta(minutes=5),
                         greeks_impact={
                             'delta': 0,  # Neutral
                             'gamma': 0,  # Neutral
@@ -1188,7 +1188,7 @@ class GreeksBasedStrategy(BaseStrategy):
                             edge=edge,
                             edge_percent=edge_percent,
                             confidence=0.7,
-                            expiry_time=datetime.now() + timedelta(minutes=10),
+                            expiry_time=datetime.now(timezone.utc) + timedelta(minutes=10),
                             greeks_impact={
                                 'delta': far.delta - near.delta,
                                 'gamma': far.gamma - near.gamma,
@@ -1224,7 +1224,7 @@ class GreeksBasedStrategy(BaseStrategy):
                 stop_loss=arb.market_value - arb.edge * 2,  # 2x edge as stop
                 take_profit=arb.theoretical_value,
                 position_size=1,  # Package deal
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 expires_at=arb.expiry_time,
                 metadata={
                     'strategy': 'greeks_arbitrage',
@@ -1274,7 +1274,7 @@ class GreeksBasedStrategy(BaseStrategy):
                         self.arbitrage_opportunities[arb.arb_id] = arb
 
                 # Clean expired arbitrages
-                current_time = datetime.now()
+                current_time = datetime.now(timezone.utc)
                 expired = [
                     arb_id for arb_id, arb in self.arbitrage_opportunities.items()
                     if current_time > arb.expiry_time
@@ -1330,7 +1330,7 @@ class GreeksBasedStrategy(BaseStrategy):
             position = GreeksPosition(
                 position_id=str(uuid.uuid4()),
                 strategy_type=strategy_map.get(signal_type, GreeksStrategy.DELTA_NEUTRAL),
-                entry_time=datetime.now(),
+                entry_time=datetime.now(timezone.utc),
                 contracts={signal.symbol: signal.position_size}
             )
 
@@ -1512,7 +1512,7 @@ if __name__ == "__main__":
     strategy.greeks_queue.put(test_greeks)
 
     # Create market data
-    dates = pd.date_range(end=datetime.now(), periods=100, freq='1min')
+    dates = pd.date_range(end=datetime.now(timezone.utc), periods=100, freq='1min')
     prices = 450 + np.cumsum(np.random.randn(100) * 0.1)
 
     market_data = pd.DataFrame({

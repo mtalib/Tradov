@@ -70,6 +70,7 @@ COLUMNS = [
     "D-Loss OK",    # daily-loss-limit gate: YES / NO
     "Regime OK",    # regime guard gate: YES / NO
     "Regime",       # regime_reason string
+    "SelFlag",      # selector feature flag (if any)
     "SWAN",         # Black-Swan composite score
     "S08",          # S08 pivot-MR score (or —)
     "S08 Dir",      # S08 direction label
@@ -78,6 +79,7 @@ COLUMNS = [
 
 # Index of the "Action" column — coloured by outcome type.
 _ACTION_COL = 5
+_SELFLAG_COL = 10
 
 # Action colour map: green for open/fill, yellow for rejected, grey for nothing.
 _ACTION_COLORS: dict[str, str] = {
@@ -295,10 +297,16 @@ class DecisionLogDialog(QDialog):
             if r.get("action", "") in ("SPREAD_OPENED", "CONDOR_OPENED", "BUY_SHARE")
         )
         rejected = sum(1 for r in records if r.get("action", "") == "SPREAD_REJECTED")
+        flagged = sum(
+            1
+            for r in records
+            if str(r.get("selector_feature_flag", "")).strip() not in ("", "None")
+        )
         self._summary_label.setText(
             f"Date: {self._selected_date}   Polls: {total}   "
             f"Opened: {opened}   Rejected: {rejected}   "
-            f"No-trade: {total - opened - rejected}"
+            f"No-trade: {total - opened - rejected}   "
+            f"Flagged: {flagged}"
         )
 
         for row, rec in enumerate(records):
@@ -319,6 +327,9 @@ class DecisionLogDialog(QDialog):
         d_loss_ok = _fmt_bool(rec.get("daily_loss_ok"))
         regime_ok = _fmt_bool(rec.get("regime_ok"))
         regime_reason = str(rec.get("regime_reason", ""))
+        selector_flag_raw = str(rec.get("selector_feature_flag", "")).strip()
+        selector_flag = selector_flag_raw or "—"
+        selector_flag_active = selector_flag_raw not in ("", "None")
         swan = _fmt_num(rec.get("swan"), 2)
         s08_score = _fmt_num(rec.get("s08_score"), 0) if rec.get("s08_score") is not None else "—"
         s08_dir = str(rec.get("s08_direction", "—")) if rec.get("s08_fired") else "—"
@@ -335,6 +346,7 @@ class DecisionLogDialog(QDialog):
             (d_loss_ok, Qt.AlignmentFlag.AlignCenter),
             (regime_ok, Qt.AlignmentFlag.AlignCenter),
             (regime_reason, Qt.AlignmentFlag.AlignLeft),
+            (selector_flag, Qt.AlignmentFlag.AlignLeft),
             (swan, Qt.AlignmentFlag.AlignRight),
             (s08_score, Qt.AlignmentFlag.AlignRight),
             (s08_dir, Qt.AlignmentFlag.AlignCenter),
@@ -342,12 +354,15 @@ class DecisionLogDialog(QDialog):
         ]
 
         action_color = QColor(_ACTION_COLORS.get(action, _ACTION_DEFAULT_COLOR))
+        selector_flag_color = QColor(COLORS.get("positive", "#00ff41"))
 
         for col, (text, align) in enumerate(cells):
             item = QTableWidgetItem(text)
             item.setTextAlignment(int(align) | int(Qt.AlignmentFlag.AlignVCenter))
             if col == _ACTION_COL:
                 item.setForeground(action_color)
+            elif col == _SELFLAG_COL and selector_flag_active:
+                item.setForeground(selector_flag_color)
             self._table.setItem(row, col, item)
 
     def _on_row_selected(self) -> None:
@@ -376,6 +391,7 @@ class DecisionLogDialog(QDialog):
             "ts", "seq", "spy", "bid", "ask", "options_mode", "open_spreads",
             "signal", "ma5", "ma20", "ma_gap_pct", "daily_loss_pct",
             "daily_loss_ok", "regime_ok", "regime_reason",
+            "selector_feature_flag",
             "swan", "dix", "gex",
             "s08_enabled", "s08_score", "s08_fired", "s08_direction",
             "action", "action_detail", "spread_id",

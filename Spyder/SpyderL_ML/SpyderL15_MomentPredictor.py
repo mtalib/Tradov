@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -60,7 +60,7 @@ import torch  # noqa: E402
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
 from Spyder.SpyderL_ML.SpyderL10_FeatureEngineering import FeatureEngineer  # noqa: E402
-from Spyder.SpyderL_ML.SpyderL13_LSTMPricer import LSTMPricer  # noqa: E402
+from Spyder.SpyderL_ML.SpyderL13_LSTMPricer import SpyderLSTMPricer as LSTMPricer  # noqa: E402
 from Spyder.SpyderL_ML.SpyderL11_MLModelManager import MLModelManager  # noqa: E402
 import logging  # noqa: E402
 
@@ -247,7 +247,7 @@ class MOmentPredictor:
             MultiTaskResult with all predictions
         """
         try:
-            start_time = datetime.now()
+            start_time = datetime.now(timezone.utc)
 
             # Default to all tasks
             if tasks is None:
@@ -274,7 +274,7 @@ class MOmentPredictor:
             multi_result = self._combine_task_results(results, tasks)
 
             # Calculate processing time
-            processing_time = (datetime.now() - start_time).total_seconds() * 1000
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             multi_result.processing_time_ms = processing_time
 
             return multi_result
@@ -553,7 +553,7 @@ class MOmentPredictor:
         """Track prediction performance for weight optimization."""
         self.performance_history.append(
             {
-                "timestamp": datetime.now(),
+                "timestamp": datetime.now(timezone.utc),
                 "confidence": prediction.confidence_score,
                 "regime": prediction.regime_state,
                 "weights": prediction.ensemble_weights.copy(),

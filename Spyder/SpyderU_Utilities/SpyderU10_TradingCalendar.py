@@ -171,7 +171,7 @@ class TradingCalendar:
         # Initialize holidays automatically
         self._load_holidays()
 
-        self.logger.info("%s initialized for %s", self.__class__.__name__, exchange.value)
+        self.logger.debug("%s initialized for %s", self.__class__.__name__, exchange.value)
 
     # ==========================================================================
     # PUBLIC METHODS - HOLIDAY MANAGEMENT
@@ -643,7 +643,7 @@ class TradingCalendar:
         # Load custom holidays from file if exists
         self._load_custom_holidays()
 
-        self.logger.info("Loaded %s holidays", len(self.holidays))
+        self.logger.debug("Loaded %s holidays", len(self.holidays))
 
     def _add_fixed_holidays(self, year: int):
         """Add fixed US market holidays for a given year."""
@@ -671,6 +671,24 @@ class TradingCalendar:
 
         # Independence Day (July 4)
         self._add_holiday(date(year, 7, 4), "Independence Day")
+
+        # July 3rd early close — NYSE closes at 13:00 ET when July 3 is a weekday
+        # AND July 4 has not been moved to July 3 as the observed holiday.
+        # (When July 4 falls on Saturday, July 3 becomes the observed full close,
+        # not an early close.  When July 4 falls on Sunday, Monday July 5 is
+        # the observed holiday and July 3 stays a normal full session.)
+        july_3 = date(year, 7, 3)
+        july_4 = date(year, 7, 4)
+        # Only add early close if July 3 is a weekday AND it isn't already a
+        # full holiday (i.e. not the Saturday-observed case where July 3 is Fri).
+        if july_3.weekday() < 5 and july_3 not in self.holidays:
+            self._add_early_close(july_3, time(13, 0), "Independence Day Eve")
+        # If July 4 falls on Thursday, NYSE still has a full session on July 3
+        # but an early close on July 5 (Friday) — handled as a special case.
+        if july_4.weekday() == 3:  # Thursday
+            july_5 = date(year, 7, 5)
+            if july_5.weekday() < 5:
+                self._add_early_close(july_5, time(13, 0), "Day after Independence Day")
 
         # Labor Day (1st Monday in September)
         self._add_holiday(self._get_nth_weekday_of_month(year, 9, 0, 1), "Labor Day")

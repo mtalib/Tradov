@@ -33,7 +33,7 @@ import json
 import logging
 import hashlib
 import warnings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, field
@@ -352,7 +352,7 @@ class SpyderS06_SKEWCalculator:
 
             result = SKEWCalculation(
                 skew_index=skew_index,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 spot_price=self.spot_price,
                 risk_free_rate=self.risk_free_rate,
                 expiry_used=expiry,
@@ -402,8 +402,6 @@ class SpyderS06_SKEWCalculator:
                 # Try to infer from index or other columns
                 return None, None
 
-            # Calculate days to expiry
-            now = datetime.now()
             dte_list = []
 
             for expiry in expiries:
@@ -411,7 +409,10 @@ class SpyderS06_SKEWCalculator:
                 if isinstance(expiry, str):
                     expiry = pd.to_datetime(expiry)
 
-                dte = (expiry - now).days
+                if getattr(expiry, 'tzinfo', None) is None:
+                    dte = (expiry - datetime.now()).days  # spyder: naive-ok
+                else:
+                    dte = (expiry.astimezone(timezone.utc) - datetime.now(timezone.utc)).days
 
                 # Check if within acceptable range
                 if self.config['min_days'] <= dte <= self.config['max_days']:
@@ -493,7 +494,11 @@ class SpyderS06_SKEWCalculator:
         """Create OptionData object from DataFrame row"""
         try:
             # Calculate time to expiry
-            dte = (expiry - datetime.now()).days / 365.25
+            expiry_dt = expiry
+            if expiry_dt.tzinfo is None:
+                dte = (expiry_dt - datetime.now()).days / 365.25  # spyder: naive-ok
+            else:
+                dte = (expiry_dt.astimezone(timezone.utc) - datetime.now(timezone.utc)).days / 365.25
 
             # Get prices
             bid = row.get('bid', 0)
@@ -1040,7 +1045,7 @@ class SpyderS06_SKEWCalculator:
 
     def _fetch_spot_price(self) -> float | None:
         """Fetch current SPY spot price"""
-        # Try C29 / MassiveClient first (bid/ask mid-price)
+        # Try C29 first (bid/ask mid-price)
         if _C29_AVAILABLE:
             try:
                 client = _get_c29_provider()
@@ -1067,7 +1072,7 @@ class SpyderS06_SKEWCalculator:
         """Fetch SPY option chain"""
         # Primary: Tradier B40 — live options with greeks, preferred over C29/yfinance
         try:
-            from datetime import date as _date, timedelta as _td
+            from datetime import date as _date, timedelta as _td, timezone
             from Spyder.SpyderB_Broker.SpyderB40_TradierClient import create_tradier_client_from_env
 
             client = create_tradier_client_from_env()
@@ -1115,12 +1120,12 @@ class SpyderS06_SKEWCalculator:
         except Exception as _e:
             logger.debug("Tradier B40 option chain unavailable for SPY: %s", _e)
 
-        # Try C29 / MassiveClient next (returns list of dicts per contract)
+        # Try C29 next (returns list of dicts per contract)
         if _C29_AVAILABLE:
             try:
                 client = _get_c29_provider()
                 # Get expirations around 30 days out
-                target_date = datetime.now() + timedelta(days=30)
+                target_date = datetime.now(timezone.utc) + timedelta(days=30)
                 expirations = client.get_option_expirations("SPY")
                 selected = [
                     e for e in expirations
@@ -1130,35 +1135,37 @@ class SpyderS06_SKEWCalculator:
                 ] or (expirations[:1] if expirations else [])
                 all_calls, all_puts = [], []
                 for expiry in selected:
-                    contracts = client.get_option_chain("SPY", expiration=expiry)
+                    contracts = client.get_option_chain_with_greeks("SPY", expiration=expiry)
                     calls = pd.DataFrame(
                         [
                             {
-                                "strike": c["strike"],
-                                "lastPrice": c.get("close", 0.0),
-                                "bid": c["bid"],
-                                "ask": c["ask"],
-                                "impliedVolatility": c.get("implied_volatility", 0.0),
-                                "openInterest": c.get("open_interest", 0),
-                                "volume": c.get("volume", 0),
+                                "strike": float(getattr(c, "strike", 0.0) or 0.0),
+                                "lastPrice": float(getattr(c, "last", 0.0) or 0.0),
+                                "bid": float(getattr(c, "bid", 0.0) or 0.0),
+                                "ask": float(getattr(c, "ask", 0.0) or 0.0),
+                                "impliedVolatility": float(getattr(c, "iv", 0.0) or 0.0),
+                                "openInterest": int(getattr(c, "open_interest", 0) or 0),
+                                "volume": int(getattr(c, "volume", 0) or 0),
                                 "expiry": expiry,
                             }
-                            for c in contracts if c.get("option_type") == "call"
+                            for c in contracts
+                            if str(getattr(c, "option_type", "")).lower() == "call"
                         ]
                     )
                     puts = pd.DataFrame(
                         [
                             {
-                                "strike": c["strike"],
-                                "lastPrice": c.get("close", 0.0),
-                                "bid": c["bid"],
-                                "ask": c["ask"],
-                                "impliedVolatility": c.get("implied_volatility", 0.0),
-                                "openInterest": c.get("open_interest", 0),
-                                "volume": c.get("volume", 0),
+                                "strike": float(getattr(c, "strike", 0.0) or 0.0),
+                                "lastPrice": float(getattr(c, "last", 0.0) or 0.0),
+                                "bid": float(getattr(c, "bid", 0.0) or 0.0),
+                                "ask": float(getattr(c, "ask", 0.0) or 0.0),
+                                "impliedVolatility": float(getattr(c, "iv", 0.0) or 0.0),
+                                "openInterest": int(getattr(c, "open_interest", 0) or 0),
+                                "volume": int(getattr(c, "volume", 0) or 0),
                                 "expiry": expiry,
                             }
-                            for c in contracts if c.get("option_type") == "put"
+                            for c in contracts
+                            if str(getattr(c, "option_type", "")).lower() == "put"
                         ]
                     )
                     if not calls.empty:
@@ -1184,7 +1191,7 @@ class SpyderS06_SKEWCalculator:
                 return None
 
             # Select appropriate expiries (around 30 days)
-            target_date = datetime.now() + timedelta(days=30)
+            target_date = datetime.now(timezone.utc) + timedelta(days=30)
             selected_expiries = []
 
             for expiry_str in expiries:
@@ -1232,7 +1239,7 @@ class SpyderS06_SKEWCalculator:
             if cache_key in self.calculation_cache:
                 timestamp = self.cache_timestamps.get(cache_key)
                 if timestamp:
-                    age = (datetime.now() - timestamp).total_seconds()
+                    age = (datetime.now(timezone.utc) - timestamp).total_seconds()
                     if age < self.config['cache_ttl']:
                         return self.calculation_cache[cache_key]
 
@@ -1247,7 +1254,7 @@ class SpyderS06_SKEWCalculator:
         try:
             cache_key = self._generate_cache_key()
             self.calculation_cache[cache_key] = calculation
-            self.cache_timestamps[cache_key] = datetime.now()
+            self.cache_timestamps[cache_key] = datetime.now(timezone.utc)
 
             # Limit cache size
             if len(self.calculation_cache) > 100:
@@ -1263,7 +1270,7 @@ class SpyderS06_SKEWCalculator:
         """Generate cache key for current data"""
         key_data = {
             'spot': round(self.spot_price, 2) if self.spot_price else 0,
-            'timestamp': datetime.now().replace(second=0, microsecond=0).isoformat()
+            'timestamp': datetime.now(timezone.utc).replace(second=0, microsecond=0).isoformat()
         }
         key_str = json.dumps(key_data, sort_keys=True)
         return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()

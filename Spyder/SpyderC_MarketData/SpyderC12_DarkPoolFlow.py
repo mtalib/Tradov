@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Any
 from dataclasses import dataclass
 from collections import defaultdict, deque
@@ -241,7 +241,7 @@ class DarkPoolFlowAnalyzer:
         """
         with self._lock:
             recent_blocks = [b for b in self.block_trades
-                           if b.timestamp > datetime.now() - timedelta(hours=1)]
+                           if b.timestamp > datetime.now(timezone.utc) - timedelta(hours=1)]
 
             total_volume = sum(b.size for b in recent_blocks)
             dark_volume = sum(b.size for b in recent_blocks if b.is_dark_pool)
@@ -258,7 +258,7 @@ class DarkPoolFlowAnalyzer:
             dix_value = self._get_current_dix()
 
             return DarkPoolMetrics(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 total_volume=total_volume,
                 dark_volume=dark_volume,
                 dark_percentage=dark_percentage,
@@ -280,7 +280,7 @@ class DarkPoolFlowAnalyzer:
         # Count accumulation vs distribution blocks
         with self._lock:
             recent_blocks = [b for b in self.current_session_blocks
-                           if b.timestamp > datetime.now() - ACCUMULATION_WINDOW]
+                           if b.timestamp > datetime.now(timezone.utc) - ACCUMULATION_WINDOW]
 
             acc_blocks = sum(1 for b in recent_blocks if b.direction == "BUY")
             dist_blocks = sum(1 for b in recent_blocks if b.direction == "SELL")
@@ -303,7 +303,7 @@ class DarkPoolFlowAnalyzer:
         signal = self._classify_institutional_signal(direction, strength, confidence)
 
         return InstitutionalFlow(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             direction=direction,
             strength=strength,
             accumulation_blocks=acc_blocks,
@@ -359,7 +359,7 @@ class DarkPoolFlowAnalyzer:
         Returns:
             Block trade summary statistics
         """
-        cutoff = datetime.now() - timedelta(seconds=timeframe.value)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=timeframe.value)
 
         with self._lock:
             period_blocks = [b for b in self.block_trades if b.timestamp > cutoff]
@@ -408,7 +408,7 @@ class DarkPoolFlowAnalyzer:
             # Group blocks by time window
             recent_blocks = sorted(
                 [b for b in self.block_trades
-                 if b.timestamp > datetime.now() - timedelta(seconds=60)],
+                 if b.timestamp > datetime.now(timezone.utc) - timedelta(seconds=60)],
                 key=lambda x: x.timestamp
             )
 
@@ -743,7 +743,7 @@ if __name__ == "__main__":
 
         # Test with synthetic block trade
         test_trade = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'symbol': 'SPY',
             'exchange': 'SIGMA',
             'price': 450.50,

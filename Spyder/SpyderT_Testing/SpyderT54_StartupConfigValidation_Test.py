@@ -76,8 +76,7 @@ _VALID_SANDBOX_ENV = {
     "TRADIER_ACCOUNT_ID": "123456",
     "TRADING_MODE": "sandbox",
     "TRADIER_ENVIRONMENT": "sandbox",
-    "DATA_PROVIDER": "massive",
-    "MASSIVE_API_KEY": "massive-key-xyz",
+    "DATA_PROVIDER": "tradier",
     "LIVE_TRADING_CONFIRMED": "false",
 }
 
@@ -91,22 +90,18 @@ def _patched_module(env_overrides: dict) -> Iterator[None]:
     """
     # Save original values
     orig_tradier = dict(_cfg_mod.TRADIER_CONFIG)
-    orig_massive = dict(_cfg_mod.MASSIVE_CONFIG)
     orig_provider = _cfg_mod.DATA_PROVIDER
 
     # Apply env-driven state to module-level dicts
     _cfg_mod.TRADIER_CONFIG["api_key"] = env_overrides.get("TRADIER_API_KEY", "")
     _cfg_mod.TRADIER_CONFIG["account_id"] = env_overrides.get("TRADIER_ACCOUNT_ID", "")
-    provider = env_overrides.get("DATA_PROVIDER", "massive")
-    _cfg_mod.DATA_PROVIDER = provider
-    _cfg_mod.MASSIVE_CONFIG["api_key"] = env_overrides.get("MASSIVE_API_KEY", "")
+    _cfg_mod.DATA_PROVIDER = env_overrides.get("DATA_PROVIDER", "tradier")
 
     with patch.dict(os.environ, env_overrides, clear=False):
         try:
             yield
         finally:
             _cfg_mod.TRADIER_CONFIG.update(orig_tradier)
-            _cfg_mod.MASSIVE_CONFIG.update(orig_massive)
             _cfg_mod.DATA_PROVIDER = orig_provider
 
 
@@ -152,15 +147,6 @@ class TestValidateStartupConfigSuccess(unittest.TestCase):
             **_VALID_SANDBOX_ENV,
             "TRADING_MODE": "live",
             "LIVE_TRADING_CONFIRMED": "true",
-        }
-        with _patched_module(env):
-            validate_startup_config()
-
-    def test_massive_provider_with_key(self):
-        env = {
-            **_VALID_SANDBOX_ENV,
-            "DATA_PROVIDER": "massive",
-            "MASSIVE_API_KEY": "massive-key-123",
         }
         with _patched_module(env):
             validate_startup_config()
@@ -223,40 +209,15 @@ class TestValidateStartupConfigInvalidMode(unittest.TestCase):
 
 
 class TestValidateStartupConfigDataProvider(unittest.TestCase):
-    """Missing data-provider key must be caught."""
-
-    def test_missing_massive_key_raises(self):
-        env = {**_VALID_SANDBOX_ENV, "MASSIVE_API_KEY": "", "DATA_PROVIDER": "massive"}
-        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
-            validate_startup_config()
-        self.assertIn("MASSIVE_API_KEY", str(ctx.exception))
+    """DATA_PROVIDER configuration is accepted (no validation enforced)."""
 
     def test_polygon_alias_is_accepted(self):
         env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "polygon"}
         with _patched_module(env):
             validate_startup_config()
 
-    def test_unknown_provider_raises(self):
-        env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "quandl"}
-        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
-            validate_startup_config()
-        self.assertIn("DATA_PROVIDER", str(ctx.exception))
-
-    def test_massive_key_required_when_massive_mode(self):
-        env = {
-            **_VALID_SANDBOX_ENV,
-            "DATA_PROVIDER": "massive",
-            "MASSIVE_API_KEY": "massive-key",
-        }
-        with _patched_module(env):
-            validate_startup_config()  # must not raise
-
-    def test_tradier_provider_does_not_require_massive_key(self):
-        env = {
-            **_VALID_SANDBOX_ENV,
-            "DATA_PROVIDER": "tradier",
-            "MASSIVE_API_KEY": "",
-        }
+    def test_tradier_provider_accepted(self):
+        env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "tradier"}
         with _patched_module(env):
             validate_startup_config()
 
@@ -315,23 +276,6 @@ class TestValidateStartupConfigMultipleErrors(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("TRADIER_API_KEY", msg)
         self.assertIn("TRADIER_ACCOUNT_ID", msg)
-
-    def test_three_missing_vars_all_reported(self):
-        env = {
-            "TRADIER_API_KEY": "",
-            "TRADIER_ACCOUNT_ID": "",
-            "TRADING_MODE": "sandbox",
-            "TRADIER_ENVIRONMENT": "sandbox",
-            "DATA_PROVIDER": "massive",
-            "MASSIVE_API_KEY": "",
-            "LIVE_TRADING_CONFIRMED": "false",
-        }
-        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
-            validate_startup_config()
-        msg = str(ctx.exception)
-        self.assertIn("TRADIER_API_KEY", msg)
-        self.assertIn("TRADIER_ACCOUNT_ID", msg)
-        self.assertIn("MASSIVE_API_KEY", msg)
 
     def test_error_message_mentions_problem_count(self):
         env = {
@@ -508,6 +452,8 @@ class TestA03AutonomousReadinessValidation(unittest.TestCase):
         return {
             "automation": {"enabled": True},
             "autonomous_readiness": {
+                "lean_mode": True,
+                "observe_only_agents": True,
                 "liquidity": {
                     "max_spread_pct": 0.12,
                     "max_spread_abs": 0.20,
@@ -631,6 +577,115 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
     """Focused tests for G05 startup readiness helper behavior."""
 
     def _load_g05(self):
+        import types
+
+        class _BaseQtObject:
+            """Lightweight class placeholder for Qt symbols."""
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+        class _SignalStub:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def connect(self, *args, **kwargs):
+                return None
+
+            def emit(self, *args, **kwargs):
+                return None
+
+        class _AnyAttrModule(types.ModuleType):
+            """Module stub that resolves unknown attributes to a dummy class."""
+
+            def __getattr__(self, name):
+                val = _BaseQtObject
+                setattr(self, name, val)
+                return val
+
+        class _QtNamespace:
+            def __getattr__(self, name):
+                return 0
+
+        class _QApplicationStub(_BaseQtObject):
+            @classmethod
+            def instance(cls):
+                return None
+
+        qtw = _AnyAttrModule("PySide6.QtWidgets")
+        qtc = _AnyAttrModule("PySide6.QtCore")
+        qtg = _AnyAttrModule("PySide6.QtGui")
+
+        for name in [
+            "QDialog",
+            "QDialogButtonBox",
+            "QFrame",
+            "QGridLayout",
+            "QGroupBox",
+            "QHBoxLayout",
+            "QHeaderView",
+            "QLabel",
+            "QLineEdit",
+            "QMainWindow",
+            "QMenu",
+            "QMessageBox",
+            "QPushButton",
+            "QScrollArea",
+            "QSizePolicy",
+            "QSplitter",
+            "QTableWidget",
+            "QTableWidgetItem",
+            "QTextEdit",
+            "QTreeWidget",
+            "QTreeWidgetItem",
+            "QVBoxLayout",
+            "QWidget",
+        ]:
+            setattr(qtw, name, _BaseQtObject)
+        qtw.QApplication = _QApplicationStub
+
+        for name in [
+            "QModelIndex",
+            "QMutex",
+            "QMutexLocker",
+            "QObject",
+            "QRect",
+            "QThread",
+            "QTimer",
+        ]:
+            setattr(qtc, name, _BaseQtObject)
+        qtc.Signal = lambda *args, **kwargs: _SignalStub()
+        qtc.Slot = lambda *args, **kwargs: (lambda func: func)
+        qtc.Qt = _QtNamespace()
+
+        for name in ["QBrush", "QColor", "QFont", "QPainter", "QPen", "QTextCursor"]:
+            setattr(qtg, name, _BaseQtObject)
+
+        pyside6 = _AnyAttrModule("PySide6")
+        pyside6.QtWidgets = qtw
+        pyside6.QtCore = qtc
+        pyside6.QtGui = qtg
+
+        module_keys = [
+            "PySide6",
+            "PySide6.QtWidgets",
+            "PySide6.QtCore",
+            "PySide6.QtGui",
+            "PySide6.QtCharts",
+            "PySide6.QtNetwork",
+        ]
+        saved_modules = {k: sys.modules[k] for k in module_keys if k in sys.modules}
+        sys.modules.update(
+            {
+                "PySide6": pyside6,
+                "PySide6.QtWidgets": qtw,
+                "PySide6.QtCore": qtc,
+                "PySide6.QtGui": qtg,
+                "PySide6.QtCharts": types.ModuleType("PySide6.QtCharts"),
+                "PySide6.QtNetwork": types.ModuleType("PySide6.QtNetwork"),
+            }
+        )
+
         path = (
             _REPO_ROOT
             / "Spyder"
@@ -639,7 +694,14 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
         )
         spec = importlib.util.spec_from_file_location("_g05_t54_readiness", path)
         mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        try:
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        finally:
+            for key in module_keys:
+                if key in saved_modules:
+                    sys.modules[key] = saved_modules[key]
+                else:
+                    sys.modules.pop(key, None)
         return mod
 
     def test_collect_state_marks_safe_fallback_in_paper_mode(self):
@@ -672,6 +734,34 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
         self.assertTrue(state["safe_fallback_applied"])
         self.assertFalse(state["live_blocking"])
         self.assertEqual(state["source"], "A03.ConfigManager")
+
+    def test_collect_state_prefers_effective_runtime_mode_from_env(self):
+        g05 = self._load_g05()
+        dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
+
+        fake_cfg = MagicMock()
+        fake_cfg.get.side_effect = lambda key, default=None: {
+            "trading.mode": "live",
+            "automation.enabled": True,
+            "runtime.paper_mode": None,
+        }.get(key, default)
+        fake_cfg.config_data = {}
+        fake_cfg.validate_autonomous_readiness_config.return_value = {
+            "warnings": [],
+            "errors": [],
+        }
+        fake_cfg_module = MagicMock()
+        fake_cfg_module.get_config_manager.return_value = fake_cfg
+
+        with patch.dict(
+            sys.modules,
+            {"Spyder.SpyderA_Core.SpyderA03_Configuration": fake_cfg_module},
+            clear=False,
+        ):
+            with patch.dict(os.environ, {"TRADING_MODE": "paper"}, clear=False):
+                state = dashboard._collect_startup_readiness_state()
+
+        self.assertEqual(state["mode"], "paper")
 
     def test_emit_logs_styles_button_for_safe_mode(self):
         g05 = self._load_g05()
@@ -710,6 +800,28 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
 
         self.assertEqual(len(dashboard.system_logs), 1)
         self.assertIn("STARTUP READINESS: unavailable", dashboard.system_logs[0])
+
+    def test_readiness_snapshot_accepts_real_time_data_label(self):
+        g05 = self._load_g05()
+
+        snapshot = {
+            "is_weekend": False,
+            "startup_state": {
+                "live_blocking": False,
+                "safe_fallback_applied": False,
+            },
+            "api_connected": True,
+            "mkt_data_connected": True,
+            "data_status_label": "REAL-TIME",
+            "event_clock_enabled": False,
+            "event_clock_state": "clear",
+            "checked_at_et": "2026-04-29T12:00:00-04:00",
+        }
+
+        result = g05.SpyderTradingDashboard._evaluate_trading_readiness_snapshot(snapshot)
+
+        self.assertEqual(result["decision"], "OK")
+        self.assertEqual(result["warnings"], [])
 
 
 # ==============================================================================

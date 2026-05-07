@@ -5,7 +5,7 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderX_Unknown
 Module: config_template.py
-Purpose: Configuration template for Spyder trading system (Tradier + Massive).
+Purpose: Configuration template for Spyder trading system (Tradier).
 
 Author: Mohamed Talib
 Year Created: 2025
@@ -22,7 +22,7 @@ Module Description:
 # ==============================================================================
 import os
 
-__all__ = ["TRADIER_CONFIG", "MASSIVE_CONFIG", "TRADING_CONFIG"]
+__all__ = ["TRADIER_CONFIG", "TRADING_CONFIG"]
 
 # ==============================================================================
 # TRADIER BROKER CONFIGURATION
@@ -37,19 +37,6 @@ TRADIER_CONFIG = {
     "max_retries": 3,
     "retry_delay": 1.0,
     "requests_per_second": 10,
-}
-
-# ==============================================================================
-# MASSIVE FALLBACK MARKET DATA CONFIGURATION
-# ==============================================================================
-MASSIVE_CONFIG = {
-    "api_key": os.environ.get("MASSIVE_API_KEY", ""),
-    "rest_requests_per_second": float(os.environ.get("MASSIVE_REST_RPS", "3.0")),
-    "stream_quotes": True,
-    "stream_trades": True,
-    "default_symbols": ["SPY"],
-    "reconnect_delay": 5,
-    "max_reconnect_attempts": 10,
 }
 
 # ==============================================================================

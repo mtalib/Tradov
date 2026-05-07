@@ -314,8 +314,10 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
         # Try to get full analysis from X13
         if self._x13_agent:
             try:
-                import asyncio
-                analysis = asyncio.run(
+                # v27 SPEC-15: use AsyncBridge helper to avoid RuntimeError
+                # when caller is inside an existing event loop (X14 orch).
+                from Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+                analysis = run_coro_in_thread(
                     self._x13_agent.analyze_market(symbol="SPY")
                 )
                 if analysis:
@@ -331,13 +333,13 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
         old_regime = self._current_regime
         self._current_regime = snapshot.regime
         self._regime_confidence = snapshot.regime_confidence
-        self._last_regime_change = datetime.now()
+        self._last_regime_change = datetime.now(timezone.utc)
 
         transition = {
             "from": old_regime,
             "to": snapshot.regime,
             "confidence": snapshot.regime_confidence,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         self._regime_history.append(transition)
 
@@ -413,7 +415,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
         """Generate end-of-day summary using snapshots and LLM."""
         today_snapshots = [
             s for s in self._snapshots
-            if s.timestamp.date() == datetime.now().date()
+            if s.timestamp.date() == datetime.now(timezone.utc).date()
         ]
 
         if not today_snapshots:
@@ -427,7 +429,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
                 transitions += 1
 
         brief = DailyBrief(
-            date=datetime.now().strftime("%Y-%m-%d"),
+            date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             regime_start=regimes_seen[0] if regimes_seen else "unknown",
             regime_end=regimes_seen[-1] if regimes_seen else "unknown",
             regime_transitions=transitions,

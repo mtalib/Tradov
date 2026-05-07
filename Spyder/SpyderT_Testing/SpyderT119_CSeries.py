@@ -169,7 +169,7 @@ class TestC01DataFeedStatusEnum(unittest.TestCase):
 
 class TestC01DataSourceEnum(unittest.TestCase):
     def test_members(self):
-        for name in ("MASSIVE", "CACHE", "CUSTOM", "SYNTHETIC"):
+        for name in ("TRADIER", "CACHE", "CUSTOM", "SYNTHETIC"):
             self.assertTrue(hasattr(DataSource, name), f"Missing: {name}")
 
 

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Any
 from dataclasses import dataclass
 from collections import deque
@@ -268,7 +268,7 @@ class GammaExposureCalculator:
         self.calculation_times: deque = deque(maxlen=100)
         self.last_update_time: datetime | None = None
 
-        self.logger.info("%s initialized", self.__class__.__name__)
+        self.logger.debug("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - MAIN CALCULATIONS
@@ -345,7 +345,7 @@ class GammaExposureCalculator:
 
             # Create profile
             profile = GEXProfile(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 spot_price=spot_price,
                 current_gex=current_gex,
                 price_levels=price_range,
@@ -368,7 +368,7 @@ class GammaExposureCalculator:
             with self._lock:
                 self.current_profile = profile
                 self._profile_cache = profile
-                self._cache_timestamp = datetime.now()
+                self._cache_timestamp = datetime.now(timezone.utc)
 
                 # Track history
                 self.historical_gex.append({
@@ -423,7 +423,7 @@ class GammaExposureCalculator:
             })
 
         # Historical flip points
-        cutoff_date = datetime.now() - timedelta(days=num_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=num_days)
         for flip in self.flip_history:
             if flip['timestamp'] > cutoff_date:
                 flip_points.append(flip)
@@ -479,7 +479,7 @@ class GammaExposureCalculator:
             call_wall_levels, put_wall_levels, wall_confidence, net_gex,
             regime, snapshot_ts.
         """
-        ts = datetime.now().isoformat()
+        ts = datetime.now(timezone.utc).isoformat()
 
         if self.current_profile is None:
             try:
@@ -566,7 +566,7 @@ class GammaExposureCalculator:
                 urgency = 'low'
 
             positioning = DealerPositioning(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 total_delta_exposure=dealer_delta,
                 total_gamma_exposure=dealer_gamma,
                 total_vega_exposure=dealer_vega,
@@ -676,7 +676,7 @@ class GammaExposureCalculator:
         df = pd.DataFrame(list(self.historical_gex))
 
         # Filter to today only
-        today = datetime.now().date()
+        today = datetime.now(timezone.utc).date()
         df['date'] = pd.to_datetime(df['timestamp']).dt.date
         df = df[df['date'] == today].copy()
 
@@ -1110,14 +1110,14 @@ class GammaExposureCalculator:
         if not self._profile_cache or not self._cache_timestamp:
             return False
 
-        age = (datetime.now() - self._cache_timestamp).total_seconds()
+        age = (datetime.now(timezone.utc) - self._cache_timestamp).total_seconds()
         return age < GEX_UPDATE_INTERVAL
 
     def _emit_gex_update(self, profile: GEXProfile) -> None:
         """Emit GEX update event."""
-        event = Event(
-            type=EventType.ANALYTICS,
-            data={
+        self.event_manager.emit(
+            EventType.ANALYTICS,
+            {
                 'type': 'gex_update',
                 'timestamp': profile.timestamp.isoformat(),
                 'spot': profile.spot_price,
@@ -1127,7 +1127,6 @@ class GammaExposureCalculator:
                 'expected_flow': profile.expected_flow.value
             }
         )
-        self.event_manager.emit(event)
 
     # ==========================================================================
     # PUBLIC METHODS - MONITORING
@@ -1194,9 +1193,9 @@ class GammaExposureCalculator:
             self.logger.warning(f"Approaching gamma flip: Spot ${spot:.2f}, Flip ${flip:.2f}, Distance ${distance:.2f}")  # noqa: E501
 
             # Emit alert event
-            event = Event(
-                type=EventType.RISK_ALERT,
-                data={
+            self.event_manager.emit(
+                EventType.RISK_ALERT,
+                {
                     'type': 'gamma_flip_proximity',
                     'spot': spot,
                     'flip_level': flip,
@@ -1204,7 +1203,6 @@ class GammaExposureCalculator:
                     'direction': 'above' if spot > flip else 'below'
                 }
             )
-            self.event_manager.emit(event)
 
     # ==========================================================================
     # PUBLIC METHODS - VISUALIZATION

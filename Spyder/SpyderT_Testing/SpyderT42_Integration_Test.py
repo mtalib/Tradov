@@ -20,7 +20,6 @@ Usage:
 
 Requirements:
     - Valid TRADIER_API_KEY and TRADIER_ACCOUNT_ID in environment
-    - Valid MASSIVE_API_KEY in environment
     - TRADING_MODE=paper (sandbox) for testing
 """
 
@@ -38,18 +37,6 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     TradierAuthenticationError,
 )
 
-# Conditional Massive market-data client import
-try:
-    from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
-        MassiveClient,
-        MassiveQuoteUpdate,
-        ConnectionStatus,
-        create_massive_client_from_env,
-    )
-    HAS_MASSIVE_MARKET_DATA = True
-except ImportError:
-    HAS_MASSIVE_MARKET_DATA = False
-
 
 # ==============================================================================
 # FIXTURES
@@ -64,12 +51,6 @@ def integration_env_vars():
     if missing:
         pytest.skip(f"Integration test requires: {', '.join(missing)}")
 
-
-@pytest.fixture
-def massive_market_data_env_vars():
-    """Check for Massive market-data integration variables."""
-    if not os.getenv("MASSIVE_API_KEY"):
-        pytest.skip("Integration test requires: MASSIVE_API_KEY")
 
 
 @pytest.fixture
@@ -87,14 +68,6 @@ def tradier_client(integration_env_vars):
         pytest.skip(f"Tradier integration credentials invalid for sandbox: {exc}")
     return client
 
-
-@pytest.fixture
-def massive_market_data_client(massive_market_data_env_vars):
-    """Create the Massive market-data client for integration testing."""
-    if not HAS_MASSIVE_MARKET_DATA:
-        pytest.skip("Massive market-data client not available")
-
-    return create_massive_client_from_env()
 
 
 # ==============================================================================
@@ -155,56 +128,6 @@ class TestTradierIntegration:
         # Cancel the order
         cancel_result = tradier_client.cancel_order(order_id)
         assert "order" in cancel_result
-
-
-# ==============================================================================
-# MASSIVE MARKET-DATA INTEGRATION TESTS
-# ==============================================================================
-
-@pytest.mark.skipif(not HAS_MASSIVE_MARKET_DATA, reason="Requires Massive market-data client")
-class TestMassiveMarketDataIntegration:
-    """Integration tests for the Massive market-data client."""
-
-    @pytest.mark.network
-    def test_massive_client_init(self, massive_market_data_client):
-        """Test the Massive client initializes with a valid API key."""
-        assert massive_market_data_client.api_key != ""
-        assert massive_market_data_client.status == ConnectionStatus.DISCONNECTED
-
-    @pytest.mark.network
-    @pytest.mark.slow
-    def test_massive_market_status(self, massive_market_data_client):
-        """Test Massive market status retrieval."""
-        result = massive_market_data_client.get_market_status()
-        assert isinstance(result, dict)
-        assert result
-
-    @pytest.mark.network
-    @pytest.mark.slow
-    def test_massive_historical_bars(self, massive_market_data_client):
-        """Test fetching historical OHLCV bars from Massive."""
-        df = massive_market_data_client.get_historical_bars(
-            symbol="SPY",
-            start="2026-01-02",
-            end="2026-01-03",
-            timespan="minute",
-        )
-        if df is not None:
-            assert len(df) > 0
-
-    def test_massive_quote_update_normalization(self):
-        """Test Massive quote update normalization to provider-agnostic format."""
-        update = MassiveQuoteUpdate(
-            symbol="SPY",
-            bid=585.23,
-            ask=585.27,
-            bid_size=500,
-            ask_size=300,
-        )
-
-        assert update.symbol == "SPY"
-        assert update.bid == 585.23
-        assert round(update.mid, 2) == 585.25
 
 
 # ==============================================================================

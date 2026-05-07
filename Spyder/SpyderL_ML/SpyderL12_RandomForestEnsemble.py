@@ -26,7 +26,7 @@ import asyncio
 import logging
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 # ==============================================================================
@@ -294,7 +294,7 @@ class SpyderRandomForestEnsemble:
         # Update state
         self.is_trained = True
         self.performance_history.append(
-            {"strategy": strategy_type, "timestamp": datetime.now(), "performance": performance}
+            {"strategy": strategy_type, "timestamp": datetime.now(timezone.utc), "performance": performance}
         )
         logger.info(
             f"Training complete - RMSE: ${performance.rmse:.3f}, " f"R²: {performance.r2:.3f}"

@@ -28,7 +28,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
@@ -89,7 +89,7 @@ class PerformanceMetricType(Enum):
 @dataclass
 class PerformanceSnapshot:
     """Snapshot of strategy/portfolio performance."""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     total_pnl: float = 0.0
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
@@ -107,7 +107,7 @@ class PerformanceSnapshot:
 @dataclass
 class PerformanceAnalysis:
     """Result of AI-enhanced performance analysis."""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     snapshot: PerformanceSnapshot | None = None
     natural_language_summary: str = ""
     strengths: list[str] = field(default_factory=list)

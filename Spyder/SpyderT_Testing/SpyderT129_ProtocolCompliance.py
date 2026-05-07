@@ -55,6 +55,22 @@ class E01RiskManagerProtocolTest(unittest.TestCase):
 class F10RegimeDetectorStubContractTest(unittest.TestCase):
     """F10 is a regime detector; it must NOT silently return empty indicators."""
 
+    _F10_KEY = "Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector"
+
+    def setUp(self) -> None:
+        import sys
+        # T114 replaces this sys.modules entry with a MagicMock stub via
+        # _ensure_mod(force=True).  Pop it so the real module is imported
+        # for the duration of this test.
+        self._f10_backup = sys.modules.pop(self._F10_KEY, None)
+
+    def tearDown(self) -> None:
+        import sys
+        if self._f10_backup is not None:
+            sys.modules[self._F10_KEY] = self._f10_backup
+        else:
+            sys.modules.pop(self._F10_KEY, None)
+
     def test_calculate_all_indicators_returns_none(self) -> None:
         from Spyder.SpyderF_Analysis.SpyderF10_MarketRegimeDetector import MarketRegimeDetector
 
@@ -737,6 +753,18 @@ class B4PendingOrdersThreadSafetyTest(unittest.TestCase):
 class B5DataFreshUnpauseTest(unittest.TestCase):
     """T129-B5: D31 unpauses on DATA_FRESH; KILL_SWITCH pause is sticky."""
 
+    @staticmethod
+    def _wait_until(predicate, timeout: float = 1.0, interval: float = 0.02) -> bool:
+        """Poll a predicate until true or timeout expires."""
+        import time
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if predicate():
+                return True
+            time.sleep(interval)
+        return bool(predicate())
+
     def _make_orchestrator(self):
         from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager
         from Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
@@ -748,36 +776,52 @@ class B5DataFreshUnpauseTest(unittest.TestCase):
         return orch, em
 
     def test_data_stale_pauses_then_data_fresh_resumes(self) -> None:
-        import time
         from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType
 
         orch, em = self._make_orchestrator()
 
         # Emit DATA_STALE
         em.emit(EventType.DATA_STALE, {"reason": "test"}, source="test")
-        time.sleep(0.1)
+        self.assertTrue(
+            self._wait_until(lambda: orch._paused_stale),
+            "Orchestrator must be paused after DATA_STALE",
+        )
         self.assertTrue(orch._paused_stale, "Orchestrator must be paused after DATA_STALE")
         self.assertFalse(orch._paused_kill, "Kill-switch must remain clear")
 
         # Emit DATA_FRESH
         em.emit(EventType.DATA_FRESH, {"symbols": ["SPY"]}, source="test")
-        time.sleep(0.1)
+        self.assertTrue(
+            self._wait_until(lambda: not orch._paused_stale),
+            "Orchestrator must resume after DATA_FRESH",
+        )
         self.assertFalse(orch._paused_stale, "Orchestrator must resume after DATA_FRESH")
 
     def test_kill_switch_pause_is_sticky_after_data_fresh(self) -> None:
-        import time
         from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType
 
         orch, em = self._make_orchestrator()
 
         # Emit KILL_SWITCH
         em.emit(EventType.KILL_SWITCH, {"reason": "test_sticky"}, source="test")
-        time.sleep(0.1)
+        self.assertTrue(
+            self._wait_until(lambda: orch._paused_kill),
+            "Kill-switch pause must be set",
+        )
         self.assertTrue(orch._paused_kill, "Kill-switch pause must be set")
 
         # Emit DATA_FRESH — must NOT clear the kill-switch pause
         em.emit(EventType.DATA_FRESH, {"symbols": ["SPY"]}, source="test")
-        time.sleep(0.1)
+        # Allow async handlers to run and verify sticky flag never clears.
+        import time
+
+        deadline = time.time() + 0.25
+        while time.time() < deadline:
+            self.assertTrue(
+                orch._paused_kill,
+                "Kill-switch pause must survive DATA_FRESH (sticky)",
+            )
+            time.sleep(0.05)
         self.assertTrue(orch._paused_kill, "Kill-switch pause must survive DATA_FRESH (sticky)")
 
 
@@ -1465,6 +1509,27 @@ class A6FillPriceGuardTest(unittest.TestCase):
 
 class A8CancelAllEscalationTest(unittest.TestCase):
     """T129-A8: partial cancel failures must escalate to KILL_SWITCH."""
+
+    def setUp(self) -> None:
+        """Clear stale KILL_SWITCH handlers so queued events from prior tests
+        cannot pre-set the fresh engine's _kill_switch_event flag before the
+        assertion window opens."""
+        import time as _time
+        from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType, get_event_manager
+        em = get_event_manager()
+        with em.handler_lock:
+            self._ks_backup = list(em.handlers.get(EventType.KILL_SWITCH, []))
+            em.handlers[EventType.KILL_SWITCH] = []
+        # Allow any already-queued events to drain against the now-empty
+        # handler list so they cannot reach the new engine after subscribe.
+        _time.sleep(0.05)
+
+    def tearDown(self) -> None:
+        """Restore original KILL_SWITCH handlers."""
+        from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType, get_event_manager
+        em = get_event_manager()
+        with em.handler_lock:
+            em.handlers[EventType.KILL_SWITCH] = self._ks_backup
 
     def test_cancel_all_escalates_on_partial_failure(self) -> None:
         import unittest.mock as mock

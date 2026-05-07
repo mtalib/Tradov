@@ -215,7 +215,7 @@ class TestOrderExecutionIntegration(SpyderTestBase):
             signal_strength=0.85,
             signal_quality=SignalQuality.STRONG,
             entry_reason="Test trade",
-            market_regime="NEUTRAL",
+            market_regime="RANGE",
             volatility_regime="NORMAL",
             risk_check_result="PASSED",
             position_size=10,

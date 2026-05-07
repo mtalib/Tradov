@@ -903,17 +903,16 @@ class TestL09Enums(unittest.TestCase):
     """Test L09 enumeration types."""
 
     def test_market_regime_bull(self):
-        # The module has two MarketRegime definitions; the last one (line 2059) wins
-        self.assertEqual(MarketRegime.BULL.value, "bull")
+        self.assertEqual(MarketRegime.BULL_TRENDING.value, "bull_trending")
 
     def test_market_regime_bear(self):
-        self.assertEqual(MarketRegime.BEAR.value, "bear")
+        self.assertEqual(MarketRegime.BEAR_TRENDING.value, "bear_trending")
 
     def test_market_regime_unknown(self):
         self.assertEqual(MarketRegime.UNKNOWN.value, "unknown")
 
     def test_market_regime_sideways(self):
-        self.assertEqual(MarketRegime.SIDEWAYS.value, "sideways")
+        self.assertEqual(MarketRegime.SIDEWAYS_RANGE.value, "sideways_range")
 
     def test_regime_source_ml(self):
         self.assertEqual(RegimeSource.ML_CLASSIFIER.value, "ml_classifier")

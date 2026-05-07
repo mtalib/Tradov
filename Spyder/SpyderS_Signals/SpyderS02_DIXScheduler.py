@@ -27,7 +27,7 @@ import logging
 import os
 import time as time_module
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 # ==============================================================================
@@ -337,7 +337,7 @@ class SpyderDIXScheduler:
             CalculationResult or None if failed
         """
         self.status = SchedulerStatus.RUNNING
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         try:
             self.logger.debug("Starting scheduled DIX calculation at %s", start_time)
@@ -397,7 +397,7 @@ class SpyderDIXScheduler:
             Dictionary with latest DIX data or None
         """
         if self.latest_result:
-            age = datetime.now() - self.latest_result.timestamp
+            age = datetime.now(timezone.utc) - self.latest_result.timestamp
 
             # Return cached if less than 24 hours old
             if age.total_seconds() < 86400:
@@ -495,10 +495,10 @@ class SpyderDIXScheduler:
         expected_date = self._get_expected_finra_date()
         url = f"https://cdn.finra.org/equity/regsho/daily/CNMSshvol{expected_date}.txt"
 
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
         max_wait = timedelta(minutes=max_wait_minutes)
 
-        while datetime.now() - start_time < max_wait:
+        while datetime.now(timezone.utc) - start_time < max_wait:
             try:
                 response = requests.head(url, timeout=HEALTH_CHECK_TIMEOUT)
                 if response.status_code == 200:
@@ -572,13 +572,13 @@ class SpyderDIXScheduler:
 
         # Create result object
         calculation_result = CalculationResult(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             dix_value=results["dix"],
             dix_percentage=dix_pct,
             sentiment=sentiment,
             status=SchedulerStatus.COMPLETED,
             error_message=None,
-            execution_time=(datetime.now() - start_time).total_seconds(),
+            execution_time=(datetime.now(timezone.utc) - start_time).total_seconds(),
         )
 
         # Update latest result
@@ -745,7 +745,7 @@ Market Outlook:
 DIX CALCULATION ERROR
 ====================
 
-Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
 Error: {error_message}
 
 The scheduled DIX calculation failed. Please check the system logs.
@@ -757,7 +757,7 @@ Last successful calculation:
             body += f"""
 Date: {self.latest_result.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
 DIX: {self.latest_result.dix_percentage:.2f}%
-Age: {(datetime.now() - self.latest_result.timestamp).total_seconds() / 3600:.1f} hours
+Age: {(datetime.now(timezone.utc) - self.latest_result.timestamp).total_seconds() / 3600:.1f} hours
 """
         else:
             body += "No previous calculation available"
@@ -875,7 +875,7 @@ Today's Trading Bias:
         """Check if constituents should be updated."""
 
         # Update on Sundays or if never updated
-        return datetime.now().weekday() == 6
+        return datetime.now(timezone.utc).weekday() == 6
 
     # ==========================================================================
     # LIFECYCLE METHODS

@@ -101,6 +101,7 @@ class SessionSupervisor:
     ) -> None:
         self.logger = SpyderLogger.get_logger(__name__)
         self.mode = mode
+        self.session_id: str = ""
         self.dry_run: bool = dry_run
         self.skip_orphan_sweep: bool = skip_orphan_sweep
         self.symbols: List[str] = symbols or [
@@ -127,6 +128,7 @@ class SessionSupervisor:
         self.exit_monitor: Any = None
         # O1/O9/A13 (v14): LivenessMonitor — heartbeat + /healthz + deadman.
         self.liveness: Any = None
+        self._flatten_request_handler_id: Optional[str] = None
 
     # --------------------------------------------------------------------------
     # PUBLIC API
@@ -143,7 +145,13 @@ class SessionSupervisor:
         Returns:
             ``True`` on success, ``False`` if any required component fails.
         """
-        self.logger.info("SessionSupervisor.start() — mode=%s symbols=%s", self.mode, self.symbols)
+        self.session_id = f"{self.mode}-{uuid.uuid4().hex[:12]}"
+        self.logger.debug(
+            "SessionSupervisor.start() — mode=%s symbols=%s session_id=%s",
+            self.mode,
+            self.symbols,
+            self.session_id,
+        )
         if self.dry_run:
             self.logger.warning("⚠️  DRY-RUN MODE — order submission is suppressed; no orders will reach the broker")  # noqa: E501
 
@@ -201,7 +209,7 @@ class SessionSupervisor:
             return self._abort("BootSelfTest")
 
         self._running = True
-        self.logger.info("✅ SessionSupervisor fully started in %s mode", self.mode)
+        self.logger.debug("✅ SessionSupervisor fully started in %s mode", self.mode)
 
         return True
 
@@ -246,6 +254,13 @@ class SessionSupervisor:
         # ---- Phase 4/4 — process cleanup ----
         # Note: the EventManager is a shared singleton — we do NOT stop it here.
         # Its lifecycle is managed by the process (Python GC / main thread shutdown).
+        if self.em is not None and self._flatten_request_handler_id:
+            try:
+                self.em.unsubscribe(self._flatten_request_handler_id)
+            except Exception as exc:
+                self.logger.warning("Failed to unsubscribe FLATTEN_REQUEST handler: %s", exc)
+            finally:
+                self._flatten_request_handler_id = None
         self.logger.info("SHUTDOWN_PHASE_4_PROCESS_END")
 
         self.logger.info("SessionSupervisor stopped.")
@@ -293,11 +308,16 @@ class SessionSupervisor:
 
     def _start_event_manager(self) -> bool:
         try:
-            from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager
+            from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType, get_event_manager
             self.em = get_event_manager()
             if not self.em.is_running:
                 self.em.start()
-            self.logger.info("✅ EventManager started")
+            if self._flatten_request_handler_id is None:
+                self._flatten_request_handler_id = self.em.subscribe(
+                    EventType.FLATTEN_REQUEST,
+                    self._on_flatten_request,
+                )
+            self.logger.debug("✅ EventManager started")
             return True
         except Exception as exc:
             self.logger.error("❌ EventManager failed: %s", exc)
@@ -306,31 +326,17 @@ class SessionSupervisor:
     def _start_data_feed(self) -> bool:
         try:
             provider_name = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower().strip()
-            disable_massive = os.getenv("SPYDER_DISABLE_MASSIVE", "1").lower() in {
-                "1", "true", "yes", "on"
-            }
-
-            # Massive websocket is optional; skip C01 startup unless explicitly enabled.
-            if provider_name != "massive" or disable_massive:
-                self.feed = None
-                self.logger.info(
-                    "⏭️ DataFeed startup skipped (provider=%s, SPYDER_DISABLE_MASSIVE=%s)",
-                    provider_name,
-                    disable_massive,
-                )
-                return True
-
             from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import create_data_feed
             self.feed = create_data_feed(
                 symbols=self.symbols,
                 event_manager=self.em,
-                provider="massive",
+                provider=provider_name,
             )
             if not self.feed.start():
                 self.logger.error("❌ DataFeed.start() returned False")
                 return False
             self._components.append(self.feed)
-            self.logger.info("✅ DataFeed started — symbols: %s", self.symbols)
+            self.logger.debug("✅ DataFeed started — symbols: %s", self.symbols)
             return True
         except Exception as exc:
             self.logger.error("❌ DataFeed failed: %s", exc)
@@ -340,11 +346,12 @@ class SessionSupervisor:
         try:
             from Spyder.SpyderE_Risk.SpyderE24_DataFreshnessMonitor import create_freshness_monitor
             self.freshness_monitor = create_freshness_monitor(
-                symbols=self.symbols, event_manager=self.em
+                symbols=self.symbols, event_manager=self.em,
+                startup_grace_s=30.0,  # suppress DATA_STALE for 30s on startup
             )
             self.freshness_monitor.start()
             self._components.append(self.freshness_monitor)
-            self.logger.info("✅ DataFreshnessMonitor started")
+            self.logger.debug("✅ DataFreshnessMonitor started (startup_grace=30s)")
             return True
         except Exception as exc:
             self.logger.error("❌ DataFreshnessMonitor failed: %s", exc)
@@ -384,7 +391,7 @@ class SessionSupervisor:
                 self.broker.place_order = _dry_place_order  # type: ignore[method-assign]
             self.broker.start()
             self._components.append(self.broker)
-            self.logger.info("✅ PaperBroker started for paper mode")
+            self.logger.debug("✅ PaperBroker started for paper mode")
             return True
         except Exception as exc:
             self.logger.error("❌ PaperBroker failed in paper mode: %s", exc)
@@ -396,7 +403,7 @@ class SessionSupervisor:
             self.reconciler = FillReconciler(broker=self.broker, event_manager=self.em)
             self.reconciler.start()
             self._components.append(self.reconciler)
-            self.logger.info("✅ FillReconciler started")
+            self.logger.debug("✅ FillReconciler started")
         except Exception as exc:
             self.logger.warning("⚠️ FillReconciler non-fatal: %s", exc)
 
@@ -409,7 +416,7 @@ class SessionSupervisor:
             )
             self.position_tracker.start()
             self._components.append(self.position_tracker)
-            self.logger.info("✅ PositionTracker started")
+            self.logger.debug("✅ PositionTracker started")
         except Exception as exc:
             self.logger.warning("⚠️ PositionTracker non-fatal: %s", exc)
 
@@ -432,6 +439,11 @@ class SessionSupervisor:
             if not started:
                 self.logger.error("❌ RiskManager.start() returned False")
                 return False
+            # In paper mode the broker is a PaperBroker with no live Tradier account.
+            # Force-mark the cold-start gate so signals are not silently dropped
+            # even if the balance call succeeded (belt-and-suspenders).
+            if self.mode != "live":
+                self.risk.mark_account_synced()
             # R12-B1: register a sync stop shim so the component loop can
             # signal shutdown and join threads (RiskManager.stop is async).
             _risk = self.risk
@@ -439,7 +451,7 @@ class SessionSupervisor:
                 def stop(self):
                     _risk.stop_sync()
             self._components.append(_RiskStopper())
-            self.logger.info("✅ RiskManager ready and started")
+            self.logger.debug("✅ RiskManager ready and started")
             return True
         except Exception as exc:
             self.logger.error("❌ RiskManager failed: %s", exc)
@@ -497,7 +509,7 @@ class SessionSupervisor:
             except Exception as _pm_err:
                 self.logger.debug("Could not publish global portfolio manager: %s", _pm_err)
             self._components.append(self.engine)
-            self.logger.info("✅ LiveEngine started")
+            self.logger.debug("✅ LiveEngine started")
             return True
         except Exception as exc:
             self.logger.error("❌ LiveEngine failed: %s", exc)
@@ -534,10 +546,47 @@ class SessionSupervisor:
                 allocation_method=allocation_method,
                 event_manager=self.em,
             )
+            if hasattr(self.orchestrator, "set_decision_audit_context"):
+                self.orchestrator.set_decision_audit_context(
+                    run_mode=self.mode,
+                    source_context="session_supervisor",
+                    session_id=self.session_id or f"{self.mode}-unknown",
+                )
             self.orchestrator.set_live_engine(self.engine)
+            # Inject the already-started and (if non-live) force-synced RiskManager so
+            # D31's lazy resolver doesn't create a second fresh un-synced instance and
+            # reject every signal with risk_state_cold.
+            if self.risk is not None and hasattr(self.orchestrator, "set_risk_manager"):
+                self.orchestrator.set_risk_manager(self.risk)
+                self.logger.debug("✅ RiskManager injected into StrategyOrchestrator")
+            # v27 SPEC-6: wire OrderManager so D31's _dispatch_approved_signal
+            # uses the mid-price walk path instead of falling back to bare
+            # market orders through the live engine. Without this, every
+            # options entry pays full bid/ask spread (~$5-15 per round trip
+            # on SPY 0DTE).
+            try:
+                from Spyder.SpyderB_Broker.SpyderB02_OrderManager import OrderManager
+                # Reuse the already-constructed Tradier client from the broker
+                # phase if available, so we don't open a second session.
+                tradier_client = getattr(self.broker, "tradier", None)
+                om = OrderManager(tradier_client=tradier_client)
+                self.orchestrator.set_order_manager(om)
+                self._components.append(om)
+                self.logger.debug("✅ OrderManager wired to StrategyOrchestrator")
+            except Exception as om_exc:
+                self.logger.error(
+                    "❌ OrderManager wiring failed (mid-price walk disabled, "
+                    "orders will fall back to market through LiveEngine): %s",
+                    om_exc,
+                )
             self.orchestrator.start_orchestration()
+            if hasattr(self.orchestrator, "emit_decision_audit_marker"):
+                self.orchestrator.emit_decision_audit_marker(
+                    "session_started",
+                    detail=f"mode={self.mode}; source=session_supervisor",
+                )
             self._components.append(self.orchestrator)
-            self.logger.info("✅ StrategyOrchestrator started")
+            self.logger.debug("✅ StrategyOrchestrator started")
             return True
         except Exception as exc:
             self.logger.error("❌ StrategyOrchestrator failed: %s", exc)
@@ -555,7 +604,7 @@ class SessionSupervisor:
             )
             self.liveness.start()
             self._components.append(self.liveness)
-            self.logger.info("✅ LivenessMonitor started")
+            self.logger.debug("✅ LivenessMonitor started")
         except Exception as exc:
             self.logger.warning("⚠️ LivenessMonitor non-fatal: %s", exc)
 
@@ -600,7 +649,7 @@ class SessionSupervisor:
             )
             self.exit_monitor.start()
             self._components.append(self.exit_monitor)
-            self.logger.info("✅ ExitMonitor started")
+            self.logger.debug("✅ ExitMonitor started")
         except Exception as exc:
             self.logger.warning("⚠️ ExitMonitor non-fatal: %s", exc)
 
@@ -628,7 +677,7 @@ class SessionSupervisor:
                 self.logger.info("⏭ Boot-time orphan sweep skipped (--skip-orphan-sweep).")
                 return
             self.exit_monitor._sweep_once()
-            self.logger.info("✅ Boot-time orphan sweep completed")
+            self.logger.debug("✅ Boot-time orphan sweep completed")
         except Exception as exc:
             self.logger.warning("⚠️ Boot-time orphan sweep error (non-fatal): %s", exc)
 
@@ -700,7 +749,7 @@ class SessionSupervisor:
                 self.logger.error("❌ Boot self-test failed: rejection reason was not dry_run")
                 return False
 
-            self.logger.info("✅ Boot self-test passed (order_id=%s)", test_order_id)
+            self.logger.debug("✅ Boot self-test passed (order_id=%s)", test_order_id)
             return True
         finally:
             try:
@@ -827,6 +876,101 @@ class SessionSupervisor:
                     )
         except Exception as exc:
             self.logger.warning("_flatten_positions raised: %s", exc)
+
+    def _on_flatten_request(self, event: Any) -> None:
+        """Handle FLATTEN_REQUEST events from scheduler/risk layers."""
+        payload = (getattr(event, "data", None) or {}) if event is not None else {}
+        flatten_type = str(payload.get("type") or "").strip().lower()
+        reason = str(payload.get("reason") or "flatten_request")
+
+        self.logger.warning(
+            "Received FLATTEN_REQUEST type=%s reason=%s",
+            flatten_type or "unspecified",
+            reason,
+        )
+
+        if flatten_type == "broker_cutoff_flatten_guard":
+            closed = self._flatten_at_risk_short_options(reason=reason)
+            self.logger.warning(
+                "Broker cutoff flatten guard closed %d at-risk short option symbol(s)",
+                closed,
+            )
+            return
+
+        self._flatten_positions()
+
+    def _flatten_at_risk_short_options(self, reason: str) -> int:
+        """Best-effort flatten of short option positions only."""
+        try:
+            pos_resp = self.broker.get_positions()
+            if isinstance(pos_resp, list):
+                raw: list[Any] = pos_resp
+            else:
+                raw = (pos_resp.get("positions") or {}).get("position", [])
+                if isinstance(raw, dict):
+                    raw = [raw]
+
+            if not raw:
+                self.logger.info("_flatten_at_risk_short_options: no open positions")
+                return 0
+
+            closed = 0
+            for pos in raw:
+                symbol = str(pos.get("symbol") or "").strip()
+                qty = self._safe_int(pos.get("quantity", 0))
+
+                if not symbol or qty >= 0:
+                    continue
+                if not self._looks_like_option_symbol(symbol):
+                    continue
+
+                try:
+                    if hasattr(self.broker, "close_position_verified"):
+                        result = self.broker.close_position_verified(
+                            symbol,
+                            timeout_s=10.0,
+                            urgency="IMMEDIATE",
+                            reason=reason,
+                        )
+                        status = (result or {}).get("status")
+                        if status == "verified":
+                            closed += 1
+                        else:
+                            self.logger.error(
+                                "At-risk short option flatten unverified for %s: %s",
+                                symbol,
+                                (result or {}).get("reason"),
+                            )
+                    else:
+                        self.broker.close_position(
+                            symbol,
+                            urgency="IMMEDIATE",
+                            reason=reason,
+                        )
+                        closed += 1
+                except Exception as exc:
+                    self.logger.error("Failed to flatten at-risk short option %s: %s", symbol, exc)
+
+            return closed
+        except Exception as exc:
+            self.logger.error("_flatten_at_risk_short_options failed: %s", exc)
+            return 0
+
+    @staticmethod
+    def _safe_int(value: Any) -> int:
+        """Convert mixed quantity payloads from broker responses into int."""
+        try:
+            return int(float(value))
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _looks_like_option_symbol(symbol: str) -> bool:
+        """Heuristic option symbol check for OCC/Tradier-style contracts."""
+        upper = symbol.upper()
+        if "_" in upper:
+            return True
+        return len(upper) >= 15 and ("C" in upper or "P" in upper)
 
 
 # ==============================================================================

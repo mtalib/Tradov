@@ -58,7 +58,7 @@ import signal
 import psutil
 import socket
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -142,7 +142,7 @@ class ComponentConfig:
 @dataclass
 class SystemMetrics:
     """System-wide performance metrics"""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     cpu_usage_percent: float = 0.0
     memory_usage_percent: float = 0.0
     memory_used_gb: float = 0.0
@@ -160,7 +160,7 @@ class ComponentHealth:
     """Individual component health status"""
     component_id: str
     status: HealthStatus = HealthStatus.UNKNOWN
-    last_check: datetime = field(default_factory=datetime.now)
+    last_check: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     response_time_ms: float = 0.0
     cpu_usage: float = 0.0
     memory_usage_mb: float = 0.0
@@ -176,8 +176,8 @@ class DeploymentStatus:
     """Production deployment status"""
     deployment_id: str
     stage: DeploymentStage = DeploymentStage.PRE_FLIGHT
-    start_time: datetime = field(default_factory=datetime.now)
-    current_stage_start: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    current_stage_start: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_stages: list[DeploymentStage] = field(default_factory=list)
     failed_stages: list[DeploymentStage] = field(default_factory=list)
     deployed_components: list[str] = field(default_factory=list)
@@ -278,7 +278,7 @@ class ProductionDeploymentManager:
             log_dir = Path("logs/production")
             log_dir.mkdir(parents=True, exist_ok=True)
 
-            log_file = log_dir / f"production_{datetime.now().strftime('%Y%m%d')}.log"
+            log_file = log_dir / f"production_{datetime.now(timezone.utc).strftime('%Y%m%d')}.log"
             file_handler = logging.FileHandler(log_file)
             file_formatter = logging.Formatter(
                 '%(asctime)s | PROD | %(levelname)s | %(name)s | %(funcName)s:%(lineno)d | %(message)s'  # noqa: E501
@@ -287,7 +287,7 @@ class ProductionDeploymentManager:
             logger.addHandler(file_handler)
 
             # Critical alerts handler (separate file for urgent issues)
-            critical_log = log_dir / f"critical_alerts_{datetime.now().strftime('%Y%m%d')}.log"
+            critical_log = log_dir / f"critical_alerts_{datetime.now(timezone.utc).strftime('%Y%m%d')}.log"
             critical_handler = logging.FileHandler(critical_log)
             critical_handler.setLevel(logging.CRITICAL)
             critical_handler.setFormatter(file_formatter)
@@ -459,7 +459,7 @@ class ProductionDeploymentManager:
     async def deploy_production_system(self) -> bool:
         """Deploy complete production system with staged rollout"""
         try:
-            deployment_id = f"deploy_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            deployment_id = f"deploy_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
             self.deployment_status = DeploymentStatus(deployment_id=deployment_id)
 
             self.logger.info("Starting production deployment: %s", deployment_id)
@@ -481,7 +481,7 @@ class ProductionDeploymentManager:
             for stage_num, (stage, stage_function) in enumerate(deployment_stages, 1):
                 try:
                     self.deployment_status.stage = stage
-                    self.deployment_status.current_stage_start = datetime.now()
+                    self.deployment_status.current_stage_start = datetime.now(timezone.utc)
 
                     self.logger.info("Executing deployment stage: %s (%s/%s)", stage.value, stage_num, total_stages)  # noqa: E501
 
@@ -506,7 +506,7 @@ class ProductionDeploymentManager:
                     return False
 
             self.system_status = SystemStatus.RUNNING
-            self.start_time = datetime.now()
+            self.start_time = datetime.now(timezone.utc)
 
             self.logger.info("Production deployment completed successfully")
             return True
@@ -852,8 +852,8 @@ class ProductionDeploymentManager:
             # Update component health
             health = self.component_health[component_id]
             health.status = HealthStatus.HEALTHY
-            health.last_check = datetime.now()
-            health.uptime_seconds = (datetime.now() - self.start_time).total_seconds() if self.start_time else 0  # noqa: E501
+            health.last_check = datetime.now(timezone.utc)
+            health.uptime_seconds = (datetime.now(timezone.utc) - self.start_time).total_seconds() if self.start_time else 0  # noqa: E501
 
             # Get process resource usage
             try:
@@ -1034,7 +1034,7 @@ class ProductionDeploymentManager:
             uptime_seconds = time.time() - psutil.boot_time()
 
             return SystemMetrics(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 cpu_usage_percent=cpu_percent,
                 memory_usage_percent=memory.percent,
                 memory_used_gb=memory.used / (1024**3),
@@ -1315,7 +1315,7 @@ class ProductionDeploymentManager:
         """Send operational notification"""
         try:
             notification = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "type": notification_type,
                 "message": message,
                 "system_status": self.system_status.value
@@ -1331,7 +1331,7 @@ class ProductionDeploymentManager:
         """Send critical system alert"""
         try:
             alert = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "type": alert_type,
                 "message": message,
                 "severity": "CRITICAL",
@@ -1405,8 +1405,8 @@ class ProductionDeploymentManager:
 
             report = {
                 "deployment_id": self.deployment_status.deployment_id,
-                "completion_time": datetime.now().isoformat(),
-                "total_duration_minutes": (datetime.now() - self.deployment_status.start_time).total_seconds() / 60,  # noqa: E501
+                "completion_time": datetime.now(timezone.utc).isoformat(),
+                "total_duration_minutes": (datetime.now(timezone.utc) - self.deployment_status.start_time).total_seconds() / 60,  # noqa: E501
                 "completed_stages": [stage.value for stage in self.deployment_status.completed_stages],  # noqa: E501
                 "failed_stages": [stage.value for stage in self.deployment_status.failed_stages],
                 "deployed_components": self.deployment_status.deployed_components,
@@ -1432,15 +1432,15 @@ class ProductionDeploymentManager:
         """Create emergency shutdown report"""
         try:
             report = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "reason": reason,
                 "system_status": self.system_status.value,
-                "uptime_hours": (datetime.now() - self.start_time).total_seconds() / 3600 if self.start_time else 0,  # noqa: E501
+                "uptime_hours": (datetime.now(timezone.utc) - self.start_time).total_seconds() / 3600 if self.start_time else 0,  # noqa: E501
                 "active_components": len([p for p in self.component_processes.values() if p.poll() is None]),  # noqa: E501
                 "recent_alerts": self.operational_alerts[-10:] if self.operational_alerts else []
             }
 
-            report_file = Path("reports/production") / f"emergency_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"  # noqa: E501
+            report_file = Path("reports/production") / f"emergency_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"  # noqa: E501
             with open(report_file, 'w') as f:
                 json.dump(report, f, indent=2)
 
@@ -1453,14 +1453,14 @@ class ProductionDeploymentManager:
         """Create graceful shutdown report"""
         try:
             report = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "shutdown_type": "graceful",
-                "uptime_hours": (datetime.now() - self.start_time).total_seconds() / 3600 if self.start_time else 0,  # noqa: E501
+                "uptime_hours": (datetime.now(timezone.utc) - self.start_time).total_seconds() / 3600 if self.start_time else 0,  # noqa: E501
                 "components_shutdown": len(self.component_processes),
                 "final_system_status": self.system_status.value
             }
 
-            report_file = Path("reports/production") / f"shutdown_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"  # noqa: E501
+            report_file = Path("reports/production") / f"shutdown_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"  # noqa: E501
             with open(report_file, 'w') as f:
                 json.dump(report, f, indent=2)
 
@@ -1518,7 +1518,7 @@ class ProductionDeploymentManager:
     def _process_operational_alerts(self) -> None:
         """Process pending operational alerts"""
         # Keep only recent alerts
-        cutoff_time = datetime.now() - timedelta(hours=24)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
         self.operational_alerts = [
             alert for alert in self.operational_alerts
             if datetime.fromisoformat(alert["timestamp"]) > cutoff_time
@@ -1551,7 +1551,7 @@ class ProductionDeploymentManager:
 
             return {
                 "system_status": self.system_status.value,
-                "uptime_hours": (datetime.now() - self.start_time).total_seconds() / 3600 if self.start_time else 0,  # noqa: E501
+                "uptime_hours": (datetime.now(timezone.utc) - self.start_time).total_seconds() / 3600 if self.start_time else 0,  # noqa: E501
                 "deployment_id": self.deployment_status.deployment_id if self.deployment_status else None,  # noqa: E501
                 "trading_enabled": self.config.trading_enabled,
                 "monitoring_active": self.monitoring_active,
@@ -1575,11 +1575,11 @@ class ProductionDeploymentManager:
         """Export comprehensive system report"""
         try:
             if output_file is None:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 output_file = f"production_system_report_{timestamp}.json"
 
             system_report = {
-                "report_timestamp": datetime.now().isoformat(),
+                "report_timestamp": datetime.now(timezone.utc).isoformat(),
                 "system_status": self.get_system_status(),
                 "deployment_history": {
                     "deployment_id": self.deployment_status.deployment_id if self.deployment_status else None,  # noqa: E501

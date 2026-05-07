@@ -34,9 +34,12 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
+import os
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 # ==============================================================================
@@ -48,6 +51,8 @@ from .SpyderY00_BaseAutoAgent import (
     LLMRole,
     MarketSession,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
@@ -158,6 +163,12 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
         self._strategy_pnl: dict[str, float] = defaultdict(float)
         self._regime_pnl: dict[str, float] = defaultdict(float)
 
+        # Lessons persistence — closed-loop feedback (TradingAgents-inspired)
+        _lessons_dir = os.getenv("SPYDER_LESSONS_DIR", "logs")
+        self._lessons_file: Path = Path(_lessons_dir) / "trade_lessons.md"
+        self._lessons_log: list[str] = []
+        self._max_lesson_context: int = 5
+
     # ==========================================================================
     # LIFECYCLE
     # ==========================================================================
@@ -168,6 +179,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
         self.subscribe("market.regime")
         self.subscribe("market.sentiment")
         self.subscribe("risk.assessment")
+        self._load_lessons()
 
     def on_wake(self, session: MarketSession) -> None:
         """Session preparation."""
@@ -177,6 +189,63 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
             self._daily_summary_generated = False
 
         super().on_wake(session)
+
+    # ==========================================================================
+    # LESSONS PERSISTENCE (closed-loop feedback, TradingAgents-inspired)
+    # ==========================================================================
+    def _load_lessons(self) -> None:
+        """Load persisted lessons from disk on agent start."""
+        if not self._lessons_file.exists():
+            return
+        try:
+            text = self._lessons_file.read_text(encoding="utf-8")
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    self._lessons_log.append(stripped)
+            logger.info(
+                "Loaded %d past lessons from %s",
+                len(self._lessons_log),
+                self._lessons_file,
+            )
+        except OSError as exc:
+            logger.warning("Could not load lessons file: %s", exc)
+
+    def _save_lesson(self, text: str) -> None:
+        """Append a lesson string to the in-memory log and persist to disk.
+
+        Args:
+            text: The lesson text extracted by the LLM.
+        """
+        if not text or not text.strip():
+            return
+        lesson = text.strip()
+        self._lessons_log.append(lesson)
+        try:
+            self._lessons_file.parent.mkdir(parents=True, exist_ok=True)
+            with self._lessons_file.open("a", encoding="utf-8") as fh:
+                date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                fh.write(f"[{date}] {lesson}\n")
+        except OSError as exc:
+            logger.warning("Could not persist lesson: %s", exc)
+
+    def _build_lessons_context(self, n: int | None = None) -> str:
+        """Return recent lessons as an injection-ready prompt fragment.
+
+        Args:
+            n: Number of recent lessons to include. Defaults to
+               ``self._max_lesson_context``.
+
+        Returns:
+            Empty string if no lessons exist, otherwise a formatted block
+            that can be appended to any system or user prompt.
+        """
+        if not self._lessons_log:
+            return ""
+        count = n if n is not None else self._max_lesson_context
+        recent = self._lessons_log[-count:]
+        lines = "\n".join(f"- {item}" for item in recent)
+        return f"\n\nPast trading lessons to incorporate:\n{lines}"
 
     # ==========================================================================
     # MAIN TICK
@@ -195,7 +264,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
             self._daily_summary_generated = True
 
             # Weekly review on Fridays
-            if datetime.now().weekday() == self._weekly_review_day:
+            if datetime.now(timezone.utc).weekday() == self._weekly_review_day:
                 self._generate_weekly_review()
 
     # ==========================================================================
@@ -242,7 +311,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
         """Create a journal entry from a fill event."""
         payload = fill.get("payload", {})
         return TradeEntry(
-            trade_id=payload.get("plan_id", f"T_{datetime.now().strftime('%H%M%S')}"),
+            trade_id=payload.get("plan_id", f"T_{datetime.now(timezone.utc).strftime('%H%M%S')}"),
             direction=payload.get("direction", "unknown"),
             entry_price=payload.get("entry_price", 0.0),
             exit_price=payload.get("filled_price", 0.0),
@@ -251,8 +320,8 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
             slippage_bps=payload.get("slippage_bps", 0.0),
             regime_at_entry=self._current_regime,
             sentiment_at_entry=self._current_sentiment,
-            entry_time=payload.get("entry_time", datetime.now().isoformat()),
-            exit_time=payload.get("exit_time", datetime.now().isoformat()),
+            entry_time=payload.get("entry_time", datetime.now(timezone.utc).isoformat()),
+            exit_time=payload.get("exit_time", datetime.now(timezone.utc).isoformat()),
             strategy=payload.get("strategy", "unknown"),
             signal_source=payload.get("signal_source", "unknown"),
         )
@@ -287,6 +356,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
             system_prompt=(
                 "You are a senior trading coach reviewing a SPY options trade. "
                 "Be constructive, specific, and focused on learnable insights."
+                + self._build_lessons_context()
             ),
         ) or f"Trade {entry.trade_id}: {outcome}, P&L ${entry.pnl:.2f}"
 
@@ -295,7 +365,7 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
     # ==========================================================================
     def _generate_daily_summary(self) -> None:
         """Generate end-of-day performance summary."""
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         today_trades = [
             t for t in self._trade_entries
             if t.entry_time.startswith(today)
@@ -482,12 +552,13 @@ class SpyderY07_TradeJournalAgent(BaseAutoAgent):
         ) or ""
 
         if lessons:
+            self._save_lesson(lessons)
             self.publish(AgentOutput(
                 agent_id=self.AGENT_ID,
                 output_type="insight",
                 topic="meta.lessons",
                 payload={
-                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
                     "lessons": lessons,
                 },
                 confidence=0.7,

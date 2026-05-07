@@ -33,7 +33,7 @@ Key Features:
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
@@ -148,7 +148,7 @@ class AgentRecommendation:
     confidence: float  # 0-1
     reasoning: str
     data: dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     priority: int = 5  # 1-10, higher is more important
 
 @dataclass
@@ -165,7 +165,7 @@ class CoordinatedDecision:
     agent_recommendations: list[AgentRecommendation]
     market_regime: MarketRegime
     risk_score: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     execution_params: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
@@ -176,7 +176,7 @@ class AgentPerformance:
     total_predictions: int = 0
     avg_confidence: float = 0.0
     avg_return_contribution: float = 0.0
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     weight_multiplier: float = 1.0  # Dynamic weight based on performance
     recent_accuracy: deque = field(default_factory=lambda: deque(maxlen=100))
 
@@ -369,7 +369,7 @@ class MetaCoordinator:
         Returns:
             CoordinatedDecision with consensus result
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
         decision_id = str(uuid.uuid4())
 
         try:
@@ -406,7 +406,7 @@ class MetaCoordinator:
             self._record_decision(final_decision)
 
             # Update metrics
-            decision_time = (datetime.now() - start_time).total_seconds()
+            decision_time = (datetime.now(timezone.utc) - start_time).total_seconds()
             self._update_metrics(decision_time, final_decision)
 
             self.logger.info(
@@ -666,7 +666,7 @@ class MetaCoordinator:
             # Find opposing actions
             if 'BUY' in action_groups and 'SELL' in action_groups:
                 conflicts.append(ConflictEvent(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     conflicting_agents=[r.agent_id for r in action_groups['BUY']] +
                                      [r.agent_id for r in action_groups['SELL']],
                     issue="BUY vs SELL conflict",
@@ -687,7 +687,7 @@ class MetaCoordinator:
                     all_agents.extend([r.agent_id for r in recs])
 
                 conflicts.append(ConflictEvent(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     conflicting_agents=all_agents,
                     issue="High confidence disagreement",
                     resolution_method=ConflictResolution.CONSENSUS_REQUIRED,
@@ -1012,7 +1012,7 @@ class MetaCoordinator:
             perf.total_predictions
         )
 
-        perf.last_update = datetime.now()
+        perf.last_update = datetime.now(timezone.utc)
 
     def get_agent_rankings(self) -> list[tuple[str, float]]:
         """Get current agent performance rankings"""

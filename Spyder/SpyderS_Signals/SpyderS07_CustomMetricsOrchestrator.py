@@ -47,7 +47,7 @@ import threading
 import time
 import importlib
 import pathlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -198,13 +198,7 @@ class MetricSnapshot:
     vanna_pressure: float = float("nan")
     charm_pressure: float = float("nan")
     flow_imbalance: float = float("nan")
-    es_price: float = float("nan")
-    spy_price: float = float("nan")
-    basis_bps: float = float("nan")
-    lead_lag_ms: float = float("nan")
-    es_impulse_score: float = float("nan")
-    confirm_confidence: float = float("nan")
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     update_frequency: int = UPDATE_INTERVAL
 
 @dataclass
@@ -287,6 +281,7 @@ class CustomMetricsOrchestrator(QObject):
             "ADD": float("nan"),
             "TRIN": float("nan"),
             "NYMO": float("nan"),
+            "VOLD": float("nan"),
             "BREADTH_REGIME": "neutral",
             "BREADTH_DEFENSIVE": float("nan"),
             "BREADTH_CYCLICAL": float("nan"),
@@ -314,14 +309,11 @@ class CustomMetricsOrchestrator(QObject):
             "CHARM_PRESSURE": float("nan"),
             "FLOW_IMBALANCE": float("nan"),
             "DEALER_FLOW": {},
-            "ES_PRICE": float("nan"),
-            "SPY_PRICE": float("nan"),
-            "BASIS_BPS": float("nan"),
-            "LEAD_LAG_MS": float("nan"),
-            "ES_IMPULSE_SCORE": float("nan"),
-            "CONFIRM_DIRECTION": "unknown",
-            "CONFIRM_CONFIDENCE": float("nan"),
-            "LEAD_LAG": {},
+            "SPY_CHANGE_PCT": float("nan"),
+            "QQQ_CHANGE_PCT": float("nan"),
+            "IWM_CHANGE_PCT": float("nan"),
+            "XLK_CHANGE_PCT": float("nan"),
+            "XLF_CHANGE_PCT": float("nan"),
             "LIQUIDITY_DIAGNOSTICS": {},
             "DATA_QUALITY_FEED": {},
         }
@@ -331,7 +323,32 @@ class CustomMetricsOrchestrator(QObject):
         self._vol_surface_builder = None
         self._n09_gex_analyzer = None
         self._n11_flow_analyzer = None
-        self._c11_futures_basis = None
+        # HV20 daily cache — historical volatility changes at most once per
+        # trading day, so we skip the expensive /v1/markets/history call on
+        # every 60-second cycle and only refetch when the calendar date changes.
+        self._hv20_cache: float | None = None
+        self._hv20_cache_date: str = ""
+        # Running EMA state for NYMO proxy (McClellan Oscillator approximation).
+        # NYMO ≈ EMA(19) − EMA(39) of the NYSE A-D (ADD) series.
+        self._nymo_ema_fast: float = float("nan")  # 19-bar EMA of ADD
+        self._nymo_ema_slow: float = float("nan")  # 39-bar EMA of ADD
+        _a19 = 2.0 / (19 + 1)
+        _a39 = 2.0 / (39 + 1)
+        self._nymo_alpha_fast: float = _a19
+        self._nymo_alpha_slow: float = _a39
+        # Restore persisted NYMO EMA state so the warm-up survives restarts.
+        _nymo_cache_path = pathlib.Path("data/cache/nymo_ema_state.json")
+        if _nymo_cache_path.exists():
+            try:
+                _nymo_state = json.loads(_nymo_cache_path.read_text())
+                _f = _nymo_state.get("ema_fast")
+                _s = _nymo_state.get("ema_slow")
+                if isinstance(_f, (int, float)) and math.isfinite(_f):
+                    self._nymo_ema_fast = float(_f)
+                if isinstance(_s, (int, float)) and math.isfinite(_s):
+                    self._nymo_ema_slow = float(_s)
+            except Exception:
+                pass
 
         # Metrics history for trend analysis
         self.metrics_history: list[MetricSnapshot] = []
@@ -347,7 +364,20 @@ class CustomMetricsOrchestrator(QObject):
 
         # Update frequency management
         self.current_update_interval = UPDATE_INTERVAL
-        self.last_frequency_change = datetime.now()
+        self.last_frequency_change = datetime.now(timezone.utc)
+        self._last_metrics_info_log_ts: datetime | None = None
+        self._metrics_info_heartbeat_seconds = int(
+            self.config.get("metrics_info_heartbeat_seconds", 180)
+        )
+        self._last_liquidity_diag_log_ts: datetime | None = None
+        self._last_liquidity_diag_message: str | None = None
+        self._liquidity_diag_heartbeat_seconds = int(
+            self.config.get("liquidity_diag_heartbeat_seconds", 300)
+        )
+        self._issue_log_heartbeat_seconds = int(
+            self.config.get("issue_log_heartbeat_seconds", 300)
+        )
+        self._issue_log_state: dict[str, tuple[str, datetime]] = {}
 
         # Connection status
         self.ib_connected = False
@@ -473,14 +503,14 @@ class CustomMetricsOrchestrator(QObject):
 
     def _init_quality_tracking(self):
         """Initialize quality tracking for all metrics"""
-        metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW', 'LEAD_LAG']  # noqa: E501
+        metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW']  # noqa: E501
 
         for metric in metrics:
             self.metric_quality[metric] = MetricQuality(
                 metric_name=metric,
                 quality_score=1.0,  # Start with perfect score
                 data_points=0,
-                last_successful_update=datetime.now(),
+                last_successful_update=datetime.now(timezone.utc),
                 error_count=0,
                 source_available=True
             )
@@ -638,9 +668,6 @@ class CustomMetricsOrchestrator(QObject):
                 # Dealer-flow structure: N09 gamma walls + N11 vanna/charm pressure
                 dealer_flow_success = self._update_dealer_flow_metrics(updated_metrics, update_errors)  # noqa: E501
 
-                # ES/SPY lead-lag context from C11 FuturesBasis
-                lead_lag_success = self._update_lead_lag_metrics(updated_metrics, update_errors)
-
                 # Observe-only liquidity diagnostics for candidate contracts
                 liquidity_success = self._update_liquidity_diagnostics_metrics(updated_metrics, update_errors)  # noqa: E501
 
@@ -695,12 +722,6 @@ class CustomMetricsOrchestrator(QObject):
                     vanna_pressure=updated_metrics.get('VANNA_PRESSURE', float('nan')),
                     charm_pressure=updated_metrics.get('CHARM_PRESSURE', float('nan')),
                     flow_imbalance=updated_metrics.get('FLOW_IMBALANCE', float('nan')),
-                    es_price=updated_metrics.get('ES_PRICE', float('nan')),
-                    spy_price=updated_metrics.get('SPY_PRICE', float('nan')),
-                    basis_bps=updated_metrics.get('BASIS_BPS', float('nan')),
-                    lead_lag_ms=updated_metrics.get('LEAD_LAG_MS', float('nan')),
-                    es_impulse_score=updated_metrics.get('ES_IMPULSE_SCORE', float('nan')),
-                    confirm_confidence=updated_metrics.get('CONFIRM_CONFIDENCE', float('nan')),
                     update_frequency=self.current_update_interval
                 )
 
@@ -720,11 +741,11 @@ class CustomMetricsOrchestrator(QObject):
                     fred_success, sentiment_success, breadth_success, options_success,
                     vol_surface_success,
                     dealer_flow_success,
-                    lead_lag_success,
                     liquidity_success,
                 ])
 
-                # Only log at INFO when key values change; use DEBUG for unchanged cycles.
+                # Keep custom-metrics cycle summaries in DEBUG so NORMAL logs
+                # remain focused on lifecycle, warnings, and errors.
                 _summary = (
                     f"{success_count}/12 | "
                     f"GEX={updated_metrics.get('GEX', 0):.1f}B "
@@ -734,31 +755,118 @@ class CustomMetricsOrchestrator(QObject):
                     f"TICK={updated_metrics.get('TICK', float('nan'))}"
                 )
                 _last = getattr(self, "_last_metrics_summary", None)
-                _log = self.logger.info if _summary != _last else self.logger.debug
-                _log(
+                _now = datetime.now(timezone.utc)
+                _heartbeat_due = (
+                    self._last_metrics_info_log_ts is None
+                    or (_now - self._last_metrics_info_log_ts).total_seconds()
+                    >= self._metrics_info_heartbeat_seconds
+                )
+                self.logger.debug(
                     f"📊 Metrics updated: {success_count}/12 sources successful "
                     f"(GEX={updated_metrics.get('GEX', 0):.1f}B, "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}%, "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f}, "
                     f"SKEW={updated_metrics.get('SKEW', 100):.1f}, "
                     f"TICK={updated_metrics.get('TICK', float('nan'))}, "
-                    f"10Y={updated_metrics.get('YIELD_10Y', float('nan')):.2f}%, "
-                    f"BASIS={updated_metrics.get('BASIS_BPS', float('nan')):.1f}bps) "
+                    f"10Y={updated_metrics.get('YIELD_10Y', float('nan')):.2f}%) "
                     f"[{calculation_time:.2f}s]"
                 )
+                if _heartbeat_due:
+                    self._last_metrics_info_log_ts = _now
                 self._last_metrics_summary = _summary
+
+                self._emit_update_error_summary(update_errors, success_count)
 
         except Exception as e:
             self.logger.error("Critical error updating metrics: %s", e, exc_info=True)
             self.error_occurred.emit(str(e))
+
+    def _log_deduped_issue(
+        self,
+        channel: str,
+        message: str,
+        *,
+        level: str = "warning",
+        emit_error: bool = False,
+    ) -> None:
+        """Log issue messages once per change/heartbeat to suppress repetitive noise."""
+        now = datetime.now(timezone.utc)
+        last = self._issue_log_state.get(channel)
+        changed = last is None or last[0] != message
+        heartbeat_due = (
+            last is None
+            or (now - last[1]).total_seconds() >= self._issue_log_heartbeat_seconds
+        )
+        if not (changed or heartbeat_due):
+            return
+
+        if level == "error":
+            self.logger.error(message)
+        elif level == "debug":
+            self.logger.debug(message)
+        elif level == "info":
+            self.logger.info(message)
+        else:
+            self.logger.warning(message)
+
+        self._issue_log_state[channel] = (message, now)
+        if emit_error:
+            self.error_occurred.emit(message)
+
+    @staticmethod
+    def _error_key(error_message: str) -> str:
+        """Extract stable error key for compact cycle summaries."""
+        if not error_message:
+            return "unknown"
+        return error_message.split(":", 1)[0].strip().lower()
+
+    def _emit_update_error_summary(self, update_errors: list[str], success_count: int) -> None:
+        """Emit a compact warning summary for update-cycle failures."""
+        if not update_errors:
+            return
+
+        keys = sorted({self._error_key(err) for err in update_errors})
+        summary = ", ".join(keys)
+        benign_keys = {
+            "options analytics update failed",
+            "vol surface update failed",
+        }
+        only_benign = bool(keys) and all(key in benign_keys for key in keys)
+        self._log_deduped_issue(
+            channel="update_cycle_info" if only_benign else "update_cycle_errors",
+            message=(
+                "S07 update-cycle issues: "
+                f"{len(update_errors)} issue(s), "
+                f"{success_count}/12 sources successful, keys=[{summary}]"
+            ),
+            level="debug" if only_benign else "warning",
+            emit_error=not only_benign,
+        )
+
+    @staticmethod
+    def _is_transient_options_unavailable(message: str) -> bool:
+        """Return True when options/surface data is temporarily unavailable by design."""
+        text = str(message or "").strip().lower()
+        transient_markers = (
+            "spot unavailable",
+            "no spy option expirations",
+            "atm iv unavailable",
+            "insufficient",
+            "unavailable",
+            "not available",
+            "no option",
+            "empty",
+            "not ready",
+        )
+        return any(marker in text for marker in transient_markers)
 
     def _update_gex_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update GEX, DEX, OGL metrics"""
         try:
             if self.gex_calculator:
                 gex_data = self.gex_calculator.calculate_all()
-                updated_metrics["GEX"] = gex_data.get("gex", 0) / 1e9  # Convert to billions
-                updated_metrics["DEX"] = gex_data.get("dex", 0) / 1e6  # Convert to millions
+                updated_metrics["GEX"] = gex_data.get("gex", 0)   # S05 returns billions already
+                updated_metrics["DEX"] = gex_data.get("dex", 0)   # S05 returns millions already
                 updated_metrics["OGL"] = gex_data.get("ogl", 585.5)
                 updated_metrics["VEX"] = gex_data.get("vex", 0.0)   # Vanna Exposure ($M/vol-pt)
                 updated_metrics["CHEX"] = gex_data.get("chex", 0.0)  # Charm Exposure (Δ/day)
@@ -777,7 +885,11 @@ class CustomMetricsOrchestrator(QObject):
         except GEXDataUnavailableError as e:
             # Expected when options chain is not yet available — log quietly
             errors.append(f"GEX update error: {e}")
-            self.logger.warning("GEX data unavailable (options chain not ready): %s", e)
+            self._log_deduped_issue(
+                channel="gex_data_unavailable",
+                message=f"GEX data unavailable (options chain not ready): {e}",
+                level="warning",
+            )
             updated_metrics.update({
                 "GEX": self.current_metrics.get("GEX", -2.5),
                 "DEX": self.current_metrics.get("DEX", 850),
@@ -788,7 +900,12 @@ class CustomMetricsOrchestrator(QObject):
             return False
         except Exception as e:
             errors.append(f"GEX update error: {e}")
-            self.logger.error("GEX update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="gex_update_error",
+                message=f"GEX update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             updated_metrics.update({
                 "GEX": self.current_metrics.get("GEX", -2.5),
                 "DEX": self.current_metrics.get("DEX", 850),
@@ -816,7 +933,12 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"DIX update error: {e}")
-            self.logger.error("DIX update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="dix_update_error",
+                message=f"DIX update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             updated_metrics["DIX"] = self.current_metrics.get("DIX", 42.5)
             return False
 
@@ -824,7 +946,16 @@ class CustomMetricsOrchestrator(QObject):
         """Update SWAN metrics"""
         try:
             if self.swan_indicator:
-                swan_result = self.swan_indicator.calculate_swan_score()
+                # Pass live TICK/ADD/TRIN breadth data into the SWAN internals
+                # component so the score reflects current market breadth.
+                _mi: dict[str, float] = {}
+                for _k in ("TICK", "ADD", "TRIN"):
+                    _v = updated_metrics.get(_k)
+                    if isinstance(_v, (int, float)) and math.isfinite(_v):
+                        _mi[_k.lower()] = float(_v)
+                swan_result = self.swan_indicator.calculate_swan_score(
+                    market_internals_override=_mi or None
+                )
                 updated_metrics["SWAN"] = swan_result.overall_score
 
                 # Emit detailed SWAN signal
@@ -841,7 +972,12 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"SWAN update error: {e}")
-            self.logger.error("SWAN update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="swan_update_error",
+                message=f"SWAN update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             updated_metrics["SWAN"] = self.current_metrics.get("SWAN", 1.85)
             return False
 
@@ -864,12 +1000,21 @@ class CustomMetricsOrchestrator(QObject):
         except SKEWDataUnavailableError as e:
             # Expected when options chain is not yet available — log quietly
             errors.append(f"SKEW update error: {e}")
-            self.logger.warning("SKEW data unavailable (options chain not ready): %s", e)
+            self._log_deduped_issue(
+                channel="skew_data_unavailable",
+                message=f"SKEW data unavailable (options chain not ready): {e}",
+                level="warning",
+            )
             updated_metrics["SKEW"] = self.current_metrics.get("SKEW", 125.5)
             return False
         except Exception as e:
             errors.append(f"SKEW update error: {e}")
-            self.logger.error("SKEW update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="skew_update_error",
+                message=f"SKEW update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             updated_metrics["SKEW"] = self.current_metrics.get("SKEW", 125.5)
             return False
 
@@ -889,7 +1034,12 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"FRED update error: {e}")
-            self.logger.error("FRED update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="fred_update_error",
+                message=f"FRED update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             for key in ("YIELD_10Y", "YIELD_SLOPE", "YIELD_INVERTED"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
             return False
@@ -910,7 +1060,12 @@ class CustomMetricsOrchestrator(QObject):
                 return False
         except Exception as e:
             errors.append(f"Sentiment update error: {e}")
-            self.logger.error("Sentiment update error: %s", e, exc_info=True)
+            self._log_deduped_issue(
+                channel="sentiment_update_error",
+                message=f"Sentiment update error: {e}",
+                level="error",
+                emit_error=True,
+            )
             for key in ("AAII_BULLISH", "AAII_BEARISH", "NAAIM_EXPOSURE"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
             return False
@@ -950,7 +1105,39 @@ class CustomMetricsOrchestrator(QObject):
                 updated_metrics["TICK"] = snap.get("tick", float("nan"))
                 updated_metrics["ADD"]  = snap.get("add",  float("nan"))
                 updated_metrics["TRIN"] = snap.get("trin", float("nan"))
+                updated_metrics["VOLD"] = snap.get("vold", float("nan"))
                 updated_metrics["BREADTH_REGIME"] = snap.get("breadth_regime", "neutral")
+
+                # NYMO proxy: EMA(19) − EMA(39) of ADD (McClellan Oscillator approximation)
+                _add_val = updated_metrics["ADD"]
+                if not math.isnan(_add_val):
+                    if math.isnan(self._nymo_ema_fast):
+                        self._nymo_ema_fast = _add_val
+                        self._nymo_ema_slow = _add_val
+                    else:
+                        self._nymo_ema_fast = (
+                            self._nymo_alpha_fast * _add_val
+                            + (1.0 - self._nymo_alpha_fast) * self._nymo_ema_fast
+                        )
+                        self._nymo_ema_slow = (
+                            self._nymo_alpha_slow * _add_val
+                            + (1.0 - self._nymo_alpha_slow) * self._nymo_ema_slow
+                        )
+                    updated_metrics["NYMO"] = round(
+                        self._nymo_ema_fast - self._nymo_ema_slow, 1
+                    )
+                    # Persist EMA state so the NYMO warm-up survives process restarts.
+                    try:
+                        _nymo_save = pathlib.Path("data/cache/nymo_ema_state.json")
+                        _nymo_save.parent.mkdir(parents=True, exist_ok=True)
+                        _nymo_save.write_text(json.dumps({
+                            "ema_fast": self._nymo_ema_fast,
+                            "ema_slow": self._nymo_ema_slow,
+                        }))
+                    except Exception:
+                        pass
+                else:
+                    updated_metrics["NYMO"] = self.current_metrics.get("NYMO", float("nan"))
 
                 defensive = _first_from(
                     snap,
@@ -1008,27 +1195,32 @@ class CustomMetricsOrchestrator(QObject):
                     "momentum_dispersion": momentum_dispersion,
                     "participation_score": participation,
                     "breadth_regime": updated_metrics["BREADTH_REGIME"],
-                    "snapshot_ts": snap.get("snapshot_ts") or datetime.now().isoformat(),
+                    "snapshot_ts": snap.get("snapshot_ts") or datetime.now(timezone.utc).isoformat(),
                     "source": "SpyderS11_TradingViewInternals",
                 }
 
                 if "SECTOR_BREADTH" in self.metric_quality:
                     q = self.metric_quality["SECTOR_BREADTH"]
-                    q.last_successful_update = datetime.now()
+                    q.last_successful_update = datetime.now(timezone.utc)
                     q.data_points += 1
                     q.quality_score = min(1.0, q.quality_score + 0.01)
                 self.breadth_updated.emit(snap)
                 return True
             else:
-                for key in ("TICK", "ADD", "TRIN"):
+                for key in ("TICK", "ADD", "TRIN", "NYMO", "VOLD"):
                     updated_metrics[key] = self.current_metrics.get(key, float("nan"))
                 updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")  # noqa: E501
                 updated_metrics["SECTOR_BREADTH"] = self.current_metrics.get("SECTOR_BREADTH", {})
                 return False
         except Exception as e:
             errors.append(f"Breadth update error: {e}")
-            self.logger.error("Breadth update error: %s", e, exc_info=True)
-            for key in ("TICK", "ADD", "TRIN"):
+            self._log_deduped_issue(
+                channel="breadth_update_error",
+                message=f"Breadth update error: {e}",
+                level="error",
+                emit_error=True,
+            )
+            for key in ("TICK", "ADD", "TRIN", "NYMO", "VOLD"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
             updated_metrics["BREADTH_REGIME"] = self.current_metrics.get("BREADTH_REGIME", "neutral")  # noqa: E501
             updated_metrics["SECTOR_BREADTH"] = self.current_metrics.get("SECTOR_BREADTH", {})
@@ -1036,13 +1228,17 @@ class CustomMetricsOrchestrator(QObject):
 
     def _build_data_quality_feed(self, updated_metrics: dict[str, Any], errors: list[str]) -> dict[str, Any]:  # noqa: E501
         """Build a normalized data-quality/SLO envelope for downstream consumers."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         stale_threshold_sec = int(self.config.get("data_quality", {}).get("stale_after_sec", 180))
         buckets: dict[str, dict[str, Any]] = {}
         stale_count = 0
 
         for name, quality in self.metric_quality.items():
-            age_sec = (now - quality.last_successful_update).total_seconds()
+            last_successful_update = quality.last_successful_update
+            if last_successful_update.tzinfo is None:
+                age_sec = (datetime.now() - last_successful_update).total_seconds()  # spyder: naive-ok
+            else:
+                age_sec = (now - last_successful_update.astimezone(timezone.utc)).total_seconds()
             stale = age_sec > stale_threshold_sec
             if stale:
                 stale_count += 1
@@ -1090,9 +1286,45 @@ class CustomMetricsOrchestrator(QObject):
 
     def _get_spy_spot(self) -> float | None:
         """Return the best available SPY spot estimate."""
-        spot = self.current_metrics.get("OGL")
-        if isinstance(spot, (int, float)) and spot > 0:
-            return float(spot)
+        def _to_valid_price(value: Any) -> float | None:
+            """Convert candidate values to a finite positive float."""
+            try:
+                price = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(price) or price <= 0:
+                return None
+            return price
+
+        for key in ("OGL", "SPY_LAST", "SPY_PRICE", "SPY", "UNDERLYING_PRICE"):
+            spot = _to_valid_price(self.current_metrics.get(key))
+            if spot is not None:
+                return spot
+
+        # Reuse the most recent snapshot price before issuing an API request.
+        if self.metrics_history:
+            history_spot = _to_valid_price(getattr(self.metrics_history[-1], "ogl", None))
+            if history_spot is not None:
+                return history_spot
+
+        client = self._get_options_tradier_client()
+        if client is not None:
+            try:
+                quote_response = client.get_quotes(["SPY"])
+                quote = quote_response.get("quotes", {}).get("quote", {})
+                if isinstance(quote, list):
+                    quote = next(
+                        (item for item in quote if str(item.get("symbol", "")).upper() == "SPY"),
+                        quote[0] if quote else {},
+                    )
+
+                for price_field in ("last", "close", "bid", "ask"):
+                    quote_spot = _to_valid_price(quote.get(price_field))
+                    if quote_spot is not None:
+                        return quote_spot
+            except Exception as exc:
+                self.logger.debug("SPY quote fallback unavailable: %s", exc)
+
         return None
 
     def _get_liquidity_thresholds(self) -> dict[str, float]:
@@ -1155,14 +1387,92 @@ class CustomMetricsOrchestrator(QObject):
         return reasons
 
     def _load_options_chain_dataframe(self):
-        """Load the live SPY options chain as a DataFrame from the nearest owner."""
+        """Load the live SPY options chain from N03, falling back to Tradier when needed."""
+        chain_data = None
         try:
-            chain_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
-        except ImportError:
-            chain_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
+            try:
+                chain_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
+            except ImportError:
+                chain_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
 
-        chain_manager = chain_module.OptionsChainManager()
-        return chain_manager.get_chain("SPY")
+            chain_manager = chain_module.OptionsChainManager()
+            chain_data = chain_manager.get_chain("SPY")
+            if chain_data is not None:
+                if hasattr(chain_data, "empty") and not bool(chain_data.empty):
+                    return chain_data
+                if isinstance(chain_data, list) and len(chain_data) > 0:
+                    return chain_data
+        except Exception:
+            pass
+
+        client = self._get_options_tradier_client()
+        if client is None:
+            return chain_data
+
+        try:
+            expirations_response = client.get_option_expirations("SPY")
+            expirations = expirations_response.get("expirations", {}).get("date", [])
+            if not expirations:
+                return chain_data
+
+            contracts = client.get_option_chain_with_greeks("SPY", expirations[0])
+            if not contracts:
+                return chain_data
+
+            now = datetime.now(timezone.utc)
+            rows: list[dict[str, Any]] = []
+            for contract in contracts:
+                bid = float(getattr(contract, "bid", 0.0) or 0.0)
+                ask = float(getattr(contract, "ask", 0.0) or 0.0)
+                mid_price = float(getattr(contract, "mid", 0.0) or 0.0)
+                if mid_price <= 0 and bid > 0 and ask > 0:
+                    mid_price = (bid + ask) / 2.0
+
+                expiration = getattr(contract, "expiration", None)
+                expiry_dt = None
+                if isinstance(expiration, datetime):
+                    expiry_dt = expiration
+                elif isinstance(expiration, str):
+                    try:
+                        expiry_dt = datetime.fromisoformat(expiration)
+                    except ValueError:
+                        expiry_dt = expiration
+
+                rows.append(
+                    {
+                        "symbol": getattr(contract, "symbol", "SPY"),
+                        "strike": float(getattr(contract, "strike", 0.0) or 0.0),
+                        "expiry": expiry_dt if expiry_dt is not None else expiration,
+                        "option_type": str(getattr(contract, "option_type", "")).lower(),
+                        "bid": bid,
+                        "ask": ask,
+                        "mid_price": mid_price,
+                        "spread": max(0.0, ask - bid),
+                        "volume": int(getattr(contract, "volume", 0) or 0),
+                        "open_interest": int(getattr(contract, "open_interest", 0) or 0),
+                        "timestamp": now,
+                    }
+                )
+
+            return rows if rows else chain_data
+        except Exception:
+            return chain_data
+
+    @staticmethod
+    def _normalize_chain_rows(chain_source: Any) -> list[dict[str, Any]]:
+        """Normalize option-chain payloads (DataFrame/list) into row dicts."""
+        if chain_source is None:
+            return []
+        if isinstance(chain_source, list):
+            return [row for row in chain_source if isinstance(row, dict)]
+        to_dict = getattr(chain_source, "to_dict", None)
+        if callable(to_dict):
+            try:
+                records = chain_source.to_dict("records")
+                return [row for row in records if isinstance(row, dict)]
+            except Exception:
+                return []
+        return []
 
     def _build_liquidity_candidate(self, row: Any, now: datetime, thresholds: dict[str, float]) -> dict[str, Any]:  # noqa: E501
         """Convert one option-chain row into an observe-mode liquidity payload."""
@@ -1180,6 +1490,13 @@ class CustomMetricsOrchestrator(QObject):
         if not isinstance(quote_ts, datetime):
             quote_ts = now
 
+        if quote_ts.tzinfo is None:
+            now_for_age = now.replace(tzinfo=None) if now.tzinfo is not None else now
+            quote_age_ms = max(0, int((now_for_age - quote_ts).total_seconds() * 1000))
+        else:
+            now_for_age = now.astimezone(timezone.utc) if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)  # noqa: E501
+            quote_age_ms = max(0, int((now_for_age - quote_ts.astimezone(timezone.utc)).total_seconds() * 1000))  # noqa: E501
+
         bid_size = row.get("bid_size")
         ask_size = row.get("ask_size")
         if bid_size is not None and ask_size is not None:
@@ -1193,7 +1510,7 @@ class CustomMetricsOrchestrator(QObject):
         snapshot = {
             "spread_abs": spread_abs,
             "spread_pct": spread_pct,
-            "quote_age_ms": max(0, int((now - quote_ts).total_seconds() * 1000)),
+            "quote_age_ms": quote_age_ms,
             "bid_size": int(bid_size) if isinstance(bid_size, (int, float)) else None,
             "ask_size": int(ask_size) if isinstance(ask_size, (int, float)) else None,
             "top_of_book_size": top_of_book_size,
@@ -1219,25 +1536,47 @@ class CustomMetricsOrchestrator(QObject):
         updated_metrics.setdefault("LIQUIDITY_DIAGNOSTICS", self.current_metrics.get("LIQUIDITY_DIAGNOSTICS", {}))  # noqa: E501
 
         try:
-            chain_df = self._load_options_chain_dataframe()
-            if chain_df is None or chain_df.empty:
+            chain_source = self._load_options_chain_dataframe()
+            rows = self._normalize_chain_rows(chain_source)
+            if not rows:
                 raise ValueError("SPY options chain unavailable")
 
             anchor = self.current_metrics.get("OGL")
             if not isinstance(anchor, (int, float)) or anchor <= 0:
                 spot = self._get_spy_spot()
-                anchor = spot if spot is not None else float(chain_df["strike"].median())
+                if spot is not None:
+                    anchor = spot
+                else:
+                    strikes = [
+                        float(row.get("strike"))
+                        for row in rows
+                        if isinstance(row.get("strike"), (int, float))
+                    ]
+                    if not strikes:
+                        raise ValueError("SPY options chain unavailable")
+                    anchor = float(np.median(np.asarray(strikes, dtype=float)))
 
-            now = datetime.now()
-            candidate_df = chain_df.copy()
-            candidate_df["_distance"] = (candidate_df["strike"].astype(float) - float(anchor)).abs()
-            candidate_df = candidate_df.sort_values(["_distance", "expiry", "option_type"]).head(6)
+            now = datetime.now(timezone.utc)
+            candidate_rows = sorted(
+                rows,
+                key=lambda row: (
+                    abs(float(row.get("strike") or 0.0) - float(anchor)),
+                    str(row.get("expiry") or ""),
+                    str(row.get("option_type") or ""),
+                ),
+            )[:6]
 
             thresholds = self._get_liquidity_thresholds()
             candidates = [
                 self._build_liquidity_candidate(row, now, thresholds)
-                for _, row in candidate_df.iterrows()
+                for row in candidate_rows
             ]
+
+            source_name = (
+                "SpyderN03_OptionsChainManager"
+                if not isinstance(chain_source, list)
+                else "SpyderB40_TradierClient"
+            )
 
             updated_metrics["LIQUIDITY_DIAGNOSTICS"] = {
                 "feed": "liquidity_diagnostics",
@@ -1247,7 +1586,7 @@ class CustomMetricsOrchestrator(QObject):
                 "published_ts": now.isoformat(),
                 "data": {
                     "symbol": "SPY",
-                    "source": "SpyderN03_OptionsChainManager",
+                    "source": source_name,
                     "anchor_strike": float(anchor),
                     "candidate_count": len(candidates),
                     "candidates": candidates,
@@ -1256,7 +1595,20 @@ class CustomMetricsOrchestrator(QObject):
             return True
         except Exception as e:
             errors.append(f"liquidity diagnostics update failed: {e}")
-            self.logger.warning("Liquidity diagnostics unavailable: %s", e)
+            # Observe-mode diagnostics are optional; keep startup/runtime logs low-noise.
+            _now = datetime.now(timezone.utc)
+            _msg = str(e)
+            _msg_changed = _msg != self._last_liquidity_diag_message
+            _heartbeat_due = (
+                self._last_liquidity_diag_log_ts is None
+                or (_now - self._last_liquidity_diag_log_ts).total_seconds()
+                >= self._liquidity_diag_heartbeat_seconds
+            )
+            _log = self.logger.info if (_msg_changed or _heartbeat_due) else self.logger.debug
+            _log("Liquidity diagnostics unavailable: %s", e)
+            if _msg_changed or _heartbeat_due:
+                self._last_liquidity_diag_log_ts = _now
+                self._last_liquidity_diag_message = _msg
             updated_metrics["LIQUIDITY_DIAGNOSTICS"] = {}
             return False
 
@@ -1295,13 +1647,33 @@ class CustomMetricsOrchestrator(QObject):
                 history = []
 
         history.append({
-            "date": datetime.now().date().isoformat(),
+            "date": datetime.now(timezone.utc).date().isoformat(),
             "iv": float(current_iv),
         })
         history = history[-252:]
         cache_path.write_text(json.dumps(history))
 
         iv_values = [float(entry["iv"]) for entry in history if entry.get("iv") is not None]
+        # Seed with one year of VIX closing prices when live history is thin.
+        # VIX level ≈ 30-day ATM IV (both expressed in percent), making it a
+        # suitable proxy until enough real ATM_IV samples accumulate daily.
+        if len(iv_values) < 5:
+            try:
+                import yfinance as yf
+                vix_df = yf.Ticker("^VIX").history(period="1y")["Close"]
+                if not vix_df.empty:
+                    seed = [
+                        {"date": str(idx.date()), "iv": float(v)}
+                        for idx, v in zip(vix_df.index, vix_df.values)
+                    ]
+                    # Prepend seed; real observations at the tail take priority.
+                    history = (seed + history)[-252:]
+                    cache_path.write_text(json.dumps(history))
+                    iv_values = [
+                        float(e["iv"]) for e in history if e.get("iv") is not None
+                    ]
+            except Exception:
+                pass
         if len(iv_values) < 5:
             return float("nan")
 
@@ -1313,9 +1685,17 @@ class CustomMetricsOrchestrator(QObject):
         return max(0.0, min(100.0, ((current_iv - low_iv) / (high_iv - low_iv)) * 100.0))
 
     def _compute_hv20(self, tradier_client: Any) -> float | None:
-        """Compute 20-day historical volatility as an annualized percent."""
+        """Compute 20-day historical volatility as an annualized percent.
+
+        Result is cached for the remainder of the calendar day to avoid
+        repeated /v1/markets/history calls on every 60-second update cycle.
+        """
+        today_str = datetime.now(timezone.utc).date().isoformat()
+        if self._hv20_cache_date == today_str and self._hv20_cache is not None:
+            return self._hv20_cache
+
         try:
-            end_date = datetime.now().date()
+            end_date = datetime.now(timezone.utc).date()
             start_date = end_date - timedelta(days=40)
             response = tradier_client.get_historical_quotes(
                 "SPY",
@@ -1324,7 +1704,7 @@ class CustomMetricsOrchestrator(QObject):
                 end=end_date.isoformat(),
             )
         except Exception:
-            return None
+            return self._hv20_cache  # return last known value on transient failure
 
         days = response.get("history", {}).get("day", [])
         closes = []
@@ -1341,13 +1721,27 @@ class CustomMetricsOrchestrator(QObject):
         if log_returns.size == 0:
             return None
 
-        return float(np.std(log_returns, ddof=0) * np.sqrt(252) * 100.0)
+        result = float(np.std(log_returns, ddof=0) * np.sqrt(252) * 100.0)
+        self._hv20_cache = result
+        self._hv20_cache_date = today_str
+        return result
 
     def _get_options_tradier_client(self):
         """Return a cached Tradier client for options analytics calls."""
+        trading_mode = os.getenv("TRADING_MODE", "paper").strip().lower()
+        environment_name = os.getenv("TRADIER_ENVIRONMENT", "sandbox").strip().lower() or "sandbox"
         api_key = os.getenv("TRADIER_API_KEY", "").strip()
         account_id = os.getenv("TRADIER_ACCOUNT_ID", "").strip()
-        environment_name = os.getenv("TRADIER_ENVIRONMENT", "sandbox").strip().lower() or "sandbox"
+
+        if trading_mode == "paper" and environment_name != "live":
+            # Paper mode + sandbox data: use sandbox credentials/endpoint.
+            api_key = (os.getenv("TRADIER_SANDBOX_API_KEY", "").strip() or api_key)
+            account_id = (os.getenv("TRADIER_SANDBOX_ACCOUNT_ID", "").strip() or account_id)
+            environment_name = "sandbox"
+        elif trading_mode == "paper":
+            # Paper mode + live data (TRADIER_ENVIRONMENT=live): use production
+            # credentials so market data fetches go to api.tradier.com.
+            pass  # environment_name already "live"; keep production api_key/account_id
 
         if not api_key or not account_id:
             return None
@@ -1472,67 +1866,11 @@ class CustomMetricsOrchestrator(QObject):
         if ok_n09 or ok_n11:
             if "DEALER_FLOW" in self.metric_quality:
                 q = self.metric_quality["DEALER_FLOW"]
-                q.last_successful_update = datetime.now()
+                q.last_successful_update = datetime.now(timezone.utc)
                 q.data_points += 1
                 q.quality_score = min(1.0, q.quality_score + 0.01)
 
         return ok_n09 and ok_n11
-
-    def _get_c11_futures_basis(self):
-        """Return a cached C11 FuturesBasisAnalyzer instance."""
-        if self._c11_futures_basis is not None:
-            return self._c11_futures_basis
-        try:
-            mod = importlib.import_module("Spyder.SpyderC_MarketData.SpyderC11_FuturesBasis")
-        except ImportError:
-            mod = importlib.import_module("SpyderC_MarketData.SpyderC11_FuturesBasis")
-        self._c11_futures_basis = mod.FuturesBasisAnalyzer()
-        return self._c11_futures_basis
-
-    def _update_lead_lag_metrics(self, updated_metrics: dict, errors: list) -> bool:
-        """Update ES/SPY lead-lag context metrics from C11 FuturesBasis."""
-        scalar_defaults = {
-            "ES_PRICE": self.current_metrics.get("ES_PRICE", float("nan")),
-            "SPY_PRICE": self.current_metrics.get("SPY_PRICE", float("nan")),
-            "BASIS_BPS": self.current_metrics.get("BASIS_BPS", float("nan")),
-            "LEAD_LAG_MS": self.current_metrics.get("LEAD_LAG_MS", float("nan")),
-            "ES_IMPULSE_SCORE": self.current_metrics.get("ES_IMPULSE_SCORE", float("nan")),
-            "CONFIRM_DIRECTION": self.current_metrics.get("CONFIRM_DIRECTION", "unknown"),
-            "CONFIRM_CONFIDENCE": self.current_metrics.get("CONFIRM_CONFIDENCE", float("nan")),
-        }
-        for k, v in scalar_defaults.items():
-            updated_metrics.setdefault(k, v)
-        updated_metrics.setdefault("LEAD_LAG", self.current_metrics.get("LEAD_LAG", {}))
-
-        try:
-            analyzer = self._get_c11_futures_basis()
-            snap = analyzer.get_lead_lag_snapshot()
-            updated_metrics["ES_PRICE"] = float(snap.get("es_price", float("nan")))
-            updated_metrics["SPY_PRICE"] = float(snap.get("spy_price", float("nan")))
-            updated_metrics["BASIS_BPS"] = float(snap.get("basis_bps", float("nan")))
-            updated_metrics["LEAD_LAG_MS"] = float(snap.get("lead_lag_ms", float("nan")))
-            updated_metrics["ES_IMPULSE_SCORE"] = float(snap.get("es_impulse_score", float("nan")))
-            updated_metrics["CONFIRM_DIRECTION"] = snap.get("confirm_direction", "unknown")
-            updated_metrics["CONFIRM_CONFIDENCE"] = float(snap.get("confirm_confidence", float("nan")))  # noqa: E501
-            updated_metrics["LEAD_LAG"] = {
-                "es_price": snap.get("es_price"),
-                "spy_price": snap.get("spy_price"),
-                "basis_bps": snap.get("basis_bps"),
-                "lead_lag_ms": snap.get("lead_lag_ms"),
-                "es_impulse_score": snap.get("es_impulse_score"),
-                "confirm_direction": snap.get("confirm_direction"),
-                "confirm_confidence": snap.get("confirm_confidence"),
-                "snapshot_ts": snap.get("snapshot_ts"),
-            }
-            if "LEAD_LAG" in self.metric_quality:
-                q = self.metric_quality["LEAD_LAG"]
-                q.last_successful_update = datetime.now()
-                q.data_points += 1
-                q.quality_score = min(1.0, q.quality_score + 0.01)
-            return True
-        except Exception as e:
-            errors.append(f"lead-lag update failed: {e}")
-            return False
 
     def _update_options_analytics_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update ATM IV, IV rank, and volatility risk premium metrics."""
@@ -1565,6 +1903,13 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["VRP"] = atm_iv - hv20 if hv20 is not None else float("nan")
             return True
         except Exception as e:
+            if self._is_transient_options_unavailable(str(e)):
+                self._log_deduped_issue(
+                    channel="options_analytics_deferred",
+                    message=f"Options analytics deferred: {e}",
+                    level="info",
+                )
+                return False
             errors.append(f"options analytics update failed: {e}")
             return False
 
@@ -1599,6 +1944,13 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["SURFACE_AGE_MS"] = float(snapshot.get("surface_age_ms", float("nan")))
             return True
         except Exception as e:
+            if self._is_transient_options_unavailable(str(e)):
+                self._log_deduped_issue(
+                    channel="vol_surface_deferred",
+                    message=f"Vol surface deferred: {e}",
+                    level="info",
+                )
+                return False
             errors.append(f"vol surface update failed: {e}")
             return False
 
@@ -1615,7 +1967,7 @@ class CustomMetricsOrchestrator(QObject):
                     quality.error_count += 1
                     quality.quality_score = max(0.0, quality.quality_score - 0.1)
                 else:
-                    quality.last_successful_update = datetime.now()
+                    quality.last_successful_update = datetime.now(timezone.utc)
                     quality.data_points += 1
                     # Gradually improve quality score on successful updates
                     quality.quality_score = min(1.0, quality.quality_score + 0.01)
@@ -1641,22 +1993,22 @@ class CustomMetricsOrchestrator(QObject):
         # Update stress level if changed
         if new_stress_level != self.current_stress_level:
             self.current_stress_level = new_stress_level
-            self.stress_history.append((datetime.now(), new_stress_level))
+            self.stress_history.append((datetime.now(timezone.utc), new_stress_level))
             self.stress_level_changed.emit(new_stress_level.value)
 
-            self.logger.info("🎯 Market stress level changed to: %s", new_stress_level.value.upper())  # noqa: E501
+            self.logger.debug("🎯 Market stress level changed to: %s", new_stress_level.value.upper())  # noqa: E501
 
         # Adjust update frequency if needed
         if new_interval != self.current_update_interval:
             self.current_update_interval = new_interval
             self.update_timer.setInterval(new_interval * 1000)
-            self.last_frequency_change = datetime.now()
+            self.last_frequency_change = datetime.now(timezone.utc)
 
-            self.logger.info("⚡ Update frequency adjusted to %ss (stress: %s)", new_interval, new_stress_level.value)  # noqa: E501
+            self.logger.debug("⚡ Update frequency adjusted to %ss (stress: %s)", new_interval, new_stress_level.value)  # noqa: E501
 
     def _format_metrics(self, metrics: dict) -> dict:
         """Format metrics for display with enhanced information"""
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
 
         def _is_nan(value: Any) -> bool:
             return isinstance(value, float) and math.isnan(value)
@@ -1767,6 +2119,12 @@ class CustomMetricsOrchestrator(QObject):
             "NYMO": {
                 "value": metrics.get("NYMO", float("nan")),
                 "formatted": f"{metrics.get('NYMO', float('nan')):.1f}",
+                "timestamp": timestamp,
+                "quality": self.metric_quality['BREADTH'].quality_score
+            },
+            "VOLD": {
+                "value": metrics.get("VOLD", float("nan")),
+                "formatted": f"{metrics.get('VOLD', float('nan')):.0f}",
                 "timestamp": timestamp,
                 "quality": self.metric_quality['BREADTH'].quality_score
             },
@@ -1926,54 +2284,6 @@ class CustomMetricsOrchestrator(QObject):
                 "timestamp": timestamp,
                 "quality": self.metric_quality['DEALER_FLOW'].quality_score
             },
-            "ES_PRICE": {
-                "value": metrics.get("ES_PRICE", float("nan")),
-                "formatted": _format_float(metrics.get("ES_PRICE", float("nan")), 2, ""),
-                "timestamp": timestamp,
-                "quality": self.metric_quality['LEAD_LAG'].quality_score
-            },
-            "SPY_PRICE": {
-                "value": metrics.get("SPY_PRICE", float("nan")),
-                "formatted": _format_float(metrics.get("SPY_PRICE", float("nan")), 2, ""),
-                "timestamp": timestamp,
-                "quality": self.metric_quality['LEAD_LAG'].quality_score
-            },
-            "BASIS_BPS": {
-                "value": metrics.get("BASIS_BPS", float("nan")),
-                "formatted": _format_float(metrics.get("BASIS_BPS", float("nan")), 1),
-                "timestamp": timestamp,
-                "quality": self.metric_quality['LEAD_LAG'].quality_score
-            },
-            "LEAD_LAG_MS": {
-                "value": metrics.get("LEAD_LAG_MS", float("nan")),
-                "formatted": _format_float(metrics.get("LEAD_LAG_MS", float("nan")), 1),
-                "timestamp": timestamp,
-                "quality": self.metric_quality['LEAD_LAG'].quality_score
-            },
-            "ES_IMPULSE_SCORE": {
-                "value": metrics.get("ES_IMPULSE_SCORE", float("nan")),
-                "formatted": _format_float(metrics.get("ES_IMPULSE_SCORE", float("nan")), 3),
-                "timestamp": timestamp,
-                "quality": self.metric_quality['LEAD_LAG'].quality_score
-            },
-            "CONFIRM_DIRECTION": {
-                "value": metrics.get("CONFIRM_DIRECTION", "unknown"),
-                "formatted": str(metrics.get("CONFIRM_DIRECTION", "---")),
-                "timestamp": timestamp,
-                "quality": self.metric_quality['LEAD_LAG'].quality_score
-            },
-            "CONFIRM_CONFIDENCE": {
-                "value": metrics.get("CONFIRM_CONFIDENCE", float("nan")),
-                "formatted": _format_float(metrics.get("CONFIRM_CONFIDENCE", float("nan")), 2),
-                "timestamp": timestamp,
-                "quality": self.metric_quality['LEAD_LAG'].quality_score
-            },
-            "LEAD_LAG": {
-                "value": metrics.get("LEAD_LAG", {}),
-                "formatted": metrics.get("LEAD_LAG", {}).get("confirm_direction", "---"),
-                "timestamp": timestamp,
-                "quality": self.metric_quality['LEAD_LAG'].quality_score
-            },
             "LIQUIDITY_DIAGNOSTICS": {
                 "value": metrics.get("LIQUIDITY_DIAGNOSTICS", {}),
                 "formatted": f"{len(metrics.get('LIQUIDITY_DIAGNOSTICS', {}).get('data', {}).get('candidates', []))} candidates",  # noqa: E501
@@ -2042,7 +2352,7 @@ class CustomMetricsOrchestrator(QObject):
 
     def get_metrics_history(self, lookback_minutes: int = 60) -> list[MetricSnapshot]:
         """Get metrics history for specified lookback period"""
-        cutoff_time = datetime.now() - timedelta(minutes=lookback_minutes)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)
         return [s for s in self.metrics_history if s.timestamp >= cutoff_time]
 
     def get_quality_report(self) -> dict[str, Any]:
@@ -2071,6 +2381,50 @@ class CustomMetricsOrchestrator(QObject):
     # INTEGRATION METHODS (For other modules)
     # ==========================================================================
 
+    def _load_index_confirmation_snapshot(self) -> dict[str, float]:
+        """Load cross-index and sector change-percent context from persisted market snapshots."""
+        market_data_dir = pathlib.Path(__file__).resolve().parents[2] / "market_data"
+        snapshot_paths = [
+            market_data_dir / "live_data.json",
+            market_data_dir / "eod_snapshot.json",
+        ]
+
+        for snapshot_path in snapshot_paths:
+            try:
+                payload = json.loads(snapshot_path.read_text())
+            except (FileNotFoundError, OSError, json.JSONDecodeError):
+                continue
+
+            if not isinstance(payload, dict):
+                continue
+
+            def _extract_change_pct(symbol: str) -> float:
+                entry = payload.get(symbol)
+                if not isinstance(entry, dict):
+                    return float("nan")
+                try:
+                    return float(entry.get("change_pct", float("nan")))
+                except (TypeError, ValueError):
+                    return float("nan")
+
+            snapshot = {
+                "spy_change_pct": _extract_change_pct("SPY"),
+                "qqq_change_pct": _extract_change_pct("QQQ"),
+                "iwm_change_pct": _extract_change_pct("IWM"),
+                "xlk_change_pct": _extract_change_pct("XLK"),
+                "xlf_change_pct": _extract_change_pct("XLF"),
+            }
+            if any(math.isfinite(value) for value in snapshot.values()):
+                return snapshot
+
+        return {
+            "spy_change_pct": float("nan"),
+            "qqq_change_pct": float("nan"),
+            "iwm_change_pct": float("nan"),
+            "xlk_change_pct": float("nan"),
+            "xlf_change_pct": float("nan"),
+        }
+
     def get_current_market_conditions(self) -> dict[str, Any]:
         """
         Get current market conditions for integration with other modules.
@@ -2079,11 +2433,19 @@ class CustomMetricsOrchestrator(QObject):
         but does NOT perform regime detection itself.
         """
         with self._metrics_lock:
+            index_snapshot = self._load_index_confirmation_snapshot()
             return {
                 'dix_score': self.current_metrics.get('DIX', 42.5),
                 'gex_level': self.current_metrics.get('GEX', -2.5),
                 'swan_score': self.current_metrics.get('SWAN', 1.85),
                 'skew_level': self.current_metrics.get('SKEW', 125.5),
+                # Lowercase aliases consumed directly by F09 trust-gate filters.
+                'vix': self.current_metrics.get('VIX', float('nan')),
+                'vix9d': self.current_metrics.get('VIX9D', float('nan')),
+                'vxv': self.current_metrics.get('VXV', float('nan')),
+                'vvix': self.current_metrics.get('VVIX', float('nan')),
+                'cpc': self.current_metrics.get('CPC', float('nan')),
+                'rvol': self.current_metrics.get('RVOL', float('nan')),
                 'dex_level': self.current_metrics.get('DEX', 850),
                 'ogl_level': self.current_metrics.get('OGL', 585.5),
                 'vex': self.current_metrics.get('VEX', 0.0),
@@ -2125,17 +2487,14 @@ class CustomMetricsOrchestrator(QObject):
                 'charm_pressure': self.current_metrics.get('CHARM_PRESSURE', float('nan')),
                 'flow_imbalance': self.current_metrics.get('FLOW_IMBALANCE', float('nan')),
                 'dealer_flow': self.current_metrics.get('DEALER_FLOW', {}),
-                'es_price': self.current_metrics.get('ES_PRICE', float('nan')),
-                'spy_price': self.current_metrics.get('SPY_PRICE', float('nan')),
-                'basis_bps': self.current_metrics.get('BASIS_BPS', float('nan')),
-                'lead_lag_ms': self.current_metrics.get('LEAD_LAG_MS', float('nan')),
-                'es_impulse_score': self.current_metrics.get('ES_IMPULSE_SCORE', float('nan')),
-                'confirm_direction': self.current_metrics.get('CONFIRM_DIRECTION', 'unknown'),
-                'confirm_confidence': self.current_metrics.get('CONFIRM_CONFIDENCE', float('nan')),
-                'lead_lag': self.current_metrics.get('LEAD_LAG', {}),
+                'spy_change_pct': index_snapshot.get('spy_change_pct', self.current_metrics.get('SPY_CHANGE_PCT', float('nan'))),
+                'qqq_change_pct': index_snapshot.get('qqq_change_pct', self.current_metrics.get('QQQ_CHANGE_PCT', float('nan'))),
+                'iwm_change_pct': index_snapshot.get('iwm_change_pct', self.current_metrics.get('IWM_CHANGE_PCT', float('nan'))),
+                'xlk_change_pct': index_snapshot.get('xlk_change_pct', self.current_metrics.get('XLK_CHANGE_PCT', float('nan'))),
+                'xlf_change_pct': index_snapshot.get('xlf_change_pct', self.current_metrics.get('XLF_CHANGE_PCT', float('nan'))),
                 'stress_level': self.current_stress_level.value,
                 'update_frequency': self.current_update_interval,
-                'timestamp': datetime.now(),
+                'timestamp': datetime.now(timezone.utc),
                 'data_quality_feed': self.current_metrics.get('DATA_QUALITY_FEED', {}),
                 'data_quality': {
                     name: quality.quality_score

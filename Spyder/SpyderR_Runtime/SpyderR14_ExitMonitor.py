@@ -132,7 +132,7 @@ class ExitMonitor:
             daemon=True,
         )
         self._thread.start()
-        self.logger.info("ExitMonitor started (interval=%.1fs)", self.sweep_interval_s)
+        self.logger.debug("ExitMonitor started (interval=%.1fs)", self.sweep_interval_s)
         return True
 
     def stop(self) -> None:

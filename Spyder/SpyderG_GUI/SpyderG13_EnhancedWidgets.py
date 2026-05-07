@@ -69,7 +69,7 @@ try:
     SUPERQT_AVAILABLE = True
 except ImportError:
     SUPERQT_AVAILABLE = False
-    logging.info("Warning: superqt not available. Install with: pip install superqt")
+    logging.debug("Optional dependency superqt not available. Install with: pip install superqt")
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -1470,6 +1470,15 @@ class MarketSymbolWidget(QWidget):
 
         self.setLayout(layout)
 
+    def set_unavailable(self, label: str = "N/A") -> None:
+        """Render an explicit unavailable state instead of placeholder dashes."""
+        self.price_label.setText(label)
+        self.price_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
+        self.change_label.setText("—")
+        self.change_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
+        self.pct_label.setText("")
+        self.pct_label.setStyleSheet("font-size: 11px;")
+
     def update_data(self, data):
         if isinstance(data, dict):
             last = data.get("last", 0.0)
@@ -1619,7 +1628,7 @@ class MarketSymbolWidget(QWidget):
                 change_text = self._fmt_compact(change)
             else:
                 self.price_label.setText(f"{last:.2f}")
-        elif self.symbol in ["SPX", "/ES"]:
+        elif self.symbol == "SPX":
             self.price_label.setText(f"{last:.2f}")
         else:
             self.price_label.setText(f"{last:.2f}")

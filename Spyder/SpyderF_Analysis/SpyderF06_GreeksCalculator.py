@@ -87,7 +87,7 @@ class GreeksCalculator:
         # Initialize caches
         self._init_caches()
 
-        self.logger.info("GreeksCalculator initialized with American options support")
+        self.logger.debug("GreeksCalculator initialized with American options support")
 
     def _load_config(self):
         """Load configuration from ConfigManager."""

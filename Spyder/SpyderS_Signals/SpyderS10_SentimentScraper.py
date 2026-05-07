@@ -56,7 +56,7 @@ import logging
 import os
 import re
 import threading
-from datetime import date, datetime, timedelta  # noqa: F401
+from datetime import date, datetime, timedelta, timezone  # noqa: F401
 from typing import Optional
 
 # ==============================================================================
@@ -212,11 +212,11 @@ class SentimentScraper:
         """Return cache and availability status for both sources."""
         with self._lock:
             aaii_age = (
-                (datetime.now() - self._aaii_cache_time).total_seconds()
+                (datetime.now(timezone.utc) - self._aaii_cache_time).total_seconds()
                 if self._aaii_cache_time else None
             )
             naaim_age = (
-                (datetime.now() - self._naaim_cache_time).total_seconds()
+                (datetime.now(timezone.utc) - self._naaim_cache_time).total_seconds()
                 if self._naaim_cache_time else None
             )
         return {
@@ -234,7 +234,7 @@ class SentimentScraper:
     def _get_aaii(self, force_refresh: bool) -> dict:
         with self._lock:
             if not force_refresh and self._aaii_cache is not None:
-                age = (datetime.now() - self._aaii_cache_time).total_seconds()
+                age = (datetime.now(timezone.utc) - self._aaii_cache_time).total_seconds()
                 if age < _AAII_CACHE_TTL_SECONDS:
                     return dict(self._aaii_cache)
 
@@ -242,7 +242,7 @@ class SentimentScraper:
 
         with self._lock:
             self._aaii_cache = data
-            self._aaii_cache_time = datetime.now()
+            self._aaii_cache_time = datetime.now(timezone.utc)
 
         return dict(data)
 
@@ -501,7 +501,7 @@ class SentimentScraper:
     def _get_naaim(self, force_refresh: bool) -> dict:
         with self._lock:
             if not force_refresh and self._naaim_cache is not None:
-                age = (datetime.now() - self._naaim_cache_time).total_seconds()
+                age = (datetime.now(timezone.utc) - self._naaim_cache_time).total_seconds()
                 if age < _NAAIM_CACHE_TTL_SECONDS:
                     return dict(self._naaim_cache)
 
@@ -509,7 +509,7 @@ class SentimentScraper:
 
         with self._lock:
             self._naaim_cache = data
-            self._naaim_cache_time = datetime.now()
+            self._naaim_cache_time = datetime.now(timezone.utc)
 
         return dict(data)
 

@@ -37,7 +37,7 @@ Description:
 # ==============================================================================
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -94,6 +94,11 @@ class GEXDEXCalculator:
         self.logger = logging.getLogger(__name__)
         self.logger.debug("GEXDEXCalculator initialized (real options chain mode)")
         self._last_result: dict | None = None
+        # Cache SPY expirations for the trading day — the list only changes
+        # at most once per day, so re-fetching every 60-second GEX cycle
+        # creates unnecessary /options/expirations calls that trigger timeouts.
+        self._cached_expirations: list[str] = []
+        self._expirations_cache_date: str = ""  # "YYYY-MM-DD" of last fetch
 
     # ------------------------------------------------------------------
     # Public API
@@ -198,7 +203,7 @@ class GEXDEXCalculator:
             "ogl": float(rng.normal(580.0, 5.0)),
             "vex": float(rng.normal(0.0, 5.0)),
             "chex": float(rng.normal(0.0, 200.0)),
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(timezone.utc),
             "num_strikes": 20,
             "data_source": "simulated",
         }
@@ -263,7 +268,7 @@ class GEXDEXCalculator:
             "ogl": ogl,
             "vex": vex,
             "chex": chex,
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(timezone.utc),
             "num_strikes": int(df["strike"].nunique()),
             "data_source": "live_chain",
         }
@@ -378,16 +383,40 @@ class GEXDEXCalculator:
             from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureCalculator
             gex_calc = GammaExposureCalculator()
             result = gex_calc.get_spy_gex_summary()
+            n_strikes = result.get("num_strikes", 0)
+            if n_strikes == 0:
+                # OPRA stream not yet active — fall through so the chain
+                # fallback (N03 → Tradier B40) computes a real GEX instead
+                # of propagating the zero that N09 returns without live data.
+                raise DataUnavailableError(
+                    "SpyderN09 returned 0 strikes — OPRA stream not active; using chain fallback"
+                )
             return {
                 "gex": result.get("net_gex_billions", 0.0),
                 "dex": result.get("net_dex_millions", 0.0),
                 "ogl": result.get("max_gamma_strike", spot_price or 0.0),
-                "timestamp": datetime.now(),
-                "num_strikes": result.get("num_strikes", 0),
+                "timestamp": datetime.now(timezone.utc),
+                "num_strikes": n_strikes,
                 "data_source": "SpyderN09_GammaExposure",
             }
         except Exception as e:
             logging.getLogger(__name__).debug("SpyderN09 GEX calculation unavailable, using fallback: %s", e)  # noqa: E501
+
+        # Resolve spot_price from the live market-data snapshot when the caller
+        # didn't supply one.  Without a valid spot, _compute_from_chain defaults
+        # to spot=1.0 which makes GEX ~730² ≈ 533,000× too small (rounds to 0.0B).
+        _resolved_spot = spot_price
+        if _resolved_spot is None:
+            try:
+                import json as _json
+                from pathlib import Path as _Path
+                _live = _json.loads(_Path("market_data/live_data.json").read_text())
+                _spy_q = _live.get("SPY", {})
+                _last = _spy_q.get("last") or _spy_q.get("close")
+                if _last and float(_last) > 0:
+                    _resolved_spot = float(_last)
+            except Exception:
+                pass
 
         # Fallback: SpyderN03 options chain manager (preferred over deprecated B30)
         try:
@@ -396,7 +425,13 @@ class GEXDEXCalculator:
             chain_df = chain_mgr.get_chain("SPY")
             if chain_df.empty:
                 raise DataUnavailableError("SpyderN03_OptionsChainManager returned empty chain for SPY")  # noqa: E501
-            return self._compute_from_chain(chain_df, spot_price)
+            # If the chain has all-zero gamma (e.g., Tradier sandbox upstream),
+            # fall through to the B40 path which has a BSM gamma fallback.
+            if chain_df["gamma"].fillna(0).abs().sum() == 0:
+                raise DataUnavailableError(
+                    "SpyderN03 chain has all-zero gamma — deferring to B40 BSM fallback"
+                )
+            return self._compute_from_chain(chain_df, _resolved_spot)
         except DataUnavailableError:
             pass  # fall through to Tradier direct fetch below
         except Exception as e:
@@ -411,18 +446,28 @@ class GEXDEXCalculator:
 
             client = create_tradier_client_from_env()
 
-            # Get available SPY expirations
-            exps_resp = client.get_option_expirations("SPY")
-            exps = exps_resp.get("expirations", {}).get("date", [])
-            if not exps:
-                raise DataUnavailableError("No SPY expirations returned from Tradier")
-            if isinstance(exps, str):
-                exps = [exps]
+            # Get available SPY expirations — cache for the trading day to
+            # avoid a /options/expirations HTTP round-trip every 60-second cycle.
+            today_str = str(_date.today())
+            if self._expirations_cache_date != today_str or not self._cached_expirations:
+                exps_resp = client.get_option_expirations("SPY")
+                exps = exps_resp.get("expirations", {}).get("date", [])
+                if not exps:
+                    raise DataUnavailableError("No SPY expirations returned from Tradier")
+                if isinstance(exps, str):
+                    exps = [exps]
+                self._cached_expirations = list(exps)
+                self._expirations_cache_date = today_str
+                self.logger.debug("Cached %d SPY expirations for %s", len(exps), today_str)
+            else:
+                self.logger.debug("Using cached SPY expirations (%d dates)",
+                                  len(self._cached_expirations))
 
             # Pick the soonest future expiration (but at least 1 day out)
-            today_str = str(_date.today())
-            future_exps = sorted(e for e in exps if e > today_str)
+            future_exps = sorted(e for e in self._cached_expirations if e > today_str)
             if not future_exps:
+                # Cache might be stale (all cached expirations have passed) — force refresh
+                self._expirations_cache_date = ""
                 raise DataUnavailableError("No future SPY expirations available from Tradier")
             nearest = future_exps[0]
 

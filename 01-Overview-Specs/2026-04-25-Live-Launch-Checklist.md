@@ -58,8 +58,7 @@ Required work:
 1. ✅ Add hard data-quality SLO gating. *(F09 all 4 filters + E01 SLO gate — 2026-04-25)*
 2. ✅ Add vol-surface metrics into actual entry and risk logic. *(F09 vol_surface hard-fail + E01 surface_confidence check)*
 3. ✅ Add dealer-flow structure into actual entry and risk logic. *(F09 dealer_flow hard-fail + E01 wall_confidence check)*
-4. ✅ Add ES lead-lag confirmation into fast-market entry filtering. *(F09 lead_lag hard-fail + E01 lead_lag check)*
-5. ⬜ Validate each of those in integration, paper, and supervised-live paths. *(unit: 15 tests pass; integration/live: pending)*
+4. ⬜ Validate each of those in integration, paper, and supervised-live paths. *(unit: 15 tests pass; integration/live: pending)*
 
 Exit criteria:
 
@@ -124,7 +123,6 @@ Exit criteria:
 | Data-quality SLO hard gating | Yes |  |  |
 | Vol-surface structure in live decision path | Yes |  |  |
 | Dealer-flow structure in live decision path | Yes |  |  |
-| ES lead-lag confirmation in live decision path | Yes |  |  |
 | Kill-switch drill staleness check (weekly) | Yes |  |  |
 | Go/No-Go preflight blocks unsafe live starts | Yes |  |  |
 | Broker reconnect audit trail | Yes |  |  |

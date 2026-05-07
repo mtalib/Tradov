@@ -1,0 +1,26 @@
+# ===============================================================================
+# SPYDER - Autonomous Options Trading System
+#
+# Service: SpyderQ77_Preflight.service
+# Group: Q (Scripts/Services)
+# Purpose: Run the configuration/env validation scripts before market open.
+#          Triggered by SpyderQ77_Preflight.timer at 08:50 ET weekdays.
+# ===============================================================================
+
+[Unit]
+Description=SPYDER Preflight Health-Check
+Documentation=file:///home/adam/Projects/Spyder/docs/README.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=adam
+Group=adam
+WorkingDirectory=/home/adam/Projects/Spyder
+EnvironmentFile=/home/adam/Projects/Spyder/.env
+Environment="PYTHONPATH=/home/adam/Projects/Spyder"
+Environment="PATH=/home/adam/Projects/Spyder/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Validate .env and configuration before allowing the session-start timer to fire.
+ExecStart=/home/adam/Projects/Spyder/.venv/bin/python /home/adam/Projects/Spyder/validate_env.py
+ExecStartPost=/home/adam/Projects/Spyder/.venv/bin/python /home/adam/Projects/Spyder/validate_configuration.py

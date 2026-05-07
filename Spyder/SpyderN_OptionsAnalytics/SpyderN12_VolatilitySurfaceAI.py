@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from collections import deque
@@ -113,7 +113,7 @@ class VolatilityPoint:
     ask_vol: float | None = None
     volume: int = 0
     open_interest: int = 0
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -437,7 +437,7 @@ class VolatilitySurfaceAI:
             # Create surface object
             surface = VolatilitySurface(
                 spot_price=spot_price,
-                surface_time=datetime.now(),
+                surface_time=datetime.now(timezone.utc),
                 strikes=strikes,
                 expiries=expiries,
                 implied_vols=final_surface,
@@ -448,7 +448,7 @@ class VolatilitySurfaceAI:
             # Update history
             self.current_surface = surface
             self.surface_history.append(surface)
-            self.last_update = datetime.now()
+            self.last_update = datetime.now(timezone.utc)
 
             # Calculate metrics
             metrics = self._calculate_surface_metrics(surface)
@@ -473,7 +473,7 @@ class VolatilitySurfaceAI:
         points = []
 
         for expiry, options in option_chain.expirations.items():
-            time_to_maturity = (expiry - datetime.now()).days / 365.0
+            time_to_maturity = (expiry - datetime.now(timezone.utc)).days / 365.0
 
             if time_to_maturity <= 0:
                 continue
@@ -1037,7 +1037,7 @@ class VolatilitySurfaceAI:
 
             # Find nearest grid point
             strike_idx = np.argmin(np.abs(self.current_surface.strikes - strike))
-            time_to_expiry = (expiry - datetime.now()).days / 365.0
+            time_to_expiry = (expiry - datetime.now(timezone.utc)).days / 365.0
             expiry_idx = np.argmin(
                 np.abs(self.current_surface.expiries - time_to_expiry)
             )
@@ -1059,7 +1059,7 @@ class VolatilitySurfaceAI:
                 self.current_surface.implied_vols, strike_idx, expiry_idx
             )
 
-            self.last_update = datetime.now()
+            self.last_update = datetime.now(timezone.utc)
             return True
 
         except Exception as e:
@@ -1197,7 +1197,7 @@ async def main():
         # Add test data
         spot = 450.0
         for days in [7, 14, 30, 45, 60, 90]:
-            expiry = datetime.now() + timedelta(days=days)
+            expiry = datetime.now(timezone.utc) + timedelta(days=days)
 
             for moneyness in np.linspace(0.9, 1.1, 21):
                 strike = spot * moneyness

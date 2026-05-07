@@ -42,7 +42,7 @@ Key Features:
 import os
 import asyncio
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -372,7 +372,7 @@ class MultiLegMarketAnalyzer:
                 raise ValueError("Insufficient market data for analysis")
 
             current_price = market_data['close'].iloc[-1]
-            timestamp = datetime.now()
+            timestamp = datetime.now(timezone.utc)
 
             # Volatility analysis
             vix_level = market_data.get('vix', pd.Series([20.0])).iloc[-1] if 'vix' in market_data else 20.0  # noqa: E501
@@ -422,7 +422,7 @@ class MultiLegMarketAnalyzer:
         except Exception as e:
             self.logger.error("Market environment analysis failed: %s", e, exc_info=True)
             neutral = MarketEnvironmentAnalysis(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 underlying_price=market_data['close'].iloc[-1],
                 volatility_environment=VolatilityEnvironment.NORMAL_VOL,
                 market_condition=MarketCondition.RANGE_BOUND,
@@ -496,13 +496,21 @@ class MultiLegMarketAnalyzer:
                 )
                 _tradier = create_tradier_client_from_env()
                 # Retrieve the nearest-expiry ATM option to sample current IV
-                _chain = _tradier.get_option_chain("SPY", expiration_date=None, greeks=True)
-                if _chain and "options" in _chain:
+                _exp_resp = _tradier.get_option_expirations("SPY")
+                _expiries = _exp_resp.get("expirations", {}).get("date", [])
+                if isinstance(_expiries, str):
+                    _expiries = [_expiries]
+
+                iv_samples = []
+                if _expiries:
+                    _greeks = _tradier.get_option_chain_with_greeks("SPY", _expiries[0])
                     iv_samples = [
-                        opt.get("greeks", {}).get("smv_vol") or opt.get("implied_volatility", 0)
-                        for opt in _chain.get("options", {}).get("option", [])
-                        if opt.get("greeks", {}).get("smv_vol") or opt.get("implied_volatility")
+                        float(g.iv)
+                        for g in _greeks
+                        if getattr(g, "iv", 0.0) and float(getattr(g, "iv", 0.0)) > 0.0
                     ]
+
+                if iv_samples:
                     if len(iv_samples) >= 5:
                         # Use the median ATM IV as a single-point estimate;
                         # a full IV time-series would require historical option snapshots.
@@ -888,7 +896,7 @@ class MultiLegStrategyConstructor:
             long_call_strike = short_call_strike + wing_width
 
             # Create legs
-            expiration = datetime.now() + timedelta(days=dte)
+            expiration = datetime.now(timezone.utc) + timedelta(days=dte)
 
             legs = [
                 # Put spread (bull put spread)
@@ -963,7 +971,7 @@ class MultiLegStrategyConstructor:
             long_call_strike = atm_strike + wing_width
 
             # Create legs
-            expiration = datetime.now() + timedelta(days=dte)
+            expiration = datetime.now(timezone.utc) + timedelta(days=dte)
 
             legs = [
                 OptionLeg('put', long_put_strike, 1, expiration),      # Long put
@@ -1039,7 +1047,7 @@ class MultiLegStrategyConstructor:
             long_call_strike = round(long_call_strike * 2) / 2
 
             # Create legs
-            expiration = datetime.now() + timedelta(days=dte)
+            expiration = datetime.now(timezone.utc) + timedelta(days=dte)
 
             legs = [
                 OptionLeg('put', short_put_strike, -1, expiration),    # Short put (naked)
@@ -1467,7 +1475,7 @@ class MultiLegStrategyCoordinator:
         # Greeks staleness check — warn if position Greeks are stale
         GREEKS_STALENESS_SECONDS = 300  # 5 minutes
         if self._greeks_last_updated:
-            age = (datetime.now() - self._greeks_last_updated).total_seconds()
+            age = (datetime.now(timezone.utc) - self._greeks_last_updated).total_seconds()
             if age > GREEKS_STALENESS_SECONDS:
                 self.logger.warning(
                     f"Greeks are {age:.0f}s old (>{GREEKS_STALENESS_SECONDS}s threshold). "
@@ -1721,7 +1729,7 @@ class MultiLegStrategyCoordinator:
             position = MultiLegPosition(
                 position_id=position_id,
                 strategy_structure=strategy_structure,
-                entry_time=datetime.now(),
+                entry_time=datetime.now(timezone.utc),
                 entry_net_credit=strategy_structure.net_credit,
                 current_value=strategy_structure.net_credit,
                 unrealized_pnl=0.0,
@@ -1939,6 +1947,27 @@ def create_multileg_strategy_coordinator(config: dict[str, Any] = None) -> Multi
         MultiLegStrategyCoordinator instance
     """
     return MultiLegStrategyCoordinator(config)
+
+
+_coordinator_singleton: MultiLegStrategyCoordinator | None = None
+
+
+def get_multileg_coordinator(config: dict[str, Any] = None) -> MultiLegStrategyCoordinator:
+    """
+    Return the process-level singleton MultiLegStrategyCoordinator.
+
+    Creates the instance on first call; subsequent calls return the same object.
+
+    Args:
+        config: Optional configuration dictionary (only used on first call).
+
+    Returns:
+        Shared MultiLegStrategyCoordinator instance.
+    """
+    global _coordinator_singleton
+    if _coordinator_singleton is None:
+        _coordinator_singleton = MultiLegStrategyCoordinator(config)
+    return _coordinator_singleton
 
 # ==============================================================================
 # MAIN EXECUTION

@@ -418,7 +418,7 @@ class SpyderLauncher:
             ts = lock_data.get("ts", "unknown")
             account = lock_data.get("account_id", "unknown")
             if clear_requested:
-                cleared_at = datetime.now().isoformat()
+                cleared_at = datetime.now(timezone.utc).isoformat()
                 self.log_info(
                     "🔓 Clearing kill-lock (reason=%s ts=%s account=%s cleared_at=%s)",
                     reason, ts, account, cleared_at,

@@ -85,7 +85,7 @@ RIGHT_PANEL_WIDTH = 610
 
 # Market symbols organized by category - UPDATED WITH OPTIMIZED LIST
 MARKET_SYMBOLS = {
-    "S&P CORE": ["SPY", "SPX", "/ES"],
+    "S&P CORE": ["SPY", "SPX"],
     "VOLATILITY": ["VIX", "VIX9D", "VXV", "VXMT", "VVIX", "UVXY"],
     "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "PCALL", "SKEW"],
     "MAJOR INDICES": ["DIA", "QQQ", "IWM"],
@@ -99,7 +99,6 @@ SYMBOL_DESCRIPTIONS = {
     # S&P Core
     "SPY": "SPDR S&P 500 ETF - Most liquid S&P 500 ETF",
     "SPX": "S&P 500 Index - Cash index value",
-    "/ES": "E-mini S&P 500 Futures - 24/5 trading",
     # Volatility
     "VIX": "CBOE Volatility Index - 30-day implied volatility",
     "VIX9D": "CBOE 9-Day Volatility Index - Short-term volatility",
@@ -134,12 +133,12 @@ SYMBOL_DESCRIPTIONS = {
 }
 
 # Update intervals
-FAST_UPDATE_MS = 1000  # SPY, SPX, /ES, VIX, $TICK, SWAN (when critical)
+FAST_UPDATE_MS = 1000  # SPY, SPX, VIX, $TICK, SWAN (when critical)
 MEDIUM_UPDATE_MS = 5000  # Other volatility, internals, indices
 SLOW_UPDATE_MS = 15000  # Bonds, correlations (DXY, GLD), custom metrics
 
 # Symbol update categories
-FAST_UPDATE_SYMBOLS = ["SPY", "SPX", "/ES", "VIX", "$TICK"]
+FAST_UPDATE_SYMBOLS = ["SPY", "SPX", "VIX", "$TICK"]
 MEDIUM_UPDATE_SYMBOLS = [
     "VIX9D",
     "VXV",
@@ -2740,7 +2739,6 @@ class SpyderTestDashboard(QMainWindow):
             # S&P Core
             "SPY": 585.25,
             "SPX": 5850.75,
-            "/ES": 5852.50,
             # Volatility
             "VIX": 15.32,
             "VIX9D": 14.8,

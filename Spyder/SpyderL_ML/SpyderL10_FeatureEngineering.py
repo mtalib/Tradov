@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from collections import deque
@@ -205,7 +205,7 @@ class FeatureEngineer:
             Complete feature set
         """
         try:
-            timestamp = market_data.get('timestamp', datetime.now())
+            timestamp = market_data.get('timestamp', datetime.now(timezone.utc))
 
             # Check cache
             cached = self._get_cached_features(timestamp)
@@ -257,7 +257,7 @@ class FeatureEngineer:
                 features=features,
                 metadata={
                     'feature_count': len(features),
-                    'extraction_time': datetime.now()
+                    'extraction_time': datetime.now(timezone.utc)
                 }
             )
 
@@ -1133,7 +1133,7 @@ class FeatureEngineer:
         """Update internal data buffers"""
         # Update price buffer
         self.price_buffer.append({
-            'timestamp': market_data.get('timestamp', datetime.now()),
+            'timestamp': market_data.get('timestamp', datetime.now(timezone.utc)),
             'open': market_data.get('open', 0),
             'high': market_data.get('high', 0),
             'low': market_data.get('low', 0),
@@ -1145,7 +1145,7 @@ class FeatureEngineer:
 
         # Update volume buffer
         self.volume_buffer.append({
-            'timestamp': market_data.get('timestamp', datetime.now()),
+            'timestamp': market_data.get('timestamp', datetime.now(timezone.utc)),
             'volume': market_data.get('volume', 0),
             'trade_count': market_data.get('trade_count', 0),
             'buy_volume': market_data.get('buy_volume', 0),
@@ -1155,7 +1155,7 @@ class FeatureEngineer:
         # Update Greeks buffer
         if option_chain:
             greeks_data = {
-                'timestamp': market_data.get('timestamp', datetime.now()),
+                'timestamp': market_data.get('timestamp', datetime.now(timezone.utc)),
                 'atm_iv': getattr(option_chain, 'atm_iv', 0),
                 'vix': market_data.get('vix', 16),
                 'put_call_ratio': getattr(option_chain, 'put_call_volume_ratio', 1)
@@ -1174,7 +1174,7 @@ class FeatureEngineer:
             if 0 <= idx < len(self.feature_cache):
                 cached = self.feature_cache[idx]
                 # Check TTL
-                if (datetime.now() - cached.metadata['extraction_time']).seconds < CACHE_TTL:
+                if (datetime.now(timezone.utc) - cached.metadata['extraction_time']).seconds < CACHE_TTL:
                     return cached
         return None
 
@@ -1292,7 +1292,7 @@ if __name__ == "__main__":
 
     # Create sample market data
     market_data = {
-        'timestamp': datetime.now(),
+        'timestamp': datetime.now(timezone.utc),
         'symbol': 'SPY',
         'open': 450.0,
         'high': 451.5,

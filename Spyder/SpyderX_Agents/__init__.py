@@ -126,8 +126,9 @@ except Exception as _e:
     create_market_analysis_agent = None  # type: ignore
 
 if _import_errors:
+    _logger.info("Optional AI agents unavailable: %d", len(_import_errors))
     for _err in _import_errors:
-        _logger.warning("Agent import failed: %s", _err)
+        _logger.debug("Agent import failed: %s", _err)
 
 # ==============================================================================
 # PACKAGE EXPORTS
@@ -288,7 +289,7 @@ try:
             "capabilities": ["agent_coordination", "workflow_management", "rl_optimization"],
         }
 except Exception as _e:
-    _logger.warning("Agent import failed: X14: %s", _e)
+    _logger.debug("Agent import failed: X14: %s", _e)
     SpyderX14_OrchestratorAgent = None  # type: ignore
     create_orchestrator_agent = None  # type: ignore
     get_orchestrator_agent = None  # type: ignore
@@ -304,7 +305,7 @@ try:
         "capabilities": ["strategy_creation", "parameter_suggestion"],
     }
 except Exception as _e:
-    _logger.warning("Agent import failed: X15: %s", _e)
+    _logger.debug("Agent import failed: X15: %s", _e)
     SpyderX15_StrategyGeneratorAgent = None  # type: ignore
     SimplifiedStrategyGenerator = None  # type: ignore
 
@@ -319,7 +320,7 @@ try:
         "capabilities": ["signal_arbitration", "agent_monitoring", "conflict_resolution"],
     }
 except Exception as _e:
-    _logger.warning("Agent import failed: X16: %s", _e)
+    _logger.debug("Agent import failed: X16: %s", _e)
     SpyderX16_MetaCoordinator = None  # type: ignore
     MetaCoordinator = None  # type: ignore
     create_meta_coordinator = None  # type: ignore

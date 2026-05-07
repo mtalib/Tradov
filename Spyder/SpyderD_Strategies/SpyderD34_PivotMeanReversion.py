@@ -349,9 +349,10 @@ class PivotMeanReversionStrategy(BaseStrategy):
         self._trade_lock = threading.Lock()
 
         # Injected intraday context (updated each bar by the caller)
-        self._ctx_tick:   Optional[float] = None
-        self._ctx_vix:    Optional[float] = None
-        self._ctx_regime: str = ""
+        self._ctx_tick:    Optional[float] = None
+        self._ctx_vix:     Optional[float] = None
+        self._ctx_regime:  str = ""
+        self._ctx_net_gex: Optional[float] = None
 
         # Scorer (stateless)
         self._scorer = PivotMeanReversionSignal()
@@ -406,17 +407,21 @@ class PivotMeanReversionStrategy(BaseStrategy):
         tick: Optional[float] = None,
         vix: Optional[float] = None,
         regime: str = "",
+        net_gex: Optional[float] = None,
     ) -> None:
         """Inject live intraday context that cannot be derived from OHLCV bars.
 
         Args:
-            tick:   Most-recent NYSE TICK reading.
-            vix:    Most-recent VIX last price.
-            regime: F08 volatility-regime label (e.g. "LOW_VOL", "TREND").
+            tick:    Most-recent NYSE TICK reading.
+            vix:     Most-recent VIX last price.
+            regime:  F08 volatility-regime label (e.g. "LOW_VOL", "TREND").
+            net_gex: Net Gamma Exposure from SpyderN09 (raw dollars).  Feeds
+                     the +20 GEX bonus in S08 scoring.
         """
-        self._ctx_tick   = tick
-        self._ctx_vix    = vix
-        self._ctx_regime = regime
+        self._ctx_tick    = tick
+        self._ctx_vix     = vix
+        self._ctx_regime  = regime
+        self._ctx_net_gex = net_gex
 
     # ==========================================================================
     # ABSTRACT METHOD IMPLEMENTATIONS
@@ -476,10 +481,13 @@ class PivotMeanReversionStrategy(BaseStrategy):
             atr          = atr,
             rsi          = rsi,
             regime_label = self._ctx_regime,
-            net_gex      = None,          # Injected separately if available
-            vwap_slope   = vwap_slope if not np.isnan(vwap_slope) else None,
+            net_gex         = self._ctx_net_gex,
+            vwap_slope      = vwap_slope if not np.isnan(vwap_slope) else None,
             max_pain_strike = None,
-            breadth_tick = self._ctx_tick,
+            # breadth_tick is intentionally None here: D34 owns the TICK gate
+            # via _tick_confirms(); passing it to S08 would create a double-
+            # penalty (S08 rewards |tick|<800 while D34 requires |tick|>=1000).
+            breadth_tick    = None,
             vix          = self._ctx_vix,
             vix_backwardation = False,
             is_news_window    = False,
@@ -704,9 +712,19 @@ class PivotMeanReversionStrategy(BaseStrategy):
         self._bar_buffer = bars[-200:]
 
     def _bar_session_bars(self) -> list[IntradayBar]:
-        """Return bars from today's session only (for VWAP)."""
-        today = date.today()
-        return [b for b in self._bar_buffer if b.timestamp.date() == today]
+        """Return bars from today's session only (for VWAP).
+
+        v27 fix: compare against ET date, not local server tz. ``date.today()``
+        returns the host wallclock date; if the host is in UTC, after 20:00 ET
+        the day boundary rolls before NYSE close, dropping every session bar
+        and zeroing VWAP — killing PMR signals across EOT close.
+        """
+        today_et = datetime.now(tz=ET).date()
+        return [
+            b for b in self._bar_buffer
+            if (b.timestamp.astimezone(ET).date() if b.timestamp.tzinfo else b.timestamp.date())
+            == today_et
+        ]
 
     def _refresh_daily_pivots(self, market_data: pd.DataFrame) -> None:
         """Recompute daily pivots from yesterday's OHLC (once per session)."""
@@ -856,6 +874,7 @@ class PivotMeanReversionStrategy(BaseStrategy):
 
         meta: dict[str, Any] = {
             "strategy_tag":      STRATEGY_ID,
+            "strategy_type":     "pivot_mean_reversion",
             "direction":         s08.direction.value,
             "option_type":       option_type,
             "target_delta":      TARGET_DELTA,

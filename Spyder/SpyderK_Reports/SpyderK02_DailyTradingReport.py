@@ -1647,6 +1647,171 @@ Please find detailed reports attached.
                 pass
         return overrides
 
+    # ==========================================================================
+    # WEEKLY OPS REPORT
+    # ==========================================================================
+
+    def generate_weekly_ops_report(
+        self, week_key: str | None = None
+    ) -> dict[str, Any]:
+        """Generate weekly operations report for the given ISO week.
+
+        Reads daily ``eod_reviews/eod_{date}.json`` files for Mon–Fri of the
+        target week and writes a Markdown summary to
+        ``market_data/weekly/weekly_ops_report_{week_key}.md``.
+
+        Args:
+            week_key: ISO week string (``YYYY-Www``), e.g. ``"2026-W20"``.
+                      Defaults to the current ISO week.
+
+        Returns:
+            Dict with ``week_key``, ``total_pl``, ``trade_count``, and
+            ``saved_path`` keys.
+        """
+        import json as _json
+        import tempfile
+        from datetime import timedelta
+        from pathlib import Path as _Path
+
+        project_root = _Path(__file__).resolve().parent.parent.parent
+
+        # Resolve target week
+        now = date.today()
+        if week_key is None:
+            iso = now.isocalendar()
+            week_key = f"{iso.year}-W{iso.week:02d}"
+
+        # Parse ISO week back to Monday date
+        try:
+            from datetime import datetime as _dt
+            week_monday = _dt.strptime(f"{week_key}-1", "%G-W%V-%u").date()
+        except Exception:
+            week_monday = now - timedelta(days=now.weekday())
+
+        week_dates = [week_monday + timedelta(days=i) for i in range(5)]
+        eod_dir = project_root / "market_data" / "eod_reviews"
+
+        # Aggregate daily data
+        daily_rows: list[dict[str, Any]] = []
+        total_pl = 0.0
+        trade_count = 0
+        win_count = 0
+        max_drawdown = 0.0
+        incidents: list[str] = []
+
+        for d in week_dates:
+            date_str = d.strftime("%Y-%m-%d")
+            eod_file = eod_dir / f"eod_{date_str}.json"
+            row: dict[str, Any] = {"date": date_str, "pl": 0.0, "trades": 0, "wins": 0}
+            if eod_file.exists():
+                try:
+                    data = _json.loads(eod_file.read_text(encoding="utf-8"))
+                    row["pl"] = float(data.get("net_pl_day", data.get("pnl", 0.0)) or 0.0)
+                    row["trades"] = int(data.get("trade_count", 0) or 0)
+                    row["wins"] = int(data.get("win_count", 0) or 0)
+                    day_dd = float(data.get("max_drawdown", 0.0) or 0.0)
+                    if abs(day_dd) > abs(max_drawdown):
+                        max_drawdown = day_dd
+                    policy_blocks = data.get("policy_blocks", [])
+                    for pb in policy_blocks:
+                        if isinstance(pb, dict) and pb.get("type") == "kill_switch":
+                            incidents.append(f"{date_str}: KILL_SWITCH fired")
+                    overrides = data.get("overrides", [])
+                    if overrides:
+                        incidents.append(f"{date_str}: {len(overrides)} Go/No-Go override(s)")
+                except Exception as exc:
+                    self.logger.debug("Weekly report: failed to read %s: %s", eod_file, exc)
+            daily_rows.append(row)
+            total_pl += row["pl"]
+            trade_count += row["trades"]
+            win_count += row["wins"]
+
+        win_rate = (win_count / trade_count * 100) if trade_count > 0 else 0.0
+        best_row = max(daily_rows, key=lambda r: r["pl"], default={"date": "N/A", "pl": 0.0})
+        worst_row = min(daily_rows, key=lambda r: r["pl"], default={"date": "N/A", "pl": 0.0})
+
+        # Build Markdown report
+        lines: list[str] = [
+            f"# Spyder Weekly Ops Report — {week_key}",
+            "",
+            f"Generated: {date.today().isoformat()}",
+            "",
+            "## P/L Summary",
+            "",
+            f"| Metric | Value |",
+            f"|--------|-------|",
+            f"| Weekly Net P/L | ${total_pl:+.2f} |",
+            f"| Trades | {trade_count} |",
+            f"| Win Rate | {win_rate:.1f}% |",
+            f"| Max Drawdown | ${max_drawdown:.2f} |",
+            f"| Best Day | {best_row['date']} (${best_row['pl']:+.2f}) |",
+            f"| Worst Day | {worst_row['date']} (${worst_row['pl']:+.2f}) |",
+            "",
+            "## Daily Breakdown",
+            "",
+            "| Date | P/L | Trades | Wins |",
+            "|------|-----|--------|------|",
+        ]
+        for row in daily_rows:
+            wr = f"{row['wins']}/{row['trades']}" if row["trades"] > 0 else "—"
+            lines.append(
+                f"| {row['date']} | ${row['pl']:+.2f} | {row['trades']} | {wr} |"
+            )
+
+        lines += [
+            "",
+            "## Critical Incidents",
+            "",
+        ]
+        if incidents:
+            for inc in incidents:
+                lines.append(f"- {inc}")
+        else:
+            lines.append("No critical incidents this week.")
+
+        lines += [
+            "",
+            "## Monday Readiness",
+            "",
+            "- [ ] Verify broker connectivity",
+            "- [ ] Confirm account balance / buying power",
+            "- [ ] Review risk parameters for new week",
+            "- [ ] Confirm market calendar (holidays / early close)",
+            "",
+        ]
+
+        md_content = "\n".join(lines)
+
+        # Save artifact
+        out_dir = project_root / "market_data" / "weekly"
+        saved_path: str | None = None
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / f"weekly_ops_report_{week_key}.md"
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=out_dir,
+                suffix=".tmp",
+                delete=False,
+            ) as tmp:
+                tmp.write(md_content)
+                tmp_path = _Path(tmp.name)
+            tmp_path.replace(out_path)
+            saved_path = str(out_path)
+            self.logger.info("Weekly ops report saved: %s", out_path)
+        except Exception as exc:
+            self.logger.error("Failed to save weekly ops report: %s", exc)
+
+        return {
+            "week_key": week_key,
+            "total_pl": total_pl,
+            "trade_count": trade_count,
+            "win_rate": win_rate,
+            "max_drawdown": max_drawdown,
+            "saved_path": saved_path,
+        }
+
 
 # ==============================================================================
 # MODULE FUNCTIONS

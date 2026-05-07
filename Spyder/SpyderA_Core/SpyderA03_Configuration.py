@@ -30,7 +30,7 @@ import re
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -137,7 +137,7 @@ class ConfigValue:
     key: str
     value: Any
     source: ConfigSource
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     encrypted: bool = False
     schema_validated: bool = False
     description: str | None = None
@@ -314,6 +314,9 @@ class ConfigManager:
             # 2. Load configuration files
             self._load_config_files()
 
+            # 2.5 Load repo-level regime policy if present.
+            self._load_repo_regime_policy()
+
             # 3. Load environment variables
             self._load_environment_variables()
 
@@ -413,6 +416,18 @@ class ConfigManager:
                 "enabled": True,
             },
             "autonomous_readiness": {
+                "lean_mode": True,
+                "observe_only_agents": True,
+                "session_window": {
+                    "primary_start_et": "09:30",
+                    "primary_end_et": "16:15",
+                    "first_entry_not_before_et": "09:35",
+                    "zero_dte_no_new_risk_cutoff_et": "15:45",
+                    "broker_cutoff_et": "16:00",
+                    "broker_cutoff_buffer_minutes": 10,
+                    "pin_risk_monitor_end_et": "17:30",
+                    "fail_closed_if_cutoff_unknown_live": True,
+                },
                 "liquidity": {
                     "enabled": True,
                     "max_spread_pct": 0.12,
@@ -440,6 +455,39 @@ class ConfigManager:
                     "blackout_post_minutes": 30,
                     "max_size_multiplier_during_event": 0.25,
                     "allowlist_strategies": [],
+                },
+                "macro_regime": {
+                    # VIX9D / VIX short-end stress profile.
+                    "vix9d_vix_warn_ratio": 1.05,
+                    "vix9d_vix_fail_ratio": 1.12,
+                    "vix9d_warn_abs": 23.0,
+                    "vix9d_fail_abs": 28.0,
+
+                    # VVIX vol-of-vol stress profile.
+                    "vvix_warn": 100.0,
+                    "vvix_fail": 115.0,
+
+                    # CPC put/call crowding extremes.
+                    "cpc_warn_high": 1.20,
+                    "cpc_fail_high": 1.35,
+                    "cpc_warn_low": 0.70,
+                    "cpc_fail_low": 0.60,
+
+                    # RVOL participation profile.
+                    "rvol_warn": 0.80,
+                    "rvol_fail": 0.55,
+
+                    # QQQ / IWM relative confirmation vs SPY (percentage points).
+                    "qqq_rel_warn_pct": 0.35,
+                    "qqq_rel_fail_pct": 0.75,
+                    "iwm_rel_warn_pct": 0.40,
+                    "iwm_rel_fail_pct": 0.90,
+
+                    # XLK / XLF sector confirmation vs SPY (percentage points).
+                    "xlk_rel_warn_pct": 0.45,
+                    "xlk_rel_fail_pct": 1.00,
+                    "xlf_rel_warn_pct": 0.35,
+                    "xlf_rel_fail_pct": 0.80,
                 },
                 "escalation": {
                     "warn_on_single_breach": True,
@@ -514,6 +562,31 @@ class ConfigManager:
         except Exception as e:
             self.logger.error("Failed to load config file %s: %s", file_path, e)
             self.error_handler.handle_error(e, f"load_config_file:{file_path}")
+
+    def _load_repo_regime_policy(self):
+        """Load repository regime policy JSON into autonomous_readiness namespace."""
+        try:
+            # Avoid overriding explicit values already loaded from config files/env.
+            existing = self.get("autonomous_readiness.regime_policy")
+            if isinstance(existing, dict) and existing:
+                return
+
+            repo_policy_path = Path(__file__).resolve().parents[2] / "config" / "regime_policy.json"
+            if not repo_policy_path.exists():
+                return
+
+            policy = self._load_json_file(repo_policy_path)
+            if not isinstance(policy, dict) or not policy:
+                return
+
+            self._merge_config(
+                {"autonomous_readiness": {"regime_policy": policy}},
+                ConfigSource.FILE,
+            )
+            self.watched_files.add(repo_policy_path)
+            self.logger.info("Loaded regime policy from: %s", repo_policy_path)
+        except Exception as e:
+            self.logger.warning("Failed to load repo regime policy: %s", e)
 
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
         """Load YAML configuration file"""
@@ -795,7 +868,7 @@ class ConfigManager:
 
                 # Record change
                 change = ConfigChange(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     key=key,
                     old_value=old_value if not is_sensitive else "***MASKED***",
                     new_value=value if not is_sensitive else "***MASKED***",
@@ -864,7 +937,7 @@ class ConfigManager:
 
                     # Record change
                     change = ConfigChange(
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         key=key,
                         old_value=old_value,
                         new_value=None,
@@ -1120,6 +1193,51 @@ class ConfigManager:
                 else:
                     errors.append(message)
 
+        def require_time_string(path: str):
+            value = self._get_nested_path_value(effective, path)
+            if not isinstance(value, str) or re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value.strip()) is None:
+                errors.append(f"{path} must be HH:MM (24h)")
+
+        require_time_string("autonomous_readiness.session_window.primary_start_et")
+        require_time_string("autonomous_readiness.session_window.primary_end_et")
+        require_time_string("autonomous_readiness.session_window.first_entry_not_before_et")
+        require_time_string("autonomous_readiness.session_window.zero_dte_no_new_risk_cutoff_et")
+        require_time_string("autonomous_readiness.session_window.broker_cutoff_et")
+        require_time_string("autonomous_readiness.session_window.pin_risk_monitor_end_et")
+        require_int_range("autonomous_readiness.session_window.broker_cutoff_buffer_minutes", 0, 120)
+        require_bool("autonomous_readiness.session_window.fail_closed_if_cutoff_unknown_live")
+
+        try:
+            session_cfg = self._get_nested_path_value(effective, "autonomous_readiness.session_window", {})
+            if isinstance(session_cfg, dict):
+                start_et = datetime.strptime(str(session_cfg.get("primary_start_et", "09:30")), "%H:%M").time()
+                end_et = datetime.strptime(str(session_cfg.get("primary_end_et", "16:15")), "%H:%M").time()
+                first_entry_et = datetime.strptime(
+                    str(session_cfg.get("first_entry_not_before_et", "09:35")),
+                    "%H:%M",
+                ).time()
+                no_new_risk_et = datetime.strptime(
+                    str(session_cfg.get("zero_dte_no_new_risk_cutoff_et", "15:45")),
+                    "%H:%M",
+                ).time()
+                broker_cutoff_et = datetime.strptime(
+                    str(session_cfg.get("broker_cutoff_et", "16:00")),
+                    "%H:%M",
+                ).time()
+
+                if start_et >= end_et:
+                    errors.append("autonomous_readiness.session_window.primary_start_et must be before primary_end_et")
+                if first_entry_et < start_et:
+                    errors.append("autonomous_readiness.session_window.first_entry_not_before_et must be >= primary_start_et")
+                if first_entry_et > end_et:
+                    errors.append("autonomous_readiness.session_window.first_entry_not_before_et must be <= primary_end_et")
+                if no_new_risk_et > end_et:
+                    errors.append("autonomous_readiness.session_window.zero_dte_no_new_risk_cutoff_et must be <= primary_end_et")
+                if broker_cutoff_et > end_et:
+                    warnings.append("autonomous_readiness.session_window.broker_cutoff_et is after primary_end_et")
+        except Exception:
+            errors.append("autonomous_readiness.session_window contains invalid time ordering")
+
         require_float_range("autonomous_readiness.liquidity.max_spread_pct", 0.01, 0.50)
         require_float_range("autonomous_readiness.liquidity.max_spread_abs", 0.01, 2.00)
         require_int_range("autonomous_readiness.liquidity.max_quote_age_ms", 100, 10000)
@@ -1139,6 +1257,8 @@ class ConfigManager:
             severity="WARN",
             fallback=-0.20,
         )
+
+        require_bool("autonomous_readiness.observe_only_agents")
 
         require_float_range("autonomous_readiness.execution.max_slippage_bps", 1, 200)
         require_int_range("autonomous_readiness.execution.max_fill_latency_ms", 100, 20000)
@@ -1161,6 +1281,28 @@ class ConfigManager:
             0.00,
             1.00,
         )
+
+        # Macro regime thresholds for F09 trust gates (VIX9D/VVIX/CPC/RVOL).
+        require_float_range("autonomous_readiness.macro_regime.vix9d_vix_warn_ratio", 0.80, 1.80)
+        require_float_range("autonomous_readiness.macro_regime.vix9d_vix_fail_ratio", 0.85, 2.00)
+        require_float_range("autonomous_readiness.macro_regime.vix9d_warn_abs", 10.0, 80.0)
+        require_float_range("autonomous_readiness.macro_regime.vix9d_fail_abs", 10.0, 100.0)
+        require_float_range("autonomous_readiness.macro_regime.vvix_warn", 50.0, 250.0)
+        require_float_range("autonomous_readiness.macro_regime.vvix_fail", 50.0, 300.0)
+        require_float_range("autonomous_readiness.macro_regime.cpc_warn_high", 0.80, 2.50)
+        require_float_range("autonomous_readiness.macro_regime.cpc_fail_high", 0.80, 3.00)
+        require_float_range("autonomous_readiness.macro_regime.cpc_warn_low", 0.20, 1.20)
+        require_float_range("autonomous_readiness.macro_regime.cpc_fail_low", 0.20, 1.20)
+        require_float_range("autonomous_readiness.macro_regime.rvol_warn", 0.20, 3.00)
+        require_float_range("autonomous_readiness.macro_regime.rvol_fail", 0.10, 2.50)
+        require_float_range("autonomous_readiness.macro_regime.qqq_rel_warn_pct", 0.05, 5.00)
+        require_float_range("autonomous_readiness.macro_regime.qqq_rel_fail_pct", 0.05, 6.00)
+        require_float_range("autonomous_readiness.macro_regime.iwm_rel_warn_pct", 0.05, 5.00)
+        require_float_range("autonomous_readiness.macro_regime.iwm_rel_fail_pct", 0.05, 6.00)
+        require_float_range("autonomous_readiness.macro_regime.xlk_rel_warn_pct", 0.05, 5.00)
+        require_float_range("autonomous_readiness.macro_regime.xlk_rel_fail_pct", 0.05, 6.00)
+        require_float_range("autonomous_readiness.macro_regime.xlf_rel_warn_pct", 0.05, 5.00)
+        require_float_range("autonomous_readiness.macro_regime.xlf_rel_fail_pct", 0.05, 6.00)
 
         allowlist_path = "autonomous_readiness.event_clock.allowlist_strategies"
         allowlist = self._get_nested_path_value(effective, allowlist_path)
@@ -1186,6 +1328,178 @@ class ConfigManager:
             effective,
             "autonomous_readiness.event_clock.max_size_multiplier_during_event",
         )
+
+        # Macro-regime ordering checks (warn/fail pairs should be monotonic).
+        vix_warn_ratio = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.vix9d_vix_warn_ratio",
+        )
+        vix_fail_ratio = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.vix9d_vix_fail_ratio",
+        )
+        if isinstance(vix_warn_ratio, (int, float)) and isinstance(vix_fail_ratio, (int, float)):
+            if float(vix_fail_ratio) < float(vix_warn_ratio):
+                warnings.append(
+                    "autonomous_readiness.macro_regime.vix9d_vix_fail_ratio < warn_ratio; fallback to warn_ratio"  # noqa: E501
+                )
+                self._set_nested_value(
+                    effective,
+                    "autonomous_readiness.macro_regime.vix9d_vix_fail_ratio",
+                    float(vix_warn_ratio),
+                )
+
+        vvix_warn = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.vvix_warn",
+        )
+        vvix_fail = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.vvix_fail",
+        )
+        if isinstance(vvix_warn, (int, float)) and isinstance(vvix_fail, (int, float)):
+            if float(vvix_fail) < float(vvix_warn):
+                warnings.append(
+                    "autonomous_readiness.macro_regime.vvix_fail < vvix_warn; fallback to vvix_warn"  # noqa: E501
+                )
+                self._set_nested_value(
+                    effective,
+                    "autonomous_readiness.macro_regime.vvix_fail",
+                    float(vvix_warn),
+                )
+
+        cpc_warn_high = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.cpc_warn_high",
+        )
+        cpc_fail_high = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.cpc_fail_high",
+        )
+        if isinstance(cpc_warn_high, (int, float)) and isinstance(cpc_fail_high, (int, float)):
+            if float(cpc_fail_high) < float(cpc_warn_high):
+                warnings.append(
+                    "autonomous_readiness.macro_regime.cpc_fail_high < cpc_warn_high; fallback to cpc_warn_high"  # noqa: E501
+                )
+                self._set_nested_value(
+                    effective,
+                    "autonomous_readiness.macro_regime.cpc_fail_high",
+                    float(cpc_warn_high),
+                )
+
+        cpc_warn_low = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.cpc_warn_low",
+        )
+        cpc_fail_low = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.cpc_fail_low",
+        )
+        if isinstance(cpc_warn_low, (int, float)) and isinstance(cpc_fail_low, (int, float)):
+            if float(cpc_fail_low) > float(cpc_warn_low):
+                warnings.append(
+                    "autonomous_readiness.macro_regime.cpc_fail_low > cpc_warn_low; fallback to cpc_warn_low"  # noqa: E501
+                )
+                self._set_nested_value(
+                    effective,
+                    "autonomous_readiness.macro_regime.cpc_fail_low",
+                    float(cpc_warn_low),
+                )
+
+        rvol_warn = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.rvol_warn",
+        )
+        rvol_fail = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.rvol_fail",
+        )
+        if isinstance(rvol_warn, (int, float)) and isinstance(rvol_fail, (int, float)):
+            if float(rvol_fail) > float(rvol_warn):
+                warnings.append(
+                    "autonomous_readiness.macro_regime.rvol_fail > rvol_warn; fallback to rvol_warn"  # noqa: E501
+                )
+                self._set_nested_value(
+                    effective,
+                    "autonomous_readiness.macro_regime.rvol_fail",
+                    float(rvol_warn),
+                )
+
+        qqq_warn = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.qqq_rel_warn_pct",
+        )
+        qqq_fail = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.qqq_rel_fail_pct",
+        )
+        if isinstance(qqq_warn, (int, float)) and isinstance(qqq_fail, (int, float)):
+            if float(qqq_fail) < float(qqq_warn):
+                warnings.append(
+                    "autonomous_readiness.macro_regime.qqq_rel_fail_pct < qqq_rel_warn_pct; fallback to qqq_rel_warn_pct"  # noqa: E501
+                )
+                self._set_nested_value(
+                    effective,
+                    "autonomous_readiness.macro_regime.qqq_rel_fail_pct",
+                    float(qqq_warn),
+                )
+
+        iwm_warn = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.iwm_rel_warn_pct",
+        )
+        iwm_fail = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.iwm_rel_fail_pct",
+        )
+        if isinstance(iwm_warn, (int, float)) and isinstance(iwm_fail, (int, float)):
+            if float(iwm_fail) < float(iwm_warn):
+                warnings.append(
+                    "autonomous_readiness.macro_regime.iwm_rel_fail_pct < iwm_rel_warn_pct; fallback to iwm_rel_warn_pct"  # noqa: E501
+                )
+                self._set_nested_value(
+                    effective,
+                    "autonomous_readiness.macro_regime.iwm_rel_fail_pct",
+                    float(iwm_warn),
+                )
+
+        xlk_warn = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.xlk_rel_warn_pct",
+        )
+        xlk_fail = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.xlk_rel_fail_pct",
+        )
+        if isinstance(xlk_warn, (int, float)) and isinstance(xlk_fail, (int, float)):
+            if float(xlk_fail) < float(xlk_warn):
+                warnings.append(
+                    "autonomous_readiness.macro_regime.xlk_rel_fail_pct < xlk_rel_warn_pct; fallback to xlk_rel_warn_pct"  # noqa: E501
+                )
+                self._set_nested_value(
+                    effective,
+                    "autonomous_readiness.macro_regime.xlk_rel_fail_pct",
+                    float(xlk_warn),
+                )
+
+        xlf_warn = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.xlf_rel_warn_pct",
+        )
+        xlf_fail = self._get_nested_path_value(
+            effective,
+            "autonomous_readiness.macro_regime.xlf_rel_fail_pct",
+        )
+        if isinstance(xlf_warn, (int, float)) and isinstance(xlf_fail, (int, float)):
+            if float(xlf_fail) < float(xlf_warn):
+                warnings.append(
+                    "autonomous_readiness.macro_regime.xlf_rel_fail_pct < xlf_rel_warn_pct; fallback to xlf_rel_warn_pct"  # noqa: E501
+                )
+                self._set_nested_value(
+                    effective,
+                    "autonomous_readiness.macro_regime.xlf_rel_fail_pct",
+                    float(xlf_warn),
+                )
         if isinstance(degrade, (int, float)) and isinstance(event_mult, (int, float)):
             if float(degrade) < float(event_mult):
                 errors.append(
@@ -1241,6 +1555,16 @@ class ConfigManager:
         """Apply documented env overrides for autonomous readiness settings."""
         effective = copy.deepcopy(config)
         env_key_to_path = {
+            "SPYDER_LEAN_MODE": "autonomous_readiness.lean_mode",
+            "SPYDER_OBSERVE_ONLY_AGENTS": "autonomous_readiness.observe_only_agents",
+            "SPYDER_SESSION_PRIMARY_START_ET": "autonomous_readiness.session_window.primary_start_et",
+            "SPYDER_SESSION_PRIMARY_END_ET": "autonomous_readiness.session_window.primary_end_et",
+            "SPYDER_FIRST_ENTRY_NOT_BEFORE_ET": "autonomous_readiness.session_window.first_entry_not_before_et",
+            "SPYDER_ZERO_DTE_NO_NEW_RISK_CUTOFF_ET": "autonomous_readiness.session_window.zero_dte_no_new_risk_cutoff_et",  # noqa: E501
+            "SPYDER_BROKER_CUTOFF_ET": "autonomous_readiness.session_window.broker_cutoff_et",
+            "SPYDER_BROKER_CUTOFF_BUFFER_MINUTES": "autonomous_readiness.session_window.broker_cutoff_buffer_minutes",  # noqa: E501
+            "SPYDER_PIN_RISK_MONITOR_END_ET": "autonomous_readiness.session_window.pin_risk_monitor_end_et",  # noqa: E501
+            "SPYDER_FAIL_CLOSED_IF_CUTOFF_UNKNOWN_LIVE": "autonomous_readiness.session_window.fail_closed_if_cutoff_unknown_live",  # noqa: E501
             "SPYDER_LIQUIDITY_ENABLED": "autonomous_readiness.liquidity.enabled",
             "SPYDER_LIQUIDITY_MAX_SPREAD_PCT": "autonomous_readiness.liquidity.max_spread_pct",
             "SPYDER_LIQUIDITY_MAX_SPREAD_ABS": "autonomous_readiness.liquidity.max_spread_abs",
@@ -1410,12 +1734,12 @@ class ConfigManager:
             backup_dir.mkdir(exist_ok=True)
 
             # Create backup filename with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             backup_file = backup_dir / f"config_backup_{timestamp}.json"
 
             # Save configuration
             backup_data = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "environment": self.environment,
                 "config": self.get_all(),  # This masks sensitive data
                 "sources": {k: v.source.name for k, v in self.config_sources.items()},

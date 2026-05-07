@@ -96,31 +96,6 @@ TRADIER_CONFIG = {
 }
 
 # ==============================================================================
-# MASSIVE API CONFIGURATION (formerly Polygon.io, rebranded Oct 2025)
-# ==============================================================================
-MASSIVE_CONFIG = {
-    "api_key": os.environ.get("MASSIVE_API_KEY", ""),
-    "dataset": os.environ.get("MASSIVE_DATASET", "massive-live"),
-    "live_schema": os.environ.get("MASSIVE_LIVE_SCHEMA", "quotes"),
-    "historical_schema": os.environ.get("MASSIVE_HIST_SCHEMA", "bars-1m"),
-
-    # REST rate limit — Massive free tier = 5 req/s, paid = unlimited
-    "rest_requests_per_second": float(os.environ.get("MASSIVE_REST_RPS", "3.0")),
-
-    # WebSocket reconnection settings
-    "max_reconnect_attempts": 10,
-    "reconnect_base_delay": 2.0,
-    "max_reconnect_delay": 60.0,
-
-    # Default underlyings to stream and scan
-    "default_underlyings": os.environ.get("MASSIVE_UNDERLYINGS", "SPY").split(","),
-
-    # WebSocket channel subscriptions
-    "stream_quotes": os.environ.get("MASSIVE_STREAM_QUOTES", "true").lower() == "true",
-    "stream_trades": os.environ.get("MASSIVE_STREAM_TRADES", "true").lower() == "true",
-}
-
-# ==============================================================================
 # TRADING MODE CONFIGURATION
 # ==============================================================================
 TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
@@ -129,7 +104,7 @@ TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
 REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
 
 # Provider Selection
-DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "tradier")  # tradier | massive | polygon
+DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "tradier")  # tradier
 ACTIVE_DATA_PROVIDER = os.environ.get("ACTIVE_DATA_PROVIDER", DATA_PROVIDER)  # overrides DATA_PROVIDER
 EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
 
@@ -326,14 +301,14 @@ def get_active_config():
         "data_provider": DATA_PROVIDER,
         "tradier_url": tradier_url,
         "tradier_account_id": TRADIER_CONFIG["account_id"],
-        "market_data_dataset": MASSIVE_CONFIG["dataset"] if DATA_PROVIDER in ("massive", "polygon") else "tradier-live",
-        "market_data_schema": MASSIVE_CONFIG["live_schema"] if DATA_PROVIDER in ("massive", "polygon") else "tradier-quote",
+        "market_data_dataset": "tradier-live",
+        "market_data_schema": "tradier-quote",
         "requires_confirmation": REQUIRE_LIVE_CONFIRMATION if mode == "live" else False,
     }
 
 
 def validate_config():
-    """Validate Tradier + Massive configuration"""
+    """Validate Tradier configuration"""
     errors = []
 
     # Check Tradier configuration
@@ -341,17 +316,6 @@ def validate_config():
         errors.append("TRADIER_API_KEY not set in .env")
     if not TRADIER_CONFIG["account_id"]:
         errors.append("TRADIER_ACCOUNT_ID not set in .env")
-
-    # Check market data configuration
-    if ACTIVE_DATA_PROVIDER in ("massive", "polygon"):
-        if not MASSIVE_CONFIG["api_key"]:
-            errors.append("MASSIVE_API_KEY not set in .env")
-    elif ACTIVE_DATA_PROVIDER == "tradier":
-        pass  # Tradier credentials already checked above
-    else:
-        errors.append(
-            f"Invalid ACTIVE_DATA_PROVIDER: {ACTIVE_DATA_PROVIDER}. Must be 'tradier', 'massive', or 'polygon'"
-        )
 
     # Check trading mode
     mode = os.environ.get("TRADING_MODE", "")
@@ -378,8 +342,6 @@ def validate_startup_config() -> None:
         - ``TRADING_MODE``          — must be ``sandbox``, ``paper``, or ``live``
         - ``TRADIER_ENVIRONMENT``   — ``live`` or ``sandbox`` (Tradier API endpoint;
                                        independent of TRADING_MODE)
-        - ``MASSIVE_API_KEY``       — optional fallback market data (required when DATA_PROVIDER=massive)
-
     Required variables (live mode only):
         - ``LIVE_TRADING_CONFIRMED=true`` — explicit opt-in to real-money trading
 
@@ -400,25 +362,6 @@ def validate_startup_config() -> None:
     if mode not in ("sandbox", "paper", "live"):
         problems.append(
             f"TRADING_MODE='{mode}' is invalid; must be 'sandbox', 'paper', or 'live'"
-        )
-
-    # --- Data-provider credentials -------------------------------------------
-    # Prefer DATA_PROVIDER for startup validation compatibility; fall back to
-    # ACTIVE_DATA_PROVIDER when explicitly provided.
-    provider_raw = (
-        os.environ.get("DATA_PROVIDER")
-        or os.environ.get("ACTIVE_DATA_PROVIDER")
-        or DATA_PROVIDER
-    )
-    provider = provider_raw.lower()
-    if provider in ("massive", "polygon"):
-        if not MASSIVE_CONFIG["api_key"]:
-            problems.append("MASSIVE_API_KEY is not set (required when DATA_PROVIDER=massive)")
-    elif provider == "tradier":
-        pass  # Tradier credentials already validated above
-    else:
-        problems.append(
-            f"DATA_PROVIDER='{provider_raw}' is invalid; must be 'tradier' or 'massive'"
         )
 
     # --- Live-trading safety gate --------------------------------------------

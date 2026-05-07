@@ -38,7 +38,7 @@ import threading
 import logging
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
 from pathlib import Path
 from threading import Event as ThreadEvent, Lock, RLock
@@ -175,7 +175,7 @@ except ImportError:
         def __init__(self, event_type, data=None):
             self.event_type = event_type
             self.data = data
-            self.timestamp = datetime.now()
+            self.timestamp = datetime.now(timezone.utc)
 
     class EventManager:
         def __init__(self):
@@ -317,7 +317,7 @@ class AccountInfo:
     restrictions: list[RestrictionType] = field(default_factory=list)
 
     # Timestamps
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class BalanceSnapshot:
@@ -328,7 +328,7 @@ class BalanceSnapshot:
     total_cash: float
     equity_with_loan: float
     daily_pnl: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class RiskMetrics:
@@ -352,7 +352,7 @@ class RiskMetrics:
     concentration_warning: bool = False
 
     # Calculation timestamp
-    calculated_at: datetime = field(default_factory=datetime.now)
+    calculated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class PerformanceMetrics:
@@ -381,7 +381,7 @@ class PerformanceMetrics:
     avg_win: float = 0.0
     avg_loss: float = 0.0
 
-    calculated_at: datetime = field(default_factory=datetime.now)
+    calculated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # MAIN ACCOUNT MANAGER CLASS
@@ -712,7 +712,7 @@ class AccountManager:
                 account.day_trades_remaining = int(account_values.get('DayTradesRemaining', 0))
 
                 # Update timestamp
-                account.last_updated = datetime.now()
+                account.last_updated = datetime.now(timezone.utc)
 
                 self.logger.debug("Updated account data for %s", account_id)
 
@@ -858,7 +858,7 @@ class AccountManager:
                     'account_id': account_id,
                     'message': message,
                     'risk_level': risk_level.value,
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 })
             except Exception as e:
                 self.logger.error("Risk callback error: %s", e, exc_info=True)
@@ -983,7 +983,7 @@ class AccountManager:
                     })
 
             payload = {
-                "saved_at": datetime.now().isoformat(),
+                "saved_at": datetime.now(timezone.utc).isoformat(),
                 "primary_account_id": self.primary_account_id,
                 "accounts": accounts_data,
                 "daily_balances": balances_data,
@@ -1059,7 +1059,7 @@ class AccountManager:
                                 for r in raw.get("restrictions", [])
                             ],
                             last_updated=datetime.fromisoformat(
-                                raw.get("last_updated", datetime.now().isoformat())
+                                raw.get("last_updated", datetime.now(timezone.utc).isoformat())
                             ),
                         )
                         self.accounts[account_id] = account
@@ -1082,7 +1082,7 @@ class AccountManager:
                             equity_with_loan=snap_raw["equity_with_loan"],
                             daily_pnl=snap_raw["daily_pnl"],
                             timestamp=datetime.fromisoformat(snap_raw.get(
-                                "timestamp", datetime.now().isoformat()
+                                "timestamp", datetime.now(timezone.utc).isoformat()
                             )),
                         )
                         self.daily_balances.append(snap)

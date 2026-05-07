@@ -34,7 +34,7 @@ Description:
 import logging
 import sys
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -359,12 +359,12 @@ class _InternalPanel(QGroupBox):
         self._value_lbl.setStyleSheet(f"color: {colour};")
 
         # Status text
-        ts = datetime.now().strftime("%H:%M:%S")
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         self._status_lbl.setText(f"last update: {ts}")
         self._src_lbl.setText(f"source: {source}")
 
         # Append to rolling history
-        self._history.append((datetime.now(), value))
+        self._history.append((datetime.now(timezone.utc), value))
 
         # Check alerts
         scaled_val = value * self._scale
@@ -615,7 +615,7 @@ class MarketInternalsDialog(QDialog):
                 any_updated = True
         if not any_updated:
             return  # no real data — don't touch status or indicator
-        ts = datetime.now().strftime("%H:%M:%S")
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         regime = snap.get("breadth_regime", "")
         self._status_lbl.setText(f"Last update: {ts}  |  Regime: {regime}" if regime else f"Last update: {ts}")  # noqa: E501
         self._refresh_indicator.setStyleSheet(f"color: {_TEXT}; font-size: 14px;")

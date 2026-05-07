@@ -27,7 +27,7 @@ import os
 import asyncio
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import deque
@@ -198,7 +198,7 @@ class GreeksData:
     risk_free_rate: float
     option_type: str  # 'call' or 'put'
     position_value: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -241,7 +241,7 @@ class AIGreeksAnalysis:
     prediction_accuracy: float
     feature_importance: dict[str, float]
 
-    analysis_timestamp: datetime = field(default_factory=datetime.now)
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -275,7 +275,7 @@ class PortfolioGreeksAnalysis:
     optimal_hedges: list[dict[str, Any]]
     risk_attribution: dict[str, float]
 
-    analysis_timestamp: datetime = field(default_factory=datetime.now)
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -289,7 +289,7 @@ class MarketContext:
     correlation_environment: float
     liquidity_conditions: str
     recent_events: list[str]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
@@ -759,7 +759,7 @@ class GreeksAgent:
                     accuracy_score=cv_scores.mean(),
                     prediction_confidence=cv_scores.std(),
                     training_samples=n_samples,
-                    last_training=datetime.now(),
+                    last_training=datetime.now(timezone.utc),
                     feature_importance=dict(
                         enumerate(getattr(model, "feature_importances_", []))
                     ),
@@ -1998,12 +1998,19 @@ class GreeksAgent:
             self.logger.error("Background workers shutdown failed: %s", e)
 
     def _market_context_worker(self):
-        """Background worker to update market context."""
+        """Background worker to update market context.
+
+        v27 SPEC-15: hold one persistent event loop for the lifetime of the
+        thread instead of asyncio.run() per cycle. The previous pattern
+        created and destroyed an event loop every 5 minutes.
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             while not self._shutdown_event.is_set():
                 try:
                     # Update market context every 5 minutes
-                    asyncio.run(self._update_market_context())
+                    loop.run_until_complete(self._update_market_context())
                     self._shutdown_event.wait(300)  # 5 minutes
                 except Exception as e:
                     self.logger.error("Market context update failed: %s", e)
@@ -2011,6 +2018,11 @@ class GreeksAgent:
 
         except Exception as e:
             self.logger.error("Market context worker failed: %s", e)
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
 
     def _performance_monitor_worker(self):
         """Background worker to monitor model performance."""
@@ -2050,7 +2062,7 @@ class GreeksAgent:
                 self.market_context.market_regime = MarketRegime.NORMAL
 
             # Update timestamp
-            self.market_context.timestamp = datetime.now()
+            self.market_context.timestamp = datetime.now(timezone.utc)
 
             self.logger.debug(
                 f"Market context updated: VIX={self.market_context.vix_level:.1f}, "

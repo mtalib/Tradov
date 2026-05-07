@@ -41,7 +41,7 @@ Key Features:
 # ==============================================================================
 import asyncio
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -338,7 +338,7 @@ class MarketAnalysisEngine:
                 raise ValueError("Insufficient market data for analysis")
 
             current_price = market_data['close'].iloc[-1]
-            timestamp = datetime.now()
+            timestamp = datetime.now(timezone.utc)
 
             # Price and volume analysis
             price_change = self._calculate_price_change(market_data)
@@ -383,7 +383,7 @@ class MarketAnalysisEngine:
             self.logger.error("Market environment analysis failed: %s", e)
             # Return neutral environment
             return MarketEnvironment(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 current_price=market_data['close'].iloc[-1],
                 price_change=0.0,
                 volume_ratio=1.0,
@@ -678,7 +678,7 @@ class SpreadConstructionEngine:
             probability_profit = self._estimate_probability_profit(current_price, breakeven, market_env)  # noqa: E501
 
             # Expiration date (placeholder - would use actual options chain)
-            expiration_date = datetime.now() + timedelta(days=21)  # ~3 weeks
+            expiration_date = datetime.now(timezone.utc) + timedelta(days=21)  # ~3 weeks
 
             return CreditSpreadParameters(
                 spread_type=CreditSpreadType.BULL_PUT_SPREAD,
@@ -724,7 +724,7 @@ class SpreadConstructionEngine:
             probability_profit = self._estimate_probability_profit(current_price, breakeven, market_env)  # noqa: E501
 
             # Expiration date (placeholder - would use actual options chain)
-            expiration_date = datetime.now() + timedelta(days=21)  # ~3 weeks
+            expiration_date = datetime.now(timezone.utc) + timedelta(days=21)  # ~3 weeks
 
             return CreditSpreadParameters(
                 spread_type=CreditSpreadType.BEAR_CALL_SPREAD,
@@ -1065,7 +1065,7 @@ class UnifiedCreditSpreadEngine:
                 position_id=position_id,
                 spread_type=spread_params.spread_type,
                 spread_parameters=spread_params,
-                entry_time=datetime.now(),
+                entry_time=datetime.now(timezone.utc),
                 entry_credit=spread_params.target_credit,
                 current_value=spread_params.target_credit,
                 unrealized_pnl=0.0,
@@ -1157,7 +1157,7 @@ class UnifiedCreditSpreadEngine:
         """Update position metrics and Greeks"""
         try:
             # Update days held
-            position.days_held = (datetime.now() - position.entry_time).days
+            position.days_held = (datetime.now(timezone.utc) - position.entry_time).days
 
             # Estimate current position value (simplified)
             # In reality, this would use real options pricing
@@ -1235,7 +1235,7 @@ class UnifiedCreditSpreadEngine:
                 return 'close_loss'
 
             # Near expiration
-            days_to_expiry = (position.spread_parameters.expiration_date - datetime.now()).days
+            days_to_expiry = (position.spread_parameters.expiration_date - datetime.now(timezone.utc)).days
             if days_to_expiry <= 3:
                 return 'close_expiration'
 

@@ -45,7 +45,7 @@ Removed Infrastructure:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
 from typing import Any  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from enum import Enum, auto  # noqa: E402
@@ -66,12 +66,19 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile  # noqa
 
 # Integration with consolidated multi-leg coordinator
 try:
-    from SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
+    from Spyder.SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
         MultiLegStrategyCoordinator, MultiLegStrategyType, get_multileg_coordinator  # noqa: F401
     )
     MULTILEG_COORDINATOR_AVAILABLE = True
 except ImportError:
-    MULTILEG_COORDINATOR_AVAILABLE = False
+    try:
+        # Compatibility path for legacy PYTHONPATH/module layouts.
+        from SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
+            MultiLegStrategyCoordinator, MultiLegStrategyType, get_multileg_coordinator  # noqa: F401,E501
+        )
+        MULTILEG_COORDINATOR_AVAILABLE = True
+    except ImportError:
+        MULTILEG_COORDINATOR_AVAILABLE = False
 
 # Integration with event management
 try:
@@ -862,7 +869,7 @@ class IronCondorStrategy(BaseStrategy):
             'active_setups': len(self.active_setups),
             'multileg_coordinator_connected': self.multileg_coordinator is not None,
             'last_analysis': {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'market_suitable': self.current_analysis.market_suitable if self.current_analysis else False,  # noqa: E501
                 'confidence_score': self.current_analysis.confidence_score if self.current_analysis else 0.0  # noqa: E501
             }

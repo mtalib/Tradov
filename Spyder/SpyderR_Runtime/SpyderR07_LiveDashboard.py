@@ -31,7 +31,7 @@ INTEGRATION:
     • Professional startup experience with comprehensive checks
 
 NOTE: Broker integration uses Tradier API (SpyderB40_TradierClient).
-      Market data via Massive (SpyderC27_MassiveClient).
+      Market data via Tradier (SpyderB40_TradierClient).
 
 """
 
@@ -41,7 +41,7 @@ NOTE: Broker integration uses Tradier API (SpyderB40_TradierClient).
 import sys
 import socket
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ==============================================================================
@@ -180,7 +180,7 @@ class SystemChecker(QObject):
                 stat = REAL_DATA_FILE.stat()
                 last_update = datetime.fromtimestamp(stat.st_mtime)
                 # Consider data fresh if updated within last hour
-                data_available = (datetime.now() - last_update).seconds < 3600
+                data_available = (datetime.now(timezone.utc) - last_update).seconds < 3600
         except Exception as e:
             logging.getLogger(__name__).debug("Error checking real data file: %s", e)
 
@@ -249,7 +249,7 @@ class SystemChecker(QObject):
         """Finalize startup sequence."""
         return {
             'status': 'COMPLETE',
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'ready_for_launch': True
         }
 
@@ -451,7 +451,7 @@ class SpyderLiveDashboardLauncher:
         try:
             # Add startup logs
             self.dashboard.add_system_log("🚀 Spyder R07 Live Dashboard Launcher")
-            self.dashboard.add_system_log(f"Startup completed: {datetime.now().strftime('%H:%M:%S')}")  # noqa: E501
+            self.dashboard.add_system_log(f"Startup completed: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")  # noqa: E501
 
             # Log Tradier API status
             tradier_result = self.system_results.get('tradier_api', {})

@@ -26,7 +26,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum, auto
 from typing import Any
 
@@ -251,7 +251,7 @@ class OptionsGreeksFlowAnalyzer:
         self._monitoring_thread: threading.Thread | None = None
         self._running = False
 
-        self.logger.info("%s initialized", self.__class__.__name__)
+        self.logger.debug("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
     # PUBLIC METHODS - GREEKS FLOW ANALYSIS
@@ -288,7 +288,7 @@ class OptionsGreeksFlowAnalyzer:
         risk_assessment = self._assess_greek_risks(gamma_flow, vanna_flow, charm_flow)
 
         return GreeksFlowProfile(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             gamma_flow=gamma_flow,
             vanna_flow=vanna_flow,
             charm_flow=charm_flow,
@@ -324,7 +324,7 @@ class OptionsGreeksFlowAnalyzer:
         confidence = self._calculate_gamma_confidence(gex_profile, dealer_position)
 
         gamma_flow = GammaFlow(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             net_gamma=gex_profile.current_gex,
             gamma_by_strike=gamma_by_strike,
             flip_point=gex_profile.zero_gamma_level,
@@ -360,7 +360,7 @@ class OptionsGreeksFlowAnalyzer:
             expected_flow *= EXPIRY_VANNA_MULTIPLIER
 
         vanna_flow = VannaFlow(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             net_vanna=net_vanna,
             vanna_by_strike=vanna_by_strike,
             iv_change=iv_change,
@@ -392,7 +392,7 @@ class OptionsGreeksFlowAnalyzer:
         overnight_flow = self._calculate_overnight_charm_flow(net_charm, charm_by_strike)
 
         charm_flow = CharmFlow(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             net_charm=net_charm,
             charm_by_strike=charm_by_strike,
             decay_schedule=decay_schedule,
@@ -430,7 +430,7 @@ class OptionsGreeksFlowAnalyzer:
         flip_proximity = self._check_gamma_flip_proximity()
 
         return {
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(timezone.utc),
             "regime_changes": changes_detected,
             "gamma_flip_proximity": flip_proximity,
             "action_required": len(changes_detected) > 0,
@@ -583,7 +583,7 @@ class OptionsGreeksFlowAnalyzer:
             Dict with keys: vanna_pressure, charm_pressure,
             flow_imbalance_score, dealer_position, snapshot_ts.
         """
-        ts = datetime.now().isoformat()
+        ts = datetime.now(timezone.utc).isoformat()
         try:
             profile = self.get_greeks_flow_profile()
             vanna_flow = profile.vanna_flow
@@ -808,7 +808,7 @@ class OptionsGreeksFlowAnalyzer:
         base_flow = self._calculate_charm_decay(net_charm, overnight_hours)
 
         # Adjust for weekend if applicable
-        if datetime.now().weekday() == 4:  # Friday
+        if datetime.now(timezone.utc).weekday() == 4:  # Friday
             base_flow *= 3  # Account for weekend decay
 
         return base_flow

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 # ==============================================================================
@@ -739,7 +739,7 @@ class RenaissanceStyleSignalGenerator:
             reasoning = self._build_reasoning(latest)
 
             return RenaissanceSignal(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 signal_type=signal_type,
                 confidence=float(latest['confidence']),
                 zscore=float(latest['zscore']),

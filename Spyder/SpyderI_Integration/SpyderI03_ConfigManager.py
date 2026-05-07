@@ -26,7 +26,7 @@ import json
 import threading
 import time
 import copy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
@@ -149,8 +149,8 @@ class ConfigMetadata:
     scope: ConfigScope
     format: ConfigFormat
     file_path: Path | None = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     version: int = 1
     checksum: str | None = None
     encrypted: bool = False
@@ -179,7 +179,7 @@ class ConfigSubscription:
     callback: Callable[[dict[str, Any]], None]
     key_patterns: list[str] | None = None
     immediate_notify: bool = True
-    subscribed_at: datetime = field(default_factory=datetime.now)
+    subscribed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class ConfigValidationRule:
@@ -352,7 +352,7 @@ class ConfigManager:
 
                 # Record change
                 change = ConfigChange(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     config_name=name,
                     event_type=ConfigEvent.CREATED,
                     new_value=config_data,
@@ -414,7 +414,7 @@ class ConfigManager:
 
                 # Record change
                 change = ConfigChange(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     config_name=name,
                     event_type=ConfigEvent.DELETED,
                     old_value=old_config,
@@ -545,7 +545,7 @@ class ConfigManager:
 
                 # Update metadata
                 if name in self.metadata:
-                    self.metadata[name].updated_at = datetime.now()
+                    self.metadata[name].updated_at = datetime.now(timezone.utc)
                     self.metadata[name].version += 1
                     self.metadata[name].checksum = self._calculate_checksum(config)
 
@@ -556,7 +556,7 @@ class ConfigManager:
 
                 # Record change
                 change = ConfigChange(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     config_name=name,
                     event_type=ConfigEvent.UPDATED,
                     old_value=old_value,
@@ -701,13 +701,13 @@ class ConfigManager:
             self.configs[name] = new_config
 
             # Update metadata
-            metadata.updated_at = datetime.now()
+            metadata.updated_at = datetime.now(timezone.utc)
             metadata.version += 1
             metadata.checksum = self._calculate_checksum(new_config)
 
             # Record change
             change = ConfigChange(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 config_name=name,
                 event_type=ConfigEvent.RELOADED,
                 old_value=old_config,
@@ -735,7 +735,7 @@ class ConfigManager:
         """
         try:
             return {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'environment': self.environment,
                 'total_configs': len(self.configs),
                 'encrypted_configs': len(self.encrypted_configs),
@@ -749,7 +749,7 @@ class ConfigManager:
                 },
                 'recent_changes': len([
                     change for change in self.change_history
-                    if change.timestamp > datetime.now() - timedelta(hours=1)
+                    if change.timestamp > datetime.now(timezone.utc) - timedelta(hours=1)
                 ]),
                 'performance_metrics': self.performance_metrics.copy(),
                 'sync_status': {
@@ -1089,7 +1089,7 @@ class ConfigManager:
                     notification_data = {
                         'config_name': config_name,
                         'event_type': event_type.value,
-                        'timestamp': datetime.now().isoformat(),
+                        'timestamp': datetime.now(timezone.utc).isoformat(),
                         'config_data': config_data,
                         'key_path': key_path
                     }
@@ -1134,7 +1134,7 @@ class ConfigManager:
                 backup_id=backup_id,
                 config_name=config_name,
                 backup_path=backup_path,
-                created_at=datetime.now(),
+                created_at=datetime.now(timezone.utc),
                 metadata=self.metadata[config_name],
                 size_bytes=backup_path.stat().st_size
             )
@@ -1152,7 +1152,7 @@ class ConfigManager:
     def _cleanup_old_backups(self) -> None:
         """Clean up old configuration backups"""
         try:
-            cutoff_time = datetime.now() - timedelta(days=30)  # Keep 30 days
+            cutoff_time = datetime.now(timezone.utc) - timedelta(days=30)  # Keep 30 days
 
             for _config_name, backup_list in self.backups.items():
                 # Remove old backups

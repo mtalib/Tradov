@@ -12,7 +12,7 @@ Purpose: Smoke-test the latest evolved credit-spread strategy against the
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-04-22 Time: 22:30:00
+Last Updated: 2026-04-30 Time: 14:05:00
 
 Module Description:
     Standalone smoke-test that exercises the institutional pricing libraries
@@ -26,6 +26,14 @@ Module Description:
     pass/fail signal rather than print-only smoke output.
 
 Change Log:
+        2026-04-30 (Audit v25):
+                - CANONICAL_MODULES extended with veto-path modules:
+                    X16 MetaCoordinator, Y03 RiskSentinelAgent, Y05 ExecutionOptimizerAgent.
+                - Added TestVetoConfigAndWiring to validate:
+                    * veto keys exist and are bool in config/config.json,
+                        config/development.json, and config/production.json
+                    * A06 config loader reads all three veto toggles
+                    * Y03 and Y05 constructor signatures expose their new toggle args.
     2026-04-22 (Audit v20):
         - CANONICAL_MODULES extended with A06 MasterController, R04 LiveEngine,
           and E19 UnifiedRiskCoordinator (all newly wired in A06 headless path).
@@ -60,6 +68,7 @@ Change Log:
 # ==============================================================================
 import os
 import sys
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -88,7 +97,20 @@ CANONICAL_MODULES: dict[str, str] = {
     "A06 MasterController": "SpyderA_Core.SpyderA06_MasterController",
     "R04 LiveEngine": "SpyderR_Runtime.SpyderR04_LiveEngine",
     "E19 UnifiedRiskCoordinator": "SpyderE_Risk.SpyderE19_UnifiedRiskCoordinator",
+    # Veto-path modules wired by latest governance update
+    "X16 MetaCoordinator": "SpyderX_Agents.SpyderX16_MetaCoordinator",
+    "Y03 RiskSentinelAgent": "SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent",
+    "Y05 ExecutionOptimizerAgent": "SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent",
+    # v27 SPEC-15 — async-from-thread helper used by Y01/Y02/Y03/Y04/Y06 to
+    # avoid bare asyncio.run() in long-lived per-tick handlers.
+    "U50 AsyncBridge": "SpyderU_Utilities.SpyderU50_AsyncBridge",
 }
+
+VETO_KEYS = (
+    "enable_x16_veto",
+    "enable_y03_trade_veto",
+    "enable_y05_veto_consumption",
+)
 
 
 # ==============================================================================
@@ -529,6 +551,104 @@ class TestPMROverrideEnvironment:
             pytest.skip(f"S08 optional dependency missing: {exc}")
         assert 1 <= MIN_FIRE_SCORE <= 100, (
             f"MIN_FIRE_SCORE={MIN_FIRE_SCORE} outside expected range [1, 100]"
+        )
+
+
+class TestVetoConfigAndWiring:
+    """Verify config and code wiring for X16/Y03/Y05 veto toggles."""
+
+    @staticmethod
+    def _load_profile(name: str) -> dict:
+        cfg_path = project_root.parent / "config" / f"{name}.json"
+        if not cfg_path.exists():
+            pytest.skip(f"Config profile not found: {cfg_path}")
+        return json.loads(cfg_path.read_text(encoding="utf-8"))
+
+    @pytest.mark.parametrize("profile", ["config", "development", "production"])
+    def test_veto_keys_exist_and_boolean(self, profile: str):
+        payload = self._load_profile(profile)
+        for key in VETO_KEYS:
+            assert key in payload, f"{profile}.json missing key: {key}"
+            assert isinstance(payload[key], bool), (
+                f"{profile}.json key '{key}' must be bool, got {type(payload[key]).__name__}"
+            )
+
+    def test_master_controller_reads_veto_keys(self):
+        try:
+            from SpyderA_Core import SpyderA06_MasterController as a06
+            source = inspect.getsource(a06)
+        except Exception as exc:
+            pytest.skip(f"A06 source unavailable: {exc}")
+
+        for key in VETO_KEYS:
+            assert key in source, f"A06 missing veto key wiring: {key}"
+
+    def test_y03_exposes_enable_trade_veto_constructor_arg(self):
+        try:
+            from SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent import RiskSentinelAgent
+            sig = inspect.signature(RiskSentinelAgent.__init__)
+        except Exception as exc:
+            pytest.skip(f"Y03 unavailable: {exc}")
+
+        assert "enable_trade_veto" in sig.parameters
+
+    def test_y05_exposes_enable_veto_consumption_constructor_arg(self):
+        try:
+            from SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent import ExecutionOptimizerAgent
+            sig = inspect.signature(ExecutionOptimizerAgent.__init__)
+        except Exception as exc:
+            pytest.skip(f"Y05 unavailable: {exc}")
+
+        assert "enable_veto_consumption" in sig.parameters
+
+
+class TestSpec15AsyncBridgeWiring:
+    """v27 SPEC-15 regression guard: per-tick handlers in Y01-Y04 / Y06 must
+    NOT use bare ``asyncio.run()`` (which raises RuntimeError when nested under
+    an existing event loop, e.g. when X14 orchestrator drives the agents).
+    They must route through ``SpyderU50_AsyncBridge.run_coro_in_thread``.
+    """
+
+    AFFECTED_AGENTS = (
+        ("SpyderY_AutoAgents.SpyderY01_MarketSenseAgent",      "Y01"),
+        ("SpyderY_AutoAgents.SpyderY02_StrategyPilotAgent",    "Y02"),
+        ("SpyderY_AutoAgents.SpyderY03_RiskSentinelAgent",     "Y03"),
+        ("SpyderY_AutoAgents.SpyderY04_AlphaLearnerAgent",     "Y04"),
+        ("SpyderY_AutoAgents.SpyderY06_NewsSentinelAgent",     "Y06"),
+    )
+
+    def test_async_bridge_helper_is_importable(self):
+        try:
+            from SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+        except Exception as exc:
+            pytest.fail(
+                f"SPEC-15: SpyderU50_AsyncBridge.run_coro_in_thread missing: {exc}"
+            )
+        assert callable(run_coro_in_thread)
+
+    @pytest.mark.parametrize("dotted,label", AFFECTED_AGENTS)
+    def test_y_series_agent_uses_async_bridge_not_bare_asyncio_run(
+        self, dotted: str, label: str
+    ):
+        """Each affected Y-agent must reference run_coro_in_thread in its source
+        and must NOT contain a bare ``asyncio.run(...)`` call (the SPEC-15
+        regression — bare asyncio.run breaks under nested event loops).
+        """
+        import importlib
+        try:
+            mod = importlib.import_module(dotted)
+            src = inspect.getsource(mod)
+        except Exception as exc:
+            pytest.skip(f"{label} unavailable for source inspection: {exc}")
+
+        assert "run_coro_in_thread" in src, (
+            f"SPEC-15 regression: {label} no longer references "
+            f"SpyderU50_AsyncBridge.run_coro_in_thread. Reverting to bare "
+            f"asyncio.run() will RuntimeError when nested under X14's loop."
+        )
+        assert "asyncio.run(" not in src, (
+            f"SPEC-15 regression: {label} contains a bare asyncio.run() call. "
+            f"All per-tick async invocations must route through run_coro_in_thread."
         )
 
 

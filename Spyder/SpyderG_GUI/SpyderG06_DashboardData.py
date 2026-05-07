@@ -20,9 +20,11 @@ Components:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timezone
 from enum import Enum
 import pytz
+
+from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import get_market_overview_symbols
 
 # ==============================================================================
 # CONSTANTS
@@ -62,37 +64,37 @@ COLORS = {
     "purple": "#9370DB",
 }
 
-# Market symbols organized by category
-MARKET_SYMBOLS = {
-    "S&P CORE": ["SPY", "SPX"],
-    "VOLATILITY": ["VIX", "VIX9D", "VXV", "VVIX"],
-    "MARKET INTERNALS": ["$TICK", "$TRIN", "$ADD", "CPC", "SKEW"],
-    "MAJOR INDICES": ["QQQ", "IWM"],
-    "BONDS & CREDIT": ["TLT", "HYG", "LQD"],
-    "CORRELATIONS": ["DXY", "GLD", "USO"],
-    "OPTIONS ANALYTICS": ["IVR", "ATM_IV", "VRP"],
-    "CUSTOM METRICS": ["GEX", "DEX", "OGL", "DIX", "SWAN", "PMR"],
-}
+# Legacy constant kept for compatibility; sourced from canonical catalog.
+MARKET_SYMBOLS: dict[str, list[str]] = get_market_overview_symbols()
 
 # Symbol descriptions for tooltips
 SYMBOL_DESCRIPTIONS = {
-    # S&P Core
+    # Major Indices
+    "DIA": "SPDR Dow Jones Industrial Average ETF",
     "SPY": "SPDR S&P 500 ETF - Most liquid S&P 500 ETF",
-    "SPX": "S&P 500 Index - Cash index value",
+    "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
+    "IWM": "iShares Russell 2000 ETF - Small caps",
+    # Market Breadth
+    "$TICK": "NYSE Tick Index - Upticks minus downticks",
+    "$TRIN": "Arms Index - Advance/Decline volume ratio",
+    "$ADD": "Advance-Decline Line - Net advancing issues",
+    "NYMO": "NYSE McClellan Oscillator - Breadth momentum",
+    "CPC": "CBOE Put/Call Ratio - Equity options only",
+    "SKEW": "CBOE Skew Index - Tail risk measure",
+    "$VOLD": "NYSE Up/Down Volume Delta - Intraday breadth",
+    "XLK": "Technology Select Sector SPDR ETF",
+    "XLF": "Financial Select Sector SPDR ETF",
+    "TNX": "CBOE 10-Year Treasury Yield Index",
+    "RVOL": "Relative Volume - Current vs average volume",
     # Volatility
     "VIX": "CBOE Volatility Index - 30-day implied volatility",
     "VIX9D": "CBOE 9-Day Volatility Index - Short-term IV; leads VIX turns by 1–2 sessions",
     "VXV": "CBOE 3-Month Volatility Index - 93-day implied volatility",
     "VVIX": "VIX of VIX - Volatility of volatility index",
-    # Market Internals
-    "$TICK": "NYSE Tick Index - Upticks minus downticks",
-    "$TRIN": "Arms Index - Advance/Decline volume ratio",
-    "$ADD": "Advance-Decline Line - Net advancing issues",
-    "CPC": "CBOE Put/Call Ratio - Equity options only",
-    "SKEW": "CBOE Skew Index - Tail risk measure",
-    # Major Indices
-    "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
-    "IWM": "iShares Russell 2000 ETF - Small caps",
+    # Options Analytics
+    "IVR":    "SPY IV Rank (0\u2013100): where current ATM IV sits in its 52-week range",
+    "ATM_IV": "SPY At-the-Money Implied Volatility \u2014 front-month nearest-strike (annualised %)",  # noqa: E501
+    "VRP":    "Volatility Risk Premium = ATM IV \u2212 HV20; positive means IV trades above realised vol",  # noqa: E501
     # Bonds & Credit
     "TLT": "iShares 20+ Year Treasury Bond ETF",
     "HYG": "iShares High Yield Corporate Bond ETF - Credit stress indicator; widens before LQD",
@@ -106,12 +108,12 @@ SYMBOL_DESCRIPTIONS = {
     "DEX": "Delta Exposure - Directional hedging flow",
     "OGL": "Zero Gamma Level - Key support/resistance",
     "DIX": "Dark Index - Dark pool buying percentage",
+    "WRS": "Weighted Regime Score - Composite market regime signal",
+    "PSR": "Probabilistic Sharpe Ratio - Strategy edge confidence",
     "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
     "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",  # noqa: E501
-    # Options Analytics
-    "IVR":    "SPY IV Rank (0\u2013100): where current ATM IV sits in its 52-week range",
-    "ATM_IV": "SPY At-the-Money Implied Volatility \u2014 front-month nearest-strike (annualised %)",  # noqa: E501
-    "VRP":    "Volatility Risk Premium = ATM IV \u2212 HV20; positive means IV trades above realised vol",  # noqa: E501
+    # Hidden / backend-only
+    "SPX": "S&P 500 Index - Cash index value",
 }
 
 
@@ -169,7 +171,7 @@ class MarketData:
     last: float
     change: float = 0.0
     change_pct: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     bid: float | None = None
     ask: float | None = None
     volume: int | None = None
@@ -244,7 +246,7 @@ class Order:
     stop_price: float | None = None
     filled_quantity: int = 0
     avg_fill_price: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     filled_timestamp: datetime | None = None
 
     @property
@@ -279,11 +281,11 @@ class ConnectionInfo:
     def update_connection_status(self, connected: bool, mode: str = None):
         """Update connection status"""
         self.ib_connected = connected
-        self.last_update = datetime.now()
+        self.last_update = datetime.now(timezone.utc)
         if mode:
             self.connection_mode = mode
         if connected:
-            self.last_successful_data = datetime.now()
+            self.last_successful_data = datetime.now(timezone.utc)
 
 
 @dataclass
@@ -311,7 +313,7 @@ class SignalData:
     signal_name: str
     value: float
     status: str  # BULLISH, BEARISH, NEUTRAL, WARNING
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     description: str | None = None
 
     def get_status_color(self) -> str:
@@ -335,7 +337,7 @@ class EventClockState:
     blackout_pre_minutes: int = 30
     blackout_post_minutes: int = 30
     max_size_multiplier: float = 0.25
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def state_color(self) -> str:
@@ -479,7 +481,7 @@ def get_timestamp() -> str:
     Returns:
         str: Formatted timestamp
     """
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_time() -> str:
@@ -489,7 +491,7 @@ def get_time() -> str:
     Returns:
         str: Formatted time
     """
-    return datetime.now().strftime("%H:%M:%S")
+    return datetime.now(timezone.utc).strftime("%H:%M:%S")
 
 
 # ==============================================================================
@@ -532,7 +534,7 @@ def generate_simulation_market_data(symbol: str) -> MarketData:
         volume=random.randint(1000000, 10000000),
         high=last + random.uniform(0, 3),
         low=last - random.uniform(0, 3),
-        timestamp=datetime.now()
+        timestamp=datetime.now(timezone.utc)
     )
 
 

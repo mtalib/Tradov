@@ -40,6 +40,7 @@ def _build_dashboard_stub() -> SpyderTradingDashboard:
     dash.event_clock_policy_label = _Label()
     dash.event_clock_windows_label = _Label()
     dash.event_clock_strategies_label = _Label()
+    dash.event_clock_compact_label = None
     return dash
 
 
@@ -81,6 +82,7 @@ def test_g05_consumes_a04_live_payload_and_updates_labels():
     assert dash.event_clock_state_label.text == "◆ LIVE EVENT"
     assert "Enabled" in dash.event_clock_policy_label.text
     assert "calendar+manual" in dash.event_clock_policy_label.text
-    assert "-30m / +30m" in dash.event_clock_windows_label.text
+    windows_label = dash.event_clock_windows_label.text.replace(" ", "")
+    assert "-30m/+30m" in windows_label
     assert "25%" in dash.event_clock_windows_label.text
     assert "D03" in dash.event_clock_strategies_label.text

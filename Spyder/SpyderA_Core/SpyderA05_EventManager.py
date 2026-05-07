@@ -33,7 +33,7 @@ import traceback
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -171,6 +171,9 @@ class EventType(Enum):
     # General events
     NOTIFICATION = "notification"
     ALERT = "alert"
+    ALERT_GENERATED = "alert_generated"  # Legacy alias used by C11/N-series
+    ANALYTICS = "analytics"              # Legacy analytics stream event
+    DATA_UPDATE = "data_update"          # Legacy market-data update event
     INFO = "info"
     DEBUG = "debug"
 
@@ -215,7 +218,7 @@ class Event:
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     event_type: EventType = EventType.SYSTEM
     data: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     priority: EventPriority = EventPriority.NORMAL
     source: str | None = None
     correlation_id: str | None = None
@@ -275,7 +278,7 @@ class Event:
             event_id=data.get('event_id', str(uuid.uuid4())),
             event_type=EventType(data.get('event_type', 'system')),
             data=data.get('data', {}),
-            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(),  # noqa: E501
+            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(timezone.utc),  # noqa: E501
             priority=EventPriority[data.get('priority', 'NORMAL')],
             source=data.get('source'),
             correlation_id=data.get('correlation_id'),
@@ -556,7 +559,7 @@ class EventManager:
                 self.logger.warning("EventManager already running")
                 return True
 
-            self.logger.info("Starting EventManager...")
+            self.logger.debug("Starting EventManager...")
 
             # Clear shutdown event
             self._shutdown_event.clear()
@@ -589,14 +592,14 @@ class EventManager:
             self._metrics_thread.start()
 
             self.is_running = True
-            self.logger.info("EventManager started successfully")
+            self.logger.debug("EventManager started successfully")
 
             # Emit startup event
             self.emit(
                 EventType.SYSTEM_START,
                 {
                     'component': 'EventManager',
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }
             )
 
@@ -629,7 +632,7 @@ class EventManager:
                 EventType.SHUTDOWN,
                 {
                     'component': 'EventManager',
-                    'timestamp': datetime.now()
+                    'timestamp': datetime.now(timezone.utc)
                 }
             )
 
@@ -734,7 +737,7 @@ class EventManager:
     # ==========================================================================
     def _process_events(self):
         """Main event processing loop"""
-        self.logger.info("Event processor started")
+        self.logger.debug("Event processor started")
 
         while not self._shutdown_event.is_set():
             try:
@@ -824,7 +827,7 @@ class EventManager:
             handler.execution_count += 1
             handler.consecutive_errors = 0  # reset on success
             handler.total_execution_time += time.time() - start_time
-            handler.last_execution = datetime.now()
+            handler.last_execution = datetime.now(timezone.utc)
 
             with self._metrics_lock:
                 self.metrics.handlers_executed += 1
@@ -843,7 +846,7 @@ class EventManager:
                 "error": str(e),
                 "traceback": tb,
                 "consecutive": handler.consecutive_errors,
-                "ts": datetime.now().isoformat(),
+                "ts": datetime.now(timezone.utc).isoformat(),
             }
             with self._handler_errors_lock:
                 self._handler_errors.append(error_record)
@@ -1092,7 +1095,7 @@ class EventManager:
                 for i, handler in enumerate(handlers):
                     if handler.handler_id == handler_id:
                         removed = handlers.pop(i)
-                        self.logger.info("Handler %s unsubscribed", removed.name)
+                        self.logger.debug("Handler %s unsubscribed", removed.name)
 
                         with self._metrics_lock:
                             self.metrics.handlers_registered -= 1
@@ -1103,7 +1106,7 @@ class EventManager:
             for i, handler in enumerate(self.global_handlers):
                 if handler.handler_id == handler_id:
                     removed = self.global_handlers.pop(i)
-                    self.logger.info("Global handler %s unsubscribed", removed.name)
+                    self.logger.debug("Global handler %s unsubscribed", removed.name)
 
                     with self._metrics_lock:
                         self.metrics.handlers_registered -= 1
@@ -1133,7 +1136,7 @@ class EventManager:
                 return False
 
             # Check TTL
-            if event.ttl and (datetime.now() - event.timestamp).total_seconds() > event.ttl:
+            if event.ttl and (datetime.now(timezone.utc) - event.timestamp).total_seconds() > event.ttl:
                 with self._metrics_lock:
                     self.metrics.events_expired += 1
                 return False
@@ -1192,6 +1195,14 @@ class EventManager:
             ttl=kwargs.get('ttl')
         )
 
+        return self.publish(event)
+
+    def emit_event(self, event: Event) -> bool:
+        """Backward-compatible alias used by older modules.
+
+        Several legacy modules still call ``emit_event(Event(...))`` while the
+        canonical API is ``emit(...)`` or ``publish(Event)``.
+        """
         return self.publish(event)
 
     def create_event(self, event_type: EventType, data: dict[str, Any],

@@ -24,7 +24,7 @@ import time
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -215,7 +215,7 @@ class CorrelationAlert:
     affected_assets: list[str]
 
     # Metadata
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     acknowledged: bool = False
     auto_resolved: bool = False
 
@@ -483,7 +483,7 @@ class CorrelationRiskManager:
 
             # Create comprehensive metrics object
             metrics = CorrelationMetrics(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
 
                 # Basic statistics
                 average_correlation=basic_stats['average'],
@@ -521,7 +521,7 @@ class CorrelationRiskManager:
 
             # Update correlation history
             self.correlation_history.append({
-                'timestamp': datetime.now(),
+                'timestamp': datetime.now(timezone.utc),
                 'metrics': metrics,
                 'matrix': correlation_matrix.copy()
             })
@@ -545,7 +545,7 @@ class CorrelationRiskManager:
             self.error_handler.handle_error(e, context="CorrelationRiskManager.analyze_portfolio_correlation")  # noqa: E501
             # Return default metrics in case of error
             return CorrelationMetrics(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 average_correlation=0.5,
                 median_correlation=0.5,
                 max_correlation=1.0,
@@ -932,7 +932,7 @@ class CorrelationRiskManager:
             report_lines.append("=" * 80)
             report_lines.append("SPYDER CORRELATION RISK MANAGEMENT REPORT")
             report_lines.append("=" * 80)
-            report_lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            report_lines.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
             report_lines.append("")
 
             # Manager status
@@ -1037,7 +1037,7 @@ class CorrelationRiskManager:
                 'breakdown_summary': {
                     'total_events': len(self.breakdown_events),
                     'active_events': len([bd for bd in self.breakdown_events if bd.is_active()]),
-                    'recent_events': len([bd for bd in self.breakdown_events if bd.start_time > datetime.now() - timedelta(days=7)])  # noqa: E501
+                    'recent_events': len([bd for bd in self.breakdown_events if bd.start_time > datetime.now(timezone.utc) - timedelta(days=7)])  # noqa: E501
                 }
             }
 
@@ -1394,7 +1394,7 @@ class CorrelationRiskManager:
     def _check_correlation_alerts(self, metrics: CorrelationMetrics,
                                 correlation_matrix: np.ndarray) -> None:
         """Check for correlation alert conditions."""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
 
         # High correlation alert
         if metrics.average_correlation > HIGH_CORRELATION_THRESHOLD:
@@ -1471,7 +1471,7 @@ class CorrelationRiskManager:
     def _add_alert(self, alert: CorrelationAlert, alert_key: str) -> None:
         """Add correlation alert with suppression tracking."""
         self.alerts.append(alert)
-        self.alert_suppression[alert_key] = datetime.now()
+        self.alert_suppression[alert_key] = datetime.now(timezone.utc)
         self.logger.warning("Correlation alert: %s", alert.message)
 
     def _detect_correlation_breakdowns(self, metrics: CorrelationMetrics,
@@ -1487,7 +1487,7 @@ class CorrelationRiskManager:
                     # Potential breakdown event
                     breakdown = CorrelationBreakdown(
                         event_id=f"breakdown_{int(time.time())}",
-                        start_time=datetime.now(),
+                        start_time=datetime.now(timezone.utc),
                         pre_breakdown_correlation=prev_metrics.average_correlation,
                         peak_breakdown_correlation=metrics.average_correlation,
                         breakdown_magnitude=correlation_change,
@@ -1598,7 +1598,7 @@ class CorrelationRiskManager:
 
     def _cleanup_old_alerts(self) -> None:
         """Clean up old alerts."""
-        cutoff_time = datetime.now() - timedelta(hours=24)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
 
         # Remove old acknowledged alerts
         self.alerts = [alert for alert in self.alerts

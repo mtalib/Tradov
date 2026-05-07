@@ -31,7 +31,7 @@ import warnings
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import uuid
@@ -171,7 +171,7 @@ class StreamSubscription:
     stream_type: str
     filters: dict[str, Any] = field(default_factory=dict)
     update_interval: float = 0.1
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     active: bool = True
     websocket: Any = None
     callback: Callable | None = None
@@ -229,7 +229,7 @@ class RealTimeAnalyticsEngine:
         self.enable_zmq = self.config.get('enable_zmq', False) and ZMQ_AVAILABLE
 
         # Internal state
-        self.start_time = datetime.now()
+        self.start_time = datetime.now(timezone.utc)
         self.running = False
         self.metrics_buffer = {}
         self.active_subscriptions = {}
@@ -511,7 +511,7 @@ class RealTimeAnalyticsEngine:
                 metric_id=str(uuid.uuid4()),
                 metric_name=metric_name,
                 value=value,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 stream_type=stream_type,
                 metadata=metadata or {},
                 update_interval=UPDATE_INTERVALS.get(stream_type, UPDATE_INTERVALS['medium'])
@@ -904,7 +904,7 @@ class RealTimeAnalyticsEngine:
 
         while self.running:
             try:
-                current_time = datetime.now()
+                current_time = datetime.now(timezone.utc)
 
                 # Process alert dismissal
                 expired_alerts = []
@@ -976,7 +976,7 @@ class RealTimeAnalyticsEngine:
 
         while self.running:
             try:
-                current_time = datetime.now()
+                current_time = datetime.now(timezone.utc)
 
                 # Broadcast to active subscriptions
                 for subscription_id, subscription in list(self.active_subscriptions.items()):
@@ -1022,7 +1022,7 @@ class RealTimeAnalyticsEngine:
 
         while self.running:
             try:
-                current_time = datetime.now()
+                current_time = datetime.now(timezone.utc)
                 current_time - timedelta(hours=METRICS_RETENTION_HOURS)
 
                 # Clean old metrics from buffers
@@ -1056,7 +1056,7 @@ class RealTimeAnalyticsEngine:
             welcome_msg = {
                 'type': WS_MESSAGE_TYPES['status'],
                 'message': 'Connected to Spyder Real-Time Analytics',
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'available_streams': STREAM_TYPES
             }
 
@@ -1097,7 +1097,7 @@ class RealTimeAnalyticsEngine:
                         'type': WS_MESSAGE_TYPES['status'],
                         'message': f'Subscribed to {stream_type}',
                         'subscription_id': subscription_id,
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': datetime.now(timezone.utc).isoformat()
                     }
 
                     await websocket.send(json.dumps(response))
@@ -1111,7 +1111,7 @@ class RealTimeAnalyticsEngine:
                         'type': WS_MESSAGE_TYPES['status'],
                         'message': 'Unsubscribed successfully',
                         'subscription_id': subscription_id,
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': datetime.now(timezone.utc).isoformat()
                     }
 
                     await websocket.send(json.dumps(response))
@@ -1120,7 +1120,7 @@ class RealTimeAnalyticsEngine:
                 # Handle heartbeat
                 response = {
                     'type': WS_MESSAGE_TYPES['heartbeat'],
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now(timezone.utc).isoformat()
                 }
 
                 await websocket.send(json.dumps(response))
@@ -1129,7 +1129,7 @@ class RealTimeAnalyticsEngine:
             error_response = {
                 'type': WS_MESSAGE_TYPES['error'],
                 'message': 'Invalid JSON message',
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
             await websocket.send(json.dumps(error_response))
 
@@ -1142,7 +1142,7 @@ class RealTimeAnalyticsEngine:
             message = {
                 'type': WS_MESSAGE_TYPES['data_update'],
                 'data': data,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
 
             await websocket.send(json.dumps(message))
@@ -1161,8 +1161,8 @@ class RealTimeAnalyticsEngine:
         """Handle health check endpoint."""
         health_status = {
             'status': 'healthy' if self.running else 'unhealthy',
-            'timestamp': datetime.now().isoformat(),
-            'uptime_seconds': (datetime.now() - self.start_time).total_seconds(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'uptime_seconds': (datetime.now(timezone.utc) - self.start_time).total_seconds(),
             'active_connections': len(self.websocket_connections),
             'active_subscriptions': len(self.active_subscriptions),
             'processing_queue_size': self.processing_queue.qsize()
@@ -1288,7 +1288,7 @@ class RealTimeAnalyticsEngine:
         try:
             # Check alert cooldown
             alert_key = f"{alert_type}_{stream_type}"
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
 
             # Simple cooldown mechanism
             if hasattr(self, '_last_alert_times'):
@@ -1334,7 +1334,7 @@ class RealTimeAnalyticsEngine:
                     alert_message = {
                         'type': WS_MESSAGE_TYPES['alert'],
                         'data': alert_data,
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': datetime.now(timezone.utc).isoformat()
                     }
                     await websocket.send(json.dumps(alert_message))
                 except Exception:
@@ -1364,10 +1364,10 @@ class RealTimeAnalyticsEngine:
             memory_usage = psutil.virtual_memory().percent / 100.0
 
             # Calculate uptime
-            uptime_seconds = (datetime.now() - self.start_time).total_seconds()
+            uptime_seconds = (datetime.now(timezone.utc) - self.start_time).total_seconds()
 
             status = SystemStatus(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 cpu_usage=cpu_usage,
                 memory_usage=memory_usage,
                 active_connections=len(self.websocket_connections),
@@ -1383,7 +1383,7 @@ class RealTimeAnalyticsEngine:
         except ImportError:
             # Fallback if psutil not available
             return SystemStatus(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 cpu_usage=0.0,
                 memory_usage=0.0,
                 active_connections=len(self.websocket_connections),
@@ -1391,12 +1391,12 @@ class RealTimeAnalyticsEngine:
                 queue_size=self.processing_queue.qsize(),
                 alerts_active=len(self.active_alerts),
                 streams_active=len(self.active_subscriptions),
-                uptime_seconds=(datetime.now() - self.start_time).total_seconds()
+                uptime_seconds=(datetime.now(timezone.utc) - self.start_time).total_seconds()
             )
         except Exception as e:
             self.error_handler.handle_error(e, context="_get_system_status")
             return SystemStatus(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 cpu_usage=0.0,
                 memory_usage=0.0,
                 active_connections=0,
@@ -1444,7 +1444,7 @@ class RealTimeAnalyticsEngine:
                 return
 
             # Create cache key
-            timestamp = data.get('timestamp', datetime.now().isoformat())
+            timestamp = data.get('timestamp', datetime.now(timezone.utc).isoformat())
             cache_key = f"spyder:rt_analytics:{stream_type}:{timestamp}"
 
             # Store data with expiration
@@ -1467,7 +1467,7 @@ class RealTimeAnalyticsEngine:
             message = {
                 'stream_type': stream_type,
                 'data': data,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
 
             # Send multipart message [topic, data]

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import os
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections import deque, defaultdict
 
@@ -126,7 +126,7 @@ class DataCollector:
                 pass
 
             metrics = SystemMetrics(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 cpu_percent=cpu_percent,
                 memory_percent=memory.percent,
                 disk_usage_percent=disk.percent,
@@ -149,7 +149,7 @@ class DataCollector:
             self.error_handler.handle_error(e, "collect_system_metrics")
             # Return default metrics on error
             return SystemMetrics(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 cpu_percent=0.0,
                 memory_percent=0.0,
                 disk_usage_percent=0.0,
@@ -175,7 +175,7 @@ class DataCollector:
             if duration is None:
                 return list(self.system_metrics_history)
 
-            cutoff_time = datetime.now() - duration
+            cutoff_time = datetime.now(timezone.utc) - duration
             return [
                 metric for metric in self.system_metrics_history
                 if metric.timestamp >= cutoff_time
@@ -238,7 +238,7 @@ class DataCollector:
             if duration is None:
                 return list(history)
 
-            cutoff_time = datetime.now() - duration
+            cutoff_time = datetime.now(timezone.utc) - duration
             return [
                 health for health in history
                 if health.last_heartbeat >= cutoff_time
@@ -296,7 +296,7 @@ class DataCollector:
                 error_rate=error_rate,
                 memory_usage=memory_usage,
                 cpu_usage=cpu_usage,
-                last_heartbeat=datetime.now(),
+                last_heartbeat=datetime.now(timezone.utc),
                 active_connections=np.random.randint(0, 20),
                 processed_requests=processed_requests,
                 failed_requests=failed_requests,
@@ -316,7 +316,7 @@ class DataCollector:
                 error_rate=100.0,
                 memory_usage=0,
                 cpu_usage=0.0,
-                last_heartbeat=datetime.now(),
+                last_heartbeat=datetime.now(timezone.utc),
                 active_connections=0,
                 processed_requests=0,
                 failed_requests=0,
@@ -400,7 +400,7 @@ class DataCollector:
                 latency=latency,
                 throughput=throughput,
                 error_rate=error_rate,
-                last_communication=datetime.now(),
+                last_communication=datetime.now(timezone.utc),
                 message_queue_size=np.random.randint(0, 100),
                 retry_count=np.random.randint(0, 5),
                 circuit_breaker_status="CLOSED" if status != HealthStatus.FAILING else "OPEN"
@@ -415,7 +415,7 @@ class DataCollector:
                 latency=0.0,
                 throughput=0.0,
                 error_rate=100.0,
-                last_communication=datetime.now(),
+                last_communication=datetime.now(timezone.utc),
                 message_queue_size=0,
                 retry_count=0,
                 circuit_breaker_status="OPEN"
@@ -455,7 +455,7 @@ class DataCollector:
             if duration is None:
                 return list(self.diagnostic_history)
 
-            cutoff_time = datetime.now() - duration
+            cutoff_time = datetime.now(timezone.utc) - duration
             return [
                 report for report in self.diagnostic_history
                 if report.generated_at >= cutoff_time

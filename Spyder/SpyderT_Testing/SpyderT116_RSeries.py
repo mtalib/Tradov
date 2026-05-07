@@ -181,6 +181,73 @@ class TestR04ExecuteOrderRejections(unittest.TestCase):
         result = engine.execute_order({"symbol": "SPY", "quantity": oversized_qty})
         self.assertEqual(result["status"], "rejected")
 
+    def test_rejected_when_a02_preflight_gate_blocks(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        class _GateStub:
+            def _run_decision_flow_pipeline(self, strategy_id, signal, include_execution=True):
+                return False, "data_gate:stale_quote"
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+        engine._a02_decision_gate_enabled = True
+        engine.set_trading_engine(_GateStub())
+
+        result = engine.execute_order(
+            {
+                "symbol": "SPY",
+                "side": "buy",
+                "quantity": 1,
+                "price": 2.10,
+                "strategy_id": "bull_put_spread",
+            }
+        )
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("data_gate", result["reason"])
+
+    def test_a02_preflight_gate_passes_with_gates_only_mode(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState, SafetyCheck, SafetyCheckResult
+
+        captures = {}
+
+        class _GateStub:
+            def _run_decision_flow_pipeline(self, strategy_id, signal, include_execution=True):
+                captures["strategy_id"] = strategy_id
+                captures["signal"] = signal
+                captures["include_execution"] = include_execution
+                return True, ""
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+        engine._a02_decision_gate_enabled = True
+        engine.set_trading_engine(_GateStub())
+
+        # Stop the flow after preflight so this stays a unit test and avoids broker queue path.
+        engine._perform_order_safety_checks = MagicMock(
+            return_value=SafetyCheck(
+                check_name="test_safety",
+                result=SafetyCheckResult.FAILED,
+                message="unit-stop",
+                timestamp=datetime.now(),
+            )
+        )
+
+        result = engine.execute_order(
+            {
+                "symbol": "SPY",
+                "side": "buy",
+                "quantity": 1,
+                "price": 2.10,
+                "strategy_id": "bull_put_spread",
+            }
+        )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertTrue(captures)
+        self.assertEqual(captures["strategy_id"], "bull_put_spread")
+        self.assertEqual(captures["signal"]["symbol"], "SPY")
+        self.assertFalse(captures["include_execution"])
+
 
 class TestR04VerifyConnectionExceptionHandling(unittest.TestCase):
     """_verify_broker_connection and _verify_account_access must catch Exception but

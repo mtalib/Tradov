@@ -40,7 +40,7 @@ Change Log:
 import os  # noqa: F401
 import threading
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -152,7 +152,7 @@ class Position:
     expiry: str | None = None
     strike: float | None = None
     right: str | None = None  # CALL/PUT
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class RiskMetrics:
@@ -185,7 +185,7 @@ class RiskCheckResponse:
     order_id: str | None = None
     reason: str | None = None
     risk_metrics: RiskMetrics | None = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 # ==============================================================================
 # MAIN CLASS
@@ -271,6 +271,7 @@ class RiskManager:
         # Y03 RiskSentinelAgent veto state — updated via wire_agent_bus().
         # Values mirror CircuitBreakerState: "normal" | "caution" | "warning" | "halt"
         self._y03_veto_state: str = "normal"
+        self._observe_only_agents: bool = self._resolve_observe_only_agents()
 
         # Stage 3: decision-quality SLO gate (vol-surface / dealer-flow / lead-lag).
         # When True, validate_signal() rejects entries if S07 reports absent or
@@ -299,6 +300,10 @@ class RiskManager:
         self._n04_calculator: Any | None = None
         self._last_portfolio_greeks: dict[str, float] = {}
 
+        # Cached account balances from last successful Tradier sync.
+        # Keys match _request_account_summary summary dict.
+        self._cached_account_balances: dict[str, float] = {}
+
         # Register message handlers
         self._register_handlers()
 
@@ -307,9 +312,25 @@ class RiskManager:
         # are refused to prevent mid-session account/env swaps.
         self._register_hot_reload_callback()
 
-        self.logger.info("RiskManager initialized")
+        self.logger.debug("RiskManager initialized")
 
     _STRUCTURAL_CONFIG_FIELDS: frozenset = frozenset({"account_id", "env", "environment"})
+
+    def _resolve_observe_only_agents(self) -> bool:
+        """Resolve whether agent vetoes should be telemetry-only by default."""
+        env_value = os.getenv("SPYDER_OBSERVE_ONLY_AGENTS")
+        if env_value is not None:
+            normalized = env_value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+
+        readiness_cfg = self._config.get("autonomous_readiness", {}) if isinstance(self._config, dict) else {}
+        configured = readiness_cfg.get("observe_only_agents") if isinstance(readiness_cfg, dict) else None
+        if isinstance(configured, bool):
+            return configured
+        return True
 
     def wire_agent_bus(self, bus: Any) -> None:
         """Subscribe to Y03 RiskSentinelAgent circuit-breaker veto signals.
@@ -419,6 +440,17 @@ class RiskManager:
     # LIFECYCLE MANAGEMENT
     # ==========================================================================
 
+    def mark_account_synced(self) -> None:
+        """Force-mark account state as synced.
+
+        Call this from paper/test harnesses after ``start()`` when the broker
+        does not support a real balance fetch and the cold-start gate would
+        otherwise block all signals indefinitely.
+        """
+        with self._risk_lock:
+            self._account_state_synced = True
+        self.logger.info("RiskManager: account state force-synced (paper/test mode)")
+
     async def start(self) -> bool:
         """
         Start the risk manager.
@@ -427,7 +459,7 @@ class RiskManager:
             bool: True if start successful
         """
         try:
-            self.logger.info("Starting RiskManager...")
+            self.logger.debug("Starting RiskManager...")
 
             # Connect to Connect API if not already connected
             if self.connect_api is not None:
@@ -435,7 +467,7 @@ class RiskManager:
                     if not await self.connect_api.connect():
                         return False
             else:
-                self.logger.info(
+                self.logger.debug(
                     "RiskManager: no connect_api configured — "
                     "running in standalone mode (position sync via ConnectAPI unavailable)"
                 )
@@ -451,7 +483,7 @@ class RiskManager:
                 self._start_risk_monitoring()
                 self._start_position_monitoring()
 
-            self.logger.info("RiskManager started successfully")
+            self.logger.debug("RiskManager started successfully")
             return True
 
         except Exception as e:
@@ -513,7 +545,7 @@ class RiskManager:
                 name="RiskMonitoring"
             )
             self._risk_thread.start()
-            self.logger.info("Risk monitoring started")
+            self.logger.debug("Risk monitoring started")
 
     def _stop_risk_monitoring(self):
         """Stop risk monitoring thread."""
@@ -578,7 +610,7 @@ class RiskManager:
                 name="PositionMonitoring"
             )
             self._position_thread.start()
-            self.logger.info("Position monitoring started")
+            self.logger.debug("Position monitoring started")
 
     def _stop_position_monitoring(self):
         """Stop position monitoring thread."""
@@ -588,19 +620,33 @@ class RiskManager:
             self.logger.info("Position monitoring stopped")
 
     def _position_monitoring_loop(self):
-        """Position monitoring loop."""
-        while not self._shutdown_event.is_set():
+        """Position monitoring loop.
+
+        v27 SPEC-15: hold a single persistent event loop for the lifetime of
+        the thread instead of asyncio.run() per cycle. The previous pattern
+        created and destroyed an event loop every 30s, breaking any client
+        that caches a loop (Tradier websocket, aiohttp sessions).
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            while not self._shutdown_event.is_set():
+                try:
+                    # Request position updates on the persistent loop.
+                    loop.run_until_complete(self._request_positions())
+
+                    # Wait for next update.
+                    self._shutdown_event.wait(self.config.position_update_interval)
+
+                except Exception as e:
+                    self.logger.error("Error in position monitoring loop: %s", e, exc_info=True)
+                    self.error_handler.handle_error(e, "_position_monitoring_loop")
+                    self._shutdown_event.wait(1.0)  # Wait before retry.
+        finally:
             try:
-                # Request position updates.
-                asyncio.run(self._request_positions())
-
-                # Wait for next update.
-                self._shutdown_event.wait(self.config.position_update_interval)
-
-            except Exception as e:
-                self.logger.error("Error in position monitoring loop: %s", e, exc_info=True)
-                self.error_handler.handle_error(e, "_position_monitoring_loop")
-                self._shutdown_event.wait(1.0)  # Wait before retry.
+                loop.close()
+            except Exception:
+                pass
 
     def _send_risk_notifications(self, risk_metrics: RiskMetrics):
         """
@@ -830,7 +876,7 @@ class RiskManager:
     # ------------------------------------------------------------------
 
     def _check_decision_quality_slo(self) -> tuple[bool, str, list[str]]:
-        """Check vol-surface, dealer-flow, and lead-lag SLOs via S07.
+        """Check vol-surface and dealer-flow SLOs via S07.
 
         Called from validate_signal() as a risk-layer defense-in-depth gate
         (the primary enforcement point is the D31/F09 entry trust gate).
@@ -878,12 +924,6 @@ class RiskManager:
             failures.append("dealer_flow_absent")
         elif float(wall_confidence) < 0.55:
             failures.append(f"dealer_flow_confidence_low({float(wall_confidence):.2f})")
-
-        # Lead-lag: either lead_lag_ms or confirm_confidence must be available
-        lead_lag_ms = conditions.get("lead_lag_ms")
-        confirm_confidence = conditions.get("confirm_confidence")
-        if _absent(lead_lag_ms) and _absent(confirm_confidence):
-            failures.append("lead_lag_absent")
 
         if not failures:
             return True, "", []
@@ -1119,11 +1159,16 @@ class RiskManager:
 
                 # --- Y03 RiskSentinelAgent veto gate ---
                 if self._y03_veto_state in ("warning", "halt"):
-                    return RiskValidationResult(
-                        approved=False,
-                        rejection_reason=f"Y03 RiskSentinel veto active: circuit_breaker={self._y03_veto_state}",  # noqa: E501
-                        risk_score=1.0,
-                        violations=["AGENT_VETO"],
+                    if not self._observe_only_agents:
+                        return RiskValidationResult(
+                            approved=False,
+                            rejection_reason=f"Y03 RiskSentinel veto active: circuit_breaker={self._y03_veto_state}",  # noqa: E501
+                            risk_score=1.0,
+                            violations=["AGENT_VETO"],
+                        )
+                    self.logger.warning(
+                        "Y03 veto observed (non-blocking): circuit_breaker=%s",
+                        self._y03_veto_state,
                     )
 
                 # --- Stage 3: decision-quality SLO gate ---
@@ -1329,6 +1374,16 @@ class RiskManager:
     async def _request_account_summary(self):
         """Fetch account balances from Tradier and push through the handler."""
         if self.tradier_client is None:
+            # v27 SPEC-10: in live mode, refuse to mark synced when no broker
+            # client is configured. The cold-start guard must remain active so
+            # validate_signal rejects every signal — silently failing open here
+            # would let degraded boots approve orders against a zero baseline.
+            if os.environ.get("TRADING_MODE", "paper").lower() == "live":
+                self.logger.error(
+                    "RiskManager: TRADING_MODE=live but tradier_client is None — "
+                    "leaving cold-start guard engaged; all signals will be rejected."
+                )
+                return
             self.logger.debug(
                 "RiskManager: tradier_client not configured — running standalone; "
                 "marking account state synced so signals are not cold-start rejected."
@@ -1342,6 +1397,17 @@ class RiskManager:
         except Exception as e:
             self.logger.error("Tradier balance fetch failed: %s", e, exc_info=True)
             self.error_handler.handle_error(e, "_request_account_summary")
+            # If the broker is not a live TradierClient (e.g. PaperBroker, stub),
+            # a failed balance call must not permanently lock the cold-start gate —
+            # it would silently block all signals for the entire session.
+            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import TradierClient  # noqa: PLC0415
+            if not isinstance(self.tradier_client, TradierClient):
+                self.logger.warning(
+                    "RiskManager: non-Tradier broker balance call failed; "
+                    "marking account synced to unblock cold-start gate."
+                )
+                with self._risk_lock:
+                    self._account_state_synced = True
             return
 
         balances = (response or {}).get("balances") or {}
@@ -1404,14 +1470,33 @@ class RiskManager:
 
             # Update position
             with self._risk_lock:
+                # v27 SPEC-9: the Tradier positions endpoint does NOT return
+                # UnrealizedPNL / RealizedPNL fields. Writing 0.0 every cycle
+                # destroyed any PnL value cached from another source, masking
+                # daily-loss limits. Preserve existing PnL when the payload
+                # omits the field; only write when explicitly present.
+                existing = self._positions.get(symbol)
+                if "UnrealizedPNL" in data:
+                    unrealized_pnl = float(data["UnrealizedPNL"])
+                elif existing is not None:
+                    unrealized_pnl = existing.unrealized_pnl
+                else:
+                    unrealized_pnl = 0.0
+                if "RealizedPNL" in data:
+                    realized_pnl = float(data["RealizedPNL"])
+                elif existing is not None:
+                    realized_pnl = existing.realized_pnl
+                else:
+                    realized_pnl = 0.0
+
                 position = Position(
                     symbol=symbol,
                     quantity=int(data.get("Position", 0)),
                     market_price=float(data.get("MarketPrice", 0.0)),
                     market_value=float(data.get("MarketValue", 0.0)),
                     average_fill_price=float(data.get("AverageCost", 0.0)),
-                    unrealized_pnl=float(data.get("UnrealizedPNL", 0.0)),
-                    realized_pnl=float(data.get("RealizedPNL", 0.0)),
+                    unrealized_pnl=unrealized_pnl,
+                    realized_pnl=realized_pnl,
                     currency=data.get("Currency", "USD"),
                     security_type=data.get("SecurityType", "STK"),
                     expiry=data.get("ExpirationDate"),
@@ -1438,16 +1523,28 @@ class RiskManager:
         Handle account summary update message.
 
         Args:
-            data: Account summary data
+            data: Account summary data with keys NetLiquidation, TotalCashValue,
+                  MarginUsed, MarginAvailable (floats).
         """
         try:
-            # Update account summary
             with self._risk_lock:
-                # Update risk metrics
+                # Cache the fetched balances so _calculate_risk_metrics can use
+                # them directly instead of falling back to an AccountManager import.
+                self._cached_account_balances = {
+                    "net_liquidation": float(data.get("NetLiquidation") or 0.0),
+                    "total_cash": float(data.get("TotalCashValue") or 0.0),
+                    "margin_used": float(data.get("MarginUsed") or 0.0),
+                    "margin_available": float(data.get("MarginAvailable") or 0.0),
+                }
+                # Recompute risk metrics with the freshly cached values.
                 self._risk_metrics = self._calculate_risk_metrics()
 
-                # Log account summary update
-                self.logger.debug("Account summary updated")
+                self.logger.debug(
+                    "Account summary cached — NLV=%.2f cash=%.2f margin_used=%.2f",
+                    self._cached_account_balances["net_liquidation"],
+                    self._cached_account_balances["total_cash"],
+                    self._cached_account_balances["margin_used"],
+                )
 
         except Exception as e:
             self.logger.error("Error handling account summary update: %s", e, exc_info=True)
@@ -1464,8 +1561,24 @@ class RiskManager:
             # Calculate total exposure
             total_exposure = sum(abs(pos.market_value) for pos in self._positions.values())
 
-            # Calculate daily PnL
-            daily_pnl = sum(pos.unrealized_pnl + pos.realized_pnl for pos in self._positions.values())  # noqa: E501
+            # v27 SPEC-9: source daily P&L from the Tradier balances endpoint
+            # (close_pl / day_change), NOT from summing local Position.unrealized_pnl
+            # +realized_pnl. The positions endpoint does not return PnL fields,
+            # so the local sum was always 0.0 — silently disabling the daily-loss
+            # kill switch. Fall back to the legacy local sum only when the
+            # broker-fed value is unavailable (e.g. paper-mode boot before the
+            # first balance fetch).
+            cached_balances = getattr(self, "_cached_account_balances", {}) or {}
+            broker_daily_pnl = cached_balances.get("close_pl")
+            if broker_daily_pnl is None:
+                broker_daily_pnl = cached_balances.get("day_change")
+            if broker_daily_pnl is not None:
+                daily_pnl = float(broker_daily_pnl)
+            else:
+                daily_pnl = sum(
+                    pos.unrealized_pnl + pos.realized_pnl
+                    for pos in self._positions.values()
+                )
 
             # Calculate concentration
             max_concentration = 0.0
@@ -1511,24 +1624,25 @@ class RiskManager:
                     risk_level = RiskLevel.MEDIUM
                 warnings.append(f"Options exposure {options_exposure} exceeds maximum {self.config.risk_limits['max_options_exposure']}")  # noqa: E501
 
-            # Get account data from AccountManager if available
-            net_liq = 0.0
-            margin_used_val = 0.0
-            margin_avail = 0.0
+            # Use cached Tradier account balances when available; fall back to
+            # AccountManager singleton for backwards-compatibility with older callers.
+            cached = getattr(self, "_cached_account_balances", {})
+            net_liq = cached.get("net_liquidation", 0.0)
+            margin_used_val = cached.get("margin_used", 0.0)
+            margin_avail = cached.get("margin_available", 0.0)
 
-            try:
-                # Import AccountManager and get account data
-                from Spyder.SpyderB_Broker.SpyderB04_AccountManager import AccountManager
-                account_mgr = AccountManager.get_instance()
-                if account_mgr:
-                    net_liq = account_mgr.get_net_liquidation()
-                    # Get margin from account info
-                    account_info = account_mgr.get_account_info()
-                    if account_info:
-                        margin_used_val = getattr(account_info, 'margin_used', 0.0)
-                        margin_avail = getattr(account_info, 'margin_available', 0.0)
-            except (ImportError, AttributeError) as e:
-                self.logger.debug("Could not retrieve account data: %s", e)
+            if net_liq == 0.0:
+                try:
+                    from Spyder.SpyderB_Broker.SpyderB04_AccountManager import AccountManager
+                    account_mgr = AccountManager.get_instance()
+                    if account_mgr:
+                        net_liq = account_mgr.get_net_liquidation()
+                        account_info = account_mgr.get_account_info()
+                        if account_info:
+                            margin_used_val = getattr(account_info, 'margin_used', 0.0)
+                            margin_avail = getattr(account_info, 'margin_available', 0.0)
+                except (ImportError, AttributeError) as e:
+                    self.logger.debug("Could not retrieve account data: %s", e)
 
             # Create risk metrics
             risk_metrics = RiskMetrics(

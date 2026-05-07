@@ -27,7 +27,7 @@ import json
 import logging
 import threading
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -297,7 +297,7 @@ class SpyderX12_SystemHealthAgent:
             active_issues = self._compile_active_issues(component_health, anomalies)
 
             return SystemDiagnostic(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 overall_status=overall_status,
                 overall_health_score=overall_score,
                 component_health=component_health,
@@ -510,7 +510,7 @@ Provide a JSON response:
         return PerformancePrediction(
             component=component,
             metric_type=metric_type,
-            prediction_time=datetime.now() + timedelta(minutes=horizon_minutes),
+            prediction_time=datetime.now(timezone.utc) + timedelta(minutes=horizon_minutes),
             predicted_value=predicted_value,
             confidence=confidence,
             risk_level=risk_level,
@@ -584,7 +584,7 @@ Provide a JSON response:
         metrics.append(SystemMetric(
             component=SystemComponent.TRADING_ENGINE,
             metric_type=MetricType.CPU_USAGE,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             value=cpu_percent,
             unit='%'
         ))
@@ -594,7 +594,7 @@ Provide a JSON response:
         metrics.append(SystemMetric(
             component=SystemComponent.TRADING_ENGINE,
             metric_type=MetricType.MEMORY_USAGE,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             value=memory.percent,
             unit='%'
         ))
@@ -604,7 +604,7 @@ Provide a JSON response:
         metrics.append(SystemMetric(
             component=SystemComponent.DATABASE,
             metric_type=MetricType.DISK_USAGE,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             value=disk.percent,
             unit='%'
         ))
@@ -614,7 +614,7 @@ Provide a JSON response:
         metrics.append(SystemMetric(
             component=SystemComponent.API_GATEWAY,
             metric_type=MetricType.NETWORK_IO,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             value=net_io.bytes_sent + net_io.bytes_recv,
             unit='bytes',
             metadata={'sent': net_io.bytes_sent, 'recv': net_io.bytes_recv}
@@ -648,7 +648,7 @@ Provide a JSON response:
                 metrics.append(SystemMetric(
                     component=component,
                     metric_type=metric_type,
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     value=max(0, value),  # Ensure non-negative
                     unit=self._get_metric_unit(metric_type)
                 ))
@@ -677,7 +677,7 @@ Provide a JSON response:
             metrics=metrics,
             issues=issues,
             dependencies_ok=deps_ok,
-            last_check=datetime.now(),
+            last_check=datetime.now(timezone.utc),
             uptime_percentage=uptime
         )
 
@@ -1089,7 +1089,7 @@ Provide a JSON response:
     def _create_error_diagnostic(self, error: str) -> SystemDiagnostic:
         """Create diagnostic report for error case."""
         return SystemDiagnostic(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             overall_status=HealthStatus.FAILED,
             overall_health_score=0.0,
             component_health={},
@@ -1205,7 +1205,7 @@ async def test_system_health():
 
     # Create a test alert
     test_alert = HealthAlert(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         component=SystemComponent.DATABASE,
         severity='high',
         title='High Disk Usage',

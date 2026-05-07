@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from enum import Enum
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
 from dataclasses import dataclass, field
 
 # ==============================================================================
@@ -128,7 +128,7 @@ class GapAnalysis:
     statistics: GapStatistics
     current_gap: Gap | None = None
     gap_zones: list[tuple[float, float]] = field(default_factory=list)  # Unfilled gap zones
-    analysis_timestamp: datetime = field(default_factory=datetime.now)
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def is_acceptable_for_entry(self) -> bool:
         """Check if current gap conditions are acceptable for entry."""
@@ -235,7 +235,7 @@ class GapAnalyzer:
         Returns:
             Complete gap analysis
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         try:
             # Detect all gaps
@@ -267,7 +267,7 @@ class GapAnalyzer:
             )
 
             # Record metrics
-            elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             self.monitor.record_metric('gap_analysis.execution_ms', elapsed_ms)
             self.monitor.record_metric('gap_analysis.gaps_found', len(gaps))
 
@@ -301,7 +301,7 @@ class GapAnalyzer:
             return None
 
         return Gap(
-            gap_time=datetime.now().replace(hour=9, minute=30),
+            gap_time=datetime.now(timezone.utc).replace(hour=9, minute=30),
             gap_type=GapType.OVERNIGHT,
             direction=GapDirection.UP if gap_size > 0 else GapDirection.DOWN,
             size=abs(gap_size),
@@ -610,7 +610,7 @@ class GapAnalyzer:
             return None
 
         # Get today's gaps
-        today = datetime.now().date()
+        today = datetime.now(timezone.utc).date()
         todays_gaps = [g for g in gaps if g.gap_time.date() == today]
 
         if not todays_gaps:

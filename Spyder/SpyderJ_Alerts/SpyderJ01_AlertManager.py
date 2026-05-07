@@ -25,7 +25,7 @@ Change Log:
 import os
 import threading
 import queue
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -120,7 +120,7 @@ class PredictiveAlert:
     recommended_actions: list[str]
     model_version: str
     features_used: dict[str, float]
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: datetime | None = None
     triggered: bool = False
     false_positive: bool | None = None  # For model learning
@@ -332,7 +332,7 @@ class AlertManager:
                 scaler=scaler,
                 feature_names=features,
                 accuracy=0.0,  # Will be updated after training
-                last_trained=datetime.now(),
+                last_trained=datetime.now(timezone.utc),
                 version="1.0",
                 training_samples=0
             )
@@ -359,7 +359,7 @@ class AlertManager:
                     current_threshold=15.0,
                     adjustment_factor=1.0,
                     volatility_adjustment=1.0,
-                    last_updated=datetime.now(),
+                    last_updated=datetime.now(timezone.utc),
                     regime_adjustments={
                         'low_vol': 0.8,
                         'normal': 1.0,
@@ -372,7 +372,7 @@ class AlertManager:
                     current_threshold=25.0,
                     adjustment_factor=1.0,
                     volatility_adjustment=1.0,
-                    last_updated=datetime.now(),
+                    last_updated=datetime.now(timezone.utc),
                     regime_adjustments={
                         'low_vol': 0.9,
                         'normal': 1.0,
@@ -385,7 +385,7 @@ class AlertManager:
                     current_threshold=0.02,
                     adjustment_factor=1.0,
                     volatility_adjustment=1.0,
-                    last_updated=datetime.now(),
+                    last_updated=datetime.now(timezone.utc),
                     regime_adjustments={
                         'low_vol': 0.7,
                         'normal': 1.0,
@@ -422,7 +422,7 @@ class AlertManager:
                     threshold.adjustment_factor *
                     threshold.volatility_adjustment
                 )
-                threshold.last_updated = datetime.now()
+                threshold.last_updated = datetime.now(timezone.utc)
 
             self.logger.debug("📊 Updated adaptive thresholds for regime: %s", market_regime)
 
@@ -446,7 +446,7 @@ class AlertManager:
         try:
             self.registered_strategies[strategy_id] = {
                 'config': prediction_config,
-                'registered_at': datetime.now(),
+                'registered_at': datetime.now(timezone.utc),
                 'active_predictions': [],
                 'prediction_types': prediction_config.get('prediction_types', []),
                 'min_confidence': prediction_config.get('min_confidence', self.min_confidence),
@@ -467,7 +467,7 @@ class AlertManager:
         try:
             self.strategy_contexts[strategy_id] = {
                 **context,
-                'updated_at': datetime.now()
+                'updated_at': datetime.now(timezone.utc)
             }
 
         except Exception as e:
@@ -636,7 +636,7 @@ class AlertManager:
                     recommended_actions=recommended_actions,
                     model_version=model_info.version,
                     features_used=features,
-                    expires_at=datetime.now() + timedelta(minutes=time_horizon * 2)
+                    expires_at=datetime.now(timezone.utc) + timedelta(minutes=time_horizon * 2)
                 )
 
                 return alert

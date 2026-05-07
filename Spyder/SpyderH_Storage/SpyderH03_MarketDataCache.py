@@ -182,7 +182,7 @@ class MarketDataCache:
         if auto_cleanup:
             self._start_cleanup_thread()
 
-        self.logger.info(
+            self.logger.debug(
             f"MarketDataCache initialized: max_size={max_size}, "
             f"ttl={default_ttl}s, policy={eviction_policy.value}"
         )

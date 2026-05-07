@@ -325,6 +325,25 @@ class TestComputeHv20:
 
 
 # ==============================================================================
+# TESTS — _get_spy_spot fallback behavior
+# ==============================================================================
+class TestGetSpySpot:
+    def test_uses_recent_snapshot_when_current_metric_invalid(self, orch):
+        orch.current_metrics["OGL"] = float("nan")
+        orch.metrics_history.append(_s07_mod.MetricSnapshot(ogl=586.25))
+        assert orch._get_spy_spot() == pytest.approx(586.25)
+
+    def test_falls_back_to_tradier_quote_last(self, orch):
+        orch.current_metrics["OGL"] = float("nan")
+        mock_client = MagicMock()
+        mock_client.get_quotes.return_value = {
+            "quotes": {"quote": {"symbol": "SPY", "last": 587.4}}
+        }
+        with patch.object(orch, "_get_options_tradier_client", return_value=mock_client):
+            assert orch._get_spy_spot() == pytest.approx(587.4)
+
+
+# ==============================================================================
 # TESTS — _update_options_analytics_metrics (integration)
 # ==============================================================================
 class TestUpdateOptionsAnalyticsMetrics:

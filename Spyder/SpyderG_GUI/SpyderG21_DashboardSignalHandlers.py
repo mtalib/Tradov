@@ -13,15 +13,19 @@ from typing import Any
 import pytz
 
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import COLORS
-from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import is_dashboard_session as _is_dashboard_session  # noqa: E501
+from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
+    MARKET_OPEN_TIME,
+    MARKET_CLOSE_TIME,
+)
 
 
 def is_market_hours(now_et: datetime | None = None) -> bool:
-    """Return True only when ET time is in session and weekday is Mon-Fri."""
+    """Return True only during regular trading hours (9:30 AM – 4:00 PM ET), Mon–Fri."""
     current_et = now_et or datetime.now(pytz.timezone("US/Eastern"))
     if current_et.weekday() >= 5:
         return False
-    return bool(_is_dashboard_session(current_et))
+    t = current_et.time()
+    return MARKET_OPEN_TIME <= t <= MARKET_CLOSE_TIME
 
 
 def handle_connection_status_changed(dashboard: Any, connected: bool, status: str) -> None:
@@ -47,8 +51,10 @@ def handle_connection_status_changed(dashboard: Any, connected: bool, status: st
             hasattr(dashboard, "data_status_label")
             and dashboard.data_status_label.text() == "FROZEN"
         ):
-            env = os.getenv("TRADIER_ENVIRONMENT", "sandbox").lower()
-            resolved_status = "PAPER" if env != "live" else "LIVE"
+            # Use TRADING_MODE (not TRADIER_ENVIRONMENT) to determine the correct
+            # label — TRADIER_ENVIRONMENT can be "live" even when running paper.
+            trading_mode = os.getenv("TRADING_MODE", "paper").lower()
+            resolved_status = "PAPER" if trading_mode == "paper" else "LIVE"
             dashboard.mkt_data_connected = True
             dashboard.update_data_status(resolved_status)
             provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
@@ -69,7 +75,7 @@ def handle_connection_status_changed(dashboard: Any, connected: bool, status: st
                 f"background-color: {COLORS['positive']}; color: black;",
             )
             dashboard.start_btn.setText("START TRADING")
-            dashboard.add_automation_log("Trading stopped - API connection lost")
+            dashboard.add_system_log("Trading stopped - API connection lost")
 
         if "MARKET CLOSED" in status:
             dashboard.add_system_log("📊 Market closed - API disconnected")
@@ -128,7 +134,7 @@ def handle_market_data_status_changed(dashboard: Any, status: str) -> None:
                 f"background-color: {COLORS['positive']}; color: black;",
             )
             dashboard.start_btn.setText("START TRADING")
-            dashboard.add_automation_log("Trading stopped - Market data lost")
+            dashboard.add_system_log("Trading stopped - Market data lost")
 
     if was_connected != dashboard.mkt_data_connected:
         provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()

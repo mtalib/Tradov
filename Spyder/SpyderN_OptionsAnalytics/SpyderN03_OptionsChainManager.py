@@ -24,7 +24,7 @@ Description:
 import sys
 import os
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -130,7 +130,7 @@ class OptionContract:
     theta: float = 0.0
     vega: float = 0.0
     rho: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     exchange: str = "CBOE"
 
     @property
@@ -158,7 +158,7 @@ class OptionContract:
     @property
     def days_to_expiry(self) -> int:
         """Calculate days to expiration"""
-        return max(0, (self.expiry.date() - datetime.now().date()).days)
+        return max(0, (self.expiry.date() - datetime.now(timezone.utc).date()).days)
 
     @property
     def contract_name(self) -> str:
@@ -542,7 +542,7 @@ class OptionsChainManager:
         cycles = []
 
         for expiry in sorted(self.chains[symbol].keys()):
-            dte = (expiry.date() - datetime.now().date()).days
+            dte = (expiry.date() - datetime.now(timezone.utc).date()).days
 
             if min_dte <= dte <= max_dte:
                 cycle = self._analyze_expiration(symbol, expiry)
@@ -734,7 +734,7 @@ class OptionsChainManager:
         # Cache result
         cache_key = f"analytics_{symbol}_{expiry}"
         self.cache[cache_key] = analytics
-        self.cache_timestamp[cache_key] = datetime.now()
+        self.cache_timestamp[cache_key] = datetime.now(timezone.utc)
 
         return analytics
 
@@ -916,7 +916,7 @@ class OptionsChainManager:
         """Analyze single expiration"""
         cycle = ExpirationCycle(
             expiry_date=expiry,
-            dte=(expiry.date() - datetime.now().date()).days,
+            dte=(expiry.date() - datetime.now(timezone.utc).date()).days,
             is_weekly=self._is_weekly_expiry(expiry),
             is_monthly=self._is_monthly_expiry(expiry),
             is_quarterly=self._is_quarterly_expiry(expiry)
@@ -1074,7 +1074,7 @@ class OptionsChainManager:
         Returns:
             Number of expiration buckets removed.
         """
-        cutoff = (as_of or datetime.now()).replace(
+        cutoff = (as_of or datetime.now(timezone.utc)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         removed = 0
@@ -1193,8 +1193,8 @@ if __name__ == "__main__":
     manager.update_underlying_price(symbol, underlying_price)
 
     # Create test expiration dates
-    expiry1 = datetime.now() + timedelta(days=7)   # Weekly
-    expiry2 = datetime.now() + timedelta(days=30)  # Monthly
+    expiry1 = datetime.now(timezone.utc) + timedelta(days=7)   # Weekly
+    expiry2 = datetime.now(timezone.utc) + timedelta(days=30)  # Monthly
 
     # Add test contracts
     strikes = [575, 580, 585, 590, 595]

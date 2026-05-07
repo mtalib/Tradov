@@ -25,7 +25,7 @@ Change Log:
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -142,7 +142,7 @@ class MarketData:
     high: float = 0.0
     low: float = 0.0
     close: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     quality: DataQuality = DataQuality.UNKNOWN
 
     def __post_init__(self):
@@ -257,7 +257,7 @@ class OrderData:
     remaining_quantity: int = 0
     avg_fill_price: float = 0.0
     commission: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     parent_id: int | None = None
     oca_group: str | None = None
     good_after_time: datetime | None = None
@@ -317,7 +317,7 @@ class Position:
     market_value: float = 0.0
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self):
         """Calculate derived values."""
@@ -370,7 +370,7 @@ class GreeksData:
     rho: float = 0.0
     implied_volatility: float = 0.0
     underlying_price: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -472,7 +472,7 @@ class SpyderDataTypes:
                 ask=ask,
                 last=last,
                 volume=volume,
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
         except Exception as e:
             self.logger.error("Failed to create MarketData: %s", e)
@@ -691,7 +691,7 @@ class OptionData:
     gamma: float = 0.0
     theta: float = 0.0
     vega: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 class MarketDataType(Enum):
     """Market data type enumeration"""

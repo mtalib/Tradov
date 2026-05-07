@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import threading
 import time
@@ -264,7 +264,7 @@ class VolatilitySurfaceAnalyzer:
 
             # Create surface object
             surface = VolatilitySurface(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 symbol=self.symbol,
                 spot_price=spot_price,
                 surface_points=surface_points,
@@ -426,7 +426,7 @@ class VolatilitySurfaceAnalyzer:
                                params_by_expiry: dict[datetime, dict[str, float]]) -> dict[str, float]:  # noqa: E501
         """Interpolate SVI parameters across time."""
         # Convert expiries to time to expiry
-        times = [(exp - datetime.now()).days / 365 for exp in expiries]
+        times = [(exp - datetime.now(timezone.utc)).days / 365 for exp in expiries]
 
         # Find bracketing times
         idx = np.searchsorted(times, target_time)
@@ -728,7 +728,7 @@ class VolatilitySurfaceAnalyzer:
                     local_vol_grid[i, j] = sigma  # Fall back to implied vol
 
         local_vol = LocalVolatility(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             spot_grid=spot_grid,
             time_grid=time_grid,
             local_vol_grid=local_vol_grid,
@@ -857,7 +857,7 @@ class VolatilitySurfaceAnalyzer:
         if surface.model == SurfaceModel.SVI and 'params_by_expiry' in surface.model_params:
             # Find closest expiry
             expiries = list(surface.model_params['params_by_expiry'].keys())
-            closest_expiry = min(expiries, key=lambda e: abs((e - datetime.now()).days/365 - time))
+            closest_expiry = min(expiries, key=lambda e: abs((e - datetime.now(timezone.utc)).days/365 - time))
 
             params = surface.model_params['params_by_expiry'][closest_expiry]
             k = np.log(moneyness)
@@ -1088,7 +1088,7 @@ class VolatilitySurfaceAnalyzer:
                     ois.append(call_data.get('open_interest', 0).iloc[0])
 
                 if ivs:
-                    time_to_expiry = (expiry - datetime.now()).days / 365
+                    time_to_expiry = (expiry - datetime.now(timezone.utc)).days / 365
 
                     if time_to_expiry > 0:
                         points.append(SurfacePoint(
@@ -1303,10 +1303,10 @@ if __name__ == "__main__":
     np.random.seed(42)
 
     expiries = [
-        datetime.now() + timedelta(days=7),
-        datetime.now() + timedelta(days=30),
-        datetime.now() + timedelta(days=60),
-        datetime.now() + timedelta(days=90)
+        datetime.now(timezone.utc) + timedelta(days=7),
+        datetime.now(timezone.utc) + timedelta(days=30),
+        datetime.now(timezone.utc) + timedelta(days=60),
+        datetime.now(timezone.utc) + timedelta(days=90)
     ]
 
     strikes = np.arange(420, 461, 5)
@@ -1316,7 +1316,7 @@ if __name__ == "__main__":
     option_data = []
 
     for expiry in expiries:
-        tte = (expiry - datetime.now()).days / 365
+        tte = (expiry - datetime.now(timezone.utc)).days / 365
 
         for strike in strikes:
             moneyness = strike / spot

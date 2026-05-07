@@ -27,7 +27,7 @@ import asyncio
 import logging
 from typing import Any
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from collections import defaultdict, deque
 
@@ -43,6 +43,13 @@ try:
 except ImportError:
     logging.info("Warning: ollama package not installed. Install with: pip install ollama")
     OLLAMA_AVAILABLE = False
+
+# Pydantic v2 — structured output validation (TradingAgents-inspired)
+try:
+    from pydantic import BaseModel as _PydanticBase, Field as _PField, field_validator as _fv, ValidationError as _PydanticValidationError  # type: ignore[import]
+    _PYDANTIC_AVAILABLE = True
+except ImportError:
+    _PYDANTIC_AVAILABLE = False
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -71,6 +78,10 @@ MAX_TOKENS = 2000
 MAX_CONCURRENT_STRATEGIES = 5
 MIN_CONFIDENCE_THRESHOLD = 0.6
 STRATEGY_CACHE_TTL = 300  # 5 minutes
+
+# Bull/Bear Debate (TradingAgents-inspired adversarial research pattern)
+DEBATE_ROUNDS = 1        # Rounds of bull-vs-bear debate before final synthesis
+DEBATE_MAX_TOKENS = 512  # Tokens per debate response (concise arguments)
 
 # Risk Thresholds
 MAX_PORTFOLIO_RISK = 0.02
@@ -176,6 +187,61 @@ class StrategyRecommendation:
     ai_insights: dict[str, Any]
     alternative_strategies: list[StrategyParameters]
 
+@dataclass
+class DebateRound:
+    """One round of adversarial bull/bear researcher debate."""
+    round_num: int
+    bull_case: str   # Bull researcher argument
+    bear_case: str   # Bear researcher argument
+
+
+# ------------------------------------------------------------------------------
+# Pydantic structured output model (TradingAgents-inspired validated response)
+# ------------------------------------------------------------------------------
+if _PYDANTIC_AVAILABLE:
+    class StrategyAIResponse(_PydanticBase):  # type: ignore[misc]
+        """Pydantic model that validates and coerces the LLM's JSON output.
+
+        All fields mirror what ``_create_strategy_parameters`` expects so that
+        callers receive a type-safe, default-filled dict via ``.model_dump()``.
+        """
+
+        strategy_type: str = _PField(default="iron_condor")
+        reasoning: str = _PField(default="")
+        strikes: list[float] = _PField(default_factory=list)
+        expiration_days: int = _PField(default=45, ge=1, le=180)
+        position_size: int = _PField(default=1, ge=1, le=100)
+        confidence: float = _PField(default=0.5, ge=0.0, le=1.0)
+        expected_return: float = _PField(default=0.5)
+        risk_metrics: dict = _PField(default_factory=dict)
+        entry_conditions: dict = _PField(default_factory=dict)
+        exit_conditions: dict = _PField(default_factory=lambda: {"target": 0.5, "stop": -0.5})
+        adjustment_rules: dict = _PField(default_factory=dict)
+
+        @_fv("confidence", mode="before")
+        @classmethod
+        def clamp_confidence(cls, v: float) -> float:  # type: ignore[misc]
+            # Run before field constraints so out-of-range values are clamped
+            # rather than rejected (Pydantic v2 validators default to mode='after').
+            return max(0.0, min(1.0, float(v)))
+else:
+    StrategyAIResponse = None  # type: ignore[assignment,misc]
+
+_STRATEGY_RESPONSE_DEFAULTS: dict[str, Any] = {
+    "strategy_type": "iron_condor",
+    "reasoning": "Fallback strategy due to parsing error",
+    "strikes": [],
+    "expiration_days": 45,
+    "position_size": 1,
+    "confidence": 0.5,
+    "expected_return": 0.5,
+    "risk_metrics": {},
+    "entry_conditions": {},
+    "exit_conditions": {"target": 0.5, "stop": -0.5},
+    "adjustment_rules": {},
+}
+
+
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
@@ -263,7 +329,7 @@ class SpyderX03_StrategyDirectorAgent:
         Returns:
             Strategy recommendation or None if no suitable strategy
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         try:
             # Check cache first
@@ -305,7 +371,7 @@ class SpyderX03_StrategyDirectorAgent:
                 self.strategy_history.append(strategy_recommendation)
 
                 # Log performance
-                elapsed = (datetime.now() - start_time).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
                 self.logger.info(
                     f"Strategy selected: {strategy_recommendation.strategy_params.strategy_type.value} "  # noqa: E501
                     f"with confidence {strategy_recommendation.strategy_params.confidence_score:.2%} "  # noqa: E501
@@ -506,6 +572,11 @@ class SpyderX03_StrategyDirectorAgent:
             Strategy recommendation or None
         """
         try:
+            # Run adversarial bull/bear debate before final synthesis
+            debate_rounds = await self._run_bull_bear_debate(
+                market_data, market_context, risk_constraints
+            )
+
             # Build prompt
             prompt = self._build_strategy_prompt(
                 market_data,
@@ -513,6 +584,16 @@ class SpyderX03_StrategyDirectorAgent:
                 market_context,
                 risk_constraints
             )
+
+            # Enrich the synthesis prompt with debate findings
+            if debate_rounds:
+                last = debate_rounds[-1]
+                prompt += (
+                    "\n\n## Analyst Debate\n"
+                    f"**Bull Researcher**: {last.bull_case}\n\n"
+                    f"**Bear Researcher**: {last.bear_case}\n\n"
+                    "Weigh both arguments above in your final JSON recommendation."
+                )
 
             # Query Ollama — use chat() for consistent system-role support
             response = await asyncio.to_thread(
@@ -549,7 +630,7 @@ class SpyderX03_StrategyDirectorAgent:
 
             # Create recommendation
             recommendation = StrategyRecommendation(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 strategy_params=strategy_params,
                 market_context=market_context,
                 reasoning=ai_recommendation.get('reasoning', ''),
@@ -564,6 +645,115 @@ class SpyderX03_StrategyDirectorAgent:
         except Exception as e:
             self.logger.error("Error getting AI strategy recommendation: %s", e)
             return None
+
+    async def _run_bull_bear_debate(
+        self,
+        market_data: MarketData,
+        market_context: MarketContext,
+        risk_constraints: dict[str, Any] | None = None,
+    ) -> list[DebateRound]:
+        """Run N rounds of adversarial bull/bear debate before final synthesis.
+
+        Inspired by TradingAgents' Researcher Team pattern: a Bull Researcher
+        argues for upside/income strategies and a Bear Researcher argues for
+        protective/downside strategies. Both views are injected into the final
+        synthesis prompt so the Strategist LLM must weigh them.
+
+        Args:
+            market_data: Current market snapshot.
+            market_context: Derived regime and volatility context.
+            risk_constraints: Optional risk constraints.
+
+        Returns:
+            List of DebateRound records, one per round.
+        """
+        if not self.ollama_client:
+            return []
+
+        rounds: list[DebateRound] = []
+        prior_bull: str = ""
+        prior_bear: str = ""
+
+        for n in range(DEBATE_ROUNDS):
+            bull_case = await self._run_debate_side(
+                "bull", market_data, market_context, risk_constraints, prior_bear
+            )
+            bear_case = await self._run_debate_side(
+                "bear", market_data, market_context, risk_constraints, prior_bull
+            )
+            rounds.append(DebateRound(round_num=n + 1, bull_case=bull_case, bear_case=bear_case))
+            prior_bull = bull_case
+            prior_bear = bear_case
+
+        return rounds
+
+    async def _run_debate_side(
+        self,
+        stance: str,
+        market_data: MarketData,
+        market_context: MarketContext,
+        risk_constraints: dict[str, Any] | None,
+        opposing_view: str,
+    ) -> str:
+        """Run one side of the bull/bear debate.
+
+        Args:
+            stance: ``"bull"`` or ``"bear"``.
+            market_data: Current market snapshot.
+            market_context: Derived regime context.
+            risk_constraints: Optional risk constraints.
+            opposing_view: Prior-round opposing argument (empty string on round 1).
+
+        Returns:
+            The researcher's argument as a string; empty string on failure.
+        """
+        if stance == "bull":
+            system_msg = (
+                "You are a Bull Researcher for SPY options. Argue FOR bullish or "
+                "income-generating strategies (e.g. Short Put, Iron Condor, Bull "
+                "Call Spread). Highlight why upside or range-bound plays make sense "
+                "right now. Be concise and specific — 3 to 4 sentences."
+            )
+            user_prefix = "Argue for a BULLISH or NEUTRAL-INCOME options strategy"
+        else:
+            system_msg = (
+                "You are a Bear Researcher for SPY options. Argue FOR bearish or "
+                "protective strategies (e.g. Bear Put Spread, Long Put, protective "
+                "collar). Highlight tail risks, downside scenarios, and why hedging "
+                "makes sense right now. Be concise and specific — 3 to 4 sentences."
+            )
+            user_prefix = "Argue for a BEARISH or PROTECTIVE options strategy"
+
+        content = (
+            f"{user_prefix} given:\n"
+            f"- SPY: ${market_data.underlying_price:.2f}\n"
+            f"- IV: {market_data.volatility:.1f}%  VIX: {market_data.vix_level:.1f}\n"
+            f"- Trend: {market_data.trend_strength:+.2f}  "
+            f"Regime: {market_context.regime.value}\n"
+        )
+        if opposing_view:
+            content += f"\nOpposing view to rebut:\n{opposing_view}\n"
+        if risk_constraints:
+            content += f"\nRisk constraints: {risk_constraints}\n"
+
+        try:
+            response = await asyncio.to_thread(
+                self.ollama_client.chat,
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": content},
+                ],
+                options={
+                    "temperature": self.temperature,
+                    "num_predict": DEBATE_MAX_TOKENS,
+                    "think": False,
+                },
+            )
+            return strip_thinking_block(response["message"]["content"])
+        except Exception as exc:
+            self.logger.warning("Debate side '%s' failed: %s", stance, exc)
+            return ""
 
     def _build_strategy_prompt(
         self,
@@ -629,28 +819,37 @@ Provide your recommendation as JSON with the following structure:
         return prompt
 
     def _parse_ai_strategy_response(self, response: str) -> dict[str, Any]:
-        """Parse Ollama response for strategy recommendation."""
+        """Parse Ollama response for strategy recommendation.
+
+        Uses Pydantic v2 (TradingAgents-inspired structured output pattern) to
+        validate and coerce the LLM JSON. Falls back to raw dict or hardcoded
+        defaults on parse or validation failure.
+        """
+        data: dict[str, Any] | None = None
+
+        # Step 1: extract the first JSON object from the response
         try:
-            # Try to parse as JSON
             if '{' in response and '}' in response:
                 start = response.find('{')
                 end = response.rfind('}') + 1
-                json_str = response[start:end]
-                data = json.loads(json_str)
+                data = json.loads(response[start:end])
+        except Exception as exc:
+            self.logger.error("Failed to parse AI response JSON: %s", exc)
 
-                return data
-        except Exception as e:
-            self.logger.error("Failed to parse AI response: %s", e)
+        if data is None:
+            return dict(_STRATEGY_RESPONSE_DEFAULTS)
 
-        # Fallback response
-        return {
-            'strategy_type': 'iron_condor',
-            'reasoning': 'Fallback strategy due to parsing error',
-            'strikes': [],
-            'expiration_days': 45,
-            'position_size': 1,
-            'confidence': 0.5
-        }
+        # Step 2: validate with Pydantic if available
+        if _PYDANTIC_AVAILABLE and StrategyAIResponse is not None:
+            try:
+                return StrategyAIResponse.model_validate(data).model_dump()
+            except _PydanticValidationError as exc:
+                self.logger.warning(
+                    "Pydantic validation failed, falling back to raw dict: %s", exc
+                )
+
+        # Step 3: return raw dict (may have unvalidated/unexpected types)
+        return data
 
     def _create_strategy_parameters(
         self,
@@ -670,7 +869,7 @@ Provide your recommendation as JSON with the following structure:
 
         # Calculate expiration
         days = ai_recommendation.get('expiration_days', 45)
-        expiration = datetime.now() + timedelta(days=days)
+        expiration = datetime.now(timezone.utc) + timedelta(days=days)
 
         # Get strikes or calculate them
         strikes = ai_recommendation.get('strikes', [])
@@ -746,7 +945,7 @@ Provide your recommendation as JSON with the following structure:
         strategy_params = StrategyParameters(
             strategy_type=strategy_type,
             strikes=strikes,
-            expirations=[datetime.now() + timedelta(days=45)],
+            expirations=[datetime.now(timezone.utc) + timedelta(days=45)],
             quantities=[1],
             max_loss=1000,
             target_profit=500,
@@ -757,7 +956,7 @@ Provide your recommendation as JSON with the following structure:
         )
 
         return StrategyRecommendation(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             strategy_params=strategy_params,
             market_context=market_context,
             reasoning=reasoning,
@@ -871,7 +1070,7 @@ Provide your recommendation as JSON with the following structure:
         """Get cached strategy if still valid."""
         if cache_key in self.strategy_cache:
             recommendation, timestamp = self.strategy_cache[cache_key]
-            if datetime.now() - timestamp < self.cache_ttl:
+            if datetime.now(timezone.utc) - timestamp < self.cache_ttl:
                 self.logger.info("Using cached strategy recommendation")
                 return recommendation
 
@@ -879,7 +1078,7 @@ Provide your recommendation as JSON with the following structure:
 
     def _cache_strategy(self, cache_key: str, recommendation: StrategyRecommendation):
         """Cache strategy recommendation."""
-        self.strategy_cache[cache_key] = (recommendation, datetime.now())
+        self.strategy_cache[cache_key] = (recommendation, datetime.now(timezone.utc))
 
     def _calculate_sharpe_ratio(self, returns: list[float]) -> float:
         """Calculate Sharpe ratio from returns."""
@@ -975,7 +1174,7 @@ if __name__ == "__main__":
 
         # Create sample market data
         market_data = MarketData(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             underlying_price=550.00,
             volatility=18.5,
             volume=85000000,

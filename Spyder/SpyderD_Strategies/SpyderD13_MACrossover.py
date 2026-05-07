@@ -22,12 +22,13 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-from datetime import timedelta
+from datetime import timedelta, timezone
 import uuid
+from collections import deque  # v27 SPEC-18: bounded history
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -189,7 +190,9 @@ class MACrossoverStrategy(BaseStrategy):
         self.slow_ema: pd.Series | None = None
         self.current_ma_state: MAState = MAState.CONVERGING
         self.last_crossover_bar = -1
-        self.crossover_history: list[dict] = []
+        # v27 SPEC-18: bounded history. WHIPSAW_LOOKBACK is the max referenced
+        # window; 1000 entries gives plenty of headroom for slicing.
+        self.crossover_history: deque = deque(maxlen=1000)
 
         # Configuration
         self.fast_period = resolved_config.get('fast_period', FAST_EMA_PERIOD)
@@ -279,9 +282,11 @@ class MACrossoverStrategy(BaseStrategy):
             return 0.0
 
         # Count recent crossovers
+        # v27 SPEC-18: deque doesn't support slicing — materialize tail.
+        _history_list = list(self.crossover_history)
         recent_crossovers = [
-            cross for cross in self.crossover_history[-WHIPSAW_LOOKBACK:]
-            if (datetime.now() - cross['time']).seconds < 3600  # Within 1 hour
+            cross for cross in _history_list[-WHIPSAW_LOOKBACK:]
+            if (datetime.now(timezone.utc) - cross['time']).seconds < 3600  # Within 1 hour
         ]
 
         if len(recent_crossovers) >= 3:
@@ -407,7 +412,7 @@ class MACrossoverStrategy(BaseStrategy):
 
                         # Update crossover history
                         self.crossover_history.append({
-                            'time': datetime.now(),
+                            'time': datetime.now(timezone.utc),
                             'type': crossover_type,
                             'price': market_data['close'].iloc[-1]
                         })
@@ -473,7 +478,7 @@ class MACrossoverStrategy(BaseStrategy):
 
     def _is_valid_trading_time(self) -> bool:
         """Check if current time is valid for trading"""
-        current_time = datetime.now().time()
+        current_time = datetime.now(timezone.utc).time()
 
         # Skip first 30 minutes
         if NO_ENTRY_FIRST_30MIN and current_time < time(10, 0):
@@ -603,7 +608,7 @@ class MACrossoverStrategy(BaseStrategy):
                 'volume_surge': crossover_signal.volume_surge
             }
 
-            signal_timestamp = datetime.now()
+            signal_timestamp = datetime.now(timezone.utc)
 
             signal = TradingSignal(
                 signal_id=str(uuid.uuid4()),
@@ -742,7 +747,7 @@ class MACrossoverStrategy(BaseStrategy):
                 return self._create_exit_signal(position, "ma_recross")
 
         # Time-based exit
-        if datetime.now().time() > time(15, 45):
+        if datetime.now(timezone.utc).time() > time(15, 45):
             return self._create_exit_signal(position, "time_exit")
 
         return None
@@ -769,11 +774,11 @@ class MACrossoverStrategy(BaseStrategy):
 
     def _create_exit_signal(self, position: MAPosition, reason: str) -> TradingSignal:
         """Create exit signal for position"""
-        position.exit_time = datetime.now()
+        position.exit_time = datetime.now(timezone.utc)
         position.exit_reason = reason
 
         signal = TradingSignal(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             signal_type=SignalType.EXIT,
             strength=SignalStrength.STRONG,
             confidence=0.95,
@@ -878,7 +883,7 @@ def test_ma_crossover():
     logging.info("MA Periods: %s/%s", strategy.fast_period, strategy.slow_period)
 
     # Create trending market data
-    dates = pd.date_range(start=datetime.now().replace(hour=10, minute=30), periods=100, freq='5min')  # noqa: E501
+    dates = pd.date_range(start=datetime.now(timezone.utc).replace(hour=10, minute=30), periods=100, freq='5min')  # noqa: E501
 
     # Create trend with crossovers
     trend = np.zeros(100)
@@ -937,9 +942,9 @@ def test_ma_crossover():
 
                 # Create position
                 position = MAPosition(
-                    position_id=f"MA_{datetime.now().strftime('%H%M%S')}",
+                    position_id=f"MA_{datetime.now(timezone.utc).strftime('%H%M%S')}",
                     signal=CrossoverSignal(**crossover),
-                    entry_time=datetime.now(),
+                    entry_time=datetime.now(timezone.utc),
                     entry_price=prices[i],
                     option_type=OptionType.CALL if signal.metadata['direction'] == 'bullish' else OptionType.PUT,  # noqa: E501
                     spread_type=signal.metadata['spread_type'],

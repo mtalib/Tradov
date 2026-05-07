@@ -163,40 +163,6 @@ def validate_tradier_config():
 
     return errors, warnings
 
-def validate_massive_config():
-    """Validate Massive market data credentials"""
-    print_header("MASSIVE MARKET DATA CONFIGURATION")
-
-    errors = []
-    warnings = []
-
-    api_key = os.environ.get("MASSIVE_API_KEY", "")
-    if not api_key:
-        errors.append("MASSIVE_API_KEY not set")
-        print_error("MASSIVE_API_KEY missing — required for live market data (Massive)")
-    elif api_key == "your_massive_api_key_here":
-        errors.append("MASSIVE_API_KEY is still the placeholder value")
-        print_error("MASSIVE_API_KEY not configured (still using placeholder)")
-    else:
-        print_success(f"MASSIVE_API_KEY: {api_key[:8]}... (configured)")
-
-    base_url = os.environ.get("MASSIVE_BASE_URL", "")
-    if base_url:
-        print_info(f"MASSIVE_BASE_URL: {base_url}")
-    else:
-        print_info("MASSIVE_BASE_URL: (using default)")
-
-    data_provider = os.environ.get("DATA_PROVIDER", "massive").lower()
-    if data_provider != "massive":
-        warnings.append(
-            f"DATA_PROVIDER='{data_provider}' — expected 'massive'"
-        )
-        print_warning(f"DATA_PROVIDER='{data_provider}' — expected 'massive'")
-    else:
-        print_success(f"DATA_PROVIDER: {data_provider}")
-
-    return errors, warnings
-
 def validate_system_config():
     """Validate system configuration"""
     print_header("SYSTEM CONFIGURATION")
@@ -292,10 +258,6 @@ def main():
     all_errors.append(errors)
     all_warnings.append(warnings)
 
-    errors, warnings = validate_massive_config()
-    all_errors.append(errors)
-    all_warnings.append(warnings)
-
     errors, warnings = validate_system_config()
     all_errors.append(errors)
     all_warnings.append(warnings)
@@ -309,8 +271,7 @@ def main():
     if is_valid:
         print(f"{Colors.BOLD}Next Steps:{Colors.END}")
         print("  1. Obtain Tradier API key: https://developer.tradier.com")
-        print("  2. Obtain Massive API key from your Massive account dashboard")
-        print("  3. Set TRADING_MODE=sandbox and TRADIER_ENVIRONMENT=sandbox for initial testing")
+        print("  2. Set TRADING_MODE=sandbox and TRADIER_ENVIRONMENT=sandbox for initial testing")
         print("  4. Test configuration:")
         print("     $ python config/config.py")
         print("  5. Run tests:")

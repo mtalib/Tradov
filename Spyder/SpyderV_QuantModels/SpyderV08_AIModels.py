@@ -31,7 +31,7 @@ Consolidation Notes:
 # ==============================================================================
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -652,7 +652,7 @@ class SpyderAIModels:
                 results['rl'] = await self._train_rl_agent(training_data)
 
             # Update training state
-            self.training_state['last_training_date'] = datetime.now()
+            self.training_state['last_training_date'] = datetime.now(timezone.utc)
 
             return results
 
@@ -677,7 +677,7 @@ class SpyderAIModels:
                     max_drawdown=0.0,
                     win_rate=0.0,
                     avg_return=0.0,
-                    last_updated=datetime.now()
+                    last_updated=datetime.now(timezone.utc)
                 )
 
         return performance

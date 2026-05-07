@@ -222,13 +222,15 @@ def calculate_sortino_ratio(
     period_rf_rate = risk_free_rate / periods_per_year
     excess_returns = returns_array - period_rf_rate
 
-    # Calculate downside deviation
-    downside_returns = excess_returns[excess_returns < target_return]
+    # Calculate semideviation below the target return. This avoids sample-std
+    # warnings for small downside samples and better matches downside risk.
+    downside_deviations = np.minimum(excess_returns - target_return, 0.0)
+    downside_deviations = downside_deviations[downside_deviations < 0.0]
 
-    if len(downside_returns) == 0:
+    if len(downside_deviations) == 0:
         return float("inf")  # No downside risk
 
-    downside_std = np.std(downside_returns, ddof=1)
+    downside_std = float(np.sqrt(np.mean(np.square(downside_deviations))))
 
     if downside_std == 0:
         return 0.0

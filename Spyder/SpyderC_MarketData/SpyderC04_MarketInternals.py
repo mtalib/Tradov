@@ -101,7 +101,6 @@ _SESSION_MINUTES: float = 390.0  # 9:30–16:00 ET
 TRADIER_FETCH_INTERVAL = 5
 
 # How often (seconds) to poll Massive (Polygon) for VOLD
-MASSIVE_FETCH_INTERVAL = 5
 
 # Thresholds
 TICK_EXTREME_HIGH = 1000
@@ -244,7 +243,7 @@ class MarketInternalsAnalyzer:
         >>> analysis = analyzer.get_current_analysis()
     """
 
-    def __init__(self, tradier_client: Any = None, massive_client: Any = None):
+    def __init__(self, tradier_client: Any = None):
         """Initialize the market internals analyzer.
 
         Args:
@@ -252,16 +251,11 @@ class MarketInternalsAnalyzer:
                 provided, market internals (TICK, TRIN, ADD, etc.) are fetched
                 directly from Tradier every TRADIER_FETCH_INTERVAL seconds
                 instead of relying solely on event-bus broadcasts.
-            massive_client: Optional SpyderC27_MassiveClient instance. When
-                provided, VOLD (NYSE Up/Down Volume) is fetched from Massive
-                (Polygon) every MASSIVE_FETCH_INTERVAL seconds via the
-                Indices API (I:VOLD). Tradier does not carry VOLD.
-        """
+"""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
         self.event_bus = EventBus()
         self.tradier_client = tradier_client
-        self.massive_client = massive_client
 
         # Data storage
         self.internals_data: dict[str, InternalData] = {}
@@ -285,7 +279,6 @@ class MarketInternalsAnalyzer:
         # Tradier fetch tracking
         self._last_tradier_fetch: float = 0.0
         # Massive fetch tracking
-        self._last_massive_fetch: float = 0.0
 
         # RVOL computation state
         # SPY average_volume from Tradier quote (20-day trailing average)
@@ -300,10 +293,6 @@ class MarketInternalsAnalyzer:
         sources: list[str] = []
         if tradier_client:
             sources.append("Tradier")
-        if massive_client:
-            sources.append("Massive (VOLD)")
-        source = ", ".join(sources) if sources else "event-bus only"
-        self.logger.info("MarketInternalsAnalyzer initialized (data source: %s)", source)
 
     # ==========================================================================
     # PUBLIC METHODS
@@ -321,11 +310,11 @@ class MarketInternalsAnalyzer:
             # Initialize data structures
             for symbol_key, symbol in INTERNAL_SYMBOLS.items():
                 self.internals_data[symbol_key] = InternalData(
-                    symbol=symbol, value=0.0, timestamp=datetime.now()
+                    symbol=symbol, value=0.0, timestamp=datetime.now(timezone.utc)
                 )
             # RVOL is computed locally — register a synthetic entry
             self.internals_data["RVOL"] = InternalData(
-                symbol="RVOL", value=1.0, timestamp=datetime.now()
+                symbol="RVOL", value=1.0, timestamp=datetime.now(timezone.utc)
             )
 
             # Subscribe to market data events
@@ -377,7 +366,7 @@ class MarketInternalsAnalyzer:
             if symbol in self.internals_data:
                 old_value = self.internals_data[symbol].value
                 self.internals_data[symbol].value = value
-                self.internals_data[symbol].timestamp = datetime.now()
+                self.internals_data[symbol].timestamp = datetime.now(timezone.utc)
                 self.internals_data[symbol].change = value - old_value
                 if old_value != 0:
                     self.internals_data[symbol].percent_change = (
@@ -385,7 +374,7 @@ class MarketInternalsAnalyzer:
                     )
 
                 # Add to history
-                self.history[symbol].append({"timestamp": datetime.now(), "value": value})
+                self.history[symbol].append({"timestamp": datetime.now(timezone.utc), "value": value})
 
     def get_current_analysis(self) -> InternalsAnalysis | None:
         """
@@ -609,14 +598,6 @@ class MarketInternalsAnalyzer:
                     self._fetch_from_tradier()
                     self._last_tradier_fetch = now
 
-                # Poll Massive for VOLD (not available from Tradier)
-                if (
-                    self.massive_client is not None
-                    and now - self._last_massive_fetch >= MASSIVE_FETCH_INTERVAL
-                ):
-                    self._fetch_vold_from_massive()
-                    self._last_massive_fetch = now
-
                 # Create snapshot
                 snapshot = self._create_snapshot()
                 if snapshot:
@@ -724,21 +705,6 @@ class MarketInternalsAnalyzer:
         expected = self._spy_avg_volume * fraction
         return round(current_volume / expected, 2) if expected > 0 else 1.0
 
-    def _fetch_vold_from_massive(self) -> None:
-        """Fetch VOLD (NYSE Up/Down Volume) from Massive (Polygon) Indices API.
-
-        VOLD is not available from Tradier. When a MassiveClient is injected,
-        this method polls ``I:VOLD`` every MASSIVE_FETCH_INTERVAL seconds and
-        pushes the value into the internals store via update_internal().
-        """
-        try:
-            internals = self.massive_client.get_market_internals(["I:VOLD"])
-            for key, value in internals.items():
-                if value != 0.0:
-                    self.update_internal(key, value)
-        except Exception as e:
-            self.logger.warning("Massive VOLD fetch failed: %s", e)
-
     def _analysis_loop(self) -> None:
         """Analysis loop for processing internals."""
         while self.is_running:
@@ -758,7 +724,7 @@ class MarketInternalsAnalyzer:
                     # Publish event
                     event = Event(
                         type=EventType.MARKET_INTERNALS,
-                        data={"analysis": analysis, "timestamp": datetime.now()},
+                        data={"analysis": analysis, "timestamp": datetime.now(timezone.utc)},
                     )
                     self.event_bus.publish(event)
 
@@ -773,7 +739,7 @@ class MarketInternalsAnalyzer:
         try:
             with self.lock:
                 snapshot = MarketInternalsSnapshot(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     tick=self.get_internal_value("TICK") or 0,
                     ticki=self.get_internal_value("TICKI") or 0,
                     add=self.get_internal_value("ADD") or 0,
@@ -871,7 +837,7 @@ class MarketInternalsAnalyzer:
 
             # Create analysis
             analysis = InternalsAnalysis(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 market_condition=condition,
                 breadth_condition=breadth_condition,
                 market_phase=market_phase,
@@ -970,7 +936,7 @@ class MarketInternalsAnalyzer:
             return {}
 
         signals = {
-            "timestamp": datetime.now(),
+            "timestamp": datetime.now(timezone.utc),
             "market_condition": self.current_analysis.market_condition.value,
             "signal_strength": self.current_analysis.signal_strength,
             "confidence": self.current_analysis.confidence,

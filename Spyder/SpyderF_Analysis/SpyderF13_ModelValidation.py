@@ -25,7 +25,7 @@ import time
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -263,7 +263,7 @@ class ModelAlert:
     deviation_magnitude: float
 
     # Metadata
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     acknowledged: bool = False
     resolved: bool = False
     resolution_time: datetime | None = None
@@ -439,7 +439,7 @@ class ModelValidationEngine:
 
             # Initialize performance tracking
             self.performance_trackers[model_id] = defaultdict(lambda: deque(maxlen=10000))
-            self._last_monitoring_time[model_id] = datetime.now()
+            self._last_monitoring_time[model_id] = datetime.now(timezone.utc)
 
             self.logger.info("Model registered: %s (%s)", model_id, metadata.model_name)
             return True
@@ -530,7 +530,7 @@ class ModelValidationEngine:
             result = ValidationResult(
                 validation_id=validation_id,
                 model_id=model_id,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 validation_method=validation_method,
                 data_size=len(validation_data)
             )
@@ -679,7 +679,7 @@ class ModelValidationEngine:
             analysis = FeatureAnalysis(
                 analysis_id=analysis_id,
                 model_id=model_id,
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
 
             # Calculate feature importance
@@ -728,7 +728,7 @@ class ModelValidationEngine:
             return FeatureAnalysis(
                 analysis_id=f"error_{int(time.time())}",
                 model_id=model_id,
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
 
     # ==========================================================================
@@ -772,7 +772,7 @@ class ModelValidationEngine:
                 'active_alerts': len(recent_alerts),
                 'critical_alerts': len([a for a in recent_alerts if a.severity == AlertSeverity.CRITICAL]),  # noqa: E501
                 'performance_trends': performance_trends,
-                'last_monitoring': self._last_monitoring_time.get(model_id, datetime.now()).isoformat()  # noqa: E501
+                'last_monitoring': self._last_monitoring_time.get(model_id, datetime.now(timezone.utc)).isoformat()  # noqa: E501
             }
 
             # Add latest metrics if available
@@ -807,7 +807,7 @@ class ModelValidationEngine:
             report_lines.append("=" * 80)
             report_lines.append("SPYDER MODEL HEALTH REPORT")
             report_lines.append("=" * 80)
-            report_lines.append(f"Report Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            report_lines.append(f"Report Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
             report_lines.append(f"Model ID: {model_id}")
             report_lines.append(f"Model Name: {metadata.model_name}")
             report_lines.append(f"Model Type: {metadata.model_type.value.upper()}")
@@ -1137,7 +1137,7 @@ class ModelValidationEngine:
 
         while self._monitoring_active:
             try:
-                current_time = datetime.now()
+                current_time = datetime.now(timezone.utc)
 
                 # Check each registered model
                 for model_id in self.models:
@@ -1271,8 +1271,8 @@ async def main():
             model_name="Test Random Forest",
             model_type=ModelType.CLASSIFICATION,
             version="1.0",
-            created_date=datetime.now(),
-            last_updated=datetime.now(),
+            created_date=datetime.now(timezone.utc),
+            last_updated=datetime.now(timezone.utc),
             algorithm="RandomForest",
             feature_names=scenario['features'].columns.tolist(),
             target_names=['target'],

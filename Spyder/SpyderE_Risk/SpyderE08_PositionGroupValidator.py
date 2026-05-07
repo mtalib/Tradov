@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -149,8 +149,8 @@ class PositionLeg:
     rho: float = 0.0
     # Metadata
     position_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    entry_time: datetime = field(default_factory=datetime.now)
-    last_updated: datetime = field(default_factory=datetime.now)
+    entry_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class PositionGroup:
@@ -620,7 +620,7 @@ class PositionGroupValidator:
             # Create report
             report = ValidationReport(
                 group_id=position_group.group_id,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 overall_result=ValidationResult.VALID,
                 checks_performed={},
                 errors=[],
@@ -632,7 +632,7 @@ class PositionGroupValidator:
 
             try:
                 # Update last validated time
-                position_group.last_validated = datetime.now()
+                position_group.last_validated = datetime.now(timezone.utc)
 
                 # Run all validation rules
                 for category, rules in self.validation_rules.items():
@@ -768,7 +768,7 @@ class PositionGroupValidator:
         metrics['breakeven_points'] = len(self._calculate_breakevens(position_group))
 
         # Time metrics
-        min_dte = min((leg.expiration - datetime.now()).days for leg in position_group.legs)
+        min_dte = min((leg.expiration - datetime.now(timezone.utc)).days for leg in position_group.legs)
         metrics['min_days_to_expiry'] = max(0, min_dte)
 
         return metrics
@@ -957,7 +957,7 @@ class PositionGroupValidator:
     def get_recent_reports(self, hours: int = 24) -> list[ValidationReport]:
         """Get recent validation reports."""
         with self._lock:
-            cutoff = datetime.now() - timedelta(hours=hours)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
             return [
                 report for report in self.validation_history
                 if report.timestamp >= cutoff
@@ -997,7 +997,7 @@ if __name__ == "__main__":
             side="BUY",
             option_type=OptionRight.PUT,
             strike=380,
-            expiration=datetime.now() + timedelta(days=45),
+            expiration=datetime.now(timezone.utc) + timedelta(days=45),
             entry_price=0.50,
             current_price=0.45,
             implied_volatility=0.18,
@@ -1012,7 +1012,7 @@ if __name__ == "__main__":
             side="SELL",
             option_type=OptionRight.PUT,
             strike=390,
-            expiration=datetime.now() + timedelta(days=45),
+            expiration=datetime.now(timezone.utc) + timedelta(days=45),
             entry_price=1.00,
             current_price=0.95,
             implied_volatility=0.17,
@@ -1028,7 +1028,7 @@ if __name__ == "__main__":
             side="SELL",
             option_type=OptionRight.CALL,
             strike=410,
-            expiration=datetime.now() + timedelta(days=45),
+            expiration=datetime.now(timezone.utc) + timedelta(days=45),
             entry_price=1.00,
             current_price=0.95,
             implied_volatility=0.17,
@@ -1043,7 +1043,7 @@ if __name__ == "__main__":
             side="BUY",
             option_type=OptionRight.CALL,
             strike=420,
-            expiration=datetime.now() + timedelta(days=45),
+            expiration=datetime.now(timezone.utc) + timedelta(days=45),
             entry_price=0.50,
             current_price=0.45,
             implied_volatility=0.18,
@@ -1059,7 +1059,7 @@ if __name__ == "__main__":
         strategy_type=StrategyType.IRON_CONDOR,
         legs=iron_condor_legs,
         underlying_price=400,
-        created_at=datetime.now()
+        created_at=datetime.now(timezone.utc)
     )
 
     # Validate iron condor
@@ -1092,7 +1092,7 @@ if __name__ == "__main__":
             side="SELL",
             option_type=OptionRight.PUT,
             strike=395,
-            expiration=datetime.now() + timedelta(days=30),
+            expiration=datetime.now(timezone.utc) + timedelta(days=30),
             entry_price=2.00,
             current_price=1.95,
             implied_volatility=0.16,
@@ -1107,7 +1107,7 @@ if __name__ == "__main__":
             side="BUY",
             option_type=OptionRight.PUT,
             strike=390,
-            expiration=datetime.now() + timedelta(days=30),
+            expiration=datetime.now(timezone.utc) + timedelta(days=30),
             entry_price=1.00,
             current_price=0.95,
             implied_volatility=0.17,
@@ -1123,7 +1123,7 @@ if __name__ == "__main__":
         strategy_type=StrategyType.CREDIT_SPREAD,
         legs=credit_spread_legs,
         underlying_price=400,
-        created_at=datetime.now()
+        created_at=datetime.now(timezone.utc)
     )
 
     # Validate credit spread

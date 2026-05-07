@@ -24,8 +24,10 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta, date
-from typing import Any
+from datetime import datetime, timedelta, date, timezone
+from typing import Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from enum import Enum
@@ -42,7 +44,8 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 # SpyderC07_OPRAFeed is not yet implemented; OPRA path is disabled
 OPRAFeedHandler = None  # type: ignore[assignment,misc]
 _OPRA_AVAILABLE = False
-from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager  # noqa: E402
+# OptionChainManager is imported lazily inside __init__ to prevent a circular-
+# import cycle: X02 → N10 → SpyderN_OptionsAnalytics (init) → C03 → ...
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager  # noqa: E402
 
 MIN_PREMIUM_VALUE = 25000  # Minimum premium for tracking
@@ -252,7 +255,7 @@ class AdvancedOptionsFlowAnalyzer:
 
     def __init__(self,
                  opra_feed: "OPRAFeedHandler | None" = None,
-                 option_chain_mgr: OptionChainManager | None = None):
+                 option_chain_mgr: "OptionChainManager | None" = None):
         """
         Initialize flow analyzer.
 
@@ -271,7 +274,10 @@ class AdvancedOptionsFlowAnalyzer:
         else:
             self.opra_feed = None
             self.logger.warning("SpyderC07_OPRAFeed unavailable — flow analyzer running without OPRA feed")  # noqa: E501
-        self.option_chain_mgr = option_chain_mgr or OptionChainManager()
+        if option_chain_mgr is None:
+            from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager as _OCM
+            option_chain_mgr = _OCM()
+        self.option_chain_mgr = option_chain_mgr
         self.event_manager = get_event_manager()
 
         # Flow storage
@@ -381,7 +387,7 @@ class AdvancedOptionsFlowAnalyzer:
             List of detected sweep clusters
         """
         sweeps = []
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
 
         # Group recent flows by symbol/strike/expiry
         flow_groups = defaultdict(list)
@@ -455,7 +461,7 @@ class AdvancedOptionsFlowAnalyzer:
 
             # Calculate recent volume
             recent_flows = [f for f in flows if
-                          (datetime.now() - f.timestamp).total_seconds() < 3600]
+                          (datetime.now(timezone.utc) - f.timestamp).total_seconds() < 3600]
 
             if not recent_flows:
                 continue
@@ -469,7 +475,7 @@ class AdvancedOptionsFlowAnalyzer:
                 activity_type, description = self._analyze_unusual_pattern(recent_flows)
 
                 unusual = UnusualActivity(
-                    timestamp=datetime.now(),
+                    timestamp=datetime.now(timezone.utc),
                     symbol=symbol,
                     activity_type=activity_type,
                     description=description,
@@ -505,7 +511,7 @@ class AdvancedOptionsFlowAnalyzer:
         Returns:
             Current flow sentiment metrics
         """
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         cutoff_time = current_time - timedelta(seconds=period)
 
         # Filter flows within period

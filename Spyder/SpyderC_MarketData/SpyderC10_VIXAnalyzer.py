@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from enum import Enum
@@ -322,7 +322,7 @@ class VIXAnalyzer:
             'last_data_update': None
         }
 
-        self.logger.info("VIX Analyzer initialized")
+        self.logger.debug("VIX Analyzer initialized")
 
     # ==========================================================================
     # INITIALIZATION METHODS
@@ -348,7 +348,7 @@ class VIXAnalyzer:
             # Perform initial analysis
             self._perform_initial_analysis()
 
-            self.logger.info("VIX analyzer initialized successfully")
+            self.logger.debug("VIX analyzer initialized successfully")
             return True
 
         except Exception as e:
@@ -361,7 +361,7 @@ class VIXAnalyzer:
     def _load_historical_data(self) -> bool:
         """Load historical VIX data for analysis."""
         try:
-            end_date = datetime.now()
+            end_date = datetime.now(timezone.utc)
             start_date = end_date - timedelta(days=365)  # 1 year of data
 
             for symbol_key, yahoo_symbol in VIX_SYMBOLS.items():
@@ -517,7 +517,7 @@ class VIXAnalyzer:
         and is no longer included.
         """
         try:
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
 
             # Only update during market hours or near market hours
             if not self._is_update_time(current_time):
@@ -528,13 +528,13 @@ class VIXAnalyzer:
 
             # --- Extended term structure: yfinance fallback ---
             # VIX variants (VIX9D, VVIX, VXV, VXMT) are not available
-            # from MassiveClient; yfinance is the only data source for these.
+            # yfinance is the only data source for these.
             for symbol_key, yahoo_symbol in VIX_SYMBOLS.items():
                 # Skip VIX itself if Tradier already delivered it
                 if symbol_key == 'VIX' and vix_from_tradier is not None:
                     continue
                 self.logger.debug(
-                    "Fetching %s (%s) via yfinance — not available from MassiveClient",
+                    "Fetching %s (%s) via yfinance",
                     symbol_key, yahoo_symbol,
                 )
                 try:
@@ -628,7 +628,7 @@ class VIXAnalyzer:
                         vix_data = VIXData(
                             symbol=vix_symbol,
                             value=price,
-                            timestamp=event.timestamp or datetime.now()
+                            timestamp=event.timestamp or datetime.now(timezone.utc)
                         )
                         self._process_vix_update(vix_data)
                     break
@@ -649,7 +649,7 @@ class VIXAnalyzer:
                 vix_data = VIXData(
                     symbol=symbol,
                     value=price,
-                    timestamp=event.timestamp or datetime.now()
+                    timestamp=event.timestamp or datetime.now(timezone.utc)
                 )
                 self._process_vix_update(vix_data)
 
@@ -708,7 +708,7 @@ class VIXAnalyzer:
             if not self._has_sufficient_data():
                 return
 
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
 
             # Get current VIX values
             vix = self.vix_data.get('VIX', VIXData('VIX', 0, current_time)).value
@@ -776,7 +776,7 @@ class VIXAnalyzer:
     def _update_term_structure(self) -> None:
         """Update VIX term structure analysis."""
         try:
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
 
             # Get required VIX values
             vix9d = self.vix_data.get('VIX9D', VIXData('VIX9D', 0, current_time)).value
@@ -815,7 +815,7 @@ class VIXAnalyzer:
     def _update_risk_premium(self) -> None:
         """Update volatility risk premium analysis."""
         try:
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
 
             # Get VIX (implied volatility)
             vix = self.vix_data.get('VIX', VIXData('VIX', 0, current_time)).value
@@ -932,7 +932,7 @@ class VIXAnalyzer:
                 return
 
             signals = []
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
 
             # Volatility expansion signal
             if self._detect_volatility_expansion():
@@ -1144,9 +1144,9 @@ class VIXAnalyzer:
                 data={
                     'old_regime': old_regime.value,
                     'new_regime': new_regime.value,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now(timezone.utc).isoformat()
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
             self.event_manager.emit(event)
 
@@ -1211,7 +1211,7 @@ class VIXAnalyzer:
         Returns:
             List of VolatilityMetrics for specified period
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         return [
             metrics for metrics in self.regime_history
             if metrics.timestamp >= cutoff_date
@@ -1463,7 +1463,7 @@ if __name__ == "__main__":
         test_vix_data = VIXData(
             symbol="VIX",
             value=22.5,
-            timestamp=datetime.now()
+            timestamp=datetime.now(timezone.utc)
         )
         analyzer._process_vix_update(test_vix_data)
 

@@ -222,7 +222,7 @@ class DiagnosticsRunner:
     def _check_env_vars(self) -> DiagnosticResult:
         """Check that critical environment variables are set."""
         import os
-        required_vars = ["MASSIVE_API_KEY", "TRADIER_API_KEY", "TRADIER_ACCOUNT_ID"]
+        required_vars = ["TRADIER_API_KEY", "TRADIER_ACCOUNT_ID"]
         missing = [v for v in required_vars if not os.environ.get(v)]
         if not missing:
             return DiagnosticResult(

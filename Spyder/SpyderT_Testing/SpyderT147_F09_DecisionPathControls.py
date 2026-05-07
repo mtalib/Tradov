@@ -12,7 +12,7 @@ class _MockConfigManager:
             return {
                 'enforce_hard_slo': True,
                 'min_bucket_quality': 0.60,
-                'required_buckets': ['VOL_SURFACE', 'DEALER_FLOW', 'LEAD_LAG'],
+                'required_buckets': ['VOL_SURFACE', 'DEALER_FLOW'],
             }
         if key == 'autonomous_readiness.market_structure':
             return {
@@ -21,9 +21,6 @@ class _MockConfigManager:
                 'min_term_slope_0_7': 0.0,
                 'min_wall_confidence': 0.55,
                 'zero_gamma_buffer_pct': 0.50,
-                'fast_regime_lead_lag_ms': 3.0,
-                'fast_regime_impulse_score': 0.40,
-                'min_confirm_confidence': 0.55,
             }
         return default if default is not None else {}
 
@@ -62,10 +59,6 @@ def _base_params():
                 'wall_confidence': 0.82,
                 'flow_imbalance_score': 0.20,
             },
-            'lead_lag_ms': 4.25,
-            'es_impulse_score': 0.62,
-            'confirm_direction': 'up',
-            'confirm_confidence': 0.72,
             'data_quality_feed': {
                 'feed': 'data_quality',
                 'data': {
@@ -83,11 +76,6 @@ def _base_params():
                         },
                         'DEALER_FLOW': {
                             'quality_score': 0.88,
-                            'stale': False,
-                            'source_available': True,
-                        },
-                        'LEAD_LAG': {
-                            'quality_score': 0.87,
                             'stale': False,
                             'source_available': True,
                         },
@@ -148,14 +136,45 @@ def test_f09_dealer_short_gamma_near_flip_blocks_entry():
     assert result.overall_result == FilterResult.FAIL
 
 
-def test_f09_fast_tape_direction_mismatch_blocks_entry():
+def test_f09_pivot_overlay_blocks_direction_conflict_for_bull_put():
     ef = EntryFilters(_MockConfigManager())
     params = _base_params()
-    params['market_conditions']['confirm_direction'] = 'down'
+    params['pivot_mr_signal'] = {
+        'direction': 'fade_resistance',
+        'score': 74,
+        'fired': True,
+        'nearest_level_name': 'R2',
+        'nearest_level_price': 716.89,
+        'atr_distance': 0.42,
+        'penalties': [],
+    }
 
     result = ef.assess_entry(params)
 
-    failures = [c for c in result.checks if c.filter_type == FilterType.LEAD_LAG_CONFIRMATION]
-    assert len(failures) == 1
-    assert failures[0].result == FilterResult.FAIL
+    pivot_failures = [c for c in result.checks if c.filter_type == FilterType.PIVOT_OVERLAY]
+    assert len(pivot_failures) >= 1
+    assert any(c.result == FilterResult.FAIL for c in pivot_failures)
+    assert any('pivot_block_reason=pivot_direction_conflict' in c.message for c in pivot_failures)
     assert result.overall_result == FilterResult.FAIL
+
+
+def test_f09_pivot_overlay_passes_when_aligned_for_bull_put():
+    ef = EntryFilters(_MockConfigManager())
+    params = _base_params()
+    params['pivot_mr_signal'] = {
+        'direction': 'fade_support',
+        'score': 78,
+        'fired': True,
+        'nearest_level_name': 'S1',
+        'nearest_level_price': 709.23,
+        'atr_distance': 0.36,
+        'penalties': [],
+    }
+
+    result = ef.assess_entry(params)
+
+    pivot_checks = [c for c in result.checks if c.filter_type == FilterType.PIVOT_OVERLAY]
+    assert len(pivot_checks) >= 1
+    assert any(c.result == FilterResult.PASS for c in pivot_checks)
+    assert result.overall_result == FilterResult.PASS
+

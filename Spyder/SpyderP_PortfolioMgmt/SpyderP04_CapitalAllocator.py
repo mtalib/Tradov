@@ -35,7 +35,7 @@ Key Features:
 # ==============================================================================
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -831,7 +831,7 @@ class CapitalAllocator:
             current_allocation = self.strategy_allocations.get(strategy_id, 0)
 
             decision = AllocationDecision(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 strategy_id=strategy_id,
                 current_allocation=current_allocation,
                 target_allocation=target_allocation,
@@ -939,7 +939,7 @@ class CapitalAllocator:
             target_allocations = self._dynamic_allocation(active_strategies)
 
             signal = RebalanceSignal(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 trigger_type="drift",
                 current_allocations=self.strategy_allocations.copy(),
                 target_allocations=target_allocations,
@@ -957,7 +957,7 @@ class CapitalAllocator:
             target_allocations = self._dynamic_allocation(active_strategies)
 
             signal = RebalanceSignal(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 trigger_type="tactical",
                 current_allocations=self.strategy_allocations.copy(),
                 target_allocations=target_allocations,
@@ -1319,7 +1319,7 @@ class CapitalAllocator:
     def _update_portfolio_state(self):
         """Update current portfolio state"""
         state = PortfolioState(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             total_capital=self.current_capital,
             allocated_capital=sum(self.strategy_positions.values()),
             cash_reserves=self.current_capital * self.constraints.cash_reserve,

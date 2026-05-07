@@ -17,23 +17,19 @@ Module Description:
 
     Provider Abstraction:
         ``MarketDataProvider`` is the abstract base class that any data source
-        must implement.  The concrete provider is:
-
-                - **MassiveProvider** — wraps ``SpyderC27_MassiveClient``
-                    for current live and fallback market data.
-
-        The active provider is selected from ``config/config.py``
-                ``DATA_PROVIDER`` setting (default ``"massive"`` within this module).
+        must implement.  The concrete live provider is Tradier (via B40);
+        ``DataFeedManager`` holds a ``NullProvider`` when no streaming feed
+        is wired in.
 
     Data flow:
         Provider stream → _on_provider_data() → validate → MarketTick
         → cache → notify subscribers → EventManager publish
 
 Change Log:
-        2026-02-25 (Phase 3 — Tradier+Massive provider abstraction):
+        2026-02-25 (Phase 3 — Tradier provider abstraction):
         - Replaced legacy broker (SpyderB01_SpyderClient / SpyderC07_MarketDataHub)
           with provider abstraction layer
-                - Added MarketDataProvider ABC with MassiveProvider
+                - Added MarketDataProvider ABC with NullProvider
                 - Rewired get_historical_data() to use provider-backed historical REST
         - Updated singleton factory and __main__ test block
     2026-01-16:
@@ -47,9 +43,10 @@ Change Log:
 import os
 import sys  # noqa: F401
 import time
+import math
 import threading
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -71,29 +68,9 @@ from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager, EventType, Event, get_event_manager  # noqa: E501
 
 
-def _is_massive_disabled() -> bool:
-    """Return whether Massive usage is disabled for the current process."""
-    return os.getenv("SPYDER_DISABLE_MASSIVE", "1").lower().strip() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
 from Spyder.SpyderC_MarketData.SpyderC16_MarketDataCache import MarketDataCache, DataGranularity  # noqa: E402
 from Spyder.SpyderC_MarketData.SpyderC06_DataValidator import DataValidator  # noqa: E402
-
-try:
-    from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import (
-        MassiveClient,
-        MassiveQuoteUpdate,
-        MassiveTradeUpdate,
-        ConnectionStatus as MassiveConnectionStatus,  # noqa: F401
-        create_massive_client_from_env,
-    )
-    HAS_MASSIVE = True
-except ImportError:
-    HAS_MASSIVE = False
-    MassiveClient = None
+from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import get_backend_symbol_groups
 
 # ==============================================================================
 # CONFIGURATION DEFAULTS
@@ -112,15 +89,8 @@ DEFAULT_FEED_CONFIG = {
     }
 }
 
-# Symbol Groups for Efficient Management
-SYMBOL_GROUPS = {
-    'CORE': ['SPY', 'SPX', '/ES'],
-    'VOLATILITY': ['VIX', 'VIX9D', 'VXV', 'VXMT', 'VVIX', 'UVXY'],
-    'INTERNALS': ['TICK-NYSE', 'TRIN-NYSE', 'ADD-NYSE', 'CPC', 'PCALL', 'SKEW'],
-    'INDICES': ['DIA', 'QQQ', 'IWM'],
-    'FIXED_INCOME': ['TLT', 'LQD'],
-    'CORRELATIONS': ['DXY', 'GLD', 'USO']
-}
+# Symbol Groups for Efficient Management (canonical source)
+SYMBOL_GROUPS = get_backend_symbol_groups()
 
 
 # ==============================================================================
@@ -137,7 +107,7 @@ class DataFeedStatus(Enum):
 
 class DataSource(Enum):
     """Available data sources."""
-    MASSIVE = "massive"
+    TRADIER = "tradier"
     CACHE = "cache"
     CUSTOM = "custom"
     SYNTHETIC = "synthetic"
@@ -163,7 +133,7 @@ class MarketTick:
     low: float | None = None
     close: float | None = None
     vwap: float | None = None
-    source: DataSource = DataSource.MASSIVE
+    source: DataSource = DataSource.TRADIER
     quality: str = "realtime"
 
     def to_dict(self) -> dict[str, Any]:
@@ -191,7 +161,7 @@ class MarketTick:
 @dataclass
 class DataFeedConfig:
     """Enhanced data feed configuration."""
-    provider: str = "massive"
+    provider: str = "tradier"
     cache_enabled: bool = True
     validation_enabled: bool = True
     buffer_size: int = 1000
@@ -199,11 +169,6 @@ class DataFeedConfig:
     heartbeat_interval: int = 30
     error_threshold: int = 10
     custom_metrics_config: dict[str, Any] = field(default_factory=dict)
-    # Massive-specific
-    massive_schema: str = "quotes"
-    massive_dataset: str = "massive-live"
-    massive_api_key: str = ""
-    massive_symbols: list[str] = field(default_factory=lambda: ["SPY"])
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> 'DataFeedConfig':
@@ -274,185 +239,37 @@ class MarketDataProvider(ABC):
 
 
 # ==============================================================================
-# MASSIVE PROVIDER
+# NULL PROVIDER (stub — no streaming feed wired)
 # ==============================================================================
-class MassiveProvider(MarketDataProvider):
+class NullProvider(MarketDataProvider):
     """
-    Wraps ``SpyderC27_MassiveClient`` as a ``MarketDataProvider``.
+    No-op provider used when no streaming data feed is configured.
 
-    Streams real-time SPY equity quotes and trades from the Massive
-    WebSocket, delivering normalized ``MarketTick`` objects.
-    Historical OHLCV bars are served by the Massive REST API.
-
-    This is the preferred provider for SPY equity price ticks when pairing
-    Spyder with Tradier for order execution.
+    The live market data is delivered by ``SpyderB40_TradierClient``
+    (option chains / quotes via Tradier REST), not via a streaming feed
+    from this module.  NullProvider satisfies the MarketDataProvider ABC
+    so that DataFeedManager can be constructed without error.
     """
 
-    def __init__(
-        self,
-        symbols: list[str] | None = None,
-        api_key: str | None = None,
-    ) -> None:
-        super().__init__()
-
-        if not HAS_MASSIVE:
-            raise ImportError(
-                "massive package not installed.  Run: pip install massive"
-            )
-
-        self._logger = SpyderLogger.get_logger(f"{__name__}.MassiveProvider")
-        self._symbols: list[str] = symbols or ["SPY"]
-        self._api_key = api_key
-        self._client: MassiveClient | None = None
-        self._started = False
-
-    # ------------------------------------------------------------------
     @property
     def is_connected(self) -> bool:
-        return self._client is not None and self._client.is_streaming
+        return False
 
     @property
     def active_source(self) -> DataSource:
-        return DataSource.MASSIVE
+        return DataSource.TRADIER
 
     def connect(self) -> bool:
-        """Create the Massive client and start WebSocket streaming."""
-        if _is_massive_disabled():
-            self._logger.info(
-                "MassiveProvider connect skipped: SPYDER_DISABLE_MASSIVE is enabled"
-            )
-            return False
-
-        try:
-            self._client = (
-                MassiveClient(api_key=self._api_key)
-                if self._api_key
-                else create_massive_client_from_env()
-            )
-            self._client.on_status_change = self._on_connection_status
-            self._client.start_stream(
-                symbols=self._symbols,
-                on_quote=self._on_quote,
-                on_trade=self._on_trade,
-                include_quotes=True,
-                include_trades=True,
-            )
-            self._started = True
-            self._logger.info(
-                "MassiveProvider connected, streaming %s", self._symbols
-            )
-            return True
-
-        except Exception as exc:
-            self._logger.error("MassiveProvider connect failed: %s", exc)
-            return False
+        return False
 
     def disconnect(self) -> None:
-        if self._client:
-            self._client.stop_stream()
-            self._client = None
-        self._started = False
-        self._logger.info("MassiveProvider disconnected")
+        pass
 
     def subscribe(self, symbol: str) -> bool:
-        if symbol not in self._symbols:
-            self._symbols.append(symbol)
-            if self._client and self._client.is_streaming:
-                self._client.update_subscriptions(self._symbols)
         return True
 
     def unsubscribe(self, symbol: str) -> bool:
-        if symbol in self._symbols:
-            self._symbols.remove(symbol)
-            if self._client and self._client.is_streaming:
-                self._client.update_subscriptions(self._symbols)
         return True
-
-    def get_historical(
-        self,
-        symbol: str,
-        start: datetime,
-        end: datetime,
-        granularity: str = "1min",
-    ) -> pd.DataFrame:
-        """Fetch historical OHLCV bars from Massive REST API."""
-        if self._client is None:
-            self._client = (
-                MassiveClient(api_key=self._api_key)
-                if self._api_key
-                else create_massive_client_from_env()
-            )
-        timespan_map = {
-            "tick":  ("second", 1),
-            "1s":    ("second", 1),
-            "1min":  ("minute", 1),
-            "5min":  ("minute", 5),
-            "1hour": ("hour",   1),
-            "daily": ("day",    1),
-        }
-        timespan, multiplier = timespan_map.get(granularity, ("minute", 1))
-        try:
-            return self._client.get_historical_bars(
-                symbol=symbol,
-                start=start.strftime("%Y-%m-%d"),
-                end=end.strftime("%Y-%m-%d"),
-                timespan=timespan,
-                multiplier=multiplier,
-            )
-        except Exception as exc:
-            self._logger.error(
-                "MassiveProvider.get_historical(%s) failed: %s", symbol, exc
-            )
-            return pd.DataFrame()
-
-    # ------------------------------------------------------------------
-    # Massive callbacks → MarketTick
-    # ------------------------------------------------------------------
-    def _on_quote(self, update: "MassiveQuoteUpdate") -> None:
-        if not self.on_data:
-            return
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.timestamp,
-            price=update.mid,
-            size=update.bid_size,
-            bid=update.bid,
-            ask=update.ask,
-            bid_size=update.bid_size,
-            ask_size=update.ask_size,
-            source=DataSource.MASSIVE,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_trade(self, update: "MassiveTradeUpdate") -> None:
-        if not self.on_data:
-            return
-        tick = MarketTick(
-            symbol=update.symbol,
-            timestamp=update.timestamp,
-            price=update.price,
-            size=update.size,
-            source=DataSource.MASSIVE,
-            quality="realtime",
-        )
-        self.on_data(tick)
-
-    def _on_connection_status(self, status) -> None:
-        if not self.on_status_change:
-            return
-        from Spyder.SpyderC_MarketData.SpyderC27_MassiveClient import ConnectionStatus
-        status_map = {
-            ConnectionStatus.STREAMING:    DataFeedStatus.CONNECTED,
-            ConnectionStatus.CONNECTED:    DataFeedStatus.CONNECTED,
-            ConnectionStatus.CONNECTING:   DataFeedStatus.CONNECTING,
-            ConnectionStatus.RECONNECTING: DataFeedStatus.CONNECTING,
-            ConnectionStatus.DISCONNECTED: DataFeedStatus.DISCONNECTED,
-            ConnectionStatus.STOPPED:      DataFeedStatus.DISCONNECTED,
-            ConnectionStatus.ERROR:        DataFeedStatus.ERROR,
-        }
-        feed_status = status_map.get(status, DataFeedStatus.ERROR)
-        self.on_status_change(feed_status)
 
 
 # ==============================================================================
@@ -465,39 +282,17 @@ def create_provider(
     """
     Create a ``MarketDataProvider`` by name.
 
+    Currently returns a ``NullProvider`` for all names because live data
+    is delivered by ``SpyderB40_TradierClient``, not via a streaming feed.
+
     Args:
-        provider_name: ``"massive"`` or ``"tradier"``.
-        config: Optional feed configuration for provider-specific settings.
+        provider_name: Any string (kept for API compatibility).
+        config: Optional feed configuration (unused by NullProvider).
 
     Returns:
-        Configured ``MarketDataProvider`` instance.
-
-    Raises:
-        ValueError: If the provider name is unknown or not installed.
+        A ``NullProvider`` instance.
     """
-    name = provider_name.lower().strip()
-    cfg = config or DataFeedConfig()
-
-    if name == "massive":
-        if _is_massive_disabled():
-            raise ValueError(
-                "Massive provider requested but disabled by SPYDER_DISABLE_MASSIVE"
-            )
-        if not HAS_MASSIVE:
-            raise ValueError(
-                "Massive provider requested but massive package is not "
-                "installed.  Run: pip install massive"
-            )
-        return MassiveProvider(
-            symbols=cfg.massive_symbols,
-            api_key=cfg.massive_api_key or None,
-        )
-
-    else:
-        raise ValueError(
-            f"Unknown provider '{provider_name}'.  "
-            f"Supported: 'massive'."
-        )
+    return NullProvider()
 
 # ==============================================================================
 # MAIN CLASS
@@ -507,7 +302,7 @@ class DataFeedManager:
     Central data feed orchestrator with provider abstraction.
 
     Coordinates between:
-    - A pluggable ``MarketDataProvider`` (Massive)
+    - A pluggable ``MarketDataProvider`` (NullProvider by default)
     - ``MarketDataCache`` for efficient storage
     - Custom metric calculators
     - Event-based distribution system
@@ -516,7 +311,7 @@ class DataFeedManager:
 
         from SpyderC_MarketData.SpyderC01_DataFeed import DataFeedManager
 
-        feed = DataFeedManager(provider="massive")
+        feed = DataFeedManager()
         feed.subscribe("SPY", my_callback)
         feed.start()
     """
@@ -531,9 +326,9 @@ class DataFeedManager:
         Initialize enhanced data feed manager.
 
         Args:
-            provider: Provider name (``"massive"``) or a
-                pre-built ``MarketDataProvider`` instance.  Defaults to the
-                value in ``config/config.py`` → ``DATA_PROVIDER``.
+            provider: Provider name or a pre-built ``MarketDataProvider``
+                instance.  Defaults to the value in ``config/config.py``
+                → ``DATA_PROVIDER``.
             event_manager: Shared event manager instance.
             config: Feed configuration dict or ``DataFeedConfig``.
         """
@@ -590,6 +385,16 @@ class DataFeedManager:
         self._monitor_thread: threading.Thread | None = None
         self.executor = ThreadPoolExecutor(max_workers=5)
 
+        # NullProvider fallback: poll Tradier REST quotes so the backend still
+        # emits MARKET_DATA ticks for strategy/risk pipelines.
+        self._quote_client: Any = None
+        self._last_quote_poll_monotonic: float = 0.0
+        self._quote_poll_interval_s: float = max(
+            1.0,
+            float(os.environ.get("SPYDER_FEED_QUOTE_POLL_INTERVAL_S", "5.0")),
+        )
+        self._quote_client_failed: bool = False
+
         # Error tracking
         self.error_counts: dict[str, int] = defaultdict(int)
         self.last_errors: dict[str, str] = {}
@@ -597,7 +402,7 @@ class DataFeedManager:
         # Initialize non-provider components
         self._initialize_components()
 
-        self.logger.info(
+        self.logger.debug(
             "DataFeedManager initialized — provider=%s", self._provider.__class__.__name__
         )
 
@@ -609,7 +414,7 @@ class DataFeedManager:
             from config.config import DATA_PROVIDER
             return DATA_PROVIDER
         except Exception:
-            return "massive"
+            return "tradier"
 
     # ==========================================================================
     # INITIALIZATION
@@ -621,7 +426,7 @@ class DataFeedManager:
                 self.market_cache = MarketDataCache(
                     event_manager=self.event_manager
                 )
-                self.logger.info("MarketDataCache initialized")
+                self.logger.debug("MarketDataCache initialized")
 
             self._setup_event_subscriptions()
             self._load_custom_handlers()
@@ -708,7 +513,7 @@ class DataFeedManager:
             else:
                 self.status = DataFeedStatus.DEGRADED
 
-            self.logger.info("Data feed started — status: %s", self.status.value)
+            self.logger.debug("Data feed started — status: %s", self.status.value)
             return True
 
         except Exception as e:
@@ -778,6 +583,37 @@ class DataFeedManager:
 
             return success
 
+    def _get_symbol_tier(self, symbol: str) -> str:
+        """Return cache/event tier for a symbol."""
+        normalized = (symbol or "").upper()
+
+        if normalized in {"SPY", "SPX", "VIX"}:
+            return "CRITICAL"
+
+        for group_name, symbols in SYMBOL_GROUPS.items():
+            if normalized in symbols:
+                if group_name in {"VOLATILITY", "INTERNALS"}:
+                    return "HIGH"
+                if group_name in {"INDICES", "FIXED_INCOME"}:
+                    return "MEDIUM"
+                return "LOW"
+
+        return "MEDIUM"
+
+    def _get_symbol_priority(self, symbol: str) -> int:
+        """Return numeric cache priority (1=highest, 4=lowest)."""
+        tier = (
+            self.symbol_status.get(symbol, {}).get("tier")
+            or self._get_symbol_tier(symbol)
+        )
+        priority_map = {
+            "CRITICAL": 1,
+            "HIGH": 2,
+            "MEDIUM": 3,
+            "LOW": 4,
+        }
+        return priority_map.get(str(tier).upper(), 3)
+
     def unsubscribe(
         self,
         symbol: str,
@@ -833,6 +669,93 @@ class DataFeedManager:
                 self.subscribe(symbol, self._create_group_callback(group_name))
 
             return True
+
+    def _notify_subscribers(self, symbol: str, tick: MarketTick) -> None:
+        """Dispatch a symbol tick to all registered symbol subscribers."""
+        callbacks = list(self.subscribers.get(symbol, []))
+        for callback in callbacks:
+            try:
+                callback(tick)
+            except Exception as e:
+                self.logger.error("Subscriber callback failed for %s: %s", symbol, e)
+
+    def _create_group_callback(
+        self,
+        group_name: str,
+    ) -> Callable[[MarketTick], None]:
+        """Create a symbol callback that fans out grouped snapshots."""
+
+        def _group_callback(_tick: MarketTick) -> None:
+            symbols = SYMBOL_GROUPS.get(group_name, [])
+            with self._lock:
+                snapshot = {
+                    sym: self.current_data[sym]
+                    for sym in symbols
+                    if sym in self.current_data
+                }
+                callbacks = list(self.group_subscribers.get(group_name, []))
+
+            for callback in callbacks:
+                try:
+                    callback(snapshot)
+                except Exception as e:
+                    self.logger.error("Group callback failed for %s: %s", group_name, e)
+
+        return _group_callback
+
+    def _convert_cached_to_tick(self, symbol: str, cached_data: dict[str, Any]) -> MarketTick:
+        """Convert cached dict payload to MarketTick with safe defaults."""
+        timestamp_raw = cached_data.get('timestamp')
+        if isinstance(timestamp_raw, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp_raw)
+            except ValueError:
+                timestamp = datetime.now(timezone.utc)
+        elif isinstance(timestamp_raw, datetime):
+            timestamp = timestamp_raw
+        else:
+            timestamp = datetime.now(timezone.utc)
+
+        def _as_float(value: Any) -> float | None:
+            if value is None:
+                return None
+            try:
+                out = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(out):
+                return None
+            return out
+
+        price = _as_float(cached_data.get('price'))
+        if price is None or price <= 0:
+            price = _as_float(cached_data.get('last')) or _as_float(cached_data.get('close')) or 0.0
+
+        source_raw = str(cached_data.get('source', DataSource.CACHE.value)).lower()
+        source = DataSource.CACHE
+        for candidate in DataSource:
+            if candidate.value == source_raw:
+                source = candidate
+                break
+
+        return MarketTick(
+            symbol=symbol,
+            timestamp=timestamp,
+            price=price,
+            size=int(cached_data.get('size') or 0),
+            bid=_as_float(cached_data.get('bid')),
+            ask=_as_float(cached_data.get('ask')),
+            bid_size=int(cached_data.get('bid_size') or 0) if cached_data.get('bid_size') is not None else None,
+            ask_size=int(cached_data.get('ask_size') or 0) if cached_data.get('ask_size') is not None else None,
+            volume=int(cached_data.get('volume') or 0) if cached_data.get('volume') is not None else None,
+            open=_as_float(cached_data.get('open')),
+            high=_as_float(cached_data.get('high')),
+            low=_as_float(cached_data.get('low')),
+            close=_as_float(cached_data.get('close')),
+            vwap=_as_float(cached_data.get('vwap')),
+            source=source,
+            quality=str(cached_data.get('quality') or 'cached'),
+        )
 
     def get_market_data(
         self, symbol: str, use_cache: bool = True
@@ -961,9 +884,14 @@ class DataFeedManager:
         try:
             symbol = tick.symbol
 
-            # Validate if enabled
-            if self.config.validation_enabled:
-                if not self.data_validator.validate_tick(tick.to_dict()):
+            # Validate if enabled. C06 exposes validate_data(), not validate_tick().
+            # Skip C06 validation for Tradier REST fallback ticks — price/finite
+            # checks are already enforced in _poll_quotes_fallback(), and indices
+            # (SPX, VIX) return bid=0/ask=0 which would trip SpreadValidationRule.
+            _skip_validation = tick.source == DataSource.TRADIER
+            if self.config.validation_enabled and not _skip_validation:
+                validation_result = self.data_validator.validate_data(tick.to_dict())
+                if not getattr(validation_result, "is_valid", False):
                     self.logger.warning("Invalid tick data for %s", symbol)
                     self.error_counts[symbol] += 1
                     return
@@ -972,10 +900,10 @@ class DataFeedManager:
             with self._lock:
                 self.current_data[symbol] = tick
                 self.data_buffers[symbol].append(tick)
-                self.last_update = datetime.now()
+                self.last_update = datetime.now(timezone.utc)
 
                 if symbol in self.symbol_status:
-                    self.symbol_status[symbol]['last_update'] = datetime.now()
+                    self.symbol_status[symbol]['last_update'] = datetime.now(timezone.utc)
 
             # Store in cache
             if self.market_cache:
@@ -1021,7 +949,7 @@ class DataFeedManager:
 
             tick = MarketTick(
                 symbol=symbol,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 price=value,
                 size=0,
                 source=DataSource.CUSTOM,
@@ -1043,7 +971,7 @@ class DataFeedManager:
 
         self.logger.error("System error from %s: %s", component, error)
 
-        if severity == 'critical' and component in ('MassiveProvider', 'MarketDataHub'):
+        if severity == 'critical' and component in ('NullProvider', 'MarketDataHub'):
             self.status = DataFeedStatus.ERROR
 
     # ==========================================================================
@@ -1053,12 +981,156 @@ class DataFeedManager:
         """Main update loop for processing market data."""
         while self.is_running:
             try:
+                self._poll_quotes_fallback()
                 self._update_custom_metrics()
                 self._check_stale_data()
             except Exception as e:
                 self.logger.error("Error in update loop: %s", e)
             if self._stop_event.wait(timeout=self.config.update_interval):
                 break
+
+    def _ensure_quote_client(self) -> Any | None:
+        """Lazily initialise a Tradier quote client for NullProvider fallback."""
+        if self._quote_client is not None:
+            return self._quote_client
+        if self._quote_client_failed:
+            return None
+
+        try:
+            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+                TradierClient,
+                TradingEnvironment,
+            )
+        except Exception as exc:
+            self.logger.debug("Quote fallback unavailable (Tradier import failed): %s", exc)
+            self._quote_client_failed = True
+            return None
+
+        try:
+            trading_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
+            env_raw = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").strip().lower()
+
+            if trading_mode == "paper" and env_raw != "live":
+                # Paper mode + sandbox data: use sandbox credentials and endpoint.
+                api_key = (
+                    os.environ.get("TRADIER_SANDBOX_API_KEY")
+                    or os.environ.get("TRADIER_API_KEY")
+                    or ""
+                )
+                account_id = (
+                    os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID")
+                    or os.environ.get("TRADIER_ACCOUNT_ID")
+                    or ""
+                )
+                environment = TradingEnvironment.SANDBOX
+            else:
+                # Live data (or paper+live): respect TRADIER_ENVIRONMENT so
+                # TRADING_MODE=paper TRADIER_ENVIRONMENT=live hits api.tradier.com.
+                api_key = os.environ.get("TRADIER_API_KEY", "")
+                account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+                environment = TradingEnvironment.LIVE if env_raw == "live" else TradingEnvironment.SANDBOX
+
+            if not api_key or not account_id:
+                self._quote_client_failed = True
+                self.logger.debug("Quote fallback disabled: Tradier credentials unavailable")
+                return None
+
+            self._quote_client = TradierClient(
+                api_key=api_key,
+                account_id=account_id,
+                environment=environment,
+            )
+            self.logger.debug("DataFeed quote fallback enabled via Tradier REST (%s)", environment.value)
+            return self._quote_client
+
+        except Exception as exc:
+            self._quote_client_failed = True
+            self.logger.warning("Quote fallback init failed: %s", exc)
+            return None
+
+    def _poll_quotes_fallback(self) -> None:
+        """Emit MarketTick updates when provider is NullProvider/degraded.
+
+        This keeps backend strategies (D31) fed with MARKET_DATA events even
+        when no streaming provider is wired.
+        """
+        # Only needed when the configured provider is not delivering stream data.
+        if self._provider.is_connected:
+            return
+
+        now_mono = time.monotonic()
+        if (now_mono - self._last_quote_poll_monotonic) < self._quote_poll_interval_s:
+            return
+        self._last_quote_poll_monotonic = now_mono
+
+        symbols = [s for s in self.symbol_status.keys() if s]
+        if not symbols:
+            return
+
+        client = self._ensure_quote_client()
+        if client is None:
+            return
+
+        try:
+            response = client.get_quotes(symbols)
+        except Exception as exc:
+            self.logger.debug("Quote fallback poll failed: %s", exc)
+            return
+
+        quote_node = ((response or {}).get("quotes") or {}).get("quote")
+        if not quote_node:
+            return
+
+        quotes = quote_node if isinstance(quote_node, list) else [quote_node]
+        for quote in quotes:
+            if not isinstance(quote, dict):
+                continue
+
+            symbol = str(quote.get("symbol") or "").strip()
+            if not symbol:
+                continue
+
+            last = quote.get("last")
+            bid = quote.get("bid")
+            ask = quote.get("ask")
+            close = quote.get("close")
+
+            try:
+                price = float(last if last is not None else (close if close is not None else 0.0))
+            except (TypeError, ValueError):
+                price = 0.0
+
+            if not math.isfinite(price) or price <= 0.0:
+                continue
+
+            def _to_float(value: Any) -> float | None:
+                if value is None:
+                    return None
+                try:
+                    out = float(value)
+                except (TypeError, ValueError):
+                    return None
+                if not math.isfinite(out):
+                    return None
+                return out
+
+            tick = MarketTick(
+                symbol=symbol,
+                timestamp=datetime.now(timezone.utc),
+                price=price,
+                size=0,
+                bid=_to_float(bid),
+                ask=_to_float(ask),
+                volume=int(quote.get("volume") or 0),
+                open=_to_float(quote.get("open")),
+                high=_to_float(quote.get("high")),
+                low=_to_float(quote.get("low")),
+                close=_to_float(close),
+                source=DataSource.TRADIER,
+                quality="realtime",
+            )
+
+            self._on_provider_data(tick)
 
     def _monitor_loop(self) -> None:
         """Monitor loop for system health."""
@@ -1082,7 +1154,7 @@ class DataFeedManager:
 
     def _check_stale_data(self) -> None:
         """Check for stale market data."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         stale_threshold = timedelta(seconds=30)
 
         with self._lock:
@@ -1107,6 +1179,42 @@ class DataFeedManager:
             # During runtime, disconnected provider means degraded service.
             if self.status == DataFeedStatus.CONNECTED:
                 self.status = DataFeedStatus.DEGRADED
+
+    def _publish_status_update(self) -> None:
+        """Publish periodic feed status for observability and downstream routing."""
+        try:
+            self.event_manager.emit(
+                event_type=EventType.SYSTEM_METRICS,
+                source=self.__class__.__name__,
+                data={
+                    "component": "DataFeedManager",
+                    "feed_status": self.status.value,
+                    "provider": self._provider.__class__.__name__,
+                    "provider_connected": bool(self._provider.is_connected),
+                    "active_symbols": len(self.current_data),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        except Exception as e:
+            self.logger.warning("Unable to publish data feed status update: %s", e)
+
+    def _cleanup_old_data(self) -> None:
+        """Remove stale entries from data buffers for symbols no longer receiving updates."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+            with self._lock:
+                stale_symbols = [
+                    sym for sym, status in self.symbol_status.items()
+                    if status.get("last_update") and status["last_update"] < cutoff
+                ]
+                for sym in stale_symbols:
+                    self.current_data.pop(sym, None)
+                    if stale_symbols:
+                        self.logger.debug(
+                            "Cleaned up stale data for %d symbol(s)", len(stale_symbols)
+                        )
+        except Exception as e:
+            self.logger.warning("Data cleanup error: %s", e)
 
 
 # ==============================================================================
@@ -1133,7 +1241,7 @@ def create_data_feed(
             the feed will request data for the symbol on connect.
         event_manager: Shared EventManager instance. When ``None`` the
             singleton from ``get_event_manager()`` is used.
-        provider: Provider name (``"massive"``) or pre-built
+        provider: Provider name (``"tradier"``) or a pre-built
             ``MarketDataProvider`` instance.  Defaults to the value in
             ``config/config.py``.
         config: ``DataFeedConfig`` or raw dict overrides.
@@ -1150,8 +1258,30 @@ def create_data_feed(
         for sym in symbols:
             # Register a no-op subscriber so the provider knows to pull data
             # for each symbol.  Real consumers add their own callbacks later.
-            # Pass priority explicitly to avoid the unimplemented _get_symbol_tier.
             feed.subscribe(sym, lambda _tick: None, priority="HIGH")
 
     return feed
+
+
+def get_data_feed_manager(
+    provider: "str | MarketDataProvider | None" = None,
+) -> DataFeedManager:
+    """
+    Convenience factory that creates a ``DataFeedManager`` for the given provider.
+
+    Unlike ``create_data_feed``, this function is intentionally simple — it does
+    not subscribe to any symbols and does not require symbols as input.  It is
+    intended for modules that manage their own subscription lifecycle.
+
+    Args:
+        provider: Provider name (``"tradier"``) or a pre-built
+            ``MarketDataProvider`` instance.  Defaults to the configured value.
+
+    Returns:
+        A configured (but not yet started) ``DataFeedManager`` instance.
+    """
+    from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager as _gem
+
+    em = _gem()
+    return DataFeedManager(provider=provider, event_manager=em)
 

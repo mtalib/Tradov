@@ -32,7 +32,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from enum import Enum
 import threading
@@ -143,7 +143,7 @@ class UnifiedSharpeMetrics:
 
     # Metadata
     num_observations: int
-    last_updated: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 @dataclass
 class SharpeAlert:
@@ -305,7 +305,7 @@ class UnifiedSharpeDashboard:
 
             # Create metrics object
             metrics = UnifiedSharpeMetrics(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 strategy_id=strategy_id,
                 strategy_name=strategy_name,
                 sharpe_u15=prob_sharpe.sharpe_ratio,  # Using prob calc as U15 equivalent
@@ -403,7 +403,7 @@ class UnifiedSharpeDashboard:
 
             # Build report
             report = SharpeDashboardReport(
-                report_timestamp=datetime.now(),
+                report_timestamp=datetime.now(timezone.utc),
                 overall_metrics=overall_metrics,
                 strategy_metrics=strategy_metrics,
                 active_alerts=active_alerts,
@@ -442,7 +442,7 @@ class UnifiedSharpeDashboard:
         # Check for significant degradation
         if change_pct < -self.degradation_threshold:
             alert = SharpeAlert(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 strategy_id=strategy_id,
                 alert_level=AlertLevel.CRITICAL,
                 alert_type="sharpe_degradation",
@@ -459,7 +459,7 @@ class UnifiedSharpeDashboard:
         # Check for low probabilistic Sharpe
         if current_metrics.probabilistic_sharpe.probabilistic_sharpe_ratio < 0.70:
             alert = SharpeAlert(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 strategy_id=strategy_id,
                 alert_level=AlertLevel.WARNING,
                 alert_type="low_psr",
@@ -476,7 +476,7 @@ class UnifiedSharpeDashboard:
         # Check if Sharpe suggests >5% (estimation error indicator)
         if current_sharpe > 5.0:
             alert = SharpeAlert(
-                timestamp=datetime.now(),
+                timestamp=datetime.now(timezone.utc),
                 strategy_id=strategy_id,
                 alert_level=AlertLevel.WARNING,
                 alert_type="unrealistic_sharpe",
@@ -492,7 +492,7 @@ class UnifiedSharpeDashboard:
 
     def _get_active_alerts(self, hours: int = 24) -> list[SharpeAlert]:
         """Get active alerts from last N hours."""
-        cutoff = datetime.now() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         return [
             alert for alert in self.alert_history
             if alert.timestamp >= cutoff
@@ -527,10 +527,10 @@ class UnifiedSharpeDashboard:
         if strategy_id not in self.sharpe_history:
             self.sharpe_history[strategy_id] = []
 
-        self.sharpe_history[strategy_id].append((datetime.now(), sharpe))
+        self.sharpe_history[strategy_id].append((datetime.now(timezone.utc), sharpe))
 
         # Keep last 365 days
-        cutoff = datetime.now() - timedelta(days=365)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=365)
         self.sharpe_history[strategy_id] = [
             (ts, s) for ts, s in self.sharpe_history[strategy_id]
             if ts >= cutoff
@@ -547,7 +547,7 @@ class UnifiedSharpeDashboard:
         if not history:
             return current_sharpe, current_sharpe, current_sharpe
 
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         # 30-day average
         sharpe_30d = [
@@ -580,7 +580,7 @@ class UnifiedSharpeDashboard:
         if not history:
             return 0.0, 0.0, 0.0
 
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         # Find historical values
         def find_sharpe_at_date(days_ago: int) -> float | None:
@@ -699,7 +699,7 @@ class UnifiedSharpeDashboard:
         )
 
         return UnifiedSharpeMetrics(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             strategy_id=strategy_id,
             strategy_name=strategy_name,
             sharpe_u15=0.0,

@@ -124,7 +124,7 @@ class LivenessMonitor:
             target=self._run_loop, name="LivenessMonitor", daemon=True
         )
         self._thread.start()
-        self.logger.info(
+        self.logger.debug(
             "LivenessMonitor started — heartbeat=%s healthz=127.0.0.1:%d",
             self._heartbeat_path,
             self._healthz_port,
@@ -224,7 +224,7 @@ class LivenessMonitor:
 
             return bool(TradingCalendar.is_market_open())
         except Exception:
-            now = datetime.now().astimezone()
+            now = datetime.now(timezone.utc).astimezone()
             if now.weekday() >= 5:
                 return False
             hhmm = now.hour * 60 + now.minute

@@ -90,7 +90,7 @@ class DirectConnectionWorker(QThread):
                 "description": "Administrative & News Feeds",
                 "symbols": ["SPY", "VIX", "TNX"],
             },
-            102: {"description": "Core Market Data", "symbols": ["SPY", "SPX", "/ES"]},
+            102: {"description": "Core Market Data", "symbols": ["SPY", "SPX", "VIX"]},
             103: {"description": "SPY Options Chains", "symbols": ["SPY_OPTIONS"]},
             104: {
                 "description": "Volatility & Market Internals",
@@ -334,7 +334,6 @@ class MarketDataWidget(QWidget):
 💡 Troubleshooting:
    - Ensure TRADIER_API_KEY is set in your .env file
    - Check TRADIER_ENVIRONMENT (sandbox or production)
-    - Verify MASSIVE_API_KEY only if Massive fallback is enabled
         """)
 
         layout.addWidget(self.data_display)

@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Any
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -45,7 +45,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderH_Storage.SpyderH01_DataAccessLayer import get_data_access_layer
 from Spyder.SpyderE_Risk.SpyderE06_RiskMetrics import RiskMetrics
-from Spyder.SpyderN_OptionsAnalytics.SpyderN03_GreeksCalculator import GreeksCalculator
+from Spyder.SpyderN_OptionsAnalytics.SpyderN04_OptionsGreeksCalculator import OptionsGreeksCalculator as GreeksCalculator
 
 RISK_CONCENTRATION_THRESHOLD = 0.15  # 15% of portfolio risk
 CORRELATION_HIGH_THRESHOLD = 0.7
@@ -721,7 +721,7 @@ class PortfolioAnalytics:
 
             # Compile report data
             report_data = {
-                'report_date': datetime.now().isoformat(),
+                'report_date': datetime.now(timezone.utc).isoformat(),
                 'portfolio_summary': {
                     'total_value': sum(p.market_value for p in positions),
                     'position_count': len(positions),
@@ -1215,7 +1215,7 @@ class PortfolioAnalytics:
 
             # Fill template
             html_content = html_template.format(
-                report_date=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                report_date=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
                 total_value=report_data['portfolio_summary']['total_value'],
                 position_count=report_data['portfolio_summary']['position_count'],
                 unrealized_pnl=report_data['portfolio_summary']['unrealized_pnl'],

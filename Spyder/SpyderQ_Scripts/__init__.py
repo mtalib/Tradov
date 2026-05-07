@@ -59,8 +59,7 @@ _logger = _logging.getLogger(__name__)
 # Main Launcher
 try:
     from .SpyderQ14_MainLauncher import (
-        MainLauncher,
-        # Add main classes from MainLauncher when inspected
+        SpyderLauncher as MainLauncher,
     )
 
     MAIN_LAUNCHER_AVAILABLE = True

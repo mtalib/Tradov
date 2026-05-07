@@ -279,7 +279,6 @@ _global_limiters = MultiRateLimiter()
 
 # Register default configurations (lazy-initialized on first use)
 _global_limiters.register_default("tradier", requests_per_second=10, burst_size=20)
-_global_limiters.register_default("massive", requests_per_second=10)
 
 
 def rate_limit(
@@ -334,16 +333,10 @@ async def acquire_tradier():
     await _global_limiters.acquire("tradier")
 
 
-async def acquire_massive():
-    """Acquire token for Massive API call."""
-    await _global_limiters.acquire("massive")
-
-
 __all__ = [
     "TokenBucket",
     "RateLimiter",
     "MultiRateLimiter",
     "rate_limit",
     "acquire_tradier",
-    "acquire_massive",
 ]

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from dataclasses import dataclass, asdict
 from collections import defaultdict, deque
@@ -627,7 +627,7 @@ class AllocationOptimizer:
             }
 
             return {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'method_used': result.method_used.value,
                 'optimization_time': f"{result.optimization_time:.2f}s",
                 'convergence_status': result.convergence_status,

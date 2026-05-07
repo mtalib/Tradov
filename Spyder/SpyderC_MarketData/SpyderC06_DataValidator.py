@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
@@ -336,7 +336,7 @@ class TimestampValidationRule(ValidationRule):
 
     def validate(self, data: DataPoint, historical_data: list[DataPoint]) -> tuple[bool, float, str]:  # noqa: E501
         """Validate timestamp."""
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
 
         # Check if timestamp is too old
         age_seconds = (current_time - data.timestamp).total_seconds()
@@ -433,7 +433,7 @@ class DataValidator:
         # Event manager integration
         self.event_manager = get_event_manager()
 
-        self.logger.info("Data validator initialized")
+        self.logger.debug("Data validator initialized")
 
     # ==========================================================================
     # INITIALIZATION METHODS
@@ -456,7 +456,7 @@ class DataValidator:
             # Start proactive staleness watcher for trading-critical symbols
             self.register_staleness_watch(_TRADING_WATCH_SYMBOLS, TRADING_STALE_SECONDS)
 
-            self.logger.info("Data validator initialized successfully")
+            self.logger.debug("Data validator initialized successfully")
             return True
 
         except Exception as e:
@@ -622,7 +622,7 @@ class DataValidator:
                     'data_type': data.data_type.value,
                     'rules_applied': len([r for r in self.validation_rules if r.enabled])
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
 
             # Record arrival time for proactive staleness watcher
@@ -656,7 +656,7 @@ class DataValidator:
                 warnings=[],
                 anomalies=[],
                 metadata={},
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
 
     def _detect_statistical_anomalies(self, data: DataPoint, historical: list[DataPoint]) -> list[AnomalyType]:  # noqa: E501
@@ -814,7 +814,7 @@ class DataValidator:
 
     def _cleanup_old_data(self) -> None:
         """Clean up old validation history."""
-        cutoff_time = datetime.now() - timedelta(hours=24)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
 
         # Clean validation history
         while (self.validation_history and
@@ -858,7 +858,7 @@ class DataValidator:
             volume=data_dict.get('volume'),
             bid=data_dict.get('bid'),
             ask=data_dict.get('ask'),
-            timestamp=data_dict.get('timestamp', datetime.now()),
+            timestamp=data_dict.get('timestamp', datetime.now(timezone.utc)),
             source=data_dict.get('source', 'unknown'),
             metadata=data_dict.get('metadata', {})
         )
@@ -887,7 +887,7 @@ class DataValidator:
                     rejected_points=0,
                     avg_quality_score=0.0,
                     current_quality=DataQuality.FAIR,
-                    last_update=datetime.now(),
+                    last_update=datetime.now(timezone.utc),
                     error_rate=0.0,
                     consecutive_errors=0,
                     anomaly_count=0
@@ -895,7 +895,7 @@ class DataValidator:
 
             metrics = self.quality_metrics[symbol]
             metrics.total_points += 1
-            metrics.last_update = datetime.now()
+            metrics.last_update = datetime.now(timezone.utc)
 
             if result.status == ValidationStatus.VALID:
                 metrics.valid_points += 1
@@ -952,9 +952,9 @@ class DataValidator:
                 data={
                     'symbol': symbol,
                     'message': message,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now(timezone.utc).isoformat()
                 },
-                timestamp=datetime.now()
+                timestamp=datetime.now(timezone.utc)
             )
             self.event_manager.emit(event)
 
@@ -1035,7 +1035,7 @@ class DataValidator:
                 "threshold_seconds": self._stale_threshold,
                 "level": level,
             },
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
         self.event_manager.emit(event)
 
@@ -1218,7 +1218,7 @@ if __name__ == "__main__":
             volume=1000,
             bid=450.20,
             ask=450.30,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             source="test"
         )
 
@@ -1242,7 +1242,7 @@ if __name__ == "__main__":
             volume=None,
             bid=450.30,   # Bid > Ask (crossed market)
             ask=450.20,
-            timestamp=datetime.now() - timedelta(minutes=5),  # Stale data
+            timestamp=datetime.now(timezone.utc) - timedelta(minutes=5),  # Stale data
             source="test"
         )
 
@@ -1281,7 +1281,7 @@ if __name__ == "__main__":
                 volume=volume,
                 bid=price - 0.05,
                 ask=price + 0.05,
-                timestamp=datetime.now() + timedelta(seconds=i),
+                timestamp=datetime.now(timezone.utc) + timedelta(seconds=i),
                 source="test"
             )
 
@@ -1297,7 +1297,7 @@ if __name__ == "__main__":
             volume=50000,             # 50x volume spike
             bid=base_price * 1.15 - 0.05,
             ask=base_price * 1.15 + 0.05,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             source="test"
         )
 

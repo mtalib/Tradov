@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from enum import Enum
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 
@@ -96,8 +96,16 @@ class FilterType(Enum):
     CBOE_SKEW = "cboe_skew"  # CBOE SKEW tail-risk index from S06
     VOL_SURFACE = "vol_surface"  # N06 term structure / smile confidence gate
     DEALER_FLOW = "dealer_flow"  # N09/N11 dealer positioning structure gate
-    LEAD_LAG_CONFIRMATION = "lead_lag_confirmation"  # C11 ES/SPY confirmation gate
     DATA_QUALITY = "data_quality"  # S07 data-quality SLO hard trust gate
+    SHORT_TERM_VOL_STRESS = "short_term_vol_stress"  # VIX9D/VIX front-end stress gate
+    VOL_OF_VOL_STRESS = "vol_of_vol_stress"  # VVIX volatility-of-volatility gate
+    PUT_CALL_SENTIMENT = "put_call_sentiment"  # CPC sentiment/crowding gate
+    PARTICIPATION = "participation"  # RVOL participation/conviction gate
+    QQQ_CONFIRMATION = "qqq_confirmation"  # QQQ relative-strength confirmation gate
+    IWM_CONFIRMATION = "iwm_confirmation"  # IWM breadth confirmation gate
+    XLK_CONFIRMATION = "xlk_confirmation"  # XLK sector leadership confirmation gate
+    XLF_CONFIRMATION = "xlf_confirmation"  # XLF financial confirmation gate
+    PIVOT_OVERLAY = "pivot_overlay"  # S08 pivot overlay gate (execution qualifier)
 
 
 class LiquidityGateMode(Enum):
@@ -117,7 +125,7 @@ class FilterThreshold:
     min_value: float
     max_value: float
     adaptation_rate: float = 0.1
-    last_update: datetime = field(default_factory=datetime.now)
+    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     performance_history: list[float] = field(default_factory=list)
 
     def adapt(self, performance_score: float):
@@ -140,7 +148,7 @@ class FilterThreshold:
         if len(self.performance_history) > 100:
             self.performance_history.pop(0)
 
-        self.last_update = datetime.now()
+        self.last_update = datetime.now(timezone.utc)
 
 @dataclass
 class FilterCheck:
@@ -165,7 +173,7 @@ class EntryFilterResult:
     checks: list[FilterCheck]
     warnings: list[str]
     recommendations: list[str]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def get_failed_filters(self) -> list[FilterCheck]:
         """Get all failed filter checks."""
@@ -259,6 +267,9 @@ class EntryFilters:
         self.enable_all_filters = config.get('enable_all_filters', True)
         self.min_quality_rating = EntryQuality(config.get('min_quality_rating', 3))
         self.strict_mode = config.get('strict_mode', False)
+        self.lean_mode = bool(
+            self.config_manager.get_config('autonomous_readiness.lean_mode', False)
+        )
 
         # Time filters
         self.restricted_hours = config.get('restricted_hours', {
@@ -289,19 +300,40 @@ class EntryFilters:
             'min_wall_confidence': float(market_structure_cfg.get('min_wall_confidence', 0.55)),
             'max_flow_imbalance': float(market_structure_cfg.get('max_flow_imbalance', 0.75)),
             'zero_gamma_buffer_pct': float(market_structure_cfg.get('zero_gamma_buffer_pct', 0.50)),
-            'fast_regime_lead_lag_ms': float(market_structure_cfg.get('fast_regime_lead_lag_ms', 3.0)),  # noqa: E501
-            'fast_regime_impulse_score': float(market_structure_cfg.get('fast_regime_impulse_score', 0.40)),  # noqa: E501
-            'min_confirm_confidence': float(market_structure_cfg.get('min_confirm_confidence', 0.55)),  # noqa: E501
         }
 
         data_quality_cfg = self.config_manager.get_config('autonomous_readiness.data_quality', {})
-        required_buckets = data_quality_cfg.get('required_buckets', ['VOL_SURFACE', 'DEALER_FLOW', 'LEAD_LAG'])  # noqa: E501
+        required_buckets = data_quality_cfg.get('required_buckets', ['VOL_SURFACE', 'DEALER_FLOW'])  # noqa: E501
         self.data_quality_policy = {
             'enforce_hard_slo': bool(data_quality_cfg.get('enforce_hard_slo', True)),
             'min_bucket_quality': float(data_quality_cfg.get('min_bucket_quality', 0.60)),
             'required_buckets': [
                 str(bucket).strip().upper() for bucket in required_buckets if str(bucket).strip()
             ],
+        }
+
+        macro_regime_cfg = self.config_manager.get_config('autonomous_readiness.macro_regime', {})
+        self.macro_regime_policy = {
+            'vix9d_vix_warn_ratio': float(macro_regime_cfg.get('vix9d_vix_warn_ratio', 1.05)),
+            'vix9d_vix_fail_ratio': float(macro_regime_cfg.get('vix9d_vix_fail_ratio', 1.12)),
+            'vix9d_warn_abs': float(macro_regime_cfg.get('vix9d_warn_abs', 23.0)),
+            'vix9d_fail_abs': float(macro_regime_cfg.get('vix9d_fail_abs', 28.0)),
+            'vvix_warn': float(macro_regime_cfg.get('vvix_warn', 100.0)),
+            'vvix_fail': float(macro_regime_cfg.get('vvix_fail', 115.0)),
+            'cpc_warn_high': float(macro_regime_cfg.get('cpc_warn_high', 1.20)),
+            'cpc_fail_high': float(macro_regime_cfg.get('cpc_fail_high', 1.35)),
+            'cpc_warn_low': float(macro_regime_cfg.get('cpc_warn_low', 0.70)),
+            'cpc_fail_low': float(macro_regime_cfg.get('cpc_fail_low', 0.60)),
+            'rvol_warn': float(macro_regime_cfg.get('rvol_warn', 0.80)),
+            'rvol_fail': float(macro_regime_cfg.get('rvol_fail', 0.55)),
+            'qqq_rel_warn_pct': float(macro_regime_cfg.get('qqq_rel_warn_pct', 0.35)),
+            'qqq_rel_fail_pct': float(macro_regime_cfg.get('qqq_rel_fail_pct', 0.75)),
+            'iwm_rel_warn_pct': float(macro_regime_cfg.get('iwm_rel_warn_pct', 0.40)),
+            'iwm_rel_fail_pct': float(macro_regime_cfg.get('iwm_rel_fail_pct', 0.90)),
+            'xlk_rel_warn_pct': float(macro_regime_cfg.get('xlk_rel_warn_pct', 0.45)),
+            'xlk_rel_fail_pct': float(macro_regime_cfg.get('xlk_rel_fail_pct', 1.00)),
+            'xlf_rel_warn_pct': float(macro_regime_cfg.get('xlf_rel_warn_pct', 0.35)),
+            'xlf_rel_fail_pct': float(macro_regime_cfg.get('xlf_rel_fail_pct', 0.80)),
         }
 
     def _initialize_thresholds(self) -> dict[str, FilterThreshold]:
@@ -429,8 +461,16 @@ class EntryFilters:
             FilterType.CBOE_SKEW: 1.3,           # SKEW > 145 = elevated tail risk
             FilterType.VOL_SURFACE: 1.4,
             FilterType.DEALER_FLOW: 1.4,
-            FilterType.LEAD_LAG_CONFIRMATION: 1.3,
             FilterType.DATA_QUALITY: 2.0,
+            FilterType.SHORT_TERM_VOL_STRESS: 1.2,
+            FilterType.VOL_OF_VOL_STRESS: 1.1,
+            FilterType.PUT_CALL_SENTIMENT: 0.9,
+            FilterType.PARTICIPATION: 1.0,
+            FilterType.QQQ_CONFIRMATION: 1.0,
+            FilterType.IWM_CONFIRMATION: 1.0,
+            FilterType.XLK_CONFIRMATION: 1.0,
+            FilterType.XLF_CONFIRMATION: 1.0,
+            FilterType.PIVOT_OVERLAY: 1.3,
         }
 
         # Override with config values
@@ -454,7 +494,7 @@ class EntryFilters:
         Returns:
             Complete filter assessment
         """
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
 
         # Validate critical numeric inputs
         critical_fields = ['current_price', 'volume', 'rsi', 'implied_volatility']
@@ -506,7 +546,7 @@ class EntryFilters:
             )
 
             # Record metrics
-            elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             if hasattr(self.monitor, 'record_metric'):
                 self.monitor.record_metric('entry_filters.execution_ms', elapsed_ms)
                 self.monitor.record_metric('entry_filters.quality_score', quality_rating.value)
@@ -567,7 +607,7 @@ class EntryFilters:
 
         # Check if it's time to adapt
         if self.last_adaptation_time:
-            hours_since = (datetime.now() - self.last_adaptation_time).total_seconds() / 3600
+            hours_since = (datetime.now(timezone.utc) - self.last_adaptation_time).total_seconds() / 3600
             if hours_since < self.adaptation_interval_hours:
                 return
 
@@ -623,7 +663,7 @@ class EntryFilters:
                             f"(optimized: {opt_value:.3f})"
                         )
 
-            self.last_adaptation_time = datetime.now()
+            self.last_adaptation_time = datetime.now(timezone.utc)
             self.logger.info("Entry filter thresholds adapted from paper trading")
 
         except Exception as e:
@@ -645,21 +685,18 @@ class EntryFilters:
         # Technical filters
         checks.extend(self._check_technical_filters(params))
         checks.extend(self._check_support_resistance_filters(params))
+        checks.extend(self._check_pivot_overlay_filter(params))
 
         # Risk filters
         checks.extend(self._check_risk_filters(params))
-
-        # Time filters
         checks.extend(self._check_time_filters(params))
-
-        # Greeks filters
-        checks.extend(self._check_greeks_filters(params))
 
         # Market-structure / trust-policy filters
         checks.extend(self._check_data_quality_filter(params))
         checks.extend(self._check_vol_surface_structure_filter(params))
         checks.extend(self._check_dealer_flow_filter(params))
-        checks.extend(self._check_lead_lag_confirmation_filter(params))
+        checks.extend(self._check_short_term_vol_stress_filter(params))
+        checks.extend(self._check_vix_term_structure_filter())
 
         # Execution quality filters
         checks.extend(self._check_spread_width_filter(params))
@@ -667,11 +704,6 @@ class EntryFilters:
 
         # Correlation risk filters
         checks.extend(self._check_correlation_filters(params, checks))
-
-        # Macro / market-internals filters (live data sources — skip gracefully if unavailable)
-        checks.extend(self._check_vix_term_structure_filter())
-        checks.extend(self._check_cboe_skew_filter())
-        checks.extend(self._check_market_internals_filter())
 
         return checks
 
@@ -926,11 +958,139 @@ class EntryFilters:
 
         return checks
 
+    def _check_pivot_overlay_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Apply SpyderS08 pivot signal as execution qualifier for entry timing."""
+        checks = []
+
+        signal = params.get('pivot_mr_signal')
+        if not isinstance(signal, dict):
+            market_conditions = params.get('market_conditions') or {}
+            signal = (
+                market_conditions.get('pivot_mr_signal')
+                or market_conditions.get('s08_pivot_signal')
+                or market_conditions.get('pivot_signal')
+            )
+
+        if not isinstance(signal, dict):
+            return checks
+
+        strategy_type = str(params.get('strategy_type', '')).strip().lower()
+        direction = str(signal.get('direction', 'none')).strip().lower()
+        fired = bool(signal.get('fired', False))
+        score = int(signal.get('score', 0) or 0)
+        level_name = str(signal.get('nearest_level_name', '') or '')
+        level_price = signal.get('nearest_level_price')
+        atr_distance = signal.get('atr_distance')
+        penalties = signal.get('penalties') or []
+        penalty_text = ' | '.join(str(p) for p in penalties if p)
+
+        if isinstance(level_price, (int, float)):
+            level_ctx = f"{level_name}@{level_price:.2f}" if level_name else f"@{level_price:.2f}"
+        else:
+            level_ctx = level_name or "-"
+
+        if strategy_type == 'bull_put_spread':
+            if fired and direction == 'fade_resistance':
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.FAIL,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"pivot_block_reason=pivot_direction_conflict; "
+                        f"strategy=bull_put_spread; direction={direction}; "
+                        f"nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+            elif fired and direction == 'fade_support':
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.PASS,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"Pivot overlay aligned for bullish entry; "
+                        f"direction={direction}; nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+
+        elif strategy_type == 'bear_call_spread':
+            if fired and direction == 'fade_support':
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.FAIL,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"pivot_block_reason=pivot_direction_conflict; "
+                        f"strategy=bear_call_spread; direction={direction}; "
+                        f"nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+            elif fired and direction == 'fade_resistance':
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.PASS,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"Pivot overlay aligned for bearish entry; "
+                        f"direction={direction}; nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+
+        elif strategy_type in {'iron_condor', 'iron_butterfly'}:
+            if fired and direction in {'fade_resistance', 'fade_support'}:
+                checks.append(FilterCheck(
+                    filter_type=FilterType.PIVOT_OVERLAY,
+                    result=FilterResult.WARNING,
+                    value=float(score),
+                    threshold=60.0,
+                    message=(
+                        f"pivot_block_reason=pivot_directional_pressure; "
+                        f"strategy={strategy_type}; direction={direction}; "
+                        f"nearest={level_ctx}; atr_distance={atr_distance}"
+                    ),
+                    weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+                ))
+
+        if not fired and penalty_text:
+            checks.append(FilterCheck(
+                filter_type=FilterType.PIVOT_OVERLAY,
+                result=FilterResult.WARNING,
+                value=float(score),
+                threshold=60.0,
+                message=(
+                    f"pivot_block_reason=pivot_signal_not_armed; penalties={penalty_text}; "
+                    f"nearest={level_ctx}; atr_distance={atr_distance}"
+                ),
+                weight=self.filter_weights[FilterType.PIVOT_OVERLAY] * 0.8,
+            ))
+
+        if not checks:
+            checks.append(FilterCheck(
+                filter_type=FilterType.PIVOT_OVERLAY,
+                result=FilterResult.PASS,
+                value=float(score),
+                threshold=60.0,
+                message=(
+                    f"Pivot overlay neutral; direction={direction}; fired={fired}; "
+                    f"nearest={level_ctx}; atr_distance={atr_distance}"
+                ),
+                weight=self.filter_weights[FilterType.PIVOT_OVERLAY],
+            ))
+
+        return checks
+
     def _check_time_filters(self, params: dict[str, Any]) -> list[FilterCheck]:
         """Check time-based filters."""
         checks = []
 
-        current_time = params.get('current_time', datetime.now())
+        current_time = params.get('current_time', datetime.now(timezone.utc))
 
         # Economic event blackout gate from scheduler event-clock feed.
         event_clock_state = params.get('event_clock_state') or {}
@@ -1649,91 +1809,369 @@ class EntryFilters:
             weight=self.filter_weights[FilterType.DEALER_FLOW],
         )]
 
-    def _check_lead_lag_confirmation_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
-        """Require ES/SPY lead-lag confirmation when the tape is moving fast."""
-        lead_lag_ms = self._coerce_float(self._get_market_condition_value(params, 'lead_lag_ms'))
-        es_impulse_score = self._coerce_float(self._get_market_condition_value(params, 'es_impulse_score'))  # noqa: E501
-        confirm_confidence = self._coerce_float(self._get_market_condition_value(params, 'confirm_confidence'))  # noqa: E501
-        confirm_direction = str(self._get_market_condition_value(params, 'confirm_direction', 'unknown') or 'unknown').strip().lower()  # noqa: E501
-
-        if lead_lag_ms is None and es_impulse_score is None and confirm_confidence is None:
-            if self.data_quality_policy['enforce_hard_slo']:
-                return [FilterCheck(
-                    filter_type=FilterType.LEAD_LAG_CONFIRMATION,
-                    result=FilterResult.FAIL,
-                    value=0.0,
-                    threshold=1.0,
-                    message='Lead-lag snapshot absent — hard SLO enforced, entry blocked',
-                    weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
-                )]
-            return [FilterCheck(
-                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
-                result=FilterResult.SKIP,
-                value=0.0,
-                threshold=1.0,
-                message='Lead-lag snapshot unavailable — filter skipped',
-                weight=0.0,
-            )]
-
-        fast_regime = False
-        if lead_lag_ms is not None and abs(lead_lag_ms) >= self.market_structure_policy['fast_regime_lead_lag_ms']:  # noqa: E501
-            fast_regime = True
-        if es_impulse_score is not None and abs(es_impulse_score) >= self.market_structure_policy['fast_regime_impulse_score']:  # noqa: E501
-            fast_regime = True
-
-        if not fast_regime:
-            return [FilterCheck(
-                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
-                result=FilterResult.PASS,
-                value=confirm_confidence or 1.0,
-                threshold=self.market_structure_policy['min_confirm_confidence'],
-                message='Lead-lag context calm enough to proceed',
-                weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
-            )]
-
-        if confirm_confidence is None or confirm_confidence < self.market_structure_policy['min_confirm_confidence']:  # noqa: E501
-            return [FilterCheck(
-                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
-                result=FilterResult.FAIL,
-                value=confirm_confidence or 0.0,
-                threshold=self.market_structure_policy['min_confirm_confidence'],
-                message='Lead-lag confirmation confidence too low in fast tape',
-                weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
-            )]
-
-        expected_direction = self._infer_expected_direction(params)
-        if expected_direction in {'up', 'down'} and confirm_direction in {'up', 'down'} and confirm_direction != expected_direction:  # noqa: E501
-            return [FilterCheck(
-                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
-                result=FilterResult.FAIL,
-                value=confirm_confidence,
-                threshold=self.market_structure_policy['min_confirm_confidence'],
-                message=f'Lead-lag confirmation disagrees with trade direction: expected {expected_direction}, got {confirm_direction}',  # noqa: E501
-                weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
-            )]
-
-        if expected_direction == 'neutral' and confirm_direction in {'up', 'down'}:
-            return [FilterCheck(
-                filter_type=FilterType.LEAD_LAG_CONFIRMATION,
-                result=FilterResult.WARNING,
-                value=confirm_confidence,
-                threshold=self.market_structure_policy['min_confirm_confidence'],
-                message=f'Lead-lag shows directional tape ({confirm_direction}) while strategy is neutral',  # noqa: E501
-                weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
-            )]
-
-        return [FilterCheck(
-            filter_type=FilterType.LEAD_LAG_CONFIRMATION,
-            result=FilterResult.PASS,
-            value=confirm_confidence,
-            threshold=self.market_structure_policy['min_confirm_confidence'],
-            message='Lead-lag confirmation aligned with trade direction',
-            weight=self.filter_weights[FilterType.LEAD_LAG_CONFIRMATION],
-        )]
-
     # --------------------------------------------------------------------------
     # Macro / Market-Internals Filters (Wave 2 — live data sources)
     # --------------------------------------------------------------------------
+
+    def _check_short_term_vol_stress_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Gate entries when short-dated volatility leads spot VIX too aggressively."""
+        vix = self._coerce_float(self._get_market_condition_value(params, 'vix'))
+        vix9d = self._coerce_float(self._get_market_condition_value(params, 'vix9d'))
+
+        if vix is None or vix <= 0 or vix9d is None:
+            return [FilterCheck(
+                filter_type=FilterType.SHORT_TERM_VOL_STRESS,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=self.macro_regime_policy['vix9d_vix_warn_ratio'],
+                message='VIX/VIX9D snapshot unavailable — filter skipped',
+                weight=0.0,
+            )]
+
+        ratio = vix9d / vix
+        warn_ratio = self.macro_regime_policy['vix9d_vix_warn_ratio']
+        fail_ratio = self.macro_regime_policy['vix9d_vix_fail_ratio']
+        warn_abs = self.macro_regime_policy['vix9d_warn_abs']
+        fail_abs = self.macro_regime_policy['vix9d_fail_abs']
+
+        if ratio >= fail_ratio or vix9d >= fail_abs:
+            return [FilterCheck(
+                filter_type=FilterType.SHORT_TERM_VOL_STRESS,
+                result=FilterResult.FAIL,
+                value=ratio,
+                threshold=fail_ratio,
+                message=(
+                    f'Short-term vol stress elevated: VIX9D/VIX={ratio:.3f}, '
+                    f'VIX9D={vix9d:.2f}; front-end panic regime'
+                ),
+                weight=self.filter_weights[FilterType.SHORT_TERM_VOL_STRESS],
+            )]
+
+        if ratio >= warn_ratio or vix9d >= warn_abs:
+            return [FilterCheck(
+                filter_type=FilterType.SHORT_TERM_VOL_STRESS,
+                result=FilterResult.WARNING,
+                value=ratio,
+                threshold=warn_ratio,
+                message=(
+                    f'Short-term volatility caution: VIX9D/VIX={ratio:.3f}, '
+                    f'VIX9D={vix9d:.2f}'
+                ),
+                weight=self.filter_weights[FilterType.SHORT_TERM_VOL_STRESS],
+            )]
+
+        return [FilterCheck(
+            filter_type=FilterType.SHORT_TERM_VOL_STRESS,
+            result=FilterResult.PASS,
+            value=ratio,
+            threshold=warn_ratio,
+            message=f'Short-term volatility structure acceptable: VIX9D/VIX={ratio:.3f}',
+            weight=self.filter_weights[FilterType.SHORT_TERM_VOL_STRESS],
+        )]
+
+    def _check_vol_of_vol_stress_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Gate entries when VVIX signals unstable vol-of-vol conditions."""
+        vvix = self._coerce_float(self._get_market_condition_value(params, 'vvix'))
+        if vvix is None:
+            return [FilterCheck(
+                filter_type=FilterType.VOL_OF_VOL_STRESS,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=self.macro_regime_policy['vvix_warn'],
+                message='VVIX snapshot unavailable — filter skipped',
+                weight=0.0,
+            )]
+
+        vvix_warn = self.macro_regime_policy['vvix_warn']
+        vvix_fail = self.macro_regime_policy['vvix_fail']
+        if vvix >= vvix_fail:
+            return [FilterCheck(
+                filter_type=FilterType.VOL_OF_VOL_STRESS,
+                result=FilterResult.FAIL,
+                value=vvix,
+                threshold=vvix_fail,
+                message=f'VVIX={vvix:.1f} indicates severe vol-of-vol stress',
+                weight=self.filter_weights[FilterType.VOL_OF_VOL_STRESS],
+            )]
+
+        if vvix >= vvix_warn:
+            return [FilterCheck(
+                filter_type=FilterType.VOL_OF_VOL_STRESS,
+                result=FilterResult.WARNING,
+                value=vvix,
+                threshold=vvix_warn,
+                message=f'VVIX={vvix:.1f} elevated; size/risk should be reduced',
+                weight=self.filter_weights[FilterType.VOL_OF_VOL_STRESS],
+            )]
+
+        return [FilterCheck(
+            filter_type=FilterType.VOL_OF_VOL_STRESS,
+            result=FilterResult.PASS,
+            value=vvix,
+            threshold=vvix_warn,
+            message=f'VVIX stable: {vvix:.1f}',
+            weight=self.filter_weights[FilterType.VOL_OF_VOL_STRESS],
+        )]
+
+    def _check_put_call_sentiment_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Flag crowding/extremes in put-call sentiment from CPC."""
+        cpc = self._coerce_float(self._get_market_condition_value(params, 'cpc'))
+        if cpc is None:
+            return [FilterCheck(
+                filter_type=FilterType.PUT_CALL_SENTIMENT,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=self.macro_regime_policy['cpc_warn_high'],
+                message='CPC snapshot unavailable — filter skipped',
+                weight=0.0,
+            )]
+
+        cpc_warn_high = self.macro_regime_policy['cpc_warn_high']
+        cpc_fail_high = self.macro_regime_policy['cpc_fail_high']
+        cpc_warn_low = self.macro_regime_policy['cpc_warn_low']
+        cpc_fail_low = self.macro_regime_policy['cpc_fail_low']
+
+        if cpc >= cpc_fail_high:
+            return [FilterCheck(
+                filter_type=FilterType.PUT_CALL_SENTIMENT,
+                result=FilterResult.FAIL,
+                value=cpc,
+                threshold=cpc_fail_high,
+                message=f'CPC={cpc:.2f} at panic extreme; avoid new discretionary risk',
+                weight=self.filter_weights[FilterType.PUT_CALL_SENTIMENT],
+            )]
+
+        if cpc <= cpc_fail_low:
+            return [FilterCheck(
+                filter_type=FilterType.PUT_CALL_SENTIMENT,
+                result=FilterResult.FAIL,
+                value=cpc,
+                threshold=cpc_fail_low,
+                message=f'CPC={cpc:.2f} at complacency extreme; crowding risk elevated',
+                weight=self.filter_weights[FilterType.PUT_CALL_SENTIMENT],
+            )]
+
+        if cpc >= cpc_warn_high or cpc <= cpc_warn_low:
+            return [FilterCheck(
+                filter_type=FilterType.PUT_CALL_SENTIMENT,
+                result=FilterResult.WARNING,
+                value=cpc,
+                threshold=cpc_warn_high,
+                message=f'CPC={cpc:.2f} at sentiment extreme; proceed with tighter risk',
+                weight=self.filter_weights[FilterType.PUT_CALL_SENTIMENT],
+            )]
+
+        return [FilterCheck(
+            filter_type=FilterType.PUT_CALL_SENTIMENT,
+            result=FilterResult.PASS,
+            value=cpc,
+            threshold=cpc_warn_high,
+            message=f'CPC sentiment neutral: {cpc:.2f}',
+            weight=self.filter_weights[FilterType.PUT_CALL_SENTIMENT],
+        )]
+
+    def _check_participation_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Require minimum RVOL participation before accepting directional risk."""
+        rvol = self._coerce_float(self._get_market_condition_value(params, 'rvol'))
+        if rvol is None:
+            return [FilterCheck(
+                filter_type=FilterType.PARTICIPATION,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=self.macro_regime_policy['rvol_warn'],
+                message='RVOL snapshot unavailable — filter skipped',
+                weight=0.0,
+            )]
+
+        rvol_warn = self.macro_regime_policy['rvol_warn']
+        rvol_fail = self.macro_regime_policy['rvol_fail']
+        expected_direction = self._infer_expected_direction(params)
+        is_directional = expected_direction in {'up', 'down'}
+
+        if is_directional and rvol < rvol_fail:
+            return [FilterCheck(
+                filter_type=FilterType.PARTICIPATION,
+                result=FilterResult.FAIL,
+                value=rvol,
+                threshold=rvol_fail,
+                message=f'RVOL={rvol:.2f} too weak for directional entry',
+                weight=self.filter_weights[FilterType.PARTICIPATION],
+            )]
+
+        if rvol < rvol_warn:
+            return [FilterCheck(
+                filter_type=FilterType.PARTICIPATION,
+                result=FilterResult.WARNING,
+                value=rvol,
+                threshold=rvol_warn,
+                message=f'RVOL={rvol:.2f} below preferred participation level',
+                weight=self.filter_weights[FilterType.PARTICIPATION],
+            )]
+
+        return [FilterCheck(
+            filter_type=FilterType.PARTICIPATION,
+            result=FilterResult.PASS,
+            value=rvol,
+            threshold=rvol_warn,
+            message=f'RVOL participation acceptable: {rvol:.2f}',
+            weight=self.filter_weights[FilterType.PARTICIPATION],
+        )]
+
+    def _check_relative_confirmation_filter(
+        self,
+        params: dict[str, Any],
+        *,
+        symbol_name: str,
+        filter_type: FilterType,
+        symbol_change_key: str,
+        warn_threshold: float,
+        fail_threshold: float,
+    ) -> list[FilterCheck]:
+        """Require cross-index confirmation relative to SPY for directional entries."""
+        expected_direction = self._infer_expected_direction(params)
+        if expected_direction not in {'up', 'down'}:
+            return [FilterCheck(
+                filter_type=filter_type,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=warn_threshold,
+                message=f'{symbol_name} confirmation not required for neutral strategy',
+                weight=0.0,
+            )]
+
+        spy_change_pct = self._coerce_float(self._get_market_condition_value(params, 'spy_change_pct'))
+        symbol_change_pct = self._coerce_float(self._get_market_condition_value(params, symbol_change_key))
+        if spy_change_pct is None or symbol_change_pct is None:
+            return [FilterCheck(
+                filter_type=filter_type,
+                result=FilterResult.SKIP,
+                value=0.0,
+                threshold=warn_threshold,
+                message=f'{symbol_name}/SPY relative-performance snapshot unavailable — filter skipped',
+                weight=0.0,
+            )]
+
+        relative_change = symbol_change_pct - spy_change_pct
+        if expected_direction == 'up':
+            if relative_change <= -fail_threshold:
+                return [FilterCheck(
+                    filter_type=filter_type,
+                    result=FilterResult.FAIL,
+                    value=relative_change,
+                    threshold=-fail_threshold,
+                    message=(
+                        f'{symbol_name} underperforming SPY by {abs(relative_change):.2f} pts '
+                        f'on bullish setup ({symbol_change_pct:+.2f}% vs SPY {spy_change_pct:+.2f}%)'
+                    ),
+                    weight=self.filter_weights[filter_type],
+                )]
+
+            if relative_change <= -warn_threshold:
+                return [FilterCheck(
+                    filter_type=filter_type,
+                    result=FilterResult.WARNING,
+                    value=relative_change,
+                    threshold=-warn_threshold,
+                    message=(
+                        f'{symbol_name} lagging SPY by {abs(relative_change):.2f} pts '
+                        f'on bullish setup ({symbol_change_pct:+.2f}% vs SPY {spy_change_pct:+.2f}%)'
+                    ),
+                    weight=self.filter_weights[filter_type],
+                )]
+
+            return [FilterCheck(
+                filter_type=filter_type,
+                result=FilterResult.PASS,
+                value=relative_change,
+                threshold=-warn_threshold,
+                message=(
+                    f'{symbol_name} confirming bullish tape '
+                    f'({symbol_change_pct:+.2f}% vs SPY {spy_change_pct:+.2f}%)'
+                ),
+                weight=self.filter_weights[filter_type],
+            )]
+
+        if relative_change >= fail_threshold:
+            return [FilterCheck(
+                filter_type=filter_type,
+                result=FilterResult.FAIL,
+                value=relative_change,
+                threshold=fail_threshold,
+                message=(
+                    f'{symbol_name} outperforming SPY by {relative_change:.2f} pts '
+                    f'against bearish setup ({symbol_change_pct:+.2f}% vs SPY {spy_change_pct:+.2f}%)'
+                ),
+                weight=self.filter_weights[filter_type],
+            )]
+
+        if relative_change >= warn_threshold:
+            return [FilterCheck(
+                filter_type=filter_type,
+                result=FilterResult.WARNING,
+                value=relative_change,
+                threshold=warn_threshold,
+                message=(
+                    f'{symbol_name} stronger than SPY by {relative_change:.2f} pts '
+                    f'against bearish setup ({symbol_change_pct:+.2f}% vs SPY {spy_change_pct:+.2f}%)'
+                ),
+                weight=self.filter_weights[filter_type],
+            )]
+
+        return [FilterCheck(
+            filter_type=filter_type,
+            result=FilterResult.PASS,
+            value=relative_change,
+            threshold=warn_threshold,
+            message=(
+                f'{symbol_name} confirming bearish tape '
+                f'({symbol_change_pct:+.2f}% vs SPY {spy_change_pct:+.2f}%)'
+            ),
+            weight=self.filter_weights[filter_type],
+        )]
+
+    def _check_qqq_confirmation_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Require QQQ relative-strength confirmation for directional SPY entries."""
+        return self._check_relative_confirmation_filter(
+            params,
+            symbol_name='QQQ',
+            filter_type=FilterType.QQQ_CONFIRMATION,
+            symbol_change_key='qqq_change_pct',
+            warn_threshold=self.macro_regime_policy['qqq_rel_warn_pct'],
+            fail_threshold=self.macro_regime_policy['qqq_rel_fail_pct'],
+        )
+
+    def _check_iwm_confirmation_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Require IWM breadth confirmation for directional SPY entries."""
+        return self._check_relative_confirmation_filter(
+            params,
+            symbol_name='IWM',
+            filter_type=FilterType.IWM_CONFIRMATION,
+            symbol_change_key='iwm_change_pct',
+            warn_threshold=self.macro_regime_policy['iwm_rel_warn_pct'],
+            fail_threshold=self.macro_regime_policy['iwm_rel_fail_pct'],
+        )
+
+    def _check_xlk_confirmation_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Require XLK sector leadership confirmation for directional SPY entries."""
+        return self._check_relative_confirmation_filter(
+            params,
+            symbol_name='XLK',
+            filter_type=FilterType.XLK_CONFIRMATION,
+            symbol_change_key='xlk_change_pct',
+            warn_threshold=self.macro_regime_policy['xlk_rel_warn_pct'],
+            fail_threshold=self.macro_regime_policy['xlk_rel_fail_pct'],
+        )
+
+    def _check_xlf_confirmation_filter(self, params: dict[str, Any]) -> list[FilterCheck]:
+        """Require XLF financial-sector confirmation for directional SPY entries."""
+        return self._check_relative_confirmation_filter(
+            params,
+            symbol_name='XLF',
+            filter_type=FilterType.XLF_CONFIRMATION,
+            symbol_change_key='xlf_change_pct',
+            warn_threshold=self.macro_regime_policy['xlf_rel_warn_pct'],
+            fail_threshold=self.macro_regime_policy['xlf_rel_fail_pct'],
+        )
 
     def _check_vix_term_structure_filter(self) -> list[FilterCheck]:
         """Block entries when VIX term structure is in steep backwardation.
@@ -1906,7 +2344,7 @@ class EntryFilters:
             FilterType.DATA_QUALITY,
             FilterType.VOL_SURFACE,
             FilterType.DEALER_FLOW,
-            FilterType.LEAD_LAG_CONFIRMATION,
+            FilterType.PIVOT_OVERLAY,
         }
         hard_fail_present = any(
             check.result == FilterResult.FAIL and check.filter_type in hard_fail_filters
@@ -2045,7 +2483,7 @@ if __name__ == "__main__":
         'position_type': 'long',
         'portfolio_delta': 75,
         'position_size_pct': 0.08,
-        'current_time': datetime.now(),
+        'current_time': datetime.now(timezone.utc),
         'days_to_earnings': 10,
         'iv_percentile': 65,
         'iv_skew': 0.08,

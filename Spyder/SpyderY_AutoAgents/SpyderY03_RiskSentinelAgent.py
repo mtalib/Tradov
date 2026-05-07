@@ -36,7 +36,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -82,7 +82,7 @@ class CircuitBreakerState(Enum):
 @dataclass
 class RiskSnapshot:
     """Point-in-time risk assessment."""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     circuit_breaker: str = CircuitBreakerState.NORMAL.value
     portfolio_delta: float = 0.0
     portfolio_gamma: float = 0.0
@@ -102,7 +102,7 @@ class RiskSnapshot:
 class TradeVeto:
     """Record of a trade veto decision."""
     signal_id: str = ""
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     vetoed: bool = False
     reason: str = ""
     risk_level: str = ""
@@ -174,11 +174,17 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
 
     TICK_INTERVAL = 15.0
 
-    def __init__(self, risk_limits: dict[str, float] | None = None, **kwargs: Any):
+    def __init__(
+        self,
+        risk_limits: dict[str, float] | None = None,
+        enable_trade_veto: bool = True,
+        **kwargs: Any,
+    ):
         super().__init__(**kwargs)
 
         # Risk configuration
         self._limits = {**DEFAULT_RISK_LIMITS, **(risk_limits or {})}
+        self._enable_trade_veto = enable_trade_veto
 
         # State
         self._circuit_breaker = CircuitBreakerState.NORMAL
@@ -211,7 +217,8 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
     # ==========================================================================
     def on_start(self) -> None:
         """Subscribe to all risk-relevant topics."""
-        self.subscribe("signals.validated")
+        if self._enable_trade_veto:
+            self.subscribe("signals.validated")
         self.subscribe("execution.*")
         self.subscribe("risk.*")
         self.subscribe("market.regime")
@@ -258,8 +265,9 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
         # Get position data from X04 if available
         if self._x04_agent:
             try:
-                import asyncio
-                risk = asyncio.run(
+                # v27 SPEC-15: AsyncBridge avoids RuntimeError under nested loop.
+                from Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+                risk = run_coro_in_thread(
                     self._x04_agent.assess_portfolio_risk()
                 )
                 if risk:
@@ -417,6 +425,10 @@ class SpyderY03_RiskSentinelAgent(BaseAutoAgent):
     # ==========================================================================
     def _process_pending_signals(self, session: MarketSession) -> None:
         """Review pending validated signals — veto any that violate risk limits."""
+        if not self._enable_trade_veto:
+            self._pending_signals.clear()
+            return
+
         if not self._pending_signals:
             return
 
