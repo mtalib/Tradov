@@ -792,6 +792,9 @@ class StrategyOrchestrator:
             1,
             int(os.environ.get("SPYDER_MAX_ACTIVE_HORIZON_BUCKETS", str(MAX_ACTIVE_HORIZON_BUCKETS)))
         )
+        self._startup_cache_seed_enabled = str(
+            os.environ.get("SPYDER_ENABLE_STARTUP_CACHE_SEED", "0")
+        ).strip().lower() in {"1", "true", "yes", "on"}
         self.connectivity_manager = connectivity_manager
         self.event_manager = event_manager
         self._l09_engine: Any | None = regime_engine          # L09 UnifiedRegimeEngine (optional)
@@ -1003,9 +1006,10 @@ class StrategyOrchestrator:
         # Setup event subscriptions
         self._setup_event_subscriptions()
 
-        # Pre-warm the regime cache so startup doesn't fail-closed to CRISIS
-        # before the first MARKET_DATA event arrives.
-        self._seed_cache_from_disk()
+        # Spec-aligned default is fail-closed on cold start. Warm-start cache
+        # seeding is available as an explicit opt-in.
+        if self._startup_cache_seed_enabled:
+            self._seed_cache_from_disk()
 
         self.logger.debug(f"🎯 Strategy Orchestrator initialized - Mode: {orchestration_mode.value}, Capital: ${base_capital:,.2f}")  # noqa: E501
 
@@ -1015,6 +1019,10 @@ class StrategyOrchestrator:
         Reads the last known SPY/VIX prices written by G18 MarketDataWorker and
         inserts synthetic tick rows so the regime classifier has ≥2 closes
         from the very first evaluation cycle, avoiding the startup CRISIS.
+
+        This warm-start path is intentionally opt-in via
+        ``SPYDER_ENABLE_STARTUP_CACHE_SEED`` to preserve fail-closed behavior
+        on cold starts by default.
         """
         from pathlib import Path as _Path
         import json as _json
@@ -1642,7 +1650,14 @@ class StrategyOrchestrator:
                         f"Concurrent strategy limit reached: {current_active}/{self.max_concurrent_strategies}"  # noqa: E501
                     )
 
-                active_buckets = self._get_active_horizon_buckets_locked()
+                active_bucket_counts = self._get_active_horizon_bucket_counts_locked()
+                if active_bucket_counts.get(horizon_bucket, 0) >= 1:
+                    raise ValueError(
+                        "Horizon-bucket already occupied: "
+                        f"{horizon_bucket}"
+                    )
+
+                active_buckets = set(active_bucket_counts)
                 would_add_new_bucket = horizon_bucket not in active_buckets
                 if (
                     would_add_new_bucket
@@ -2180,6 +2195,17 @@ class StrategyOrchestrator:
         for alloc in self.strategy_allocations.values():
             buckets.add(self._infer_horizon_bucket_from_allocation(alloc))
         return buckets
+
+    def _get_active_horizon_bucket_counts_locked(self) -> dict[str, int]:
+        """Return active strategy count per horizon bucket.
+
+        Must be called while ``self._strategies_lock`` is held.
+        """
+        counts: dict[str, int] = {}
+        for alloc in self.strategy_allocations.values():
+            bucket = self._infer_horizon_bucket_from_allocation(alloc)
+            counts[bucket] = counts.get(bucket, 0) + 1
+        return counts
 
     def _calculate_optimal_allocation(self, strategy_name: str) -> float:
         """Return an initial capital fraction for a single new strategy.

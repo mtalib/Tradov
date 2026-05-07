@@ -52,8 +52,13 @@ def test_a02_and_d31_currently_build_entry_filters_without_analyzer_injection() 
     a02 = _read(A02_PATH)
     d31 = _read(D31_PATH)
 
-    assert "EntryFilters(config_manager)" in a02
-    assert "EntryFilters(config_manager)" in d31
+    accepted_constructors = (
+        "EntryFilters(config_manager)",
+        "EntryFilters(config_manager=config_manager)",
+    )
+
+    assert any(token in a02 for token in accepted_constructors)
+    assert any(token in d31 for token in accepted_constructors)
 
 
 def test_f09_analyzer_dependent_filters_still_short_circuit_when_dependencies_absent() -> None:

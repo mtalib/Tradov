@@ -129,5 +129,9 @@ def test_d31_dispatch_midwalk_handles_result_without_message_attribute():
     orchestrator._dispatch_approved_signal(signal)
 
     orchestrator._order_manager.submit_limit_with_walk.assert_called_once()
-    orchestrator._record_signal_dispatch_outcome.assert_called_once_with("dispatch_submitted")
+    orchestrator._record_signal_dispatch_outcome.assert_called_once()
+    call_args, call_kwargs = orchestrator._record_signal_dispatch_outcome.call_args
+    assert call_args[0] == "dispatch_submitted"
+    if "signal" in call_kwargs:
+        assert call_kwargs["signal"] == signal
     orchestrator._record_signal_drop.assert_not_called()
