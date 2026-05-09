@@ -52,8 +52,8 @@ from .SpyderZ02_MessageProtocol import (
 )
 
 # Import from utilities (these would be actual imports in production)
-# from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-# from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+# from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+# from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # ==============================================================================
 # CONSTANTS

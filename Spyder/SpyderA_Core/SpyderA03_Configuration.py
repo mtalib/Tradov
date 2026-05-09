@@ -317,6 +317,9 @@ class ConfigManager:
             # 2.5 Load repo-level regime policy if present.
             self._load_repo_regime_policy()
 
+            # 2.6 Load repo-level agent handoff policy if present.
+            self._load_repo_agent_handoff_policy()
+
             # 3. Load environment variables
             self._load_environment_variables()
 
@@ -587,6 +590,30 @@ class ConfigManager:
             self.logger.info("Loaded regime policy from: %s", repo_policy_path)
         except Exception as e:
             self.logger.warning("Failed to load repo regime policy: %s", e)
+
+    def _load_repo_agent_handoff_policy(self):
+        """Load repository agent handoff policy JSON into autonomous_readiness namespace."""
+        try:
+            existing = self.get("autonomous_readiness.agent_handoff_policy")
+            if isinstance(existing, dict) and existing:
+                return
+
+            repo_policy_path = Path(__file__).resolve().parents[2] / "config" / "agent_handoff_policy.json"
+            if not repo_policy_path.exists():
+                return
+
+            policy = self._load_json_file(repo_policy_path)
+            if not isinstance(policy, dict) or not policy:
+                return
+
+            self._merge_config(
+                {"autonomous_readiness": {"agent_handoff_policy": policy}},
+                ConfigSource.FILE,
+            )
+            self.watched_files.add(repo_policy_path)
+            self.logger.info("Loaded agent handoff policy from: %s", repo_policy_path)
+        except Exception as e:
+            self.logger.warning("Failed to load repo agent handoff policy: %s", e)
 
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
         """Load YAML configuration file"""

@@ -358,6 +358,7 @@ excel_exports/
 !templates/*.xlsx
 !templates/*.csv
 !config.template.json
+!config/agent_handoff_policy.json
 !*.example.json
 
 # Alerts and notifications

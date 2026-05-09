@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU24_StyleManager.py
 Purpose: Professional theme and styling management with QDarkStyleSheet integration
 Author: Mohamed Talib

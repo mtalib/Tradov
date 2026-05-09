@@ -31,12 +31,15 @@ Key Features:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
+import copy
 import json
+import os
 import uuid
 import pickle
 import threading
 import queue
 from datetime import datetime, timezone
+from fnmatch import fnmatchcase
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
@@ -55,6 +58,21 @@ import numpy as np
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
+try:
+    from Spyder.SpyderZ_Communication.SpyderZ02_MessageProtocol import (
+        extract_agent_handoff_envelope,
+        validate_agent_handoff_envelope,
+    )
+    AGENT_HANDOFF_SCHEMA_AVAILABLE = True
+except Exception:
+    AGENT_HANDOFF_SCHEMA_AVAILABLE = False
+
+    def extract_agent_handoff_envelope(payload):
+        return None, None
+
+    def validate_agent_handoff_envelope(envelope, schema_name=None):
+        return True, None
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -65,6 +83,111 @@ MAX_RETRIES = 3
 DEAD_LETTER_THRESHOLD = 5
 CIRCUIT_BREAKER_THRESHOLD = 10
 CIRCUIT_BREAKER_TIMEOUT = 30  # seconds
+DEFAULT_SHADOW_VALIDATION_REQUIRED_TOPICS = {
+    "meta.decisions",
+    "meta.orchestration",
+    "signals.validated",
+}
+DEFAULT_SHADOW_VALIDATION_TOPIC_PREFIXES = (
+    "meta.",
+    "signals.",
+    "market.",
+    "risk.",
+)
+DEFAULT_AGENT_POLICY_ENFORCE_SENDER_PATTERNS = (
+    "Y[0-9][0-9]_*",
+    "X[0-9][0-9]_*",
+)
+DEFAULT_AGENT_POLICY_ENFORCE_TOPIC_PREFIXES = (
+    "meta.",
+    "signals.",
+    "execution.",
+    "strategy.",
+)
+DEFAULT_AGENT_POLICY_ENFORCE_TOPICS = {
+    "meta.decisions",
+    "meta.orchestration",
+    "signals.validated",
+}
+DEFAULT_AGENT_HANDOFF_POLICY_PATH = Path(__file__).resolve().parents[2] / "config" / "agent_handoff_policy.json"
+DEFAULT_AGENT_HANDOFF_POLICY = {
+    "version": "1.0",
+    "enforcement": {
+        "paper_mode": True,
+        "live_mode": False,
+        "default_action_paper": "deny",
+        "default_action_live": "allow",
+        "enforce_sender_patterns": list(DEFAULT_AGENT_POLICY_ENFORCE_SENDER_PATTERNS),
+        "enforce_topic_prefixes": list(DEFAULT_AGENT_POLICY_ENFORCE_TOPIC_PREFIXES),
+        "enforce_topics": list(DEFAULT_AGENT_POLICY_ENFORCE_TOPICS),
+    },
+    "role_bindings": {
+        "Y00_*": "observe",
+        "Y01_*": "advisory",
+        "Y02_*": "execution_advisory",
+        "Y03_*": "advisory",
+        "Y04_*": "advisory",
+        "Y05_*": "execution_advisory",
+        "Y06_*": "advisory",
+        "Y07_*": "observe",
+        "Y08_*": "execution_advisory",
+        "Y09_*": "observe",
+        "Y10_*": "observe",
+        "X14_*": "execution_advisory",
+        "X*": "advisory",
+    },
+    "role_permissions": {
+        "observe": {
+            "allow_topics": ["system.*", "meta.health", "meta.heartbeat", "market.regime"],
+            "allow_actions": ["observe", "status", "heartbeat", "regime_update"],
+            "deny_topics": ["signals.validated", "execution.*"],
+            "deny_actions": ["execution_advice", "execution_order", "execute"],
+        },
+        "advisory": {
+            "allow_topics": ["meta.*", "market.*", "risk.*", "strategy.recommendation"],
+            "allow_actions": ["observe", "status", "regime_update", "decision", "escalation", "signal"],
+            "deny_topics": ["execution.*"],
+            "deny_actions": ["execution_advice", "execution_order", "execute"],
+        },
+        "execution_advisory": {
+            "allow_topics": [
+                "meta.*",
+                "market.*",
+                "risk.*",
+                "signals.validated",
+                "strategy.*",
+                "execution.intent",
+            ],
+            "allow_actions": [
+                "observe",
+                "status",
+                "regime_update",
+                "decision",
+                "escalation",
+                "signal",
+                "execution_advice",
+            ],
+            "deny_topics": ["execution.orders", "execution.submit", "execution.route"],
+            "deny_actions": ["execution_order", "execute"],
+        },
+        "execution_authorized": {
+            "allow_topics": ["meta.*", "market.*", "risk.*", "signals.*", "strategy.*", "execution.*"],
+            "allow_actions": [
+                "observe",
+                "status",
+                "regime_update",
+                "decision",
+                "escalation",
+                "signal",
+                "execution_advice",
+                "execution_order",
+                "execute",
+            ],
+            "deny_topics": [],
+            "deny_actions": [],
+        },
+    },
+}
 
 # Topic definitions
 TOPICS = {
@@ -182,6 +305,24 @@ class BusMetrics:
     avg_latency: float = 0.0
     throughput: float = 0.0
 
+
+class PublishReceipt(str):
+    """Awaitable publish receipt for sync/async compatibility.
+
+    ``publish()`` now executes synchronously (so legacy sync call-sites work),
+    but this receipt can still be awaited by existing async call-sites that do
+    ``await bus.publish(...)``.
+    """
+
+    def __new__(cls, message_id: str):
+        return super().__new__(cls, message_id)
+
+    def __await__(self):
+        async def _return_value() -> str:
+            return str(self)
+
+        return _return_value().__await__()
+
 # ==============================================================================
 # MAIN MESSAGE BUS CLASS
 # ==============================================================================
@@ -229,10 +370,254 @@ class AgentMessageBus:
         self.persist_messages = self.config.get('persist', False)
         self.persistence_path = Path(self.config.get('persistence_path', 'data/messages'))
 
+        # Phase 1: shadow-mode contract validation (advisory only)
+        self.shadow_validation_enabled = bool(
+            self.config.get("shadow_validation_agent_handoffs", True)
+        )
+        self.shadow_validation_required_topics = set(
+            self.config.get(
+                "shadow_validation_required_topics",
+                list(DEFAULT_SHADOW_VALIDATION_REQUIRED_TOPICS),
+            )
+        )
+        self.shadow_validation_topic_prefixes = tuple(
+            self.config.get(
+                "shadow_validation_topic_prefixes",
+                list(DEFAULT_SHADOW_VALIDATION_TOPIC_PREFIXES),
+            )
+        )
+        self.shadow_validation_stats: dict[str, int] = {
+            "valid": 0,
+            "invalid": 0,
+            "missing": 0,
+            "unavailable": 0,
+        }
+
+        # Phase 2: paper-mode sender-role/topic/action policy enforcement.
+        self.agent_handoff_policy = self._load_agent_handoff_policy()
+        self.trading_mode = self._resolve_trading_mode()
+        self.policy_enforcement_stats: dict[str, int] = {
+            "allowed": 0,
+            "blocked": 0,
+            "skipped": 0,
+        }
+
         # Start worker
         self._start_worker()
 
-        self.logger.info("Agent Message Bus initialized")
+        self.logger.info("Agent Message Bus initialized mode=%s", self.trading_mode)
+
+    def _resolve_trading_mode(self) -> str:
+        """Resolve operating mode to "paper" or "live"."""
+        paper_mode = self.config.get("paper_mode")
+        if isinstance(paper_mode, bool):
+            return "paper" if paper_mode else "live"
+
+        raw_mode_candidates = (
+            self.config.get("trading_mode"),
+            self.config.get("run_mode"),
+            self.config.get("mode"),
+            os.getenv("SPYDER_TRADING_MODE"),
+            os.getenv("TRADING_MODE"),
+        )
+
+        for candidate in raw_mode_candidates:
+            if not candidate:
+                continue
+
+            mode = str(candidate).strip().lower()
+            if mode in {"live", "production", "prod"}:
+                return "live"
+            if mode in {"paper", "sandbox", "sim", "simulation", "development", "dev", "test", "testing"}:
+                return "paper"
+
+        return "paper"
+
+    def _load_agent_handoff_policy(self) -> dict[str, Any]:
+        """Load policy from config, ConfigManager, or repo file fallback."""
+        config_policy = self.config.get("agent_handoff_policy")
+        if isinstance(config_policy, dict) and config_policy:
+            return copy.deepcopy(config_policy)
+
+        # Prefer the global ConfigManager policy if available.
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+            cfg_mgr = get_config_manager()
+            cfg_policy = cfg_mgr.get("autonomous_readiness.agent_handoff_policy")
+            if isinstance(cfg_policy, dict) and cfg_policy:
+                return copy.deepcopy(cfg_policy)
+        except Exception:
+            pass
+
+        configured_path = self.config.get("agent_handoff_policy_path")
+        if isinstance(configured_path, str) and configured_path.strip():
+            policy_path = Path(configured_path).expanduser()
+        else:
+            policy_path = DEFAULT_AGENT_HANDOFF_POLICY_PATH
+
+        try:
+            if policy_path.exists() and policy_path.is_file():
+                with open(policy_path, encoding="utf-8") as fp:
+                    policy = json.load(fp)
+                if isinstance(policy, dict) and policy:
+                    return policy
+        except Exception as e:
+            self.logger.warning("I06 policy load failed from %s: %s", policy_path, e)
+
+        return copy.deepcopy(DEFAULT_AGENT_HANDOFF_POLICY)
+
+    def _is_policy_enforcement_enabled(self) -> bool:
+        """Return True when policy enforcement is active for current mode."""
+        enforcement = self.agent_handoff_policy.get("enforcement", {})
+        if self.trading_mode == "live":
+            return bool(enforcement.get("live_mode", False))
+        return bool(enforcement.get("paper_mode", True))
+
+    def _policy_default_action(self) -> str:
+        """Return policy fallback action for the current operating mode."""
+        enforcement = self.agent_handoff_policy.get("enforcement", {})
+        if self.trading_mode == "live":
+            default_action = enforcement.get("default_action_live", "allow")
+        else:
+            default_action = enforcement.get("default_action_paper", "deny")
+        return str(default_action).strip().lower()
+
+    def _match_any_pattern(self, value: str, patterns: list[Any]) -> bool:
+        """Return True when a value matches any wildcard pattern."""
+        if not value or not isinstance(patterns, list):
+            return False
+
+        for pattern in patterns:
+            if isinstance(pattern, str) and pattern and fnmatchcase(value, pattern):
+                return True
+        return False
+
+    def _is_sender_in_policy_scope(self, sender: str) -> bool:
+        """Limit enforcement to configured sender ID patterns."""
+        enforcement = self.agent_handoff_policy.get("enforcement", {})
+        sender_patterns = enforcement.get("enforce_sender_patterns")
+        if not isinstance(sender_patterns, list) or not sender_patterns:
+            sender_patterns = list(DEFAULT_AGENT_POLICY_ENFORCE_SENDER_PATTERNS)
+        return self._match_any_pattern(sender, sender_patterns)
+
+    def _is_topic_in_policy_scope(self, topic: str) -> bool:
+        """Return True when a topic is in policy enforcement scope."""
+        enforcement = self.agent_handoff_policy.get("enforcement", {})
+        required_topics = enforcement.get("enforce_topics")
+        if not isinstance(required_topics, list):
+            required_topics = list(DEFAULT_AGENT_POLICY_ENFORCE_TOPICS)
+        if topic in required_topics:
+            return True
+
+        prefixes = enforcement.get("enforce_topic_prefixes")
+        if not isinstance(prefixes, list) or not prefixes:
+            prefixes = list(DEFAULT_AGENT_POLICY_ENFORCE_TOPIC_PREFIXES)
+        return any(isinstance(prefix, str) and topic.startswith(prefix) for prefix in prefixes)
+
+    def _resolve_sender_role(self, sender: str) -> str | None:
+        """Resolve sender role from policy role bindings (exact first, then pattern)."""
+        bindings = self.agent_handoff_policy.get("role_bindings", {})
+        if not isinstance(bindings, dict) or not sender:
+            return None
+
+        exact = bindings.get(sender)
+        if isinstance(exact, str) and exact:
+            return exact
+
+        for pattern, role in bindings.items():
+            if not isinstance(pattern, str) or not isinstance(role, str):
+                continue
+            if pattern == sender:
+                return role
+            if fnmatchcase(sender, pattern):
+                return role
+
+        return None
+
+    def _extract_policy_action(self, payload: Any) -> str | None:
+        """Extract normalized handoff action from payload metadata."""
+        if not isinstance(payload, dict):
+            return None
+
+        envelope, _ = extract_agent_handoff_envelope(payload)
+        if isinstance(envelope, dict):
+            handoff_type = envelope.get("handoff_type")
+            if isinstance(handoff_type, str) and handoff_type:
+                return handoff_type.strip().lower()
+
+        for key in ("output_type", "action", "intent"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                return value.strip().lower()
+
+        return None
+
+    def _policy_decision(self, reason_code: str) -> tuple[bool, str]:
+        """Apply mode-specific default action for unresolved policy checks."""
+        default_action = self._policy_default_action()
+        if default_action == "allow":
+            return True, f"{reason_code}_allowed_by_default"
+        return False, reason_code
+
+    def _evaluate_agent_handoff_policy(self, message: Message) -> tuple[bool, str, dict[str, Any]]:
+        """Evaluate sender-role/topic/action policy for a message publish operation."""
+        context: dict[str, Any] = {
+            "mode": self.trading_mode,
+            "sender": message.sender,
+            "topic": message.topic,
+            "role": None,
+            "action": None,
+        }
+
+        if not self._is_policy_enforcement_enabled():
+            self.policy_enforcement_stats["skipped"] += 1
+            return True, "policy_disabled", context
+
+        if not self._is_sender_in_policy_scope(message.sender):
+            self.policy_enforcement_stats["skipped"] += 1
+            return True, "sender_out_of_scope", context
+
+        if not self._is_topic_in_policy_scope(message.topic):
+            self.policy_enforcement_stats["skipped"] += 1
+            return True, "topic_out_of_scope", context
+
+        role = self._resolve_sender_role(message.sender)
+        context["role"] = role
+        if not role:
+            return (*self._policy_decision("sender_role_unbound"), context)
+
+        role_permissions = self.agent_handoff_policy.get("role_permissions", {})
+        if not isinstance(role_permissions, dict):
+            return (*self._policy_decision("policy_permissions_unavailable"), context)
+
+        permission = role_permissions.get(role)
+        if not isinstance(permission, dict):
+            return (*self._policy_decision("role_not_configured"), context)
+
+        deny_topics = permission.get("deny_topics", [])
+        if self._match_any_pattern(message.topic, deny_topics):
+            return False, "topic_explicitly_denied", context
+
+        allow_topics = permission.get("allow_topics", [])
+        if isinstance(allow_topics, list) and allow_topics and not self._match_any_pattern(message.topic, allow_topics):
+            return (*self._policy_decision("topic_not_allowed"), context)
+
+        action = self._extract_policy_action(message.payload)
+        context["action"] = action
+
+        deny_actions = permission.get("deny_actions", [])
+        if isinstance(action, str) and action and self._match_any_pattern(action, deny_actions):
+            return False, "action_explicitly_denied", context
+
+        allow_actions = permission.get("allow_actions", [])
+        if isinstance(allow_actions, list) and allow_actions:
+            if not action:
+                return (*self._policy_decision("action_missing"), context)
+            if not self._match_any_pattern(action, allow_actions):
+                return (*self._policy_decision("action_not_allowed"), context)
+
+        return True, "allowed", context
 
     def _start_worker(self):
         """Start the message processing worker"""
@@ -340,50 +725,133 @@ class AgentMessageBus:
                 self.logger.error("Unsubscribe failed: %s", e)
                 return False
 
-    async def publish(
+    def publish(
         self,
-        topic: str,
-        payload: Any,
-        sender: str,
+        topic: str | Message,
+        payload: Any = None,
+        sender: str | None = None,
         priority: MessagePriority = MessagePriority.NORMAL,
         headers: dict[str, Any] | None = None,
-        ttl: int = DEFAULT_TTL
-    ) -> str:
-        """
-        Publish a message to a topic.
+        ttl: int = DEFAULT_TTL,
+    ) -> PublishReceipt:
+        """Publish a message (sync + await-compatible).
 
-        Args:
-            topic: Topic to publish to
-            payload: Message payload
-            sender: Sender identifier
-            priority: Message priority
-            headers: Optional headers
-            ttl: Time to live in seconds
+        Supported call shapes:
+        1) ``publish(Message(...))`` (legacy sync object-style)
+        2) ``publish("topic", payload, sender, ...)`` (current topic/payload style)
 
-        Returns:
-            Message ID
+        The returned ``PublishReceipt`` is awaitable, so existing async call-sites
+        using ``await bus.publish(...)`` continue to work.
         """
-        # Create message
-        message = Message(
-            topic=topic,
-            sender=sender,
-            message_type=MessageType.PUBLISH,
-            priority=priority,
-            payload=payload,
-            headers=headers or {},
-            ttl=ttl
-        )
+        if isinstance(topic, Message):
+            message = topic
+            self.logger.debug(
+                "I06 publish adapter used: Message-object path topic=%s sender=%s",
+                message.topic,
+                message.sender,
+            )
+        else:
+            message = Message(
+                topic=topic,
+                sender=sender or "unknown",
+                message_type=MessageType.PUBLISH,
+                priority=priority,
+                payload=payload,
+                headers=headers or {},
+                ttl=ttl,
+            )
+
+        # Defensive sender normalization for legacy object-style publishers
+        if not message.sender:
+            message.sender = sender or "unknown"
+
+        # Phase 1 shadow validation: advisory-only, no blocking.
+        self._shadow_validate_message_contract(message=message, stage="publish")
+
+        if not isinstance(message.headers, dict):
+            message.headers = {}
+
+        # Phase 2 sender-role/topic/action policy gate.
+        allowed, reason_code, context = self._evaluate_agent_handoff_policy(message)
+        message.headers.setdefault("policy_enforcement", {})["publish"] = {
+            "checked": True,
+            "allowed": bool(allowed),
+            "reason_code": reason_code,
+            "mode": context.get("mode"),
+            "role": context.get("role"),
+            "action": context.get("action"),
+        }
+        if not allowed:
+            self.policy_enforcement_stats["blocked"] += 1
+            self.logger.warning(
+                "I06 policy blocked publish topic=%s sender=%s role=%s action=%s reason=%s",
+                message.topic,
+                message.sender,
+                context.get("role"),
+                context.get("action"),
+                reason_code,
+            )
+            self._add_to_dead_letter(message, f"policy_denied:{reason_code}")
+            return PublishReceipt(message.id)
+        self.policy_enforcement_stats["allowed"] += 1
 
         # Add to queue
         self._enqueue_message(message)
 
         # Update metrics
         self.metrics.total_messages += 1
-        if topic in self.topic_stats:
-            self.topic_stats[topic].message_count += 1
-            self.topic_stats[topic].last_message = datetime.now(timezone.utc)
+        if message.topic not in self.topic_stats:
+            self.topic_stats[message.topic] = TopicStats(topic=message.topic)
+            self.metrics.topics_count = len(self.topic_stats)
+        self.topic_stats[message.topic].message_count += 1
+        self.topic_stats[message.topic].last_message = datetime.now(timezone.utc)
 
-        return message.id
+        return PublishReceipt(message.id)
+
+    def publish_message(self, message: Message) -> PublishReceipt:
+        """Compatibility adapter for explicit Message-object publishing."""
+        return self.publish(message)
+
+    def publish_sync(
+        self,
+        topic: str,
+        payload: Any,
+        sender: str | None = None,
+        priority: MessagePriority = MessagePriority.NORMAL,
+        headers: dict[str, Any] | None = None,
+        ttl: int = DEFAULT_TTL,
+    ) -> PublishReceipt:
+        """Compatibility adapter for sync topic/payload style publishing."""
+        self.logger.debug("I06 publish adapter used: publish_sync topic=%s sender=%s", topic, sender)
+        return self.publish(
+            topic=topic,
+            payload=payload,
+            sender=sender,
+            priority=priority,
+            headers=headers,
+            ttl=ttl,
+        )
+
+    async def publish_async(
+        self,
+        topic: str,
+        payload: Any,
+        sender: str,
+        priority: MessagePriority = MessagePriority.NORMAL,
+        headers: dict[str, Any] | None = None,
+        ttl: int = DEFAULT_TTL,
+    ) -> str:
+        """Async compatibility wrapper for explicit coroutine call-sites."""
+        return str(
+            self.publish(
+                topic=topic,
+                payload=payload,
+                sender=sender,
+                priority=priority,
+                headers=headers,
+                ttl=ttl,
+            )
+        )
 
     async def request(
         self,
@@ -531,6 +999,9 @@ class AgentMessageBus:
                 self._handle_reply(message)
                 return
 
+            # Phase 1 shadow validation on consume path (advisory-only).
+            self._shadow_validate_message_contract(message=message, stage="consume")
+
             # Find matching subscribers
             subscribers = self._find_subscribers(message.topic)
 
@@ -616,6 +1087,79 @@ class AgentMessageBus:
             return all(not (p != "*" and p != t) for p, t in zip(pattern_parts, topic_parts, strict=False))  # noqa: E501
 
         return topic == pattern
+
+    def _should_shadow_validate_topic(self, topic: str) -> bool:
+        """Return True when a topic is in shadow-validation scope."""
+        if topic in self.shadow_validation_required_topics:
+            return True
+        return any(topic.startswith(prefix) for prefix in self.shadow_validation_topic_prefixes)
+
+    def _shadow_validate_message_contract(self, message: Message, stage: str) -> None:
+        """Advisory-only agent handoff validation for Phase 1 shadow mode."""
+        if not self.shadow_validation_enabled:
+            return
+
+        if not self._should_shadow_validate_topic(message.topic):
+            return
+
+        if not isinstance(message.headers, dict):
+            message.headers = {}
+
+        shadow_result: dict[str, Any] = {
+            "checked": False,
+            "valid": True,
+            "schema": None,
+            "error": None,
+        }
+
+        if not AGENT_HANDOFF_SCHEMA_AVAILABLE:
+            self.shadow_validation_stats["unavailable"] += 1
+            shadow_result["error"] = "schema_validator_unavailable"
+            message.headers.setdefault("shadow_validation", {})[stage] = shadow_result
+            return
+
+        payload = message.payload if isinstance(message.payload, dict) else None
+        envelope, schema_name = extract_agent_handoff_envelope(payload)
+        shadow_result["checked"] = True
+        shadow_result["schema"] = schema_name
+
+        if envelope is None:
+            if message.topic in self.shadow_validation_required_topics:
+                self.shadow_validation_stats["missing"] += 1
+                shadow_result["valid"] = False
+                shadow_result["error"] = "missing_agent_handoff_envelope"
+                self.logger.warning(
+                    "I06 shadow contract advisory: missing envelope "
+                    "topic=%s sender=%s stage=%s",
+                    message.topic,
+                    message.sender,
+                    stage,
+                )
+
+            message.headers.setdefault("shadow_validation", {})[stage] = shadow_result
+            return
+
+        valid, error = validate_agent_handoff_envelope(envelope, schema_name)
+        shadow_result["valid"] = bool(valid)
+        shadow_result["error"] = error
+        if isinstance(envelope, dict) and isinstance(envelope.get("schema"), str):
+            shadow_result["schema"] = envelope.get("schema")
+
+        if valid:
+            self.shadow_validation_stats["valid"] += 1
+        else:
+            self.shadow_validation_stats["invalid"] += 1
+            self.logger.warning(
+                "I06 shadow contract advisory: invalid envelope "
+                "topic=%s sender=%s stage=%s schema=%s error=%s",
+                message.topic,
+                message.sender,
+                stage,
+                shadow_result.get("schema"),
+                error,
+            )
+
+        message.headers.setdefault("shadow_validation", {})[stage] = shadow_result
 
     def _handle_reply(self, message: Message):
         """Handle reply message"""

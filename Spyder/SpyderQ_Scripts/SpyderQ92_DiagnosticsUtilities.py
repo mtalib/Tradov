@@ -57,8 +57,8 @@ if SPYDER_HOME not in sys.path:
     sys.path.insert(0, SPYDER_HOME)
 
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError as e:
     print(f"Warning: Could not import utilities: {e}")
     import logging
@@ -95,7 +95,7 @@ MODULE_GROUPS = {
     "SpyderR_Reporting": "Reporting modules",
     "SpyderS_Security": "Security modules",
     "SpyderT_Testing": "Testing modules",
-    "SpyderU_Utilities": "Utility modules",
+    "Spyder.SpyderU_Utilities": "Utility modules",
     "SpyderV_QuantModels": "Quant model modules",
     "SpyderW_MachineLearning": "Machine learning modules",
     "SpyderX_Agents": "Agent modules",

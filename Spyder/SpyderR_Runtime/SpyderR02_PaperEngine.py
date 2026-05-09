@@ -12,10 +12,10 @@ Last Updated: 2025-08-21 Time: 19:30:00
 Module Description:
     Paper trading engine that simulates live trading operations while
     maintaining detailed records for strategy testing and validation.
-    Uses Tradier sandbox mode for realistic order simulation.
+    Uses live market data while keeping fills and accounting local to paper mode.
 
 Key Features:
-    • Tradier sandbox integration for paper trading
+    • Live market data integration for paper trading
     • Realistic order filling simulation
     • Commission and slippage simulation
     • Comprehensive position tracking
@@ -171,7 +171,7 @@ class PaperTradingEngine:
     tracking, and comprehensive performance analytics.
 
     Key Features:
-    - Tradier sandbox mode for paper trading
+    - Live market data + local paper execution
     - Realistic order filling with slippage
     - Commission and fee simulation
     - Comprehensive position tracking
@@ -575,8 +575,8 @@ class PaperTradingEngine:
     # ==========================================================================
 
     def _setup_market_data(self):
-        """Setup market data subscriptions (Tradier sandbox)."""
-        self.logger.info("Market data setup via Tradier sandbox")
+        """Setup market data subscriptions (live data, paper execution)."""
+        self.logger.info("Market data setup via Tradier live feed")
 
     def _cleanup_market_data(self):
         """Cleanup market data subscriptions."""
@@ -732,7 +732,7 @@ class PaperTradingEngine:
         return {
             'running': self.is_running,
             'mode': self.execution_mode.name,
-            'broker': 'tradier_sandbox',
+            'broker': 'tradier_live_data_local_paper',
             'orders_count': len(self.orders),
             'positions_count': len([p for p in self.positions.values() if p.quantity != 0]),
             'trades_executed': self.trades_executed,

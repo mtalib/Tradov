@@ -3,9 +3,9 @@
 T96 — SpyderU12 AgentIntegration | SpyderU23 MemoryMonitor | SpyderU24 StyleManager
 
 Tests for:
-  - Spyder/SpyderU_Utilities/SpyderU12_AgentIntegration.py
-  - Spyder/SpyderU_Utilities/SpyderU23_MemoryMonitor.py
-  - Spyder/SpyderU_Utilities/SpyderU24_StyleManager.py
+  - Spyder/Spyder.SpyderU_Utilities/SpyderU12_AgentIntegration.py
+  - Spyder/Spyder.SpyderU_Utilities/SpyderU23_MemoryMonitor.py
+  - Spyder/Spyder.SpyderU_Utilities/SpyderU24_StyleManager.py
 """
 
 # ==============================================================================
@@ -30,7 +30,7 @@ def _ensure_pkg(name: str) -> None:
 
 
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # Stub SpyderLogger

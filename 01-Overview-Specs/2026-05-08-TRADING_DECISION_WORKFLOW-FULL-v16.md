@@ -1,6 +1,6 @@
-# Trading Decision Workflow (Full) — v9
+# Trading Decision Workflow (Full) — v16
 
-Last Updated: 2026-05-05
+Last Updated: 2026-05-08
 Status: Design + As-Implemented Verification Specification
 Scope: 6-Regime Master Logic and Strategy Mapping for SPY options
 
@@ -21,6 +21,9 @@ Scope: 6-Regime Master Logic and Strategy Mapping for SPY options
 | v11 | 2026-05-05 | Corrected concurrency contract to **2 slots** (one long-term/swing + one intraday/0DTE); replaces all v5 "max 1" references throughout. Code (`MAX_CONCURRENT_STRATEGIES = 2`, `MAX_ACTIVE_HORIZON_BUCKETS = 2`) was already correct — only documentation was stale. |
 | v12 | 2026-05-05 | Replaced informational BIAS pill with execution-truth **DISPATCH** pill (closes §10.4 item #3). New `D31.get_dispatch_state()` API powers the pill (4 states: FLOWING / IDLE / BLOCKED / ERROR; 120s recency window). Section 5.3 reference matrix collapses from 18 rows to 6 (BIAS column removed). Section 5.4 updated with DISPATCH pill display spec. T195 added as regression guard (16 tests, GREEN). |
 | v13 | 2026-05-05 | Merged TRADEABLE pill into DISPATCH. The legacy TRADEABLE pill carried a green "permitted" or purple "⚠ HALT" indicator and a permitted-strategies tooltip; both are now absorbed by DISPATCH. **HALT** added as a 5th DISPATCH state (purple, top priority) that fires when REGIME is CRISIS or EVENT. Permitted-strategy list and concurrency context appended to DISPATCH tooltip in every state. Pill-bar reduces from 5 pills to 4: REGIME / STRATEGY STANCE / STRATEGY GATE / DISPATCH. |
+| v14 | 2026-05-06 | Re-audited trading-decision path on branch `fix/audit-v14-all`. Found and fixed a real regression: D31 dispatch path could emit `dispatch_exception` when `_record_signal_dispatch_outcome` is monkeypatched with a one-arg callable in tests (TypeError from unexpected `signal=` kwarg). Added safe wrapper usage in D31 dispatch path. Regression suite re-run: T193/T194/T195 = 28 passed. |
+| v15 | 2026-05-07 | Root-caused permanent CRISIS regime in dashboard-only mode (Section 10.8). G18 (`MarketDataWorker`) writes `live_data.json` every 10 s but never publishes `EventType.MARKET_DATA` events to the A05 event bus. D31's `market_data_cache["SPY"]` therefore stays at 0 entries all session → regime classifier fails closed to CRISIS → no strategies loaded → ENTRY permanently IDLE. Fix: added `_recover_cache_if_cold()` to D31 (reads `live_data.json` when SPY cache has fewer than 2 closes; throttled 30 s); called at the top of `_classify_market_regime_unified()` before the CRISIS guard. Also set `SPYDER_ENABLE_STARTUP_CACHE_SEED=1` in `.env` for immediate cache warm-start on every restart. Also confirmed as-implemented: today's decision log shows only `orchestrator_paused` (×15) and `session_window_gate` (×11) drops with zero real strategy blocks — evidence that D31 never reached the dispatch stage because strategies were never loaded under permanent CRISIS. |
+| v16 | 2026-05-08 | Fixed silent regime divergence between D31 (L09) and dashboard (S07): added 70% confidence threshold gate to D31's `_classify_market_regime_unified()` — when L09 returns confidence < 0.70 (D30's existing threshold), D31 now defers to the heuristic classifier rather than using the low-confidence result (Section 10.9.1). Documented two as-implemented gaps: (1) D31 heuristic fallback uses a simple momentum proxy, not the canonical EMA50 logic from Section 4.0 (Section 10.9.2); (2) corrected §5.3 — the dashboard REGIME pill source is S07 DIX/SWAN/SKEW via G05 `update_regime_pills()`, not L09 (Section 10.9.3). |
 
 ## 1) Objective
 
@@ -335,10 +338,16 @@ This is the exact regime-key version requested for implementation/reference alig
 
 | Internal Name | Dashboard Display Label | Source |
 |---|---|---|
-| Regime (L09 output) | **Regime** | SpyderL09_UnifiedRegimeEngine |
+| Regime (display posture) | **Regime** | G05 `update_regime_pills()` — derived from S07 DIX / SWAN / SKEW / GEX metrics; **not** L09 (see §10.9.3) |
 | Exec Bucket (D30 output) | **Strategy Stance** | SpyderD30_RegimeGatedSelector |
 | Policy Key (D31 gate) | **Strategy Gate** | SpyderD31_StrategyOrchestrator |
 | D31 dispatch state + halt | **Dispatch** | `SpyderD31.get_dispatch_state()` + regime-driven HALT priority (v13; absorbed legacy BIAS and TRADEABLE pills) |
+
+> **Dual-regime-path note (v16):** Two independent regime classifiers run in parallel and are intentionally not reconciled at the display layer:
+> - **Dashboard REGIME pill** (display posture): S07 DIX/SWAN/SKEW/GEX → G05 `update_regime_pills()`. Updates every 1 s.
+> - **D31 execution regime** (strategy selection): L09 `UnifiedRegimeEngine._detect_lean_regime()` → D31 `_classify_market_regime_unified()`. Used internally by D31 to select strategy weights and gated by a 70% confidence threshold (v16; see §10.9.1).
+>
+> These may disagree during low-confidence market conditions. This is intentional: the display pill conveys *posture* (operator awareness); the execution regime conveys *what D31 is actually doing*. The DISPATCH pill is the single surface that reflects execution truth. When D31's L09 confidence falls below 70%, D31 defers to its heuristic classifier (§10.9.1), which typically aligns with the S07-derived dashboard label.
 
 > **v12–v13 changes:**
 > - **v12** removed the informational BIAS pill — derived from R08's directional logic, but did not gate execution, so the dashboard could show "everything green" while D31 silently dropped every signal. The new **DISPATCH** pill surfaces D31's actual approve/drop/error verdicts.
@@ -712,7 +721,7 @@ Decision-log evidence files:
 
 1. ~~Concurrency default drift~~ — **RESOLVED in v11.** Contract is now 2 slots (one long-term + one intraday). Code was already correct; documentation updated.
 
-2. ~~Display-vs-execution regime source split~~ — **RESOLVED in v12.** DISPATCH pill ([G05 `_get_dispatch_state_safe()`](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py)) reads D31's verdicts directly via `get_dispatch_state()`. REGIME / STANCE / GATE remain S07-derived (acceptable — they convey *posture*, not execution truth). v13 then collapsed TRADEABLE into DISPATCH so the pill bar has a single execution-truth surface.
+2. ~~Display-vs-execution regime source split~~ — **Partially resolved (v12); formally documented (v16).** DISPATCH pill reads D31's verdicts directly via `get_dispatch_state()` — execution truth is visible. REGIME / STANCE / GATE remain S07-derived (convey *posture*, not execution truth). The §5.3 source table has been corrected in v16 to reflect this. See §10.9.3 for full accounting of the dual-path design.
 
 3. Dispatch-layer exception risk
   - Decision logs show dispatch exceptions in production-like runs.
@@ -784,7 +793,9 @@ if self.risk is not None and hasattr(self.orchestrator, "set_risk_manager"):
 |---|------|----------|
 | 1 | ~~Align `MAX_CONCURRENT_STRATEGIES = 2` in D31 with contract narrative~~ — DONE (v11) | Closed |
 | 2 | ~~Add D31 drop-reason badge to dashboard~~ — DONE (v12, DISPATCH pill, T195 GREEN) | Closed |
-| 3 | Run first weekday paper-session with all three fixes active, confirm at least one approved-and-dispatched trade and that DISPATCH pill renders FLOWING | **Required** |
+| 3 | ~~D31 permanent CRISIS in dashboard-only mode — no strategies ever loaded — ENTRY permanently IDLE~~ — DONE (v15; see Section 10.8) | Closed |
+| 4 | Run a full weekday RTH paper-session with v15 active; confirm at least one approved-and-dispatched trade and that DISPATCH pill renders FLOWING at some point during the session | **Required** |
+| 5 | Harden D31 heuristic fallback to implement canonical EMA50 logic (Section 4.0, Rule 2/3) instead of the simple momentum proxy currently used when L09 confidence < 70% — see §10.9.2 | **Recommended** |
 ### 10.6) Appendix — Complete Combination Matrix (18 States)
 
 This appendix expands the 6-regime reference matrix into the full REGIME x STANCE x GATE x DISPATCH state-space.
@@ -831,3 +842,227 @@ Therefore the matrix cardinality is:
 - Normal regimes: 4 regimes x 4 DISPATCH states = 16
 - Halt regimes: 2 regimes x 1 forced DISPATCH state = 2
 - Total = 18 combinations
+
+### 10.7) 2026-05-06 Re-Audit Verdict (Code + Tests)
+
+Audit scope (this revision):
+
+- D31 strategy signal hot path (pre-risk gates, risk gate, dispatch)
+- R12 orchestration wiring (risk manager injection)
+- E01 risk gate cold-state behavior
+- D30 deterministic regime-to-strategy mapping (including hard-halt routing)
+- G05 dispatch-state observability coupling
+
+Findings summary:
+
+| Area | Verdict | Evidence |
+|---|---|---|
+| `risk_state_cold` startup blocker | No active blocker in R12 path | R12 injects synced risk manager into D31 via `set_risk_manager`; T194 passes |
+| CRISIS/EVENT halt policy | Enforced | D30 maps EVENT/CRISIS to `NO_TRADE`; D31 treats CRISIS/EVENT as non-tradeable regime buckets |
+| Dispatch observability | Enforced | D31 `get_dispatch_state()` present and consumed by G05 DISPATCH pill |
+| Dispatch robustness | **Fixed in this revision** | D31 now calls `_record_signal_dispatch_outcome_safe(...)` to avoid TypeError-based `dispatch_exception` regressions |
+
+Targeted validation executed:
+
+- Command: `/home/adam/Projects/Spyder/.venv/bin/python -m pytest -q --no-cov Spyder/SpyderT_Testing/SpyderT193_D31_DispatchResultHardening.py Spyder/SpyderT_Testing/SpyderT194_R12_RiskManagerInjection.py Spyder/SpyderT_Testing/SpyderT195_D31_DispatchStateBadge.py`
+- Result: **28 passed** in 6.60s.
+
+Conclusion:
+
+- No remaining code-level **hard blocker** was found in the audited trading-decision pipeline after the D31 dispatch regression fix in v14.
+- Expected guardrails can still block entries by policy (`entry_trust_gate`, session windows, stale data, regime-policy mismatch); these are intentional risk controls, not defects.
+
+## 10.8) Dashboard-Mode CRISIS Blocker — Root Cause and Fix (2026-05-07)
+
+### Discovery context
+
+During live monitoring on 2026-05-07, SPY touched the daily Pivot Point (P = 732.08) at ~12:00 ET. ENTRY displayed as **IDLE** on the dashboard. Investigation into the decision audit log for the session (`logs/decisions/2026-05-07.jsonl`) showed:
+
+- 15× `orchestrator_paused` drops
+- 11× `session_window_gate` drops
+- **Zero real strategy drops** (no `entry_trust_gate`, `risk_gate`, or `dispatch_exception` entries)
+
+This pattern — many paused/gate drops but no strategy evaluation at all — indicated D31 never reached the signal-dispatch stage. The launcher log confirmed this with repeated entries every 30 minutes:
+
+```
+D31 regime: SPY cache has 0 closes (<2) — failing closed to CRISIS
+```
+
+### Root cause
+
+**G18 (`SpyderG18_MarketDataWorker`) and the A05 event bus are disconnected in dashboard-only mode.**
+
+| Component | What it does | What it does NOT do |
+|---|---|---|
+| G18 `_fetch_quotes_fast()` | Fetches SPY/VIX/etc. from Tradier every 10 s; writes merged data to `market_data/live_data.json`; emits Qt signals for GUI widget updates | **Does NOT publish `EventType.MARKET_DATA` events to the A05 `EventManager` event bus** |
+| D31 `_on_market_data_event()` | Subscribes to `EventType.MARKET_DATA` on the A05 bus; appends each tick to `market_data_cache[symbol]` | **Only reachable via the A05 event bus** — never called in dashboard-only mode |
+| C01 `DataFeedManager._on_provider_data()` | Publishes `EventType.MARKET_DATA` events | Only started by R12 `SessionSupervisor._start_data_feed()`; not running in dashboard-only mode |
+
+**Consequence:** `market_data_cache["SPY"]` stays at 0 entries for the entire session. `_classify_market_regime_unified()` checks `len(spy_closes) < 2` and returns `MarketRegime.CRISIS` immediately. CRISIS → no strategy allocations → no signals → ENTRY: IDLE all day.
+
+This means **any dashboard restart** (without R12 `SessionSupervisor` running) produces a cold D31 that cannot exit CRISIS no matter how long it runs or how many SPY quotes G18 fetches.
+
+The optional `SPYDER_ENABLE_STARTUP_CACHE_SEED` flag provides a one-time warm-start at init, but was defaulting to `"0"` — and even when set, it only seeds 2 entries at boot without any mechanism to keep the cache updated during the session.
+
+### Evidence from logs
+
+```
+# launcher log — typical restart pattern (dashboard-only mode, R12 not running)
+2026-05-07 14:28:52 — D31 init, no startup seed log → cache empty
+2026-05-07 14:28:52 — "SPY cache has 0 closes (<2) — failing closed to CRISIS"
+2026-05-07 14:59:00 — same CRISIS warning (every 30-min rebalance cycle)
+2026-05-07 15:29:00 — same
+# ... repeated all session
+```
+
+For comparison, the one session with the seed flag enabled (2026-05-06 evening):
+
+```
+2026-05-06 21:04:43 — "D31 cache seeded from disk: SPY prev=723.77 current=733.86"
+# → immediately exited CRISIS, strategies loaded
+```
+
+### Fix applied (2026-05-07)
+
+**File:** `Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`
+
+#### 1. `_recover_cache_if_cold()` — new method
+
+Added at D31 line 1087. When the SPY cache has fewer than 2 closes, reads the current `market_data/live_data.json` (written by G18 every 10 s) and seeds the cache via the existing `_seed_cache_from_disk()` logic. Throttled to at most once per 30 seconds to avoid excessive disk I/O.
+
+```python
+def _recover_cache_if_cold(self) -> None:
+    spy_ticks = self.market_data_cache.get("SPY", [])
+    spy_closes = [self._coerce_float(t.get("close", t.get("price")))
+                  for t in spy_ticks if isinstance(t, dict)]
+    if len([c for c in spy_closes if c is not None]) >= 2:
+        return  # warm — nothing to do
+    now_mono = time.monotonic()
+    last = getattr(self, "_last_disk_reseed_monotonic", 0.0)
+    if now_mono - last < 30.0:
+        return  # throttle
+    self._last_disk_reseed_monotonic = now_mono
+    self._seed_cache_from_disk()
+```
+
+#### 2. Called from `_classify_market_regime_unified()` before the CRISIS guard
+
+```python
+# v28 bridge: G18 writes live_data.json every 10 s but does NOT publish
+# EventType.MARKET_DATA events to the event bus, so the cache is always cold
+# in dashboard-only mode. Attempt live_data recovery before failing to CRISIS.
+self._recover_cache_if_cold()
+
+spy_ticks = self.market_data_cache.get("SPY", [])
+# ... existing check: if len(spy_closes) < 2: return MarketRegime.CRISIS
+```
+
+#### 3. `SPYDER_ENABLE_STARTUP_CACHE_SEED=1` added to `.env`
+
+Ensures D31 seeds from `live_data.json` + `spy_prev_day.json` at every init — the cache has ≥ 2 closes before the first regime evaluation cycle. Combined with `_recover_cache_if_cold()`, the cache stays warm throughout the session.
+
+### Combined effect after fix
+
+| Timing | Before fix | After fix |
+|---|---|---|
+| At init | Cache cold (0 closes) unless seed flag manually set | Startup seed runs; cache has prev-day + current SPY (≥ 2 closes) |
+| First rebalance cycle (~5 s after G18 first write) | CRISIS — no strategies | `_recover_cache_if_cold()` seeds from live_data.json; correct regime detected |
+| Ongoing every 10 s | Cache stays cold forever | G18 writes live_data.json; `_recover_cache_if_cold()` keeps cache live (30 s max lag) |
+| Expected DISPATCH state | IDLE (permanent) | FLOWING / IDLE / BLOCKED depending on session window and gates |
+
+### Architecture note
+
+The proper long-term fix is to publish `EventType.MARKET_DATA` events directly from G18's `_fetch_quotes_fast()` after writing `live_data.json`, which would give D31 real-time tick updates via the event bus without any disk I/O. That change was not made here because it couples the GUI layer (G18) to the engine bus (A05), which has wider architectural implications. The `_recover_cache_if_cold()` fallback achieves the same practical outcome (D31 exits CRISIS within one rebalance cycle) without changing the G18/A05 interface.
+
+### Residual risk
+
+- The cache recovery reads at most the current snapshot from `live_data.json` (one prev-day tick + one current tick = 2 closes). This is the minimum needed for regime classification. The EMA50 and ATR computed over only 2 ticks will have very high uncertainty — the regime label in the first few minutes after a cold start is approximate. As `_on_market_data_event` receives actual event-bus ticks (when R12 is running), the 200-tick buffer fills and classification improves.
+- In pure dashboard mode (R12 not running) D31 will classify regime from only the 2 seeded closes indefinitely. This is an improvement over permanent CRISIS but remains an approximation. Operators running the full paper session via R12 get full tick-stream accuracy.
+- Commit: `fix/tnx-dashboard-display` branch, commit `2b3494a`.
+
+## 10.9) L09 Confidence Gate and Regime Divergence Documentation (2026-05-08)
+
+### Discovery context
+
+On 2026-05-08, live monitoring showed `REGIME: BULL` / `GATE: BULL TREND` on the dashboard while D31 logs showed L09 consistently returning `SIDEWAYS_RANGE` at 60% confidence across four session startups. With VIX at 17.24 (+0.94%) and SPY daily gain +0.68%, L09's composite ensemble was right on the SIDEWAYS/BULL boundary. The dashboard's BULL reading came from S07 (DIX=44.7, SWAN=1.55), while D31 was silently selecting `SIDEWAYS_LOW_VOL` strategy weights (Iron Condor) rather than BULL strategy weights (Bull Put Spread).
+
+The divergence was invisible to the operator — no indicator surfaced that D31 and the dashboard disagreed. ENTRY showed IDLE, which was ambiguous: "no signal conditions met" or "wrong regime silently filtering signals"?
+
+### 10.9.1) Fix — 70% confidence threshold gate in D31
+
+**File:** `Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`, method `_classify_market_regime_unified()`
+
+**Root cause:** D30 `RegimeGatedSelector` already enforces `confidence_threshold=70%` before accepting L09's classification for D30's own strategy selection. D31 had no equivalent gate — it accepted L09's classification at any confidence level, including the 60% `neutral_fallback` returned by L09's `_detect_lean_regime()` when none of Rules 0–5 resolve (because EMA50 / ATR values are not yet populated or borderline).
+
+This meant D31 was selecting sideways strategy weights on the basis of a L09 classification that D30 would itself have ignored — creating a silent divergence where D30's gate and D31's internal regime picker operated at different confidence standards.
+
+**Fix applied:**
+
+```python
+# D31 _classify_market_regime_unified() — added after L09 returns consensus
+_L09_CONFIDENCE_THRESHOLD = 0.70
+if consensus.confidence < _L09_CONFIDENCE_THRESHOLD:
+    self.logger.info(
+        "📊 L09 conf %.2f < %.2f threshold — deferring to heuristic classifier "
+        "(L09 said %s)",
+        consensus.confidence,
+        _L09_CONFIDENCE_THRESHOLD,
+        consensus.regime.value,
+    )
+    return self._classify_market_regime(vix_level, vix_percentile, trend_strength)
+```
+
+**Effect:** When L09 returns confidence < 0.70, D31 defers to the inline heuristic classifier. L09 classifies are still stored in `_last_l09_confidence` and `_last_l09_consensus` for observability. The deference is logged at INFO level — visible without tailing debug logs — so operators can see when and why the fallback engaged.
+
+**L09 confidence levels (as implemented in `_detect_lean_regime`):**
+
+| Rule fired | Confidence returned |
+|---|---|
+| EVENT (clock state) | 1.00 |
+| CRISIS (VIX9D > VIX) | 1.00 |
+| BULL (SPY > EMA50 AND VIX < EMA50) | 0.90 |
+| BEAR (SPY < EMA50 AND VIX > EMA50) | 0.90 |
+| RANGE (within ATR AND contango) | 0.85 |
+| VOLATILE (ATR% elevated AND VIX pctl ≥ 80) | 0.85 |
+| Neutral fallback (no rule matched) | **0.60** — below threshold, defers to heuristic |
+
+The 0.60 neutral fallback fires when the `spy_ema50` / `vix_ema50` values are NaN or borderline — typically in the first few minutes of a session before the EMA50 buffer fills, or when market conditions are genuinely ambiguous.
+
+**Commit:** `fix/tnx-dashboard-display` branch, commit `76970cb`.
+
+### 10.9.2) As-implemented gap — D31 heuristic fallback approximation
+
+**Status: documented; fix recommended (open item #5)**
+
+When D31 defers to the heuristic classifier (`_classify_market_regime()`), the function uses `trend_strength` — a simple first-vs-last-tick SPY momentum proxy computed as:
+
+```python
+pct_change = (closes[-1] - closes[0]) / closes[0]
+return max(-1.0, min(1.0, pct_change * 20))  # 5% move → 1.0
+```
+
+This is **not** the canonical Section 4.0 Rule 2 logic (`SPY > SPY_EMA50 AND VIX < VIX_EMA50`). It will produce `BULL_LOW_VOL` when `trend_strength > 0.3` (i.e. when the SPY cache shows a +1.5% intraday move), which may or may not agree with the EMA50-based regime definition.
+
+**Impact today:** With SPY +0.68% and VIX 17.24 (calm), `trend_strength` ≈ 0.68 × 20 / 100 ≈ 0.14 — below the 0.3 threshold → heuristic returns `SIDEWAYS_LOW_VOL`, same as L09's fallback. *The 70% gate fix alone did not change today's effective regime.* The fix prevents a worse future case where L09's 60% SIDEWAYS overrides a strong bull session — but in today's borderline session, both L09 and the heuristic produce SIDEWAYS.
+
+**Correct long-term fix:** Implement `SPY > EMA50 AND VIX < EMA50` directly in `_classify_market_regime()`, using the EMA50 values already computed above in `_classify_market_regime_unified()`. These can be passed as optional parameters to the heuristic function, eliminating the recomputation cost and making the fallback match the canonical contract.
+
+### 10.9.3) As-implemented gap — §5.3 REGIME pill source corrected
+
+**Status: documented; §5.3 source table corrected in this version**
+
+v15 §5.3 stated:
+
+> Regime (L09 output) | **Regime** | SpyderL09_UnifiedRegimeEngine
+
+This was incorrect as-implemented. The dashboard `REGIME` pill is driven by G05 `update_regime_pills()`, which derives the regime label from S07 market metrics (DIX, SWAN, SKEW, GEX) via a set of threshold rules. L09 is never queried by G05 directly.
+
+**Why it was marked as resolved in v9/v12:** The v9 drift note (#2) correctly noted the S07-vs-L09 split and concluded "acceptable — they convey *posture*, not execution truth". The v12 fix addressed execution-truth observability by adding the DISPATCH pill. However, the §5.3 source table was never updated to match.
+
+**v16 correction:** The §5.3 table now reads:
+
+> Regime (display posture) | **Regime** | G05 `update_regime_pills()` — derived from S07 DIX / SWAN / SKEW / GEX metrics; **not** L09
+
+A dual-regime-path note has been added to §5.3 explaining the intentional split and when the two classifiers may disagree.
+
+**Operational consequence:** When L09 confidence is ≥ 0.70 and L09's regime disagrees with the S07-derived dashboard label, D31 will execute against L09's classification while the dashboard shows the S07 label. This is a known display gap. The DISPATCH pill remains the single surface that reflects execution truth — if D31 is selecting a different regime from the display label, this will manifest as IDLE when BULL TREND strategies are expected to fire, or FLOWING when strategies consistent with the S07 label would not.

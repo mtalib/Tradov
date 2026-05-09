@@ -44,12 +44,12 @@ class _Logger:
         return logging.getLogger(name)
 
 for _k in ("Spyder.SpyderU_Utilities.SpyderU01_Logger",
-           "SpyderU_Utilities.SpyderU01_Logger"):
+           "Spyder.SpyderU_Utilities.SpyderU01_Logger"):
     _m = _ensure_mod(_k)
     _m.SpyderLogger = _Logger
 
 for _k in ("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
-           "SpyderU_Utilities.SpyderU02_ErrorHandler"):
+           "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"):
     _m = _ensure_mod(_k)
     _m.SpyderErrorHandler = type("SpyderErrorHandler", (), {})
 

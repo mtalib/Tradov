@@ -59,7 +59,7 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderA_Core.SpyderA05_EventManager import Event, EventType
 except ImportError as e:
     logging.info("Warning: Cannot import Spyder modules: %s", e)

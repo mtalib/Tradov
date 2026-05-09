@@ -63,7 +63,7 @@ except ImportError:
 # LOCAL IMPORTS (with graceful fallbacks)
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
     SPYDER_LOGGER_AVAILABLE = True
 except ImportError:

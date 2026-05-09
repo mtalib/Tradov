@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU46_SecretsManager.py
 Purpose: Unified secrets management — env vars, encrypted YAML, optional Vault
 
@@ -75,13 +75,13 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     _log = SpyderLogger.get_logger(__name__)
 except ImportError:
     _log = logging.getLogger(__name__)
 
 try:
-    from SpyderU_Utilities.SpyderU04_Encryption import EncryptionManager
+    from Spyder.SpyderU_Utilities.SpyderU04_Encryption import EncryptionManager
     _enc = EncryptionManager()
     HAS_ENCRYPTION = True
 except Exception:
@@ -143,7 +143,7 @@ class SecretsManager:
 
     Usage::
 
-        from SpyderU_Utilities.SpyderU46_SecretsManager import get_secrets
+        from Spyder.SpyderU_Utilities.SpyderU46_SecretsManager import get_secrets
 
         sm = get_secrets()
         token     = sm.get("TRADIER_API_TOKEN")

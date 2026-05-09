@@ -125,8 +125,8 @@ except ImportError as e:
 
 # U-Series: Utilities
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 
     import_status["U-Utilities"] = True
     print(Fore.GREEN + "✅ U-Series (Utilities) imported successfully")

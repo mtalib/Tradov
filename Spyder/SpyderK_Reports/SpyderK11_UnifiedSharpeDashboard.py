@@ -49,7 +49,7 @@ import pandas as pd
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderE_Risk.SpyderE06_RiskMetrics import (
         RiskMetricsCalculator,
         calculate_sharpe_ratio,

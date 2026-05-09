@@ -33,6 +33,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _allow_sandbox_market_data() -> bool:
+    """Return True only when sandbox market-data routing is explicitly enabled."""
+    raw = str(os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA", "false")).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 # ==============================================================================
 # PROVIDER ENUM
 # ==============================================================================
@@ -147,18 +153,32 @@ class DataProviderRouter:
         return client
 
     def _build_tradier_client(self) -> Any:
-        """Construct a TradierClient configured for the active trading environment."""
+        """Construct a TradierClient configured for the active market-data environment."""
         from SpyderB_Broker.SpyderB40_TradierClient import (  # type: ignore[import]
             TradierClient,
             TradingEnvironment,
         )
 
-        trading_mode = os.environ.get("TRADING_MODE", "sandbox").lower()
-        environment = (
-            TradingEnvironment.LIVE
-            if trading_mode == "live"
-            else TradingEnvironment.SANDBOX
-        )
+        # Market-data routing defaults to LIVE for both paper and live sessions.
+        # Sandbox market data is available only via explicit opt-out.
+        market_data_env = (
+            os.environ.get("TRADIER_MARKET_DATA_ENVIRONMENT")
+            or os.environ.get("TRADIER_ENVIRONMENT")
+            or "live"
+        ).strip().lower()
+
+        allow_sandbox = _allow_sandbox_market_data()
+        is_live_env = market_data_env in {"live", "production"}
+
+        if not is_live_env and not allow_sandbox:
+            logger.warning(
+                "DataProviderRouter forcing LIVE market-data endpoint "
+                "(TRADIER_MARKET_DATA_ENVIRONMENT=%s ignored).",
+                market_data_env or "<empty>",
+            )
+            is_live_env = True
+
+        environment = TradingEnvironment.LIVE if is_live_env else TradingEnvironment.SANDBOX
 
         if environment == TradingEnvironment.SANDBOX:
             api_key = (
@@ -182,14 +202,22 @@ class DataProviderRouter:
             )
 
         if not api_key:
+            key_hint = (
+                "TRADIER_LIVE_API_KEY (or TRADIER_API_KEY)"
+                if environment == TradingEnvironment.LIVE
+                else "TRADIER_SANDBOX_API_KEY (or TRADIER_API_KEY)"
+            )
             raise ValueError(
-                "Tradier API key not set. Add TRADIER_SANDBOX_API_KEY (or TRADIER_API_KEY) "
-                "to your .env file."
+                f"Tradier API key not set. Add {key_hint} to your .env file."
             )
         if not account_id:
+            account_hint = (
+                "TRADIER_LIVE_ACCOUNT_ID (or TRADIER_ACCOUNT_ID)"
+                if environment == TradingEnvironment.LIVE
+                else "TRADIER_SANDBOX_ACCOUNT_ID (or TRADIER_ACCOUNT_ID)"
+            )
             raise ValueError(
-                "Tradier account ID not set. Add TRADIER_SANDBOX_ACCOUNT_ID (or "
-                "TRADIER_ACCOUNT_ID) to your .env file."
+                f"Tradier account ID not set. Add {account_hint} to your .env file."
             )
 
         logger.debug(

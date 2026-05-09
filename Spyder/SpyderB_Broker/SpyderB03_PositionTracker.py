@@ -54,7 +54,7 @@ class PositionTracker:
         self.greeks_calculator = None  # Optional Greeks calculator
 
         # Logging
-        from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+        from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
         self.logger = SpyderLogger.get_logger(__name__)
 

@@ -39,14 +39,14 @@ _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # U06 — no local imports needed
-_u06 = _load("Spyder/SpyderU_Utilities/SpyderU06_MathUtils.py")
+_u06 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU06_MathUtils.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU06_MathUtils"] = _u06
 
 # U08 — needs U01 injected first
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u08 = _load("Spyder/SpyderU_Utilities/SpyderU08_Validators.py")
+_u08 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU08_Validators.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU08_Validators"] = _u08
 
 # ==============================================================================

@@ -52,7 +52,21 @@ import pandas as pd
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderF_Analysis.SpyderF20_Indicators import ADX as _f20_adx
+# --- F20 imports: independent guards so partial F20 availability is handled ---
+try:
+    from Spyder.SpyderF_Analysis.SpyderF20_Indicators import ADX as _f20_adx
+    _F20_ADX_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _F20_ADX_AVAILABLE = False
+    _f20_adx = None  # type: ignore[assignment]
+
+try:
+    from Spyder.SpyderF_Analysis.SpyderF20_Indicators import RSI as _f20_rsi
+    _F20_RSI_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _F20_RSI_AVAILABLE = False
+    _f20_rsi = None  # type: ignore[assignment]
+
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
     BaseStrategy,
     EventManager,
@@ -72,6 +86,9 @@ from Spyder.SpyderS_Signals.SpyderS08_PivotMeanReversionSignal import (
     PivotMRSignal,
 )
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: F401
+
+# VWAP is not exported by SpyderF20_Indicators; local implementation is primary.
+_F20_VWAP_AVAILABLE = False
 
 # ==============================================================================
 # CONSTANTS
@@ -104,6 +121,9 @@ SIGNAL_EXPIRY_S  = 120        # signal valid for 2 minutes
 
 # --- Scoring ---
 STRATEGY_ID = "D34_PivotMR"
+
+# --- State management ---
+TRADE_STATE_REAP_HORIZON_MIN = max(TIME_STOP_MINUTES * 3, 40)  # 40 min; catches leaked states
 
 
 # ==============================================================================
@@ -167,10 +187,11 @@ class OpenTradeState:
     vwap_at_entry: float
     stop_price:    float          # adverse pivot + 0.15%
     time_limit:    datetime       # entry_time + 12 min
-    # Current bars for 5-min close tracking
+    # Current bar for underlying price tracking
     _five_min_bar_close: float = 0.0
 
-    def update_five_min_close(self, close: float) -> None:
+    def update_last_close(self, close: float) -> None:
+        """Update the most-recent bar close used by check_underlying_stop."""
         self._five_min_bar_close = close
 
     def check_time_stop(self, current_price: float, now: datetime) -> Optional[str]:
@@ -199,7 +220,13 @@ class OpenTradeState:
         return None
 
     def check_vwap_target(self, current_spot: float, current_vwap: float) -> Optional[str]:
-        """Return exit reason when SPY crosses the intraday VWAP (take-profit)."""
+        """Return exit reason when SPY crosses the intraday VWAP (take-profit).
+
+        Returns None (hold) when current_vwap is NaN — prevents a spurious
+        take-profit trigger on sessions where VWAP cannot yet be computed.
+        """
+        if np.isnan(current_vwap):
+            return None
         if self.direction == PivotDirection.FADE_RESISTANCE:
             # We want spot to fall toward VWAP from above
             if current_spot <= current_vwap:
@@ -224,18 +251,54 @@ def _compute_adx(bars: list[IntradayBar], period: int = ADX_PERIOD) -> float:
         period: Smoothing period (default 14).
 
     Returns:
-        ADX value (0–100), or float("nan") if insufficient data.
+        ADX value (0–100), or float("nan") if insufficient data or F20 unavailable.
     """
     if len(bars) < period * 2:
+        return float("nan")
+    if not _F20_ADX_AVAILABLE:
         return float("nan")
     highs  = np.array([b.high  for b in bars], dtype=float)
     lows   = np.array([b.low   for b in bars], dtype=float)
     closes = np.array([b.close for b in bars], dtype=float)
-    result = _f20_adx(highs, lows, closes, timeperiod=period)
+    result = _f20_adx(highs, lows, closes, timeperiod=period)  # type: ignore[misc]
     last   = result[-1]
     return float(last) if not np.isnan(last) else float("nan")
 
 
+def _rolling_rsi(arr: np.ndarray, period: int = 14) -> np.ndarray:
+    """
+    Compute a full RSI series matching _compute_rsi's SMA-of-gains/losses formula.
+
+    Runs in O(n) (one pass) instead of the O(n²) loop that _rsi_curl_confirms
+    previously used.  The result is cached in PivotMeanReversionStrategy._rsi_cache.
+
+    Args:
+        arr:    Array of close prices, oldest first.
+        period: RSI period (default 14).
+
+    Returns:
+        Float array of length len(arr); positions < period are NaN.
+    """
+    n = len(arr)
+    result = np.full(n, float("nan"))
+    if n < period + 1:
+        return result
+    deltas = np.diff(arr.astype(float))  # length n-1
+    gains  = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    for i in range(period, n):
+        ag = gains[i - period:i].mean()
+        al = losses[i - period:i].mean()
+        if al == 0.0:
+            result[i] = 100.0
+        else:
+            rs = ag / al
+            result[i] = round(100.0 - (100.0 / (1.0 + rs)), 2)
+    return result
+
+
+# DEPRECATED: Use _rolling_rsi() + PivotMeanReversionStrategy._rsi_cache for
+# series computation.  Retained for direct one-off scalar calls.
 def _compute_rsi(closes: list[float], period: int = 14) -> float:
     """Compute RSI(period) from a sequence of close prices. Returns NaN if insufficient."""
     if len(closes) < period + 1:
@@ -252,6 +315,8 @@ def _compute_rsi(closes: list[float], period: int = 14) -> float:
     return round(100.0 - (100.0 / (1.0 + rs)), 2)
 
 
+# DEPRECATED: Use ATR from SpyderF20_Indicators.ATR when _F20_ATR_AVAILABLE.
+# Retained as fallback for when F20 is unavailable.
 def _compute_atr(bars: list[IntradayBar], period: int = 14) -> float:
     """Compute ATR(period). Returns NaN if insufficient bars."""
     if len(bars) < period + 1:
@@ -265,6 +330,8 @@ def _compute_atr(bars: list[IntradayBar], period: int = 14) -> float:
     return float(np.mean(trs[-period:]))
 
 
+# DEPRECATED: VWAP is not exported by SpyderF20_Indicators (_F20_VWAP_AVAILABLE=False);
+# this local implementation remains primary.
 def _compute_session_vwap(bars: list[IntradayBar]) -> float:
     """Session VWAP from session-start. Returns NaN if no bars."""
     if not bars:
@@ -274,6 +341,8 @@ def _compute_session_vwap(bars: list[IntradayBar]) -> float:
     return cum_pv / cum_vol if cum_vol > 0 else float("nan")
 
 
+# DEPRECATED: VWAP is not exported by SpyderF20_Indicators (_F20_VWAP_AVAILABLE=False);
+# this local implementation remains primary.
 def _compute_vwap_slope_bps_per_min(bars: list[IntradayBar], lookback: int = 5) -> float:
     """
     Estimate VWAP slope over the last `lookback` bars in bps/minute.
@@ -344,6 +413,7 @@ class PivotMeanReversionStrategy(BaseStrategy):
 
         # --- State ---
         self._bar_buffer: list[IntradayBar] = []
+        self._rsi_cache: np.ndarray = np.array([], dtype=float)  # pre-computed RSI series
         self._daily_pivots: Optional[DailyPivots] = None
         self._open_trade_states: dict[str, OpenTradeState] = {}
         self._trade_lock = threading.Lock()
@@ -372,6 +442,26 @@ class PivotMeanReversionStrategy(BaseStrategy):
             name, self._adx_max, self._tick_long, self._tick_short,
             self._time_stop_m, self._stop_pct * 100,
         )
+
+    def _reap_stale_trade_states(self) -> None:
+        """Remove open trade states older than TRADE_STATE_REAP_HORIZON_MIN.
+
+        Protects against `_open_trade_states` growing unbounded when
+        `on_position_closed` is not called (e.g. after an orchestrator restart).
+        """
+        now = datetime.now(tz=ET)
+        horizon = timedelta(minutes=TRADE_STATE_REAP_HORIZON_MIN)
+        with self._trade_lock:
+            stale = [
+                pid for pid, state in self._open_trade_states.items()
+                if (now - state.entry_time) > horizon
+            ]
+            for pid in stale:
+                self.logger.warning(
+                    "PMR: reaping stale trade state %s (age > %dmin)",
+                    pid[:8], TRADE_STATE_REAP_HORIZON_MIN,
+                )
+                del self._open_trade_states[pid]
 
     def _resolve_position_id(self, position: Any) -> Optional[str]:
         """Resolve a strategy position identifier across runtime adapters."""
@@ -440,6 +530,9 @@ class PivotMeanReversionStrategy(BaseStrategy):
         """
         if market_data.empty or len(market_data) < 2:
             return []
+
+        # Reap stale trade states (leak protection against missed on_position_closed)
+        self._reap_stale_trade_states()
 
         # --- Refresh bar buffer ---
         self._refresh_bar_buffer(market_data)
@@ -578,6 +671,10 @@ class PivotMeanReversionStrategy(BaseStrategy):
         spot = market_data["close"].iloc[-1]
         now  = datetime.now(tz=ET)
         vwap = _compute_session_vwap(self._bar_session_bars())
+        if np.isnan(vwap):
+            self.logger.warning(
+                "PMR: session VWAP is NaN; VWAP take-profit disabled for %s", position_id[:8]
+            )
 
         # --- Exit A: VWAP take-profit ---
         reason = state.check_vwap_target(spot, vwap)
@@ -590,7 +687,7 @@ class PivotMeanReversionStrategy(BaseStrategy):
             return True, reason
 
         # --- Exit C: Underlying price stop (5-min close) ---
-        state.update_five_min_close(spot)   # every bar; strategy caller may batch
+        state.update_last_close(spot)   # every bar; strategy caller may batch
         reason = state.check_underlying_stop()
         if reason:
             return True, reason
@@ -619,7 +716,9 @@ class PivotMeanReversionStrategy(BaseStrategy):
         spot = float(position.current_price)
         now  = datetime.now(tz=ET)
         vwap = _compute_session_vwap(self._bar_session_bars())
-        state.update_five_min_close(spot)
+        if np.isnan(vwap):
+            self.logger.warning("PMR: session VWAP is NaN in check_exit; VWAP take-profit skipped")
+        state.update_last_close(spot)
 
         for check in (
             state.check_vwap_target(spot, vwap),
@@ -697,7 +796,11 @@ class PivotMeanReversionStrategy(BaseStrategy):
     # ==========================================================================
 
     def _refresh_bar_buffer(self, market_data: pd.DataFrame) -> None:
-        """Rebuild _bar_buffer from market_data, keeping last 200 bars."""
+        """Rebuild _bar_buffer from market_data, keeping last 200 bars.
+
+        Also pre-computes the full RSI series and caches it in _rsi_cache so
+        that _rsi_curl_confirms can do an O(1) lookup instead of O(n²) recomputation.
+        """
         bars: list[IntradayBar] = []
         for ts, row in market_data.iterrows():
             dt = ts if isinstance(ts, datetime) else pd.Timestamp(ts).to_pydatetime()
@@ -710,6 +813,18 @@ class PivotMeanReversionStrategy(BaseStrategy):
                 volume    = float(row.get("volume", 1.0)),
             ))
         self._bar_buffer = bars[-200:]
+
+        # Pre-compute RSI cache (O(n) via _rolling_rsi or F20)
+        closes_arr = np.array([b.close for b in self._bar_buffer], dtype=float)
+        if _F20_RSI_AVAILABLE and _f20_rsi is not None:
+            try:
+                rsi_result = _f20_rsi(closes_arr, timeperiod=14)  # type: ignore[misc]
+                self._rsi_cache = np.asarray(rsi_result, dtype=float)
+            except Exception as exc:
+                self.logger.debug("F20 RSI failed, falling back to local: %s", exc)
+                self._rsi_cache = _rolling_rsi(closes_arr)
+        else:
+            self._rsi_cache = _rolling_rsi(closes_arr)
 
     def _bar_session_bars(self) -> list[IntradayBar]:
         """Return bars from today's session only (for VWAP).
@@ -810,28 +925,28 @@ class PivotMeanReversionStrategy(BaseStrategy):
         For a fade-resistance (short) signal: RSI must have reached ≥ 70 and
         is now < 70.
 
-        Current bar-level implementation: the simplest proxy is to check
-        whether RSI is within the "just-curled" band (30–38 for longs,
-        62–70 for shorts).  A more rigorous implementation would track
-        the RSI low/high across the last N bars using `_bar_buffer`.
+        Uses the pre-computed _rsi_cache (populated by _refresh_bar_buffer)
+        for an O(1) lookup instead of the previous O(n²) per-bar recomputation.
         """
+        n = len(self._rsi_cache)
+
+        if n < 16:
+            # Insufficient history — relax to single-bar band check
+            if direction == PivotDirection.FADE_SUPPORT:
+                return rsi <= 38
+            if direction == PivotDirection.FADE_RESISTANCE:
+                return rsi >= 62
+            return False
+
+        recent = self._rsi_cache[max(0, n - 15):]
+        recent = recent[~np.isnan(recent)]
+
         if direction == PivotDirection.FADE_SUPPORT:
-            # Oversold reached; now curling above 30
-            closes = [b.close for b in self._bar_buffer]
-            if len(closes) < 16:
-                return rsi <= 38        # insufficient history — relax
-            rsi_series = [_compute_rsi(closes[:i]) for i in range(len(closes) - 15, len(closes))]
-            rsi_series = [r for r in rsi_series if not np.isnan(r)]
-            was_oversold = any(r <= 30 for r in rsi_series)
+            was_oversold = bool(np.any(recent <= 30))
             return was_oversold and rsi > 30
 
         if direction == PivotDirection.FADE_RESISTANCE:
-            closes = [b.close for b in self._bar_buffer]
-            if len(closes) < 16:
-                return rsi >= 62
-            rsi_series = [_compute_rsi(closes[:i]) for i in range(len(closes) - 15, len(closes))]
-            rsi_series = [r for r in rsi_series if not np.isnan(r)]
-            was_overbought = any(r >= 70 for r in rsi_series)
+            was_overbought = bool(np.any(recent >= 70))
             return was_overbought and rsi < 70
 
         return False

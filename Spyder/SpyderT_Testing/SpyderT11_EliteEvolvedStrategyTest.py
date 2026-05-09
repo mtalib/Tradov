@@ -68,7 +68,7 @@ def test_elite_evolved_strategy():
 
     # Load institutional libraries
     try:
-        from SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
+        from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
             OptionType, get_institutional_libraries)
 
         libs = get_institutional_libraries()

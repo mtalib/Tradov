@@ -115,10 +115,10 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-    from SpyderU_Utilities.SpyderU03_DateTimeUtils import SpyderDateTimeUtils
-    from SpyderU_Utilities.SpyderU10_TradingCalendar import SpyderTradingCalendar
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import SpyderDateTimeUtils
+    from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import SpyderTradingCalendar
     from SpyderA_Core.SpyderA04_Scheduler import SpyderScheduler
     from SpyderJ_Alerts.SpyderJ01_AlertManager import SpyderAlertManager
     from SpyderJ_Alerts.SpyderJ02_EmailNotifier import SpyderEmailNotifier

@@ -20,8 +20,8 @@ from typing import Any
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import (
+from PySide6.QtGui import QColor, QCursor, QFont
+from PySide6.QtWidgets import (QToolTip,
     QButtonGroup,
     QFrame,
     QGridLayout,
@@ -52,18 +52,9 @@ from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import (
     GreekBar,
     MarketSymbolWidget,
     SignalMonitorPanel,
-    TradingMode,
 )
 
 logger = logging.getLogger(__name__)
-
-try:
-    from Spyder.SpyderG_GUI.SpyderG16_CircuitBreakerMonitor import create_circuit_breaker_monitor
-
-    circuit_breaker_monitor_available = True
-except ImportError:
-    create_circuit_breaker_monitor = None  # type: ignore
-    circuit_breaker_monitor_available = False
 
 
 def build_left_panel(dashboard: Any, market_symbols: dict[str, list[str]]) -> QWidget:
@@ -143,6 +134,25 @@ def build_left_panel(dashboard: Any, market_symbols: dict[str, list[str]]) -> QW
     return panel
 
 
+class _ClickablePillLabel(QLabel):
+    """QLabel pill that shows its tooltip immediately on left-click."""
+
+    def __init__(self, text: str, parent=None) -> None:
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton:
+            tip = self.toolTip()
+            if tip:
+                # Defer until after the release event is fully processed so
+                # Qt's tooltip manager (which hides on press) has already run.
+                pos = QCursor.pos()
+                rect = self.rect()
+                QTimer.singleShot(0, lambda: QToolTip.showText(pos, tip, self, rect, 8000))
+        super().mouseReleaseEvent(event)
+
+
 def _regime_sep() -> "QLabel":
     """Thin dim separator bar used between regime pills."""
     lbl = QLabel("  |  ")
@@ -185,28 +195,28 @@ def build_center_panel(dashboard: Any) -> QWidget:
     # Order follows the decision-flow narrative: REGIME → STRESS → STANCE → GATE
     # (policy/posture state) → ENTRY (the only runtime observation,
     # which also carries the HALT visual that the legacy TRADEABLE pill used to).
-    dashboard.regime_pill = QLabel("REGIME: —")
+    dashboard.regime_pill = _ClickablePillLabel("REGIME: —")
     dashboard.regime_pill.setStyleSheet(_PILL_INIT_SS)
     dashboard.regime_pill.setToolTip("Market regime from L09 detection pipeline")
     regime_layout.addWidget(dashboard.regime_pill)
 
     regime_layout.addWidget(_regime_sep())
 
-    dashboard.stress_pill = QLabel("STRESS: —")
+    dashboard.stress_pill = _ClickablePillLabel("STRESS: —")
     dashboard.stress_pill.setStyleSheet(_PILL_INIT_SS)
     dashboard.stress_pill.setToolTip("S07 stress level from SWAN bands")
     regime_layout.addWidget(dashboard.stress_pill)
 
     regime_layout.addWidget(_regime_sep())
 
-    dashboard.stance_pill = QLabel("STANCE: —")
+    dashboard.stance_pill = _ClickablePillLabel("STANCE: —")
     dashboard.stance_pill.setStyleSheet(_PILL_INIT_SS)
     dashboard.stance_pill.setToolTip("Strategy stance produced by D30 regime selector")
     regime_layout.addWidget(dashboard.stance_pill)
 
     regime_layout.addWidget(_regime_sep())
 
-    dashboard.gate_pill = QLabel("GATE: —")
+    dashboard.gate_pill = _ClickablePillLabel("GATE: —")
     dashboard.gate_pill.setStyleSheet(_PILL_INIT_SS)
     dashboard.gate_pill.setToolTip("Strategy gate / policy bucket from D31 orchestrator")
     regime_layout.addWidget(dashboard.gate_pill)
@@ -218,7 +228,7 @@ def build_center_panel(dashboard: Any) -> QWidget:
     # its permitted-strategy list and concurrency context now live in this tooltip.
     # Last in the bar because it is the only runtime observation; everything to
     # its left is policy/posture state.
-    dashboard.dispatch_pill = QLabel("ENTRY: —")
+    dashboard.dispatch_pill = _ClickablePillLabel("ENTRY: —")
     dashboard.dispatch_pill.setStyleSheet(_PILL_INIT_SS)
     dashboard.dispatch_pill.setToolTip(
         "Live entry state from D31 (FLOWING / IDLE / BLOCKED / ERROR / HALT)"
@@ -502,7 +512,7 @@ def build_right_panel(dashboard: Any) -> QWidget:
     panel = QWidget()
     panel.setMinimumWidth(580)
     layout = QVBoxLayout()
-    layout.setSpacing(3)
+    layout.setSpacing(4)
     layout.setContentsMargins(5, 5, 5, 5)
 
     button_layout = QHBoxLayout()
@@ -531,15 +541,6 @@ def build_right_panel(dashboard: Any) -> QWidget:
 
     layout.addLayout(button_layout)
 
-    if circuit_breaker_monitor_available:
-        try:
-            circuit_breaker_widget = create_circuit_breaker_monitor(parent=dashboard)
-            circuit_breaker_widget.setMaximumHeight(85)
-            layout.addSpacing(8)
-            layout.addWidget(circuit_breaker_widget)
-        except Exception as exc:
-            logger.info("⚠️ Failed to create circuit breaker monitor: %s", exc)
-
     account_widget = QWidget()
     account_widget.setStyleSheet(
         f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 5px;",  # noqa: E501
@@ -552,16 +553,14 @@ def build_right_panel(dashboard: Any) -> QWidget:
     acct_grid.setColumnStretch(1, 4)
     acct_grid.setColumnStretch(2, 3)
     acct_grid.setColumnStretch(3, 4)
+    acct_grid.setRowMinimumHeight(0, 30)
+    acct_grid.setRowMinimumHeight(1, 24)
+    acct_grid.setRowMinimumHeight(2, 24)
 
     cell_style = f"padding: 2px 5px; background-color: {COLORS['background']}; border: 1px solid {COLORS['border']}; font-size: 12px;"  # noqa: E501
 
     acct_grid.addWidget(dashboard._acct_lbl("ACCOUNT", cell_style), 0, 0)
-    trading_mode_init = os.environ.get("TRADING_MODE", "paper").lower()
-    display_acct_id = (
-        os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "—")
-        if trading_mode_init == "paper"
-        else os.environ.get("TRADIER_ACCOUNT_ID", "—")
-    )
+    display_acct_id = os.environ.get("TRADIER_ACCOUNT_ID", "LIVE ACCOUNT UNSET")
     dashboard.acct_number_lbl = dashboard._acct_lbl(display_acct_id, cell_style)
     acct_grid.addWidget(dashboard.acct_number_lbl, 0, 1)
 
@@ -571,16 +570,17 @@ def build_right_panel(dashboard: Any) -> QWidget:
     mode_layout.setSpacing(2)
 
     dashboard.live_btn = QPushButton("LIVE TRADING")
-    dashboard.live_btn.setToolTip("Switch to LIVE trading — real order execution at Tradier")
-    dashboard.paper_btn = QPushButton("PAPER TRADING")
-    dashboard.paper_btn.setToolTip("Switch to PAPER trading — simulated fills, Tradier sandbox")
+    dashboard.live_btn.setToolTip("REAL trading status indicator")
+    dashboard.live_btn.setFixedHeight(24)
+    dashboard.paper_btn = QPushButton("ENABLE REAL")
+    dashboard.paper_btn.setToolTip("Enable or disable REAL trading mode")
+    dashboard.paper_btn.setFixedHeight(24)
 
     mode_layout.addWidget(dashboard.live_btn)
     mode_layout.addWidget(dashboard.paper_btn)
     acct_grid.addWidget(mode_container, 0, 2, 1, 2)
 
-    dashboard.live_btn.clicked.connect(lambda: dashboard._on_mode_btn_clicked(TradingMode.LIVE))
-    dashboard.paper_btn.clicked.connect(lambda: dashboard._on_mode_btn_clicked(TradingMode.PAPER))
+    dashboard.paper_btn.clicked.connect(dashboard._on_real_arm_toggle_clicked)
     dashboard._update_mode_buttons()
     dashboard.mode_selector = None
     dashboard.mode_lbl = None
@@ -601,6 +601,72 @@ def build_right_panel(dashboard: Any) -> QWidget:
 
     account_widget.setLayout(acct_grid)
     layout.addWidget(account_widget)
+
+    spyderbox_widget = QWidget()
+    spyderbox_widget.setStyleSheet(
+        f"background-color: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 5px;",  # noqa: E501
+    )
+    spyderbox_grid = QGridLayout()
+    spyderbox_grid.setContentsMargins(4, 4, 4, 4)
+    spyderbox_grid.setHorizontalSpacing(3)
+    spyderbox_grid.setVerticalSpacing(3)
+    spyderbox_grid.setColumnStretch(0, 3)
+    spyderbox_grid.setColumnStretch(1, 4)
+    spyderbox_grid.setColumnStretch(2, 3)
+    spyderbox_grid.setColumnStretch(3, 4)
+    spyderbox_grid.setRowMinimumHeight(0, 30)
+    spyderbox_grid.setRowMinimumHeight(1, 24)
+    spyderbox_grid.setRowMinimumHeight(2, 24)
+
+    spyderbox_grid.addWidget(dashboard._acct_lbl("ACCOUNT", cell_style), 0, 0)
+    dashboard.spyderbox_acct_number_lbl = dashboard._acct_lbl("SpyderBox", cell_style)
+    dashboard.spyderbox_acct_number_lbl.setToolTip("In-house SpyderBox paper trading account")
+    spyderbox_grid.addWidget(dashboard.spyderbox_acct_number_lbl, 0, 1)
+
+    spyderbox_mode_container = QWidget()
+    spyderbox_mode_layout = QHBoxLayout(spyderbox_mode_container)
+    spyderbox_mode_layout.setContentsMargins(0, 0, 0, 0)
+    spyderbox_mode_layout.setSpacing(2)
+
+    dashboard.spyderbox_paper_status_btn = QPushButton("PAPER TRADING")
+    dashboard.spyderbox_paper_status_btn.setToolTip("SpyderBox paper-trading status indicator")
+    dashboard.spyderbox_paper_status_btn.setFixedHeight(24)
+    spyderbox_mode_layout.addWidget(dashboard.spyderbox_paper_status_btn)
+
+    dashboard.spyderbox_paper_toggle_btn = QPushButton("ENABLE PAPER")
+    dashboard.spyderbox_paper_toggle_btn.setToolTip("Enable or disable SpyderBox paper trading mode")
+    dashboard.spyderbox_paper_toggle_btn.setFixedHeight(24)
+    dashboard.spyderbox_paper_toggle_btn.clicked.connect(dashboard._on_paper_arm_toggle_clicked)
+    spyderbox_mode_layout.addWidget(dashboard.spyderbox_paper_toggle_btn)
+
+    dashboard.spyderbox_account_type_lbl = None
+    spyderbox_grid.addWidget(spyderbox_mode_container, 0, 2, 1, 2)
+
+    spyderbox_grid.addWidget(dashboard._acct_lbl("SETTLED CASH", cell_style), 1, 0)
+    dashboard.spyderbox_settled_value = dashboard._acct_lbl("—", cell_style, right=True)
+    spyderbox_grid.addWidget(dashboard.spyderbox_settled_value, 1, 1)
+    spyderbox_grid.addWidget(dashboard._acct_lbl("BUYING POWER", cell_style), 1, 2)
+    dashboard.spyderbox_buying_value = dashboard._acct_lbl("—", cell_style, right=True)
+    spyderbox_grid.addWidget(dashboard.spyderbox_buying_value, 1, 3)
+
+    spyderbox_grid.addWidget(dashboard._acct_lbl("REALIZED P&L", cell_style), 2, 0)
+    dashboard.spyderbox_realized_value = dashboard._acct_lbl(
+        "—",
+        cell_style + f"color: {COLORS['positive']};",
+        right=True,
+    )
+    spyderbox_grid.addWidget(dashboard.spyderbox_realized_value, 2, 1)
+    spyderbox_grid.addWidget(dashboard._acct_lbl("UNREALIZED P&L", cell_style), 2, 2)
+    dashboard.spyderbox_unrealized_value = dashboard._acct_lbl(
+        "—",
+        cell_style + f"color: {COLORS['positive']};",
+        right=True,
+    )
+    spyderbox_grid.addWidget(dashboard.spyderbox_unrealized_value, 2, 3)
+
+    spyderbox_widget.setLayout(spyderbox_grid)
+    layout.addWidget(spyderbox_widget)
+    dashboard._update_mode_buttons()
 
     pnl_group = QGroupBox("")
     pnl_group.setStyleSheet(
@@ -1544,14 +1610,9 @@ def build_toolbar(dashboard: Any) -> QWidget:
     )
     api_status_layout.addWidget(dashboard.api_connection_label)
 
-    dashboard.api_connect_icon = QLabel("\u26a1")
-    dashboard.api_connect_icon.setStyleSheet(
-        "color: " + COLORS["negative"] + "; font-size: 13px;",
-    )
-    dashboard.api_connect_icon.setCursor(Qt.CursorShape.PointingHandCursor)
-    dashboard.api_connect_icon.setToolTip("Click to connect to Tradier API")
-    dashboard.api_connect_icon.mousePressEvent = dashboard.toggle_api_connection
-    api_status_layout.addWidget(dashboard.api_connect_icon)
+    dashboard.api_connection_label.setCursor(Qt.CursorShape.PointingHandCursor)
+    dashboard.api_connection_label.setToolTip("Click to connect/disconnect Tradier API")
+    dashboard.api_connection_label.mousePressEvent = dashboard.toggle_api_connection
 
     dashboard.api_status_container.setLayout(api_status_layout)
 
@@ -1610,7 +1671,7 @@ def build_toolbar(dashboard: Any) -> QWidget:
         )
         dashboard.entry_block_compact_label.setToolTip("Latest entry block reason")
 
-    # Market Data Provider (label click = switch provider, ⚡ click = connect/disconnect)
+    # Market Data Provider (label click = switch provider)
     dashboard.mkt_provider_container = QWidget()
     dashboard.mkt_provider_container.setMinimumWidth(165)
     dashboard.mkt_provider_container.setMaximumWidth(165)
@@ -1638,19 +1699,18 @@ def build_toolbar(dashboard: Any) -> QWidget:
     dashboard.mkt_provider_label.setStyleSheet(f"color: {_provider_color}; font-size: 14px;")
     dashboard.mkt_provider_label.setCursor(Qt.CursorShape.PointingHandCursor)
     dashboard.mkt_provider_label.setToolTip(
-        "Click to switch between Tradier and Massive data source",
+        "Tradier is the active market data source",
     )
     dashboard.mkt_provider_label.mousePressEvent = dashboard.toggle_market_data_provider
     mkt_layout.addWidget(dashboard.mkt_provider_label)
 
-    dashboard.mkt_connect_icon = QLabel("\u26a1")
-    dashboard.mkt_connect_icon.setStyleSheet(
-        f"color: {_provider_color}; font-size: 13px;",
+    mkt_layout.addStretch(1)
+    dashboard.circuit_breaker_dot = QLabel("\u25cf")
+    dashboard.circuit_breaker_dot.setStyleSheet(
+        f"color: {COLORS['positive']}; font-size: 14px;",
     )
-    dashboard.mkt_connect_icon.setCursor(Qt.CursorShape.PointingHandCursor)
-    dashboard.mkt_connect_icon.setToolTip("Click to connect market data feed")
-    dashboard.mkt_connect_icon.mousePressEvent = dashboard._toggle_mkt_data_connection
-    mkt_layout.addWidget(dashboard.mkt_connect_icon)
+    dashboard.circuit_breaker_dot.setToolTip("Circuit Breaker Status: NORMAL")
+    mkt_layout.addWidget(dashboard.circuit_breaker_dot)
 
     dashboard.mkt_provider_container.setLayout(mkt_layout)
 

@@ -18,8 +18,10 @@ import os
 import sys
 import types
 import logging
+import asyncio
+import threading
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import patch
 
 logging.disable(logging.CRITICAL)
 
@@ -57,12 +59,12 @@ class _Logger:
         return logging.getLogger(name)
 
 for _k in ("Spyder.SpyderU_Utilities.SpyderU01_Logger",
-           "SpyderU_Utilities.SpyderU01_Logger"):
+           "Spyder.SpyderU_Utilities.SpyderU01_Logger"):
     _m = _ensure_mod(_k)
     _m.SpyderLogger = _Logger
 
 for _k in ("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
-           "SpyderU_Utilities.SpyderU02_ErrorHandler"):
+           "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"):
     _m = _ensure_mod(_k)
     _m.SpyderErrorHandler = type("SpyderErrorHandler", (), {})
 
@@ -147,6 +149,7 @@ class TestI02EventRouterClass(unittest.TestCase):
 # I06 — AgentMessageBus
 # ==============================================================================
 from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import (
+    Message,
     MessagePriority,
     MessageType,
     DeliveryMode,
@@ -176,6 +179,306 @@ class TestI06DeliveryModeEnum(unittest.TestCase):
 class TestI06Factory(unittest.TestCase):
     def test_create_message_bus_callable(self):
         self.assertTrue(callable(create_message_bus))
+
+
+class TestI06PublishCompatibility(unittest.TestCase):
+    def test_publish_accepts_message_object_sync(self):
+        bus = AgentMessageBus(config={"persist": False})
+        received = threading.Event()
+        seen: dict[str, object] = {}
+        try:
+            def _callback(message: Message):
+                seen["topic"] = message.topic
+                seen["payload"] = message.payload
+                received.set()
+
+            bus.subscribe("phase0-sub-msg", ["phase0.message_object"], _callback)
+
+            msg = Message(
+                topic="phase0.message_object",
+                sender="phase0_tester",
+                priority=MessagePriority.HIGH,
+                payload={"ok": True},
+            )
+            receipt = bus.publish(msg)
+
+            self.assertEqual(str(receipt), msg.id)
+            self.assertTrue(received.wait(1.0), "Expected message delivery")
+            self.assertEqual(seen.get("topic"), "phase0.message_object")
+            self.assertEqual(seen.get("payload"), {"ok": True})
+        finally:
+            bus.shutdown()
+
+    def test_shadow_validation_flags_missing_required_envelope(self):
+        bus = AgentMessageBus(config={"persist": False, "shadow_validation_agent_handoffs": True})
+        received = threading.Event()
+        seen_headers: dict[str, object] = {}
+        try:
+            def _callback(message: Message):
+                seen_headers.update(message.headers or {})
+                received.set()
+
+            bus.subscribe("phase1-sub-missing", ["meta.decisions"], _callback)
+            bus.publish(
+                topic="meta.decisions",
+                payload={"decision_id": "phase1-missing"},
+                sender="phase1_sender",
+                priority=MessagePriority.HIGH,
+            )
+
+            self.assertTrue(received.wait(1.0), "Expected message delivery")
+            shadow = (seen_headers.get("shadow_validation") or {}).get("publish", {})
+            self.assertTrue(shadow.get("checked"))
+            self.assertFalse(shadow.get("valid"))
+            self.assertEqual(shadow.get("error"), "missing_agent_handoff_envelope")
+        finally:
+            bus.shutdown()
+
+    def test_shadow_validation_marks_valid_envelope(self):
+        from Spyder.SpyderZ_Communication.SpyderZ02_MessageProtocol import (
+            build_agent_handoff_envelope,
+        )
+
+        bus = AgentMessageBus(config={"persist": False, "shadow_validation_agent_handoffs": True})
+        received = threading.Event()
+        seen_headers: dict[str, object] = {}
+        try:
+            def _callback(message: Message):
+                seen_headers.update(message.headers or {})
+                received.set()
+
+            bus.subscribe("phase1-sub-valid", ["meta.decisions"], _callback)
+
+            legacy_payload = {
+                "decision_id": "phase1-valid",
+                "action": "hold",
+            }
+            envelope = build_agent_handoff_envelope(
+                topic="meta.decisions",
+                producer_agent_id="phase1_sender",
+                schema="AGENT_DECISION_V1",
+                handoff_type="decision",
+                payload=legacy_payload,
+                confidence=0.61,
+                reasoning="phase1 validation test",
+                decision={
+                    "action": "hold",
+                    "confidence": 0.61,
+                    "reasoning": "phase1 validation test",
+                },
+                legacy_payload=legacy_payload,
+            )
+
+            bus.publish(
+                topic="meta.decisions",
+                payload={
+                    **legacy_payload,
+                    "agent_handoff": envelope,
+                },
+                sender="phase1_sender",
+                priority=MessagePriority.HIGH,
+            )
+
+            self.assertTrue(received.wait(1.0), "Expected message delivery")
+            shadow_publish = (seen_headers.get("shadow_validation") or {}).get("publish", {})
+            shadow_consume = (seen_headers.get("shadow_validation") or {}).get("consume", {})
+            self.assertTrue(shadow_publish.get("checked"))
+            self.assertTrue(shadow_publish.get("valid"))
+            self.assertEqual(shadow_publish.get("schema"), "AGENT_DECISION_V1")
+            self.assertTrue(shadow_consume.get("valid"))
+        finally:
+            bus.shutdown()
+
+    def test_publish_topic_payload_sender_is_awaitable(self):
+        bus = AgentMessageBus(config={"persist": False})
+        received = threading.Event()
+        seen: dict[str, object] = {}
+        try:
+            def _callback(message: Message):
+                seen["sender"] = message.sender
+                seen["payload"] = message.payload
+                received.set()
+
+            bus.subscribe("phase0-sub-topic", ["phase0.topic_style"], _callback)
+
+            receipt = bus.publish(
+                topic="phase0.topic_style",
+                payload={"value": 7},
+                sender="phase0_sender",
+                priority=MessagePriority.NORMAL,
+            )
+
+            self.assertTrue(hasattr(receipt, "__await__"))
+
+            async def _await_receipt():
+                return await receipt
+
+            awaited_id = asyncio.run(_await_receipt())
+
+            self.assertEqual(awaited_id, str(receipt))
+            self.assertTrue(received.wait(1.0), "Expected message delivery")
+            self.assertEqual(seen.get("sender"), "phase0_sender")
+            self.assertEqual(seen.get("payload"), {"value": 7})
+        finally:
+            bus.shutdown()
+
+    def test_policy_enforcement_allows_execution_advisory_signal(self):
+        policy = {
+            "enforcement": {
+                "paper_mode": True,
+                "live_mode": False,
+                "default_action_paper": "deny",
+                "default_action_live": "allow",
+                "enforce_sender_patterns": ["Y[0-9][0-9]_*"],
+                "enforce_topic_prefixes": ["signals.", "execution."],
+                "enforce_topics": ["signals.validated"],
+            },
+            "role_bindings": {
+                "Y02_*": "execution_advisory",
+            },
+            "role_permissions": {
+                "execution_advisory": {
+                    "allow_topics": ["signals.validated"],
+                    "allow_actions": ["signal"],
+                    "deny_topics": ["execution.*"],
+                    "deny_actions": ["execute", "execution_order"],
+                }
+            },
+        }
+
+        bus = AgentMessageBus(
+            config={
+                "persist": False,
+                "shadow_validation_agent_handoffs": False,
+                "agent_handoff_policy": policy,
+                "trading_mode": "paper",
+            }
+        )
+        received = threading.Event()
+        seen_headers: dict[str, object] = {}
+        try:
+            def _callback(message: Message):
+                seen_headers.update(message.headers or {})
+                received.set()
+
+            bus.subscribe("phase2-policy-allow", ["signals.validated"], _callback)
+            bus.publish(
+                topic="signals.validated",
+                payload={"output_type": "signal", "validation": {"approved": True}},
+                sender="Y02_strategy_pilot",
+                priority=MessagePriority.HIGH,
+            )
+
+            self.assertTrue(received.wait(1.0), "Expected policy-allowed message delivery")
+            policy_header = (seen_headers.get("policy_enforcement") or {}).get("publish", {})
+            self.assertTrue(policy_header.get("allowed"))
+            self.assertEqual(policy_header.get("reason_code"), "allowed")
+            self.assertEqual(bus.policy_enforcement_stats["blocked"], 0)
+        finally:
+            bus.shutdown()
+
+    def test_policy_enforcement_blocks_disallowed_execution_action(self):
+        policy = {
+            "enforcement": {
+                "paper_mode": True,
+                "live_mode": False,
+                "default_action_paper": "deny",
+                "default_action_live": "allow",
+                "enforce_sender_patterns": ["Y[0-9][0-9]_*"],
+                "enforce_topic_prefixes": ["signals.", "execution."],
+                "enforce_topics": ["signals.validated"],
+            },
+            "role_bindings": {
+                "Y02_*": "execution_advisory",
+            },
+            "role_permissions": {
+                "execution_advisory": {
+                    "allow_topics": ["signals.validated", "execution.intent"],
+                    "allow_actions": ["signal", "execution_advice"],
+                    "deny_topics": ["execution.orders"],
+                    "deny_actions": ["execute", "execution_order"],
+                }
+            },
+        }
+
+        bus = AgentMessageBus(
+            config={
+                "persist": False,
+                "shadow_validation_agent_handoffs": False,
+                "agent_handoff_policy": policy,
+                "trading_mode": "paper",
+            }
+        )
+        received = threading.Event()
+        try:
+            def _callback(message: Message):
+                received.set()
+
+            bus.subscribe("phase2-policy-deny", ["execution.orders"], _callback)
+            bus.publish(
+                topic="execution.orders",
+                payload={"output_type": "execute", "symbol": "SPY"},
+                sender="Y02_strategy_pilot",
+                priority=MessagePriority.HIGH,
+            )
+
+            self.assertFalse(received.wait(0.4), "Blocked message should not be delivered")
+            dead_letters = bus.get_dead_letters(limit=1)
+            self.assertTrue(dead_letters, "Blocked publish should be sent to dead letter queue")
+            self.assertTrue(str(dead_letters[0].get("reason", "")).startswith("policy_denied:"))
+            self.assertEqual(bus.policy_enforcement_stats["blocked"], 1)
+        finally:
+            bus.shutdown()
+
+    def test_trading_mode_does_not_infer_live_from_tradier_environment(self):
+        with patch.dict(
+            os.environ,
+            {
+                "TRADIER_ENVIRONMENT": "production",
+                "TRADING_MODE": "",
+                "SPYDER_TRADING_MODE": "",
+            },
+            clear=False,
+        ):
+            bus = AgentMessageBus(
+                config={
+                    "persist": False,
+                    "shadow_validation_agent_handoffs": False,
+                }
+            )
+            try:
+                self.assertEqual(bus.trading_mode, "paper")
+            finally:
+                bus.shutdown()
+
+
+class TestZ02AgentHandoffSchemas(unittest.TestCase):
+    def test_decision_envelope_validation(self):
+        from Spyder.SpyderZ_Communication.SpyderZ02_MessageProtocol import (
+            build_agent_handoff_envelope,
+            validate_agent_handoff_envelope,
+        )
+
+        payload = {"action": "buy", "strategy": "IronCondor"}
+        envelope = build_agent_handoff_envelope(
+            topic="meta.decisions",
+            producer_agent_id="Y08_meta_orchestrator",
+            schema="AGENT_DECISION_V1",
+            handoff_type="decision",
+            payload=payload,
+            confidence=0.75,
+            reasoning="validated by tests",
+            decision={
+                "action": "buy",
+                "confidence": 0.75,
+                "reasoning": "validated by tests",
+            },
+            legacy_payload=payload,
+        )
+
+        valid, error = validate_agent_handoff_envelope(envelope, "AGENT_DECISION_V1")
+        self.assertTrue(valid)
+        self.assertIsNone(error)
 
 
 # ==============================================================================

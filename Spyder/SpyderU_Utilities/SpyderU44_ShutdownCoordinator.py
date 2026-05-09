@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU44_ShutdownCoordinator.py
 Purpose: Graceful shutdown coordination for daemon threads and background tasks
 

@@ -42,7 +42,7 @@ _u01.SpyderLogger = _logger_cls
 _u02 = _ensure_mod("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler")
 _u02.SpyderErrorHandler = MagicMock
 
-# Mirror Spyder.SpyderU_Utilities.* → SpyderU_Utilities.* (short-form aliases)
+# Mirror Spyder.SpyderU_Utilities.* → Spyder.SpyderU_Utilities.* (short-form aliases)
 for _key in list(sys.modules):
     if _key.startswith("Spyder.SpyderU"):
         sys.modules.setdefault(_key[len("Spyder."):], sys.modules[_key])

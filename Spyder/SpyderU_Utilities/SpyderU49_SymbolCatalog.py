@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU49_SymbolCatalog.py
 Purpose: Canonical market symbol catalog and derived symbol views
 
@@ -77,10 +77,14 @@ SYMBOL_CATALOG: tuple[SymbolDefinition, ...] = (
     SymbolDefinition("TLT", "BONDS & CREDIT", True, "quote", provider_symbol="TLT", backend_symbol="TLT"),
     SymbolDefinition("HYG", "BONDS & CREDIT", True, "quote", provider_symbol="HYG"),
     SymbolDefinition("LQD", "BONDS & CREDIT", True, "quote", provider_symbol="LQD", backend_symbol="LQD"),
-    # $TNX is Tradier's CBOE 10-Year Treasury Yield index symbol.
-    # Using "proxy" so _build_quote_symbol_basket() includes "$TNX" in every
-    # fetch and _quote_to_live_entry remaps it to the display key "TNX".
-    SymbolDefinition("TNX", "BONDS & CREDIT", True, "proxy", provider_symbol="$TNX", optional=True),
+    # TNX (10-Year Treasury Yield) is sourced exclusively from FRED via
+    # SpyderS09_FREDClient → SpyderS07_CustomMetricsOrchestrator → metrics_updated
+    # signal → _on_custom_metrics_updated → widget.update_data().
+    # Tradier's equity-quotes endpoint does NOT serve $TNX, so "proxy" was wrong:
+    # it needlessly added $TNX to G18's quote basket (wasted call, never returned).
+    # "event-only" keeps TNX visible in the Market Overview but excludes it from
+    # every Tradier quote fetch.
+    SymbolDefinition("TNX", "BONDS & CREDIT", True, "event-only", optional=True),
 
     # DXY is represented by UUP at quote-fetch time.
     SymbolDefinition("DXY", "CORRELATIONS", True, "proxy", provider_symbol="UUP", backend_symbol="DXY"),

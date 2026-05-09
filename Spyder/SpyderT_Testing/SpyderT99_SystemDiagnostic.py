@@ -182,7 +182,7 @@ class SpyderDiagnostic:
             ('SpyderB_Broker', 'Broker integration'),
             ('SpyderG_GUI', 'GUI components'),
             ('SpyderH_Storage', 'Data storage'),
-            ('SpyderU_Utilities', 'Utility modules'),
+            ('Spyder.SpyderU_Utilities', 'Utility modules'),
             ('SpyderE_Risk', 'Risk management'),
             ('logs', 'Log files'),
             ('.spyder', 'Configuration directory (in home)')
@@ -231,9 +231,9 @@ class SpyderDiagnostic:
             ('SpyderA_Core.SpyderA01_Main', 'Main application entry point'),
             ('SpyderA_Core.SpyderA03_Configuration', 'Configuration manager'),
             ('SpyderA_Core.SpyderA05_EventManager', 'Event management system'),
-            ('SpyderU_Utilities.SpyderU01_Logger', 'Logging system'),
-            ('SpyderU_Utilities.SpyderU02_ErrorHandler', 'Error handling'),
-            ('SpyderU_Utilities.SpyderU10_TradingCalendar', 'Trading calendar'),
+            ('Spyder.SpyderU_Utilities.SpyderU01_Logger', 'Logging system'),
+            ('Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler', 'Error handling'),
+            ('Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar', 'Trading calendar'),
             ('SpyderH_Storage.SpyderH01_DataAccessLayer', 'Database access'),
             ('SpyderE_Risk.SpyderE01_RiskManager', 'Risk management'),
             ('SpyderE_Risk.SpyderE02_PositionSizer', 'Position sizing')
@@ -514,7 +514,7 @@ class SpyderDiagnostic:
 
             # Step 4: Test Trading Calendar
             try:
-                from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
+                from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
                 TradingCalendar()
                 self.add_result("Step 4: TradingCalendar", "PASS", "Created successfully")
             except Exception as e:

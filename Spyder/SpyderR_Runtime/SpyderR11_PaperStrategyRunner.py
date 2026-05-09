@@ -43,8 +43,8 @@ Module Description:
          entry window, evaluates entry rules and opens a new position.
 
     SAFETY:
-      - Refuses to start unless ``TRADING_MODE`` is "paper" (or
-        "sandbox") unless ``LIVE_TRADING_CONFIRMED=true``.
+            - Refuses to start unless ``TRADING_MODE`` is "paper" unless
+                ``LIVE_TRADING_CONFIRMED=true``.
       - Never calls TradierClient.place_*_order. All fills are local.
 """
 
@@ -546,7 +546,11 @@ class PaperStrategyRunner:
         self._max_concurrent = max_concurrent_positions
         self._risk_manager = risk_manager
         self._starting_equity = float(starting_equity)
-        self._sandbox_replayer = sandbox_replayer
+        if sandbox_replayer is not None:
+            logger.warning(
+                "PaperStrategyRunner: deferred sandbox replay service ignored by live-only policy"
+            )
+        self._sandbox_replayer = None
 
         self._positions: list[SimulatedPosition] = []
         self._cumulative_sim_pnl: float = 0.0
@@ -714,22 +718,9 @@ class PaperStrategyRunner:
         }
 
     def flush_deferred_sandbox_replay(self, max_records: int = 50) -> dict[str, Any] | None:
-        """Flush deferred sandbox replay queue when replay service is enabled."""
-        if self._sandbox_replayer is None:
-            return None
-        try:
-            report = self._sandbox_replayer.flush(max_records=max_records)
-            logger.info(
-                "Deferred sandbox replay flush: processed=%s sent=%s failed=%s pending=%s",
-                report.get("processed", 0),
-                report.get("sent", 0),
-                report.get("failed", 0),
-                report.get("pending_total", 0),
-            )
-            return report
-        except Exception as exc:
-            logger.warning("Deferred sandbox replay flush failed: %s", exc)
-            return None
+        """Deferred sandbox replay is disabled under live-only policy."""
+        _ = max_records
+        return None
 
     # ------------------------------------------------------------------
     # Tradier data helpers
@@ -1230,13 +1221,13 @@ def create_paper_strategy_runner_from_env(harness: Any) -> PaperStrategyRunner:
     Build a :class:`PaperStrategyRunner` using environment variables.
 
     Reads (from ``.env``):
-        TRADIER_API_KEY, TRADIER_ACCOUNT_ID, TRADIER_ENVIRONMENT
+        TRADIER_API_KEY, TRADIER_ACCOUNT_ID,
+        optional TRADIER_LIVE_API_KEY / TRADIER_LIVE_ACCOUNT_ID overrides
         PAPER_STARTING_EQUITY (optional, default 100000)
 
-    Always constructs the underlying :class:`TradierClient` with whatever
-    environment is configured (typically ``live`` for this project's split of
-    "live data, paper execution"). The returned runner only *reads* from
-    that client — it never submits orders.
+    Always constructs the underlying :class:`TradierClient` with
+    ``TradingEnvironment.LIVE`` (live-only data-plane policy). The returned
+    runner only *reads* from that client — it never submits orders.
 
     An :class:`~Spyder.SpyderE_Risk.SpyderE01_RiskManager.RiskManager` is
     wired in as the pre-trade risk gate. Sizing uses the 1 %-of-equity rule
@@ -1250,7 +1241,22 @@ def create_paper_strategy_runner_from_env(harness: Any) -> PaperStrategyRunner:
 
     api_key = os.environ.get("TRADIER_API_KEY", "").strip()
     account_id = os.environ.get("TRADIER_ACCOUNT_ID", "").strip()
-    env_name = (os.environ.get("TRADIER_ENVIRONMENT") or "sandbox").strip().lower()
+    env_name = (
+        os.environ.get("TRADIER_MARKET_DATA_ENVIRONMENT")
+        or os.environ.get("TRADIER_ENVIRONMENT")
+        or "live"
+    ).strip().lower()
+    is_live_env = env_name in {"live", "production"}
+
+    if not is_live_env:
+        logger.warning(
+            "PaperStrategyRunner forcing LIVE market-data endpoint "
+            "(TRADIER_MARKET_DATA_ENVIRONMENT=%s ignored).",
+            env_name or "<empty>",
+        )
+
+    api_key = os.environ.get("TRADIER_LIVE_API_KEY", "").strip() or api_key
+    account_id = os.environ.get("TRADIER_LIVE_ACCOUNT_ID", "").strip() or account_id
 
     if not api_key or not account_id:
         raise RuntimeError(
@@ -1258,9 +1264,7 @@ def create_paper_strategy_runner_from_env(harness: Any) -> PaperStrategyRunner:
             "PaperStrategyRunner market data.",
         )
 
-    env_enum = (
-        TradingEnvironment.LIVE if env_name == "live" else TradingEnvironment.SANDBOX
-    )
+    env_enum = TradingEnvironment.LIVE
     client = TradierClient(
         api_key=api_key,
         account_id=account_id,
@@ -1288,23 +1292,17 @@ def create_paper_strategy_runner_from_env(harness: Any) -> PaperStrategyRunner:
         # Paper sessions can run without broker position sync; avoid startup-only
         # cold-state vetoes that block autonomous entry loops indefinitely.
         if hasattr(risk_manager, "_account_state_synced"):
-            setattr(risk_manager, "_account_state_synced", True)
+            risk_manager._account_state_synced = True
         # Paper runner frequently operates without full S07 quality feeds
         # (vol-surface/dealer-flow), so keep this guard telemetry-only here.
         if hasattr(risk_manager, "_enforce_decision_quality_slo"):
-            setattr(risk_manager, "_enforce_decision_quality_slo", False)
+            risk_manager._enforce_decision_quality_slo = False
         logger.info("PaperStrategyRunner: risk gate = SpyderE01.RiskManager")
     except Exception as exc:
         logger.warning("Could not build E01 RiskManager (%s) — running without risk gate", exc)
         risk_manager = None
 
     sandbox_replayer = None
-    try:
-        from Spyder.SpyderR_Runtime.SpyderR16_PaperSandboxReplay import create_paper_sandbox_replay_from_env  # noqa: E501
-
-        sandbox_replayer = create_paper_sandbox_replay_from_env()
-    except Exception as exc:
-        logger.warning("Deferred sandbox replay unavailable: %s", exc)
 
     return PaperStrategyRunner(
         data_client=client,

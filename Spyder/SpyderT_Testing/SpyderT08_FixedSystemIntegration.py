@@ -39,7 +39,7 @@ sys.path.insert(0, str(project_root))
 
 # Add specific module directories
 spyder_agents_path = project_root / "SpyderX_Agents"
-spyder_utilities_path = project_root / "SpyderU_Utilities"
+spyder_utilities_path = project_root / "Spyder.SpyderU_Utilities"
 spyder_strategies_path = project_root / "SpyderD_Strategies"
 
 sys.path.insert(0, str(spyder_agents_path))
@@ -327,7 +327,7 @@ def test_fixed_system_integration():
     print("   Run individual tests:")
     print("   python -c 'import SpyderX15_StrategyGeneratorAgent; print(\"Strategy Gen OK\")'")
     print(
-        "   python -c 'from SpyderU_Utilities.SpyderU20_InstitutionalLibraries import get_institutional_libraries; print(\"Libs OK\")'"
+        "   python -c 'from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import get_institutional_libraries; print(\"Libs OK\")'"
     )
 
     return integration_score, component_status

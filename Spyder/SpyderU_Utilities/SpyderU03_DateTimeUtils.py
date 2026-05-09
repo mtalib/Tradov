@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU03_DateTimeUtils.py
 Purpose: SPYDER - Automated SPY Options Trading System
 
@@ -1754,7 +1754,7 @@ class TradingTimeUtils:
         """Initialize trading time utilities."""
         self.logger = None
         try:
-            from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+            from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
             self.logger = SpyderLogger.get_logger(__name__)
         except ImportError:

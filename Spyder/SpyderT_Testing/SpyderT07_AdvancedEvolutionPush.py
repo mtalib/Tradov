@@ -145,7 +145,7 @@ def push_to_institutional_grade():
 def test_enhanced_strategy_pricing(strategy):
     """Test enhanced strategy with institutional pricing"""
     try:
-        from SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
+        from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
             OptionType, get_institutional_libraries)
 
         libs = get_institutional_libraries()

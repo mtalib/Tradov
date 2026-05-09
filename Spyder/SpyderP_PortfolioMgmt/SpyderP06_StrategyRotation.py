@@ -72,7 +72,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
-from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import Message, MessagePriority  # noqa: E402
+from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import MessagePriority  # noqa: E402
 
 try:
     from Spyder.SpyderX_Agents.SpyderX16_MetaCoordinator import MetaCoordinator
@@ -916,7 +916,7 @@ class StrategyRotation:
     def _broadcast_regime_change(self, regime: MarketRegime, confidence: float):
         """Broadcast regime change via message bus"""
         if self.message_bus:
-            message = Message(
+            self.message_bus.publish(
                 topic="regime.change",
                 sender="StrategyRotation",
                 priority=MessagePriority.HIGH,
@@ -926,9 +926,8 @@ class StrategyRotation:
                     'timestamp': datetime.now(timezone.utc).isoformat(),
                     'active_strategies': self.active_strategies,
                     'features': self.regime_features
-                }
+                },
             )
-            self.message_bus.publish(message)
 
     def update_strategy_performance(
         self,

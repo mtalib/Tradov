@@ -85,6 +85,14 @@ STRICT_VALIDATION = True
 VALIDATE_TIMESTAMPS = True
 MAX_FUTURE_TIMESTAMP = 60  # seconds
 
+# Agent handoff contract settings
+AGENT_HANDOFF_SCHEMA_VERSION = "1.0"
+AGENT_HANDOFF_SCHEMA_NAMES = {
+    "AGENT_HANDOFF_V1",
+    "AGENT_DECISION_V1",
+    "AGENT_ESCALATION_V1",
+}
+
 # Message priority levels
 PRIORITY_CRITICAL = 10
 PRIORITY_HIGH = 8
@@ -290,6 +298,256 @@ class MessageSchemas:
         }
     }
 
+    # Agent handoff schema (generic envelope)
+    AGENT_HANDOFF_V1 = {
+        "type": "object",
+        "required": [
+            "schema",
+            "schema_version",
+            "handoff_type",
+            "topic",
+            "producer",
+            "timestamp",
+            "payload",
+        ],
+        "properties": {
+            "schema": {
+                "const": "AGENT_HANDOFF_V1",
+            },
+            "schema_version": {
+                "type": "string",
+                "const": AGENT_HANDOFF_SCHEMA_VERSION,
+            },
+            "handoff_type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+            },
+            "topic": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+            },
+            "producer": {
+                "type": "object",
+                "required": ["agent_id"],
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                    },
+                    "agent_role": {"type": "string"},
+                    "agent_class": {"type": "string"},
+                },
+                "additionalProperties": True,
+            },
+            "timestamp": {
+                "type": "number",
+                "minimum": 0,
+            },
+            "payload": {
+                "type": "object",
+            },
+            "confidence": {
+                "type": ["number", "null"],
+                "minimum": 0,
+                "maximum": 1,
+            },
+            "reasoning": {
+                "type": "string",
+            },
+            "trace": {
+                "type": "object",
+            },
+            "context": {
+                "type": "object",
+            },
+            "legacy_payload": {
+                "type": "object",
+            },
+        },
+    }
+
+    # Agent decision schema (execution-adjacent intent)
+    AGENT_DECISION_V1 = {
+        "type": "object",
+        "required": [
+            "schema",
+            "schema_version",
+            "handoff_type",
+            "topic",
+            "producer",
+            "timestamp",
+            "payload",
+            "decision",
+        ],
+        "properties": {
+            "schema": {
+                "const": "AGENT_DECISION_V1",
+            },
+            "schema_version": {
+                "type": "string",
+                "const": AGENT_HANDOFF_SCHEMA_VERSION,
+            },
+            "handoff_type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+            },
+            "topic": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+            },
+            "producer": {
+                "type": "object",
+                "required": ["agent_id"],
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                    },
+                    "agent_role": {"type": "string"},
+                    "agent_class": {"type": "string"},
+                },
+                "additionalProperties": True,
+            },
+            "timestamp": {
+                "type": "number",
+                "minimum": 0,
+            },
+            "payload": {
+                "type": "object",
+            },
+            "decision": {
+                "type": "object",
+                "required": ["action", "confidence"],
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "minLength": 1,
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
+                    },
+                    "reasoning": {
+                        "type": "string",
+                    },
+                },
+            },
+            "confidence": {
+                "type": ["number", "null"],
+                "minimum": 0,
+                "maximum": 1,
+            },
+            "reasoning": {
+                "type": "string",
+            },
+            "trace": {
+                "type": "object",
+            },
+            "context": {
+                "type": "object",
+            },
+            "legacy_payload": {
+                "type": "object",
+            },
+        },
+    }
+
+    # Agent escalation schema (human/operator escalation intent)
+    AGENT_ESCALATION_V1 = {
+        "type": "object",
+        "required": [
+            "schema",
+            "schema_version",
+            "handoff_type",
+            "topic",
+            "producer",
+            "timestamp",
+            "payload",
+            "escalation",
+        ],
+        "properties": {
+            "schema": {
+                "const": "AGENT_ESCALATION_V1",
+            },
+            "schema_version": {
+                "type": "string",
+                "const": AGENT_HANDOFF_SCHEMA_VERSION,
+            },
+            "handoff_type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+            },
+            "topic": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+            },
+            "producer": {
+                "type": "object",
+                "required": ["agent_id"],
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                    },
+                    "agent_role": {"type": "string"},
+                    "agent_class": {"type": "string"},
+                },
+                "additionalProperties": True,
+            },
+            "timestamp": {
+                "type": "number",
+                "minimum": 0,
+            },
+            "payload": {
+                "type": "object",
+            },
+            "escalation": {
+                "type": "object",
+                "required": ["severity", "reason"],
+                "properties": {
+                    "severity": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high", "critical"],
+                    },
+                    "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                    },
+                    "target": {
+                        "type": "string",
+                    },
+                },
+            },
+            "confidence": {
+                "type": ["number", "null"],
+                "minimum": 0,
+                "maximum": 1,
+            },
+            "reasoning": {
+                "type": "string",
+            },
+            "trace": {
+                "type": "object",
+            },
+            "context": {
+                "type": "object",
+            },
+            "legacy_payload": {
+                "type": "object",
+            },
+        },
+    }
+
 # ==============================================================================
 # MESSAGE TYPES
 # ==============================================================================
@@ -388,6 +646,9 @@ class SchemaValidator:
         self.schemas["MARKET_DATA"] = MessageSchemas.MARKET_DATA
         self.schemas["ORDER"] = MessageSchemas.ORDER
         self.schemas["RISK_METRICS"] = MessageSchemas.RISK_METRICS
+        self.schemas["AGENT_HANDOFF_V1"] = MessageSchemas.AGENT_HANDOFF_V1
+        self.schemas["AGENT_DECISION_V1"] = MessageSchemas.AGENT_DECISION_V1
+        self.schemas["AGENT_ESCALATION_V1"] = MessageSchemas.AGENT_ESCALATION_V1
 
         # Create validators
         for name, schema in self.schemas.items():
@@ -427,6 +688,137 @@ class SchemaValidator:
             return self.validate(message.data, "RISK_METRICS")
 
         return True, None
+
+    def validate_agent_handoff_envelope(
+        self,
+        envelope: dict[str, Any],
+        schema_name: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """Validate an agent handoff envelope against V1 schemas."""
+        if not isinstance(envelope, dict):
+            return False, "Envelope must be a dictionary"
+
+        resolved_schema = schema_name or str(envelope.get("schema", "")).strip()
+        if not resolved_schema:
+            resolved_schema = "AGENT_HANDOFF_V1"
+
+        if resolved_schema not in AGENT_HANDOFF_SCHEMA_NAMES:
+            return False, f"Unknown agent handoff schema: {resolved_schema}"
+
+        return self.validate(envelope, resolved_schema)
+
+
+_schema_validator_singleton: SchemaValidator | None = None
+
+
+def _get_schema_validator() -> SchemaValidator:
+    """Return a module-level singleton validator for hot-path helpers."""
+    global _schema_validator_singleton
+    if _schema_validator_singleton is None:
+        _schema_validator_singleton = SchemaValidator()
+    return _schema_validator_singleton
+
+
+def extract_agent_handoff_envelope(
+    payload: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Extract a handoff envelope from payload while preserving legacy shape support."""
+    if not isinstance(payload, dict):
+        return None, None
+
+    schema_name = payload.get("schema")
+    if isinstance(schema_name, str) and schema_name in AGENT_HANDOFF_SCHEMA_NAMES:
+        return payload, schema_name
+
+    for key in ("agent_handoff", "agent_handoff_v1", "handoff", "handoff_envelope"):
+        candidate = payload.get(key)
+        if isinstance(candidate, dict):
+            candidate_schema = candidate.get("schema")
+            if isinstance(candidate_schema, str):
+                return candidate, candidate_schema
+            return candidate, None
+
+    nested_data = payload.get("data")
+    if isinstance(nested_data, dict) and nested_data is not payload:
+        return extract_agent_handoff_envelope(nested_data)
+
+    return None, None
+
+
+def validate_agent_handoff_envelope(
+    envelope: dict[str, Any],
+    schema_name: str | None = None,
+) -> tuple[bool, str | None]:
+    """Validate a handoff envelope using a cached schema validator."""
+    validator = _get_schema_validator()
+    return validator.validate_agent_handoff_envelope(envelope, schema_name)
+
+
+def build_agent_handoff_envelope(
+    *,
+    topic: str,
+    producer_agent_id: str,
+    payload: dict[str, Any],
+    handoff_type: str = "handoff",
+    schema: str = "AGENT_HANDOFF_V1",
+    confidence: float | None = None,
+    reasoning: str = "",
+    producer_role: str | None = None,
+    producer_class: str | None = None,
+    context: dict[str, Any] | None = None,
+    trace: dict[str, Any] | None = None,
+    decision: dict[str, Any] | None = None,
+    escalation: dict[str, Any] | None = None,
+    legacy_payload: dict[str, Any] | None = None,
+    timestamp: float | None = None,
+) -> dict[str, Any]:
+    """Build a normalized V1 agent handoff envelope for shadow-mode rollout."""
+    if schema not in AGENT_HANDOFF_SCHEMA_NAMES:
+        raise ValueError(f"Unsupported handoff schema: {schema}")
+
+    producer = {
+        "agent_id": producer_agent_id,
+    }
+    if producer_role:
+        producer["agent_role"] = producer_role
+    if producer_class:
+        producer["agent_class"] = producer_class
+
+    envelope: dict[str, Any] = {
+        "schema": schema,
+        "schema_version": AGENT_HANDOFF_SCHEMA_VERSION,
+        "handoff_type": handoff_type,
+        "topic": topic,
+        "producer": producer,
+        "timestamp": float(timestamp if timestamp is not None else time.time()),
+        "payload": payload,
+        "confidence": confidence,
+        "reasoning": reasoning or "",
+    }
+
+    if context:
+        envelope["context"] = context
+    if trace:
+        envelope["trace"] = trace
+    if legacy_payload is not None:
+        envelope["legacy_payload"] = legacy_payload
+
+    if schema == "AGENT_DECISION_V1":
+        fallback_decision = {
+            "action": "unknown",
+            "confidence": float(confidence or 0.0),
+            "reasoning": reasoning or "",
+        }
+        envelope["decision"] = decision or fallback_decision
+
+    if schema == "AGENT_ESCALATION_V1":
+        fallback_escalation = {
+            "severity": "medium",
+            "reason": reasoning or "escalation_requested",
+        }
+        envelope["escalation"] = escalation or fallback_escalation
+
+    return envelope
 
 # ==============================================================================
 # SERIALIZATION MANAGER

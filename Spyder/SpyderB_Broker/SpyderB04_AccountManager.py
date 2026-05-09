@@ -121,7 +121,7 @@ HAS_SPYDER_CLIENT = False
 
 # Utility Modules - SAFE IMPORT
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     HAS_LOGGER = True
 except ImportError:
     HAS_LOGGER = False
@@ -142,7 +142,7 @@ except ImportError:
             return logger
 
 try:
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
     HAS_ERROR_HANDLER = True
 except ImportError:
     HAS_ERROR_HANDLER = False

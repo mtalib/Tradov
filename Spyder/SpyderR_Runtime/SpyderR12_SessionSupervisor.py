@@ -325,6 +325,22 @@ class SessionSupervisor:
 
     def _start_data_feed(self) -> bool:
         try:
+            market_data_env = (
+                os.getenv("TRADIER_MARKET_DATA_ENVIRONMENT")
+                or os.getenv("TRADIER_ENVIRONMENT")
+                or "live"
+            ).strip().lower()
+            is_live_env = market_data_env in {"live", "production"}
+
+            if not is_live_env:
+                self.logger.warning(
+                    "SessionSupervisor forcing LIVE market-data endpoint "
+                    "(TRADIER_MARKET_DATA_ENVIRONMENT=%s ignored).",
+                    market_data_env or "<empty>",
+                )
+
+            os.environ["TRADIER_MARKET_DATA_ENVIRONMENT"] = "live"
+
             provider_name = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower().strip()
             from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import create_data_feed
             self.feed = create_data_feed(
@@ -376,8 +392,7 @@ class SessionSupervisor:
 
     def _start_paper_broker(self) -> bool:
         """
-        Paper broker: prefer PaperBroker (local, no Tradier creds needed).
-        Falls back to Tradier sandbox if TRADIER_API_KEY is configured.
+        Paper broker: PaperBroker only (local, no Tradier paper account).
         """
         try:
             from Spyder.SpyderR_Runtime.SpyderR15_PaperBroker import create_paper_broker
@@ -540,11 +555,28 @@ class SessionSupervisor:
             _alloc_key = os.environ.get("ALLOCATION_METHOD", "risk_parity").lower()
             orchestration_mode = _mode_map.get(_mode_key, OrchestrationMode.ADAPTIVE)
             allocation_method = _alloc_map.get(_alloc_key, AllocationMethod.RISK_PARITY)
+
+            l09_engine = None
+            try:
+                from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine
+
+                l09_engine = UnifiedRegimeEngine()
+                self.logger.debug(
+                    "✅ L09 UnifiedRegimeEngine initialized for StrategyOrchestrator"
+                )
+            except Exception as l09_exc:
+                self.logger.warning(
+                    "⚠️ L09 UnifiedRegimeEngine unavailable for StrategyOrchestrator "
+                    "(fallback heuristic mode): %s",
+                    l09_exc,
+                )
+
             self.orchestrator = StrategyOrchestrator(
                 base_capital=base_capital,
                 orchestration_mode=orchestration_mode,
                 allocation_method=allocation_method,
                 event_manager=self.em,
+                regime_engine=l09_engine,
             )
             if hasattr(self.orchestrator, "set_decision_audit_context"):
                 self.orchestrator.set_decision_audit_context(

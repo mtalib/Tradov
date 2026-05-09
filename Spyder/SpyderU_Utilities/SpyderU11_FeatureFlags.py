@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU11_FeatureFlags.py
 Purpose: SPYDER - Automated SPY Options Trading System
 

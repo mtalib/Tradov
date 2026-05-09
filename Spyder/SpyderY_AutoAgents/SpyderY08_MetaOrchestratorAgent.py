@@ -64,6 +64,24 @@ from .SpyderY00_BaseAutoAgent import (
     MarketSession,
 )
 
+try:
+    from Spyder.SpyderZ_Communication.SpyderZ02_MessageProtocol import (
+        build_agent_handoff_envelope,
+    )
+except Exception:
+    def build_agent_handoff_envelope(**kwargs):
+        return {
+            "schema": kwargs.get("schema", "AGENT_HANDOFF_V1"),
+            "schema_version": "1.0",
+            "handoff_type": kwargs.get("handoff_type", "handoff"),
+            "topic": kwargs.get("topic", ""),
+            "producer": {"agent_id": kwargs.get("producer_agent_id", "unknown")},
+            "timestamp": kwargs.get("timestamp", datetime.now(timezone.utc).timestamp()),
+            "payload": kwargs.get("payload", {}),
+            "confidence": kwargs.get("confidence"),
+            "reasoning": kwargs.get("reasoning", ""),
+        }
+
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -346,16 +364,31 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
         )
         self._decisions.append(decision)
 
+        decision_payload = {
+            "decision_id": decision.decision_id,
+            "category": decision.category,
+            "agents": decision.agents_involved,
+            "action": decision.action_taken,
+        }
+        decision_payload = self._with_handoff_envelope(
+            topic="meta.decisions",
+            payload=decision_payload,
+            handoff_type="decision",
+            confidence=decision.confidence,
+            reasoning=response,
+            schema="AGENT_DECISION_V1",
+            decision={
+                "action": decision.action_taken,
+                "confidence": decision.confidence,
+                "reasoning": response,
+            },
+        )
+
         self.publish(AgentOutput(
             agent_id=self.AGENT_ID,
             output_type="decision",
             topic="meta.decisions",
-            payload={
-                "decision_id": decision.decision_id,
-                "category": decision.category,
-                "agents": decision.agents_involved,
-                "action": decision.action_taken,
-            },
+            payload=decision_payload,
             confidence=decision.confidence,
             reasoning=response,
             priority="HIGH",
@@ -381,16 +414,25 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
             system_prompt="You are a trading system coordinator managing session transitions.",
         ) or f"Transitioning to {session.value}"
 
+        orchestration_payload = {
+            "event": "session_transition",
+            "session": session.value,
+            "guidance": guidance,
+            "agent_health": self._get_health_summary(),
+        }
+        orchestration_payload = self._with_handoff_envelope(
+            topic="meta.orchestration",
+            payload=orchestration_payload,
+            handoff_type="coordination",
+            confidence=0.8,
+            reasoning=guidance,
+        )
+
         self.publish(AgentOutput(
             agent_id=self.AGENT_ID,
             output_type="coordination",
             topic="meta.orchestration",
-            payload={
-                "event": "session_transition",
-                "session": session.value,
-                "guidance": guidance,
-                "agent_health": self._get_health_summary(),
-            },
+            payload=orchestration_payload,
             confidence=0.8,
             reasoning=guidance,
             priority="NORMAL",
@@ -409,18 +451,34 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
 
         if unhealthy:
             for agent_id, status in unhealthy:
+                alert_reasoning = f"Agent {agent_id} health: {status.health_score:.0%}"
+                alert_payload = {
+                    "agent_id": agent_id,
+                    "health_score": status.health_score,
+                    "warnings": status.warnings,
+                    "state": status.state,
+                }
+                alert_payload = self._with_handoff_envelope(
+                    topic="meta.health",
+                    payload=alert_payload,
+                    handoff_type="escalation",
+                    confidence=0.9,
+                    reasoning=alert_reasoning,
+                    schema="AGENT_ESCALATION_V1",
+                    escalation={
+                        "severity": "high",
+                        "reason": alert_reasoning,
+                        "target": "human_operator",
+                    },
+                )
+
                 self.publish(AgentOutput(
                     agent_id=self.AGENT_ID,
                     output_type="alert",
                     topic="meta.health",
-                    payload={
-                        "agent_id": agent_id,
-                        "health_score": status.health_score,
-                        "warnings": status.warnings,
-                        "state": status.state,
-                    },
+                    payload=alert_payload,
                     confidence=0.9,
-                    reasoning=f"Agent {agent_id} health: {status.health_score:.0%}",
+                    reasoning=alert_reasoning,
                     priority="HIGH",
                 ))
 
@@ -450,15 +508,24 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
         ) or ""
 
         if synthesis:
+            synthesis_payload = {
+                "type": "system_synthesis",
+                "health_summary": health_summary,
+                "synthesis": synthesis,
+            }
+            synthesis_payload = self._with_handoff_envelope(
+                topic="meta.orchestration",
+                payload=synthesis_payload,
+                handoff_type="coordination",
+                confidence=0.8,
+                reasoning=synthesis,
+            )
+
             self.publish(AgentOutput(
                 agent_id=self.AGENT_ID,
                 output_type="report",
                 topic="meta.orchestration",
-                payload={
-                    "type": "system_synthesis",
-                    "health_summary": health_summary,
-                    "synthesis": synthesis,
-                },
+                payload=synthesis_payload,
                 confidence=0.8,
                 reasoning=synthesis,
                 priority="LOW",
@@ -473,27 +540,67 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
         avg_health = sum(health_scores) / max(len(health_scores), 1)
         min_health = min(health_scores) if health_scores else 0.0
 
+        payload = {
+            "avg_health": avg_health,
+            "min_health": min_health,
+            "agents": {
+                aid: {
+                    "health": s.health_score,
+                    "state": s.state,
+                    "outputs": s.outputs_today,
+                    "errors": s.errors_today,
+                }
+                for aid, s in self._agent_status.items()
+            },
+        }
+        payload = self._with_handoff_envelope(
+            topic="meta.health",
+            payload=payload,
+            handoff_type="health",
+            confidence=0.9,
+            reasoning=f"System health: avg={avg_health:.0%}, min={min_health:.0%}",
+        )
+
         self.publish(AgentOutput(
             agent_id=self.AGENT_ID,
             output_type="metric",
             topic="meta.health",
-            payload={
-                "avg_health": avg_health,
-                "min_health": min_health,
-                "agents": {
-                    aid: {
-                        "health": s.health_score,
-                        "state": s.state,
-                        "outputs": s.outputs_today,
-                        "errors": s.errors_today,
-                    }
-                    for aid, s in self._agent_status.items()
-                },
-            },
+            payload=payload,
             confidence=0.9,
             reasoning=f"System health: avg={avg_health:.0%}, min={min_health:.0%}",
             priority="LOW",
         ))
+
+    def _with_handoff_envelope(
+        self,
+        *,
+        topic: str,
+        payload: dict[str, Any],
+        handoff_type: str,
+        confidence: float,
+        reasoning: str,
+        schema: str = "AGENT_HANDOFF_V1",
+        decision: dict[str, Any] | None = None,
+        escalation: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Attach a normalized handoff envelope while preserving legacy payload keys."""
+        envelope = build_agent_handoff_envelope(
+            topic=topic,
+            producer_agent_id=self.AGENT_ID,
+            producer_class=self.__class__.__name__,
+            schema=schema,
+            handoff_type=handoff_type,
+            payload=payload,
+            confidence=confidence,
+            reasoning=reasoning,
+            decision=decision,
+            escalation=escalation,
+            legacy_payload=payload,
+        )
+
+        merged_payload = dict(payload)
+        merged_payload["agent_handoff"] = envelope
+        return merged_payload
 
     # ==========================================================================
     # HELPERS

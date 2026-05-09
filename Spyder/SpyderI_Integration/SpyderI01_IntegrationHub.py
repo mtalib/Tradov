@@ -267,7 +267,7 @@ class IntegrationHub:
                     'SpyderJ_Alerts', 'SpyderK_Reports', 'SpyderL_ML',
                     'SpyderM_Monitoring', 'SpyderN_OptionsAnalytics',
                     'SpyderP_PortfolioMgmt', 'SpyderQ_Scripts', 'SpyderR_Runtime',
-                    'SpyderS_Signals', 'SpyderU_Utilities', 'SpyderX_Agents',
+                    'SpyderS_Signals', 'Spyder.SpyderU_Utilities', 'SpyderX_Agents',
                     'SpyderZ_Communication'
                 ]
 

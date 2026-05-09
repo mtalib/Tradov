@@ -42,13 +42,30 @@ import threading  # noqa: E402
 import time  # noqa: E402
 import uuid  # noqa: E402
 import re  # noqa: E402
+from fnmatch import fnmatchcase  # noqa: E402
 from collections import deque, defaultdict  # noqa: E402
 from datetime import datetime, timedelta, timezone, time as dt_time  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
 from enum import Enum  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
 from typing import Any  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+
+try:
+    from Spyder.SpyderZ_Communication.SpyderZ02_MessageProtocol import (
+        extract_agent_handoff_envelope as _extract_agent_handoff_envelope,
+        validate_agent_handoff_envelope as _validate_agent_handoff_envelope,
+    )
+    _D31_AGENT_HANDOFF_VALIDATION_AVAILABLE = True
+except Exception:
+    _D31_AGENT_HANDOFF_VALIDATION_AVAILABLE = False
+
+    def _extract_agent_handoff_envelope(payload):
+        return None, None
+
+    def _validate_agent_handoff_envelope(envelope, schema_name=None):
+        return True, None
 
 try:
     from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import now_et as _d31_now_et
@@ -232,7 +249,7 @@ try:
             return []
 
         def _to_d18_market_data(self, market_data: pd.DataFrame) -> dict[str, Any]:
-            prices = self._extract_series(market_data, ["SPY", "close", "Close", "price", "last"]) 
+            prices = self._extract_series(market_data, ["SPY", "close", "Close", "price", "last"])
             volumes = self._extract_series(market_data, ["volume", "Volume"])
             vix_series = self._extract_series(market_data, ["VIX", "vix"])
 
@@ -799,6 +816,10 @@ class StrategyOrchestrator:
         self.event_manager = event_manager
         self._l09_engine: Any | None = regime_engine          # L09 UnifiedRegimeEngine (optional)
         self._last_l09_confidence: float = 0.0               # confidence from last L09 call
+        self._last_l09_consensus: Any | None = None          # latest L09 consensus payload
+        self._d30_selector: Any | None = None                # D30 RegimeGatedSelector (lazy)
+        self._d30_selector_init_attempted: bool = False
+        self._last_selector_feature_flag: str | None = None
         if self.event_manager is None:
             try:
                 _gem = get_event_manager  # type: ignore[name-defined]  # noqa: F821
@@ -823,14 +844,6 @@ class StrategyOrchestrator:
             "IronCondorStrategy",
             "IronButterfly",
             "IronButterflyStrategy",
-            # 0DTE / 1DTE short-term slot (ultra_short horizon bucket)
-            "ZeroDTE",
-            "ZeroDTEStrategy",
-            "SpecializedZeroDTE",
-            "SpecializedZeroDTEStrategy",
-            # Long-term swing slot (swing horizon bucket)
-            "CalendarSpread",
-            "CalendarSpreadStrategy",
         }
         # Opt-in extension: D34 PivotMeanReversion. Gated by env flag so the
         # default lean posture remains the 4-strategy v5 contract; setting
@@ -973,6 +986,12 @@ class StrategyOrchestrator:
         # _on_y02_validated_signal(); consulted (advisory-only) in the signal
         # dispatch path to surface patterns of Y02 disapproval in the logs.
         self._y02_advisory: dict[str, Any] = {}  # strategy_type → last approval datetime
+        self._agent_handoff_shadow_validation_enabled = str(
+            os.getenv("SPYDER_AGENT_HANDOFF_SHADOW_VALIDATION", "1")
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        self._agent_handoff_shadow_validation_counts: dict[str, int] = defaultdict(int)
+        self._agent_handoff_policy: dict[str, Any] | None = None
+        self._agent_handoff_enforcement_counts: dict[str, int] = defaultdict(int)
 
         # Market data cache (replaced entirely each update, not appended)
         self.market_data_cache = {}
@@ -1083,6 +1102,38 @@ class StrategyOrchestrator:
             _vix_bucket = deque(maxlen=_MARKET_TICK_BUFFER)
             _vix_bucket.append({"close": _vix_last, "price": _vix_last, "symbol": "VIX"})
             self.market_data_cache["VIX"] = _vix_bucket
+
+    def _recover_cache_if_cold(self) -> None:
+        """Re-seed market_data_cache from live_data.json when SPY cache is cold.
+
+        G18 (MarketDataWorker) writes fresh quotes to live_data.json every 10 s
+        but does NOT publish EventType.MARKET_DATA events on the A05 event bus.
+        In dashboard-only mode this means D31's market_data_cache["SPY"] never
+        gets any entries and the regime classifier fails closed to CRISIS for the
+        entire session.
+
+        This method bridges that gap: if the SPY cache has fewer than 2 closes
+        (the minimum required for regime classification), it reads the current
+        live_data.json written by G18 and seeds the cache identically to the
+        startup warm-start path.  Throttled to at most once every 30 s to avoid
+        excessive disk I/O on every regime evaluation cycle.
+        """
+        spy_ticks = self.market_data_cache.get("SPY", [])
+        spy_closes = [
+            self._coerce_float(t.get("close", t.get("price")))
+            for t in spy_ticks
+            if isinstance(t, dict)
+        ]
+        if len([c for c in spy_closes if c is not None]) >= 2:
+            return  # Cache is warm — nothing to do
+
+        now_mono = time.monotonic()
+        last = getattr(self, "_last_disk_reseed_monotonic", 0.0)
+        if now_mono - last < 30.0:
+            return  # Throttle: tried within last 30 s
+
+        self._last_disk_reseed_monotonic = now_mono
+        self._seed_cache_from_disk()
 
     def _record_signal_drop(
         self,
@@ -1365,6 +1416,8 @@ class StrategyOrchestrator:
         """Track order-routing outcomes for approved signals."""
         if outcome in self._signal_flow_counts:
             self._signal_flow_counts[outcome] += 1
+        if outcome in {"dispatch_submitted", "dispatch_rejected"}:
+            self._persist_signal_dispatch_outcome_audit(outcome, signal=signal)
         # v9 §10.4: stamp last successful dispatch for DISPATCH pill FLOWING state.
         if outcome == "dispatch_submitted":
             self._last_dispatch_ok_ts = time.monotonic()
@@ -1373,6 +1426,54 @@ class StrategyOrchestrator:
                 if strategy_type:
                     self._last_dispatch_strategy = str(strategy_type)
         self._log_signal_flow_summary_if_due()
+
+    def _persist_signal_dispatch_outcome_audit(
+        self,
+        outcome: str,
+        signal: Any | None,
+    ) -> None:
+        """Append dispatch outcome records to the daily decision JSONL file."""
+        if not self._signal_drop_audit_enabled:
+            return
+
+        try:
+            now_utc = datetime.now(timezone.utc)
+            file_path = self._resolve_signal_audit_file_path(now_utc)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+            payload = signal if isinstance(signal, dict) else {}
+            pivot_payload = self._extract_pivot_signal_payload(payload) if payload else None
+            strategy_id = self._signal_value(payload, "strategy_id") or self._signal_value(payload, "strategy_name")
+
+            record = {
+                "ts_utc": now_utc.isoformat(),
+                "component": "D31",
+                "event": outcome,
+                "run_mode": self._audit_run_mode,
+                "source_context": self._audit_source_context,
+                "session_id": self._audit_session_id,
+                "stage": "dispatch",
+                "reason": outcome,
+                "detail": "",
+                "symbol": self._signal_value(payload, "symbol", ""),
+                "strategy_id": strategy_id or "",
+                "action": self._signal_value(payload, "action", self._signal_value(payload, "side", "")),
+                "quantity": self._signal_value(payload, "quantity", 0),
+                "signal_id": self._signal_value(payload, "signal_id", self._signal_value(payload, "id", "")),
+                "regime": self._signal_value(payload, "regime", ""),
+                "pivot": {
+                    "fired": pivot_payload.get("fired") if isinstance(pivot_payload, dict) else None,
+                    "direction": pivot_payload.get("direction") if isinstance(pivot_payload, dict) else None,
+                    "score": pivot_payload.get("score") if isinstance(pivot_payload, dict) else None,
+                    "nearest_level_name": pivot_payload.get("nearest_level_name") if isinstance(pivot_payload, dict) else None,
+                    "atr_distance": pivot_payload.get("atr_distance") if isinstance(pivot_payload, dict) else None,
+                },
+            }
+
+            with open(file_path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        except Exception as exc:
+            self.logger.debug("D31: failed to persist dispatch outcome audit: %s", exc)
 
     def _record_signal_dispatch_outcome_safe(
         self,
@@ -2540,12 +2641,20 @@ class StrategyOrchestrator:
     ) -> "MarketRegime":
         """Classify regime via L09 UnifiedRegimeEngine when injected; else inline heuristic."""
         self._last_l09_confidence = 0.0
+        self._last_l09_consensus = None
 
         # v27 SPEC-5: fail closed when SPY cache is cold (boot, reconnect, feed
         # gap). Returning a fabricated regime locks the system into wrong
         # strategies for the cold-start window — the documented "no strategies
         # fire" pathology. CRISIS maps via D31's regime alias to
         # crisis_turbulent → no-trade, which is the safe behavior.
+        #
+        # v28 bridge: G18 (MarketDataWorker) writes live_data.json every 10 s
+        # but does NOT publish EventType.MARKET_DATA events to the event bus, so
+        # the cache is always cold in dashboard-only mode.  Attempt a live_data
+        # recovery seed before failing to CRISIS (throttled to 30 s).
+        self._recover_cache_if_cold()
+
         spy_ticks = self.market_data_cache.get("SPY", [])
         spy_closes = [
             self._coerce_float(t.get("close", t.get("price")))
@@ -2683,9 +2792,24 @@ class StrategyOrchestrator:
                 )
                 consensus = self._l09_engine.get_current_regime(conditions)
                 self._last_l09_confidence = consensus.confidence
+                self._last_l09_consensus = consensus
                 self.logger.debug(
                     "📊 L09 regime: %s (conf=%.2f)", consensus.regime.value, consensus.confidence
                 )
+
+                # D30 RegimeGatedSelector already uses confidence_threshold=70 %.
+                # Apply the same gate here: if L09's confidence is below that bar,
+                # its classification is too ambiguous to override the heuristic path.
+                _L09_CONFIDENCE_THRESHOLD = 0.70
+                if consensus.confidence < _L09_CONFIDENCE_THRESHOLD:
+                    self.logger.info(
+                        "📊 L09 conf %.2f < %.2f threshold — deferring to heuristic classifier "
+                        "(L09 said %s)",
+                        consensus.confidence,
+                        _L09_CONFIDENCE_THRESHOLD,
+                        consensus.regime.value,
+                    )
+                    return self._classify_market_regime(vix_level, vix_percentile, trend_strength)
 
                 is_high_vol = vix_level > VIX_REGIME_THRESHOLDS["high"]
                 l09_r = consensus.regime
@@ -2764,26 +2888,204 @@ class StrategyOrchestrator:
         except Exception:
             return 0.0
 
+    def _get_d30_selector(self) -> Any | None:
+        """Return cached D30 selector instance, creating it lazily."""
+        if self._d30_selector is not None:
+            return self._d30_selector
+        if self._d30_selector_init_attempted:
+            return None
+
+        self._d30_selector_init_attempted = True
+        selector_cls = None
+        try:
+            from Spyder.SpyderD_Strategies.SpyderD30_RegimeGatedSelector import (  # noqa: PLC0415
+                RegimeGatedSelector as _Selector,
+            )
+
+            selector_cls = _Selector
+        except Exception:
+            try:
+                from SpyderD_Strategies.SpyderD30_RegimeGatedSelector import (  # noqa: PLC0415
+                    RegimeGatedSelector as _Selector,
+                )
+
+                selector_cls = _Selector
+            except Exception as exc:
+                self.logger.warning(
+                    "D31 lean selector unavailable (D30 import failed): %s",
+                    exc,
+                )
+                return None
+
+        try:
+            self._d30_selector = selector_cls()
+            self.logger.info("D31 wired with D30 RegimeGatedSelector")
+        except Exception as exc:
+            self.logger.warning(
+                "D31 could not initialize D30 RegimeGatedSelector: %s",
+                exc,
+            )
+            self._d30_selector = None
+
+        return self._d30_selector
+
+    def _build_d30_consensus(self) -> Any | None:
+        """Build a D30-compatible consensus object from the latest regime state."""
+        if self._last_l09_consensus is not None and hasattr(self._last_l09_consensus, "regime"):
+            return self._last_l09_consensus
+
+        try:
+            from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketRegime as _L09R  # noqa: PLC0415
+        except Exception:
+            try:
+                from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketRegime as _L09R  # noqa: PLC0415
+            except Exception:
+                return None
+
+        recovery_member = getattr(_L09R, "RECOVERY_MODE", getattr(_L09R, "BULL_TRENDING", None))
+        regime_map: dict[MarketRegime, Any] = {
+            MarketRegime.BULL_LOW_VOL: _L09R.BULL_TRENDING,
+            MarketRegime.BULL_HIGH_VOL: _L09R.BULL_TRENDING,
+            MarketRegime.BEAR_LOW_VOL: _L09R.BEAR_TRENDING,
+            MarketRegime.BEAR_HIGH_VOL: _L09R.BEAR_TRENDING,
+            MarketRegime.SIDEWAYS_LOW_VOL: _L09R.SIDEWAYS_RANGE,
+            MarketRegime.SIDEWAYS_HIGH_VOL: _L09R.HIGH_VOLATILITY,
+            MarketRegime.CRISIS: _L09R.CRISIS_MODE,
+            MarketRegime.EVENT_TRANSITION: _L09R.EVENT_TRANSITION,
+        }
+        if recovery_member is not None:
+            regime_map[MarketRegime.RECOVERY] = recovery_member
+
+        current_regime = self.market_regime.current_regime
+        l09_regime = regime_map.get(current_regime, getattr(_L09R, "UNKNOWN", None))
+        if l09_regime is None:
+            return None
+
+        return SimpleNamespace(
+            regime=l09_regime,
+            confidence=float(getattr(self.market_regime, "regime_confidence", 0.0) or 0.0),
+            timestamp=datetime.now(timezone.utc),
+        )
+
+    def _get_cached_pivot_signal_for_selector(self) -> dict[str, Any] | None:
+        """Return latest pivot payload from cached market conditions if available."""
+        cache = self.market_data_cache
+        if not isinstance(cache, dict):
+            return None
+
+        candidates: list[Any] = []
+        for key in ("pivot_signal", "pivot_mr_signal", "pivot"):
+            if isinstance(cache.get(key), dict):
+                candidates.append(cache.get(key))
+
+        market_conditions = cache.get("market_conditions")
+        if isinstance(market_conditions, dict):
+            for key in ("pivot_signal", "pivot_mr_signal", "pivot"):
+                if isinstance(market_conditions.get(key), dict):
+                    candidates.append(market_conditions.get(key))
+
+        for candidate in candidates:
+            payload = self._extract_pivot_signal_payload(candidate)
+            if payload:
+                return payload
+
+        return None
+
+    @staticmethod
+    def _map_selector_strategy_to_registry_name(strategy_value: Any) -> str | None:
+        """Map D30 StrategyType values to D31 strategy registry keys."""
+        raw = str(strategy_value or "").strip().lower()
+        strategy_map = {
+            "bull_put_spread": "BullPutSpread",
+            "bear_call_spread": "BearCallSpread",
+            "iron_condor": "IronCondor",
+            "iron_butterfly": "IronButterfly",
+            "bull_call_spread": "BullCallSpread",
+            "bear_put_spread": "BearPutSpread",
+            "pivot_mean_reversion": "PivotMeanReversion",
+            "no_trade": None,
+        }
+        return strategy_map.get(raw)
+
+    def _fallback_lean_strategy_name(self) -> str | None:
+        """Fallback lean mapping when D30 selector or consensus is unavailable."""
+        regime = self.market_regime.current_regime
+        if regime in {MarketRegime.CRISIS, MarketRegime.EVENT_TRANSITION}:
+            return None
+
+        bull_call_enabled = str(os.getenv("SPYDER_ENABLE_BULL_CALL_SPREAD", "")).strip().lower() in {
+            "1", "true", "yes", "on", "y"
+        }
+        bear_put_enabled = str(os.getenv("SPYDER_ENABLE_BEAR_PUT_SPREAD", "")).strip().lower() in {
+            "1", "true", "yes", "on", "y"
+        }
+        pivot_enabled = str(os.getenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", "")).strip().lower() in {
+            "1", "true", "yes", "on", "y"
+        }
+        pivot_payload = self._get_cached_pivot_signal_for_selector() or {}
+        pivot_fired = bool(pivot_payload.get("fired", False))
+
+        if regime in {MarketRegime.BULL_LOW_VOL, MarketRegime.BULL_HIGH_VOL, MarketRegime.RECOVERY}:
+            return "BullCallSpread" if bull_call_enabled else "BullPutSpread"
+        if regime in {MarketRegime.BEAR_LOW_VOL, MarketRegime.BEAR_HIGH_VOL}:
+            return "BearPutSpread" if bear_put_enabled else "BearCallSpread"
+        if regime == MarketRegime.SIDEWAYS_LOW_VOL:
+            if pivot_enabled and pivot_fired:
+                return "PivotMeanReversion"
+            return "IronCondor"
+        if regime == MarketRegime.SIDEWAYS_HIGH_VOL:
+            return "IronButterfly"
+
+        return None
+
+    def _select_strategy_name_for_regime(self) -> tuple[str | None, str]:
+        """Resolve the current lean strategy via D30, with deterministic fallback."""
+        selector = self._get_d30_selector()
+        consensus = self._build_d30_consensus()
+
+        if selector is not None and consensus is not None:
+            try:
+                selection = selector.select_strategy_from_consensus(
+                    consensus,
+                    pivot_signal=self._get_cached_pivot_signal_for_selector(),
+                )
+                self._last_selector_feature_flag = getattr(selection, "selector_feature_flag", None)
+                strategy_value = getattr(getattr(selection, "selected_strategy", None), "value", None)
+                strategy_name = self._map_selector_strategy_to_registry_name(strategy_value)
+                reason = str(getattr(selection, "reason", strategy_value or "selector_result"))
+                return strategy_name, reason
+            except Exception as exc:
+                self.logger.warning("D31 selector execution failed; using fallback map: %s", exc)
+
+        fallback_name = self._fallback_lean_strategy_name()
+        return fallback_name, "fallback_lean_mapping"
+
     def _get_regime_strategy_weights(self) -> dict[str, float]:
         """Get optimal strategy weights for current regime"""
         regime = self.market_regime.current_regime
 
         if self.lean_mode:
-            if regime in {MarketRegime.CRISIS, MarketRegime.EVENT_TRANSITION}:
+            strategy_name, selector_reason = self._select_strategy_name_for_regime()
+            if not strategy_name:
                 return {}
-            # Each regime returns two strategies so D31 can fill both concurrent
-            # slots: one ultra_short (0DTE/1DTE) and one short/swing.
-            if regime == MarketRegime.BULL_LOW_VOL:
-                return {"BullPutSpread": 0.55, "ZeroDTE": 0.45}
-            if regime == MarketRegime.BULL_HIGH_VOL:
-                return {"BullPutSpread": 0.50, "ZeroDTE": 0.50}
-            if regime in {MarketRegime.BEAR_LOW_VOL, MarketRegime.BEAR_HIGH_VOL}:
-                return {"BearCallSpread": 0.55, "ZeroDTE": 0.45}
-            if regime == MarketRegime.SIDEWAYS_LOW_VOL:
-                return {"IronCondor": 0.55, "CalendarSpread": 0.45}
-            if regime == MarketRegime.SIDEWAYS_HIGH_VOL:
-                return {"IronButterfly": 0.55, "ZeroDTE": 0.45}
-            return {}
+
+            if strategy_name not in self.lean_strategy_allowlist:
+                self.logger.warning(
+                    "D31 lean selector blocked by allowlist: regime=%s strategy=%s reason=%s",
+                    regime.value,
+                    strategy_name,
+                    selector_reason,
+                )
+                return {}
+
+            self.logger.debug(
+                "D31 lean selector: regime=%s strategy=%s reason=%s feature_flag=%s",
+                regime.value,
+                strategy_name,
+                selector_reason,
+                self._last_selector_feature_flag,
+            )
+            return {strategy_name: 1.0}
 
         # Strategy weights by regime (this would be backtested/optimized)
         regime_weights = {
@@ -3344,9 +3646,8 @@ class StrategyOrchestrator:
 
         Subscribes to:
         - ``market.regime``   — Y01 MarketSenseAgent regime updates (GAP-4)
-        - ``signals.validated`` — Y02 StrategyPilotAgent LLM approvals (GAP-2,
-          advisory: tracks approval patterns but does not hard-block signals
-          because Y02's LLM inference is asynchronous relative to the hot-path)
+                - ``signals.validated`` — Y02 StrategyPilotAgent LLM approvals (GAP-2,
+                    with paper-mode policy gating for sender-role/topic/action)
 
         Call this after construction (e.g. from A06) to wire autonomous agent
         outputs into the strategy-selector and monitoring loop.
@@ -3369,28 +3670,55 @@ class StrategyOrchestrator:
                 subscriber_id="D31_StrategyOrchestrator_Y02",
                 topics=["signals.validated"],
                 callback=self._on_y02_validated_signal,
-                name="StrategyOrchestrator_Y02Advisory",
+                name="StrategyOrchestrator_Y02PolicyGate",
             )
             self.logger.info("📡 D31: Subscribed to agent bus 'signals.validated' topic (Y02)")
         except Exception as e:
             self.logger.warning("D31: Could not subscribe to 'signals.validated': %s", e)
 
     def _on_y02_validated_signal(self, message: Any) -> None:
-        """Handle Y02 StrategyPilotAgent validated-signal advisory from the agent bus.
+        """Handle Y02 StrategyPilotAgent validated signals from the agent bus.
 
         Y02 publishes ``signals.validated`` payloads only for *approved* signals.
         We record the strategy type and timestamp so the orchestrator can surface
         patterns where Y02 has stopped approving a particular strategy.
+
+        Phase 2: execution-relevant handoffs are policy-gated in paper mode.
 
         Args:
             message: AgentOutput or dict with payload containing ``original_signal``
                      and ``validation`` keys.
         """
         try:
+            payload, raw_payload = self._extract_agent_message_payload(message)
+            self._shadow_validate_agent_handoff(
+                topic="signals.validated",
+                payload=payload,
+                raw_payload=raw_payload,
+            )
+
+            sender = ""
             if isinstance(message, dict):
-                payload = message.get("payload") or message.get("data") or {}
+                sender = str(message.get("sender") or "").strip()
             else:
-                payload = getattr(message, "payload", None) or getattr(message, "data", {}) or {}
+                sender = str(getattr(message, "sender", "") or "").strip()
+
+            allowed, reason_code = self._enforce_execution_handoff_policy(
+                topic="signals.validated",
+                sender=sender,
+                payload=payload,
+                raw_payload=raw_payload,
+            )
+            if not allowed:
+                self._agent_handoff_enforcement_counts["blocked"] += 1
+                self.logger.warning(
+                    "D31 policy blocked signals.validated sender=%s reason=%s",
+                    sender,
+                    reason_code,
+                )
+                self._record_signal_drop("agent_handoff_policy", reason_code, signal=payload)
+                return
+            self._agent_handoff_enforcement_counts["allowed"] += 1
 
             original_signal = payload.get("original_signal") or {}
             validation = payload.get("validation") or {}
@@ -3421,6 +3749,279 @@ class StrategyOrchestrator:
         except Exception as e:
             self.logger.debug("D31: _on_y02_validated_signal error: %s", e)
 
+    def _extract_agent_message_payload(
+        self,
+        message: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """Normalize agent-bus message shapes to payload dict while preserving wrapper."""
+        raw_payload: dict[str, Any] | None = None
+
+        if isinstance(message, dict):
+            candidate = message.get("payload")
+            if candidate is None:
+                candidate = message.get("data")
+            if candidate is None:
+                candidate = message
+            if isinstance(candidate, dict):
+                raw_payload = candidate
+        else:
+            candidate = getattr(message, "payload", None)
+            if candidate is None:
+                candidate = getattr(message, "data", None)
+            if isinstance(candidate, dict):
+                raw_payload = candidate
+
+        if not isinstance(raw_payload, dict):
+            return {}, None
+
+        nested_data = raw_payload.get("data")
+        if isinstance(nested_data, dict):
+            return nested_data, raw_payload
+
+        return raw_payload, raw_payload
+
+    def _shadow_validate_agent_handoff(
+        self,
+        topic: str,
+        payload: dict[str, Any],
+        raw_payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Advisory-only handoff validation for Phase 1 shadow mode."""
+        if not self._agent_handoff_shadow_validation_enabled:
+            return
+
+        if not _D31_AGENT_HANDOFF_VALIDATION_AVAILABLE:
+            self._agent_handoff_shadow_validation_counts["validator_unavailable"] += 1
+            return
+
+        envelope, schema_name = _extract_agent_handoff_envelope(payload)
+        if envelope is None and isinstance(raw_payload, dict) and raw_payload is not payload:
+            envelope, schema_name = _extract_agent_handoff_envelope(raw_payload)
+
+        if envelope is None:
+            self._agent_handoff_shadow_validation_counts["missing"] += 1
+            self.logger.warning(
+                "D31 advisory: missing agent handoff envelope on topic=%s",
+                topic,
+            )
+            return
+
+        valid, error = _validate_agent_handoff_envelope(envelope, schema_name)
+        if valid:
+            self._agent_handoff_shadow_validation_counts["valid"] += 1
+            return
+
+        self._agent_handoff_shadow_validation_counts["invalid"] += 1
+        self.logger.warning(
+            "D31 advisory: invalid agent handoff envelope on topic=%s schema=%s error=%s",
+            topic,
+            schema_name,
+            error,
+        )
+
+    def _get_agent_handoff_policy(self) -> dict[str, Any]:
+        """Load and cache Phase 2 agent handoff policy."""
+        if self._agent_handoff_policy is not None:
+            return self._agent_handoff_policy
+
+        policy: dict[str, Any] = {}
+
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+            cfg = get_config_manager()
+            candidate = cfg.get("autonomous_readiness.agent_handoff_policy", {})
+            if isinstance(candidate, dict):
+                policy = candidate
+        except Exception:
+            policy = {}
+
+        if not policy:
+            policy_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "config",
+                "agent_handoff_policy.json",
+            )
+            try:
+                with open(policy_path, encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    policy = loaded
+            except Exception:
+                policy = {}
+
+        self._agent_handoff_policy = policy if isinstance(policy, dict) else {}
+        return self._agent_handoff_policy
+
+    def _agent_handoff_default_action(self, enforcement: dict[str, Any]) -> str:
+        """Resolve policy fallback action for current run mode."""
+        if self._is_live_mode_for_agent_handoff_policy():
+            return str(enforcement.get("default_action_live", "allow")).strip().lower()
+        return str(enforcement.get("default_action_paper", "deny")).strip().lower()
+
+    def _agent_handoff_policy_enabled(self, enforcement: dict[str, Any]) -> bool:
+        """Check if Phase 2 policy is enabled for the current run mode."""
+        if self._is_live_mode_for_agent_handoff_policy():
+            return bool(enforcement.get("live_mode", False))
+        return bool(enforcement.get("paper_mode", True))
+
+    def _is_live_mode_for_agent_handoff_policy(self) -> bool:
+        """Resolve live/paper mode specifically for handoff policy enforcement."""
+        candidates = (
+            os.environ.get("TRADING_MODE"),
+            os.environ.get("SPYDER_TRADING_MODE"),
+            self._audit_run_mode,
+        )
+        for value in candidates:
+            if value is None:
+                continue
+            text = str(value).strip().lower()
+            if text in {"live", "production", "prod"}:
+                return True
+            if text in {"paper", "sandbox", "sim", "simulation", "development", "dev", "test", "testing"}:
+                return False
+
+        return self._is_live_mode()
+
+    @staticmethod
+    def _is_execution_relevant_handoff_topic(topic: str) -> bool:
+        """Restrict D31 hard-enforcement to execution-relevant handoffs."""
+        return topic == "signals.validated" or topic.startswith("execution.")
+
+    @staticmethod
+    def _match_policy_patterns(value: str, patterns: Any) -> bool:
+        """Match wildcard patterns from policy lists."""
+        if not value or not isinstance(patterns, list):
+            return False
+        return any(isinstance(pattern, str) and pattern and fnmatchcase(value, pattern) for pattern in patterns)
+
+    def _is_agent_sender_in_policy_scope(self, sender: str, enforcement: dict[str, Any]) -> bool:
+        """Apply sender-scoped enforcement to avoid blocking non-agent publishers."""
+        patterns = enforcement.get("enforce_sender_patterns")
+        if not isinstance(patterns, list) or not patterns:
+            patterns = ["Y[0-9][0-9]_*", "X[0-9][0-9]_*"]
+        return self._match_policy_patterns(sender, patterns)
+
+    def _resolve_agent_sender_role(self, sender: str, role_bindings: dict[str, Any]) -> str | None:
+        """Resolve sender role using exact bindings before wildcard bindings."""
+        if not sender or not isinstance(role_bindings, dict):
+            return None
+
+        exact = role_bindings.get(sender)
+        if isinstance(exact, str) and exact:
+            return exact
+
+        for pattern, role in role_bindings.items():
+            if not isinstance(pattern, str) or not isinstance(role, str):
+                continue
+            if fnmatchcase(sender, pattern):
+                return role
+
+        return None
+
+    def _extract_agent_handoff_action(
+        self,
+        payload: dict[str, Any],
+        raw_payload: dict[str, Any] | None,
+    ) -> str | None:
+        """Extract normalized handoff action for policy checks."""
+        for candidate in (payload, raw_payload):
+            if not isinstance(candidate, dict):
+                continue
+
+            envelope, _ = _extract_agent_handoff_envelope(candidate)
+            if isinstance(envelope, dict):
+                handoff_type = envelope.get("handoff_type")
+                if isinstance(handoff_type, str) and handoff_type:
+                    return handoff_type.strip().lower()
+
+            for key in ("output_type", "action", "intent"):
+                value = candidate.get(key)
+                if isinstance(value, str) and value:
+                    return value.strip().lower()
+
+        return None
+
+    @staticmethod
+    def _policy_decision_from_default(reason_code: str, default_action: str) -> tuple[bool, str]:
+        """Apply allow/deny fallback policy when specific checks are inconclusive."""
+        if default_action == "allow":
+            return True, f"{reason_code}_allowed_by_default"
+        return False, reason_code
+
+    def _enforce_execution_handoff_policy(
+        self,
+        topic: str,
+        sender: str,
+        payload: dict[str, Any],
+        raw_payload: dict[str, Any] | None,
+    ) -> tuple[bool, str]:
+        """Hard-enforce execution-relevant agent handoff policy for Phase 2."""
+        if not self._is_execution_relevant_handoff_topic(topic):
+            self._agent_handoff_enforcement_counts["skipped"] += 1
+            return True, "topic_not_execution_relevant"
+
+        policy = self._get_agent_handoff_policy()
+        enforcement = policy.get("enforcement", {}) if isinstance(policy, dict) else {}
+        if not isinstance(enforcement, dict):
+            self._agent_handoff_enforcement_counts["skipped"] += 1
+            return True, "policy_enforcement_unavailable"
+
+        default_action = self._agent_handoff_default_action(enforcement)
+        if not self._agent_handoff_policy_enabled(enforcement):
+            self._agent_handoff_enforcement_counts["skipped"] += 1
+            return True, "policy_disabled"
+
+        if not self._is_agent_sender_in_policy_scope(sender, enforcement):
+            self._agent_handoff_enforcement_counts["skipped"] += 1
+            return True, "sender_out_of_scope"
+
+        enforce_topics = enforcement.get("enforce_topics")
+        if not isinstance(enforce_topics, list):
+            enforce_topics = []
+        enforce_prefixes = enforcement.get("enforce_topic_prefixes")
+        if not isinstance(enforce_prefixes, list):
+            enforce_prefixes = []
+        in_topic_scope = topic in enforce_topics or any(
+            isinstance(prefix, str) and topic.startswith(prefix) for prefix in enforce_prefixes
+        )
+        if not in_topic_scope:
+            self._agent_handoff_enforcement_counts["skipped"] += 1
+            return True, "topic_out_of_scope"
+
+        role_bindings = policy.get("role_bindings", {}) if isinstance(policy, dict) else {}
+        role = self._resolve_agent_sender_role(sender, role_bindings)
+        if not role:
+            return self._policy_decision_from_default("sender_role_unbound", default_action)
+
+        role_permissions = policy.get("role_permissions", {}) if isinstance(policy, dict) else {}
+        permission = role_permissions.get(role) if isinstance(role_permissions, dict) else None
+        if not isinstance(permission, dict):
+            return self._policy_decision_from_default("role_not_configured", default_action)
+
+        if self._match_policy_patterns(topic, permission.get("deny_topics", [])):
+            return False, "topic_explicitly_denied"
+
+        allow_topics = permission.get("allow_topics", [])
+        if isinstance(allow_topics, list) and allow_topics and not self._match_policy_patterns(topic, allow_topics):
+            return self._policy_decision_from_default("topic_not_allowed", default_action)
+
+        action = self._extract_agent_handoff_action(payload, raw_payload)
+        if not action and topic == "signals.validated":
+            action = "signal"
+
+        if action and self._match_policy_patterns(action, permission.get("deny_actions", [])):
+            return False, "action_explicitly_denied"
+
+        allow_actions = permission.get("allow_actions", [])
+        if isinstance(allow_actions, list) and allow_actions:
+            if not action:
+                return self._policy_decision_from_default("action_missing", default_action)
+            if not self._match_policy_patterns(action, allow_actions):
+                return self._policy_decision_from_default("action_not_allowed", default_action)
+
+        return True, "allowed"
+
     def _on_agent_regime_update(self, message: Any) -> None:
         """Handle regime updates from Y01 MarketSenseAgent via the agent bus.
 
@@ -3429,11 +4030,12 @@ class StrategyOrchestrator:
         ``{data: <payload>, confidence: float}``.
         """
         try:
-            # Unwrap the bus envelope
-            if isinstance(message, dict):
-                data = message.get("data", {}) or {}
-            else:
-                data = getattr(message, "data", {}) or {}
+            data, raw_payload = self._extract_agent_message_payload(message)
+            self._shadow_validate_agent_handoff(
+                topic="market.regime",
+                payload=data,
+                raw_payload=raw_payload,
+            )
 
             regime_str = str(data.get("regime", "")).strip()
             confidence = float(data.get("confidence", 0.0))
@@ -3539,6 +4141,14 @@ class StrategyOrchestrator:
                         bucket = deque(maxlen=_MARKET_TICK_BUFFER)
                         self.market_data_cache[symbol] = bucket
                     bucket.append(row)
+                else:
+                    # Symbol-tagged non-tick payloads (for example dark-pool
+                    # block-trade summaries) must not mutate per-symbol tick
+                    # buckets, but we still preserve their top-level metadata.
+                    for key, value in data.items():
+                        if key in {"symbol", "tick"}:
+                            continue
+                        self.market_data_cache[key] = value
             else:
                 # Non-tick payloads (e.g. C12 dark-pool block_trade events,
                 # event_clock_state). Merge top-level keys but leave per-symbol
@@ -3616,8 +4226,29 @@ class StrategyOrchestrator:
                 tick_payload = data.get("tick")
                 if isinstance(tick_payload, dict):
                     row = dict(tick_payload)
-                    row.setdefault("symbol", data.get("symbol", row.get("symbol", "")))
-                    market_df = pd.DataFrame([row])
+                    _sym = data.get("symbol", row.get("symbol", ""))
+                    row.setdefault("symbol", _sym)
+                    # Pass the full accumulated tick history so strategies can compute
+                    # rolling indicators (SMA-20, SMA-50, vol percentile, etc.).
+                    # The cache was already updated with this tick above.
+                    _cache = self.market_data_cache if isinstance(self.market_data_cache, dict) else {}
+                    _bucket = _cache.get(_sym) if _sym else None
+                    if isinstance(_bucket, deque) and len(_bucket) > 1:
+                        market_df = pd.DataFrame(list(_bucket))
+                        # Add VIX/100 as 'iv' proxy so options strategies (IronCondor, etc.)
+                        # can evaluate IV-based conditions.  VIX is already cached by the
+                        # regime classifier; map it fractionally (e.g. VIX 20 → iv 0.20).
+                        if "iv" not in market_df.columns:
+                            _vix_bucket = _cache.get("VIX")
+                            if isinstance(_vix_bucket, deque) and _vix_bucket:
+                                try:
+                                    _vix_val = _vix_bucket[-1].get("close") or _vix_bucket[-1].get("price")
+                                    if _vix_val is not None:
+                                        market_df["iv"] = float(_vix_val) / 100.0
+                                except Exception:
+                                    pass
+                    else:
+                        market_df = pd.DataFrame([row])
                 else:
                     market_df = pd.DataFrame([data])
         except Exception:
@@ -4303,7 +4934,8 @@ class StrategyOrchestrator:
 
         position_tracker = getattr(supervisor, "position_tracker", None)
         if position_tracker is None and hasattr(supervisor, "engine"):
-            position_tracker = getattr(getattr(supervisor, "engine"), "position_tracker", None)
+            engine = supervisor.engine
+            position_tracker = engine.position_tracker if hasattr(engine, "position_tracker") else None
         if position_tracker is None:
             return 0
 

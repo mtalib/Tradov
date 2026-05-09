@@ -54,6 +54,23 @@ def _make_supervisor_with_synced_risk():
 class TestRiskManagerInjection:
     """R12 must inject the synced RiskManager into D31 during _start_orchestrator."""
 
+    def test_start_orchestrator_wires_l09_engine(self):
+        """R12 should pass a UnifiedRegimeEngine instance into D31."""
+        sv, _fake_risk = _make_supervisor_with_synced_risk()
+        fake_l09 = MagicMock(name="UnifiedRegimeEngine")
+
+        with patch(
+            "Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine.UnifiedRegimeEngine",
+            return_value=fake_l09,
+        ), patch(
+            "Spyder.SpyderB_Broker.SpyderB02_OrderManager.OrderManager",
+            return_value=MagicMock(name="OrderManager"),
+        ):
+            ok = sv._start_orchestrator()
+
+        assert ok is True
+        assert getattr(sv.orchestrator, "_l09_engine", None) is fake_l09
+
     def test_start_orchestrator_calls_set_risk_manager(self):
         """After _start_orchestrator, orchestrator.risk_manager is the synced instance."""
         sv, fake_risk = _make_supervisor_with_synced_risk()

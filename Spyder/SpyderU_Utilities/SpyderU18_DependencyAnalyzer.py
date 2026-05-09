@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU18_DependencyAnalyzer.py
 Purpose: SPYDER - Automated SPY Options Trading System
 
@@ -60,7 +60,7 @@ MODULE_GROUPS = {
     'SpyderP_PortfolioMgmt': {'color': '#FD79A8', 'label': 'Portfolio Management'},
     'SpyderR_Runtime': {'color': '#636E72', 'label': 'Runtime Engines'},
     'SpyderT_Testing': {'color': '#B2BEC3', 'label': 'Testing Framework'},
-    'SpyderU_Utilities': {'color': '#DFE6E9', 'label': 'Utilities'},
+    'Spyder.SpyderU_Utilities': {'color': '#DFE6E9', 'label': 'Utilities'},
     'SpyderX_Agents': {'color': '#74B9FF', 'label': 'AI Agents'},
     'SpyderZ_Communication': {'color': '#A0E7E5', 'label': 'Communication'}
 }

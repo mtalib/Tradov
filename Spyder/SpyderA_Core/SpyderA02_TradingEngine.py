@@ -48,7 +48,7 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # Safe imports with fallbacks
 try:
-    from SpyderU_Utilities.SpyderU07_Constants import (
+    from Spyder.SpyderU_Utilities.SpyderU07_Constants import (
         OrderAction, OrderType, OptionType, SignalType
     )
 except ImportError:

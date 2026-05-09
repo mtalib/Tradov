@@ -38,32 +38,32 @@ def _ensure_pkg(name):
 import pytz
 
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # U01 Logger
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
-sys.modules["SpyderU_Utilities.SpyderU01_Logger"] = _u01
+sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
 # U02 ErrorHandler
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
-sys.modules["SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
+sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
 # U03 DateTimeUtils (needed by U22)
-_u03 = _load("Spyder/SpyderU_Utilities/SpyderU03_DateTimeUtils.py")
+_u03 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU03_DateTimeUtils.py")
 _u03.pytz = pytz
 _u03.SpyderLogger = _u01.SpyderLogger
 sys.modules["Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"] = _u03
-sys.modules["SpyderU_Utilities.SpyderU03_DateTimeUtils"] = _u03
+sys.modules["Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"] = _u03
 
 # U22 ETTimeDisplay
-_u22 = _load("Spyder/SpyderU_Utilities/SpyderU22_ETTimeDisplay.py")
+_u22 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU22_ETTimeDisplay.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU22_ETTimeDisplay"] = _u22
 
 # U23 MemoryMonitor
-_u23 = _load("Spyder/SpyderU_Utilities/SpyderU23_MemoryMonitor.py")
+_u23 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU23_MemoryMonitor.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU23_MemoryMonitor"] = _u23
 
 

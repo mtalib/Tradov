@@ -102,13 +102,13 @@ from matplotlib.figure import Figure  # noqa: E402
 # ==============================================================================
 try:
     # Core imports
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import (
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import (
         SpyderErrorHandler,
         TradingError,  # noqa: F401
     )
-    from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics  # noqa: F401
-    from SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
+    from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceMetrics  # noqa: F401
+    from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
 
     # Broker integration (SpyderB01/B20 removed — deprecated IB modules)
     from SpyderB_Broker.SpyderB02_OrderManager import OrderManager  # noqa: F401
@@ -129,7 +129,7 @@ except ImportError as e:
 # import (e.g. a GUI build without matplotlib pulls the big try into the
 # fallback branch, but U48_Money has no such deps).
 try:
-    from SpyderU_Utilities.SpyderU48_Money import Money as _Money, ZERO as _MONEY_ZERO
+    from Spyder.SpyderU_Utilities.SpyderU48_Money import Money as _Money, ZERO as _MONEY_ZERO
 except ImportError:
     try:
         from Spyder.SpyderU_Utilities.SpyderU48_Money import (

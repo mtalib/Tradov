@@ -39,22 +39,22 @@ def _ensure_pkg(name):
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
 # Load U10
-_u10 = _load("Spyder/SpyderU_Utilities/SpyderU10_TradingCalendar.py")
+_u10 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU10_TradingCalendar.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar"] = _u10
 
 # Load U20 (has flexible imports — handles missing deps gracefully)
-_u20 = _load("Spyder/SpyderU_Utilities/SpyderU20_InstitutionalLibraries.py")
+_u20 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU20_InstitutionalLibraries.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries"] = _u20
 
 # Load U03 — inject pytz and SpyderLogger into its namespace (bug: not imported at module level)
-_u03 = _load("Spyder/SpyderU_Utilities/SpyderU03_DateTimeUtils.py")
+_u03 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU03_DateTimeUtils.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"] = _u03
 import pytz as _pytz
 _u03.pytz = _pytz

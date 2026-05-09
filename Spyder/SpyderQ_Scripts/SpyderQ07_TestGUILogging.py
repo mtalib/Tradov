@@ -33,7 +33,7 @@ try:
     from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QTextEdit
     from PySide6.QtCore import QTimer
     from SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError as e:
     print(f"Error importing required modules: {e}")
     print("Make sure PySide6 is installed: pip install PySide6")

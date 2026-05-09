@@ -58,8 +58,8 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
     from SpyderP_PortfolioMgmt.SpyderP03_CorrelationAnalyzer import CorrelationAnalyzer  # noqa: F401
     LOCAL_IMPORTS = True
 except ImportError:

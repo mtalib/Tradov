@@ -3,9 +3,9 @@
 T95 — SpyderU03 DateTimeUtils | SpyderU07 Constants | SpyderU22 ETTimeDisplay
 
 Tests for:
-  - Spyder/SpyderU_Utilities/SpyderU03_DateTimeUtils.py
-  - Spyder/SpyderU_Utilities/SpyderU07_Constants.py
-  - Spyder/SpyderU_Utilities/SpyderU22_ETTimeDisplay.py
+  - Spyder/Spyder.SpyderU_Utilities/SpyderU03_DateTimeUtils.py
+  - Spyder/Spyder.SpyderU_Utilities/SpyderU07_Constants.py
+  - Spyder/Spyder.SpyderU_Utilities/SpyderU22_ETTimeDisplay.py
 """
 
 # ==============================================================================
@@ -29,7 +29,7 @@ def _ensure_pkg(name: str) -> None:
 
 
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # Stub SpyderLogger

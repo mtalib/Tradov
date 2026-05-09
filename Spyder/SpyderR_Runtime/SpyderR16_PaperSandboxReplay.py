@@ -5,12 +5,11 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderR_Runtime
 Module: SpyderR16_PaperSandboxReplay.py
-Purpose: Deferred replay of simulated paper fills to Tradier sandbox.
+Purpose: Legacy deferred replay service (disabled by live-only policy).
 
-This module enables a two-phase paper workflow:
-1) Run strategies with local simulated fills (no broker orders submitted).
-2) Persist a deferred order queue and optionally replay those orders to
-   Tradier sandbox later for reconciliation and audit.
+This module is kept for import compatibility only. Runtime creation of the
+replay service is intentionally disabled so paper workflows never target
+Tradier sandbox endpoints.
 """
 
 from __future__ import annotations
@@ -30,7 +29,6 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     OrderType,
     TradierAPIError,
     TradierClient,
-    TradingEnvironment,
 )
 
 
@@ -196,35 +194,13 @@ class PaperSandboxReplay:
 
 
 def create_paper_sandbox_replay_from_env() -> PaperSandboxReplay | None:
-    """Create replay service when explicitly enabled and safely configured."""
+    """Disabled under policy: paper flows must never target Tradier sandbox."""
     enabled = str(os.environ.get("SPYDER_DEFERRED_SANDBOX_REPLAY_ENABLED", "false")).lower()
-    if enabled not in {"1", "true", "yes", "on"}:
-        return None
-
-    api_key = os.environ.get("TRADIER_API_KEY", "").strip()
-    account_id = os.environ.get("TRADIER_ACCOUNT_ID", "").strip()
-    if not api_key or not account_id:
-        logger.warning("Deferred sandbox replay enabled but Tradier credentials are missing")
-        return None
-
-    env_name = str(os.environ.get("TRADIER_REPLAY_ENVIRONMENT", "sandbox")).strip().lower()
-    if env_name not in {"sandbox", "paper"}:
+    if enabled in {"1", "true", "yes", "on"}:
         logger.warning(
-            "Refusing to initialize deferred replay in non-sandbox environment: %s",
-            env_name,
+            "Deferred sandbox replay requested but disabled by live-only policy",
         )
-        return None
-
-    queue_path = Path(os.environ.get("SPYDER_DEFERRED_REPLAY_QUEUE", "data/paper_trading/deferred_replay_queue.json"))
-    reports_dir = Path(os.environ.get("SPYDER_DEFERRED_REPLAY_REPORT_DIR", "data/paper_trading/replay_reports"))
-
-    client = TradierClient(
-        api_key=api_key,
-        account_id=account_id,
-        environment=TradingEnvironment.SANDBOX,
-    )
-    logger.info("Deferred sandbox replay service initialized")
-    return PaperSandboxReplay(client=client, queue_path=queue_path, reports_dir=reports_dir)
+    return None
 
 
 __all__ = [

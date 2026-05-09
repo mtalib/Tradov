@@ -61,10 +61,15 @@ def test_q02_validate_tradier_config_paths(monkeypatch, capsys):
     monkeypatch.setenv("TRADING_MODE", "paper")
     errors, warnings = q02.validate_tradier_config()
     assert "TRADIER_API_KEY is still the placeholder value" in errors
+    assert warnings == []
+    assert "paper mode" in capsys.readouterr().out
+
+    monkeypatch.setenv("TRADING_MODE", "sandbox")
+    errors, warnings = q02.validate_tradier_config()
+    assert "TRADIER_API_KEY is still the placeholder value" in errors
     assert warnings == [
-        "TRADIER_ENVIRONMENT=production but TRADING_MODE='paper' — set TRADING_MODE=live or switch to sandbox"
+        "TRADIER_ENVIRONMENT=live but TRADING_MODE='sandbox' — set TRADING_MODE=paper/live or switch TRADIER_ENVIRONMENT to sandbox"
     ]
-    assert "LIVE" in capsys.readouterr().out
 
 
 def test_q02_main_exit_codes(monkeypatch, capsys):

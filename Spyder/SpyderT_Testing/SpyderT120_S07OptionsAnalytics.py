@@ -84,7 +84,7 @@ _u01.SpyderLogger = _logger_cls
 _u02 = _ensure_mod("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler")
 _u02.SpyderErrorHandler = MagicMock
 
-# Mirror to un-prefixed path (S07 imports from SpyderU_Utilities directly)
+# Mirror to un-prefixed path (S07 imports from Spyder.SpyderU_Utilities directly)
 for _key in list(sys.modules):
     if _key.startswith("Spyder.SpyderU"):
         short = _key[len("Spyder."):]

@@ -44,7 +44,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderN_OptionsAnalytics.SpyderN07_OPRAGreeksHandler import OPRAGreeksHandler
 from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
-from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType, Event
+from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
 
 
 class _NullIBClient:

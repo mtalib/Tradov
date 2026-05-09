@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+import uuid
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -17,7 +18,7 @@ Module Description:
     consolidation and code reuse across all multi-leg strategies.
 
 CONSOLIDATION UPDATE:
-    Generic multi-leg infrastructure REMOVED and consolidated into D26_MultiLegStrategyCoordinator.
+    Generic multi-leg infrastructure REMOVED and consolidated into D32_MultiLegStrategyCoordinator.
     This module now focuses exclusively on Iron Condor specific trading logic:
     - Iron Condor entry criteria and market condition analysis
     - Strike selection methodology specific to Iron Condor
@@ -32,20 +33,20 @@ Key Features:
     • Stop loss at 2x credit received or delta breach
     • Time decay management (close at 21-45 DTE)
     • Iron Condor specific adjustment techniques
-    • Integration with D26 for multi-leg execution
+    • Integration with D32 for multi-leg execution
 
 Removed Infrastructure:
-    • Generic multi-leg order management - Now in D26
-    • Combined Greeks calculations - Now in D26
-    • Multi-leg position sizing - Now in D26
-    • Generic P&L calculations - Now in D26
-    • Position group validation - Now in D26
+    • Generic multi-leg order management - Now in D32
+    • Combined Greeks calculations - Now in D32
+    • Multi-leg position sizing - Now in D32
+    • Generic P&L calculations - Now in D32
+    • Position group validation - Now in D32
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timezone  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
 from typing import Any  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from enum import Enum, auto  # noqa: E402
@@ -63,6 +64,9 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy  # noqa: E402
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile  # noqa: E402
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (  # noqa: E402
+    SignalStrength, SignalType, TradingSignal,
+)
 
 # Integration with consolidated multi-leg coordinator
 try:
@@ -109,6 +113,7 @@ IC_STOP_LOSS_MULTIPLIER = 2.0          # 2x credit received
 
 IC_MIN_CREDIT = 0.30                   # Minimum credit per contract
 IC_MAX_WIDTH = 10.0                    # Maximum spread width
+MAX_ACTIVE_SETUPS = 20                 # Trim active_setups beyond this count
 
 # Market condition thresholds
 IC_MIN_EXPECTED_MOVE_RATIO = 0.8       # Minimum expected move vs spread width
@@ -245,15 +250,59 @@ class IronCondorStrategy(BaseStrategy):
             'worst_ic_trade': 0.0
         }
 
-        self.logger.info("🎯 IronCondorStrategy initialized with D26 integration")
+        self.logger.info("🎯 IronCondorStrategy initialized with D32 integration")
 
     def generate_signals(self, market_data: pd.DataFrame) -> list[Any]:
-        """Legacy adapter for BaseStrategy contract.
+        """Generate Iron Condor entry signals from current market data.
 
-        Iron Condor evaluation currently runs through dedicated async analysis and
-        coordinator pathways; this sync hook returns no direct entry signals.
+        Calls the synchronous analysis pipeline and emits one TradingSignal when
+        the Iron Condor conditions are met.  Returns an empty list otherwise.
         """
-        return []
+        if market_data is None or market_data.empty:
+            return []
+        try:
+            analysis = self.analyze_iron_condor_opportunity(market_data)
+            if not analysis.market_suitable or analysis.confidence_score <= 0.0:
+                return []
+
+            score = analysis.confidence_score
+            if score >= 0.8:
+                strength = SignalStrength.VERY_STRONG
+            elif score >= 0.6:
+                strength = SignalStrength.STRONG
+            elif score >= 0.4:
+                strength = SignalStrength.MODERATE
+            else:
+                strength = SignalStrength.WEAK
+
+            current_price = float(market_data["close"].iloc[-1])
+            now = datetime.now(timezone.utc)
+            signal = TradingSignal(
+                signal_id=str(uuid.uuid4()),
+                signal_type=SignalType.SELL,
+                symbol="SPY",
+                strength=strength,
+                confidence=score,
+                entry_price=current_price,
+                stop_loss=0.0,
+                take_profit=0.0,
+                position_size=1,
+                timestamp=now,
+                expires_at=now + timedelta(minutes=30),
+                metadata={
+                    "strategy_tag":        "iron_condor",
+                    "strategy_type":       "iron_condor",
+                    "optimal_strikes":     analysis.optimal_strikes,
+                    "iv_rank":             analysis.iv_analysis.get("iv_rank"),
+                    "confidence_score":    score,
+                    "setup_recommendation": analysis.setup_recommendation,
+                    "risk_warnings":       analysis.risk_warnings,
+                },
+            )
+            return [signal]
+        except Exception as exc:
+            self.logger.error("generate_signals failed: %s", exc, exc_info=True)
+            return []
 
     def validate_signal(self, signal: Any) -> bool:
         """Basic safety gate for external signals."""
@@ -299,12 +348,12 @@ class IronCondorStrategy(BaseStrategy):
     # IRON CONDOR SPECIFIC MARKET ANALYSIS
     # ==========================================================================
 
-    async def analyze_iron_condor_opportunity(self, market_data: pd.DataFrame,
-                                            option_chain: pd.DataFrame = None) -> IronCondorAnalysis:  # noqa: E501
+    def analyze_iron_condor_opportunity(self, market_data: pd.DataFrame,
+                                        option_chain: pd.DataFrame = None) -> IronCondorAnalysis:
         """
         Analyze market conditions for Iron Condor entry.
 
-        This is Iron Condor specific analysis - generic analysis is in D26.
+        This is Iron Condor specific analysis - generic analysis is in D32.
         """
         try:
             current_price = market_data['close'].iloc[-1]
@@ -332,16 +381,18 @@ class IronCondorStrategy(BaseStrategy):
             confidence_score = 0.0
             risk_warnings = []
 
-            if market_suitable and option_chain is not None:
-                optimal_strikes = self._find_optimal_iron_condor_strikes(
-                    current_price, option_chain, iv_analysis
-                )
+            if market_suitable:
+                # Confidence score and recommendation do not require an option chain.
                 setup_recommendation, confidence_score = self._generate_ic_recommendation(
                     iv_analysis, expected_move_analysis, trend_analysis
                 )
-                risk_warnings = self._identify_ic_risk_warnings(
-                    iv_analysis, expected_move_analysis, volatility_skew
-                )
+                if option_chain is not None:
+                    optimal_strikes = self._find_optimal_iron_condor_strikes(
+                        current_price, option_chain, iv_analysis
+                    )
+                    risk_warnings = self._identify_ic_risk_warnings(
+                        iv_analysis, expected_move_analysis, volatility_skew
+                    )
 
             analysis = IronCondorAnalysis(
                 market_suitable=market_suitable,
@@ -375,35 +426,43 @@ class IronCondorStrategy(BaseStrategy):
             )
 
     def _analyze_iv_for_iron_condor(self, market_data: pd.DataFrame) -> dict[str, float]:
-        """Analyze implied volatility specifically for Iron Condor strategy"""
+        """Analyze implied volatility specifically for Iron Condor strategy.
+
+        Returns iv_data_available=False (no synthetic fallback) when IV is absent
+        so that _assess_market_suitability_for_ic can gate on real data.
+        """
+        _no_iv = {
+            'current_iv': float('nan'),
+            'iv_rank': float('nan'),
+            'iv_suitable_for_ic': False,
+            'iv_quality_score': 0.0,
+            'iv_trend': 'unknown',
+            'iv_data_available': False,
+        }
         try:
-            # Get IV data (assuming it's in the market data)
-            current_iv = market_data.get('iv', pd.Series([0.20])).iloc[-1]
+            iv_col = market_data.get('iv') if isinstance(market_data, pd.DataFrame) else None
+            if iv_col is None or iv_col.dropna().empty:
+                return _no_iv
 
-            # Calculate IV rank (simplified - would need historical IV data)
-            iv_history = market_data.get('iv', pd.Series([0.20] * 100)).tail(252)  # 1 year
-            iv_rank = (current_iv > iv_history).sum() / len(iv_history) * 100
+            current_iv = float(iv_col.iloc[-1])
+            if np.isnan(current_iv):
+                return _no_iv
 
-            # Iron Condor IV analysis
-            iv_analysis = {
+            iv_history = iv_col.tail(252)
+            iv_rank = float((current_iv > iv_history).sum() / len(iv_history) * 100)
+
+            return {
                 'current_iv': current_iv,
                 'iv_rank': iv_rank,
                 'iv_suitable_for_ic': IC_MIN_IV_RANK <= iv_rank <= IC_MAX_IV_RANK,
                 'iv_quality_score': self._calculate_iv_quality_score(current_iv, iv_rank),
-                'iv_trend': 'rising' if current_iv > iv_history.mean() else 'falling'
+                'iv_trend': 'rising' if current_iv > float(iv_history.mean()) else 'falling',
+                'iv_data_available': True,
             }
-
-            return iv_analysis
 
         except Exception as e:
             self.logger.error("IV analysis failed: %s", e)
-            return {
-                'current_iv': 0.20,
-                'iv_rank': 50.0,
-                'iv_suitable_for_ic': False,
-                'iv_quality_score': 0.0,
-                'iv_trend': 'unknown'
-            }
+            return _no_iv
 
     def _calculate_iv_quality_score(self, current_iv: float, iv_rank: float) -> float:
         """Calculate IV quality score for Iron Condor (0.0 to 1.0)"""
@@ -516,13 +575,17 @@ class IronCondorStrategy(BaseStrategy):
     def _assess_market_suitability_for_ic(self, iv_analysis: dict,
                                         expected_move_analysis: dict,
                                         trend_analysis: dict) -> bool:
-        """Assess overall market suitability for Iron Condor"""
+        """Assess overall market suitability for Iron Condor.
+
+        Requires real IV data — returns False immediately if IV is unavailable
+        to prevent entries based on synthetic fallback values.
+        """
         try:
-            # All conditions must be met for Iron Condor
+            if not iv_analysis.get('iv_data_available', False):
+                return False
             iv_suitable = iv_analysis.get('iv_suitable_for_ic', False)
             move_suitable = expected_move_analysis.get('expected_move_suitable_for_ic', False)
             trend_suitable = trend_analysis.get('trend_suitable_for_ic', False)
-
             return iv_suitable and move_suitable and trend_suitable
 
         except (KeyError, TypeError, AttributeError) as e:
@@ -597,22 +660,41 @@ class IronCondorStrategy(BaseStrategy):
             return None
 
     def _select_best_short_strike(self, candidates: pd.DataFrame, option_type: str) -> float | None:
-        """Select best short strike from candidates"""
+        """Select best short strike from candidates using min-max normalised scoring.
+
+        Single-candidate short-circuit avoids spurious normalisation artefacts.
+        Tied dimensions return 0.5 so that no column can dominate by coincidence.
+        """
         try:
             if candidates.empty:
                 return None
 
-            # Score each candidate based on premium and liquidity
+            # Short-circuit when only one candidate
+            if len(candidates) == 1:
+                return float(candidates.iloc[0]['strike'])
+
             candidates = candidates.copy()
+
+            def _norm(series: pd.Series) -> pd.Series:
+                """Min-max normalise; return 0.5 for all-equal columns."""
+                vmin, vmax = series.min(), series.max()
+                if vmax - vmin <= 0:
+                    return pd.Series(0.5, index=series.index)
+                return (series - vmin) / (vmax - vmin)
+
+            _zero = pd.Series(0.0, index=candidates.index)
+            bid_col = candidates['bid'] if 'bid' in candidates.columns else _zero
+            vol_col = candidates['volume'] if 'volume' in candidates.columns else _zero
+            oi_col  = candidates['open_interest'] if 'open_interest' in candidates.columns else _zero
+
             candidates['score'] = (
-                candidates.get('bid', 0) * 0.4 +  # Premium weight
-                candidates.get('volume', 0) * 0.0001 * 0.3 +  # Volume weight
-                candidates.get('open_interest', 0) * 0.0001 * 0.3  # OI weight
+                _norm(bid_col) * 0.4
+                + _norm(vol_col) * 0.3
+                + _norm(oi_col)  * 0.3
             )
 
-            # Select highest scoring strike
             best_candidate = candidates.loc[candidates['score'].idxmax()]
-            return best_candidate['strike']
+            return float(best_candidate['strike'])
 
         except Exception as e:
             self.logger.error("Best strike selection failed: %s", e)
@@ -706,6 +788,9 @@ class IronCondorStrategy(BaseStrategy):
 
             if position_id:
                 self.active_setups.append(setup)
+                # Trim to prevent unbounded growth
+                if len(self.active_setups) > MAX_ACTIVE_SETUPS:
+                    self.active_setups = self.active_setups[-MAX_ACTIVE_SETUPS:]
                 self.strategy_state = IronCondorState.ACTIVE
                 self.logger.info("✅ Iron Condor position created: %s", position_id)
 
@@ -863,7 +948,7 @@ class IronCondorStrategy(BaseStrategy):
         """Get Iron Condor strategy performance metrics"""
         return {
             'strategy_name': 'Iron Condor',
-            'consolidation_status': 'Infrastructure moved to D26',
+            'consolidation_status': 'Infrastructure moved to D32',
             'performance_metrics': self.performance_metrics.copy(),
             'current_state': self.strategy_state.name,
             'active_setups': len(self.active_setups),

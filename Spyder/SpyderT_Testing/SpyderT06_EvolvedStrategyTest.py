@@ -103,7 +103,7 @@ CANONICAL_MODULES: dict[str, str] = {
     "Y05 ExecutionOptimizerAgent": "SpyderY_AutoAgents.SpyderY05_ExecutionOptimizerAgent",
     # v27 SPEC-15 — async-from-thread helper used by Y01/Y02/Y03/Y04/Y06 to
     # avoid bare asyncio.run() in long-lived per-tick handlers.
-    "U50 AsyncBridge": "SpyderU_Utilities.SpyderU50_AsyncBridge",
+    "U50 AsyncBridge": "Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge",
 }
 
 VETO_KEYS = (
@@ -121,7 +121,7 @@ VETO_KEYS = (
 def institutional_libs():
     """Return a live InstitutionalLibraries singleton, skip if unavailable."""
     try:
-        from SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
+        from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
             get_institutional_libraries,
         )
         return get_institutional_libraries()
@@ -133,11 +133,11 @@ def institutional_libs():
 def option_type():
     """Return the OptionType enum, skip if unavailable."""
     try:
-        from SpyderU_Utilities.SpyderU20_InstitutionalLibraries import OptionType
+        from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import OptionType
         return OptionType
     except ImportError:
         try:
-            from SpyderU_Utilities.SpyderU07_Constants import OptionType
+            from Spyder.SpyderU_Utilities.SpyderU07_Constants import OptionType
             return OptionType
         except ImportError as exc:
             pytest.skip(f"OptionType unavailable: {exc}")
@@ -619,7 +619,7 @@ class TestSpec15AsyncBridgeWiring:
 
     def test_async_bridge_helper_is_importable(self):
         try:
-            from SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+            from Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
         except Exception as exc:
             pytest.fail(
                 f"SPEC-15: SpyderU50_AsyncBridge.run_coro_in_thread missing: {exc}"
@@ -664,7 +664,7 @@ def _run_smoke_output() -> None:
     print("=" * 70)
 
     try:
-        from SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
+        from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import (
             OptionType,
             get_institutional_libraries,
         )

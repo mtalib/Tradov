@@ -59,6 +59,24 @@ except ImportError:
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
+try:
+    from Spyder.SpyderZ_Communication.SpyderZ02_MessageProtocol import (
+        build_agent_handoff_envelope,
+    )
+except Exception:
+    def build_agent_handoff_envelope(**kwargs):
+        return {
+            "schema": kwargs.get("schema", "AGENT_HANDOFF_V1"),
+            "schema_version": "1.0",
+            "handoff_type": kwargs.get("handoff_type", "handoff"),
+            "topic": kwargs.get("topic", ""),
+            "producer": {"agent_id": kwargs.get("producer_agent_id", "unknown")},
+            "timestamp": kwargs.get("timestamp", datetime.now(timezone.utc).timestamp()),
+            "payload": kwargs.get("payload", {}),
+            "confidence": kwargs.get("confidence"),
+            "reasoning": kwargs.get("reasoning", ""),
+        }
+
 # Lazy agent-module registry — each X-series agent is loaded on first use so
 # a single failed agent import cannot break the entire orchestrator.
 import importlib as _importlib
@@ -876,12 +894,38 @@ class SpyderX14_OrchestratorAgent:
         for r in top_reasonings:
             reasoning_parts.append(f"- {r['agent']}: {r['reasoning'][:100]}...")
 
+        reasoning_text = "\n".join(reasoning_parts)
+        legacy_decision_payload = {
+            "action": consensus["action"],
+            "confidence": consensus["confidence"],
+            "consensus_score": consensus_score,
+            "contributing_agents": [output.agent_id for output in agent_outputs],
+            "dissenting_count": len(conflicts),
+        }
+        handoff_envelope = build_agent_handoff_envelope(
+            topic="meta.decisions",
+            producer_agent_id="X14_orchestrator",
+            producer_class=self.__class__.__name__,
+            schema="AGENT_DECISION_V1",
+            handoff_type="decision",
+            payload=legacy_decision_payload,
+            confidence=float(consensus["confidence"]),
+            reasoning=reasoning_text,
+            decision={
+                "action": str(consensus["action"]),
+                "confidence": float(consensus["confidence"]),
+                "reasoning": reasoning_text,
+            },
+            legacy_payload=legacy_decision_payload,
+        )
+
         # Prepare execution parameters
         execution_params = {
             "priority": "high" if consensus["confidence"] > 0.8 else "normal",
             "risk_check_required": len(conflicts) > 2,
             "consensus_strength": consensus_score,
             "market_conditions": "volatile" if conflicts else "stable",
+            "agent_handoff": handoff_envelope,
         }
 
         return OrchestratorDecision(
@@ -891,12 +935,38 @@ class SpyderX14_OrchestratorAgent:
             agent_weights=weights,
             consensus_score=consensus_score,
             dissenting_opinions=conflicts,
-            reasoning="\n".join(reasoning_parts),
+            reasoning=reasoning_text,
             execution_params=execution_params,
         )
 
     def _create_fallback_decision(self, reason: str) -> OrchestratorDecision:
         """Create fallback decision when orchestration fails."""
+        fallback_payload = {
+            "action": "hold",
+            "confidence": 0.0,
+            "consensus_score": 0.0,
+            "contributing_agents": [],
+            "dissenting_count": 0,
+            "fallback": True,
+        }
+        fallback_reasoning = f"Fallback decision: {reason}"
+        fallback_handoff = build_agent_handoff_envelope(
+            topic="meta.decisions",
+            producer_agent_id="X14_orchestrator",
+            producer_class=self.__class__.__name__,
+            schema="AGENT_DECISION_V1",
+            handoff_type="decision",
+            payload=fallback_payload,
+            confidence=0.0,
+            reasoning=fallback_reasoning,
+            decision={
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": fallback_reasoning,
+            },
+            legacy_payload=fallback_payload,
+        )
+
         return OrchestratorDecision(
             action="hold",
             confidence=0.0,
@@ -904,8 +974,12 @@ class SpyderX14_OrchestratorAgent:
             agent_weights={},
             consensus_score=0.0,
             dissenting_opinions=[],
-            reasoning=f"Fallback decision: {reason}",
-            execution_params={"priority": "low", "fallback": True},
+            reasoning=fallback_reasoning,
+            execution_params={
+                "priority": "low",
+                "fallback": True,
+                "agent_handoff": fallback_handoff,
+            },
         )
 
     # ==========================================================================

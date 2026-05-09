@@ -49,7 +49,7 @@ from scipy import stats
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from SpyderE_Risk.SpyderE06_RiskMetrics import DEFAULT_RISK_FREE_RATE, TRADING_DAYS_PER_YEAR
 except ImportError:
     import logging

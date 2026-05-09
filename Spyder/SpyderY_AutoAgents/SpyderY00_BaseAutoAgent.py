@@ -31,6 +31,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import json
 import logging
 import os
+import asyncio
 import threading
 import time
 import traceback
@@ -74,9 +75,7 @@ except ImportError:
 
 try:
     from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import (
-        Message,
         MessagePriority,
-        MessageType,
     )
     MESSAGE_BUS_AVAILABLE = True
 except ImportError:
@@ -588,11 +587,8 @@ class BaseAutoAgent(ABC):
                     "LOW": MessagePriority.LOW,
                     "BULK": MessagePriority.BULK,
                 }
-                msg = Message(
+                publish_result = self.message_bus.publish(
                     topic=output.topic,
-                    sender=self.AGENT_ID,
-                    message_type=MessageType.PUBLISH,
-                    priority=priority_map.get(output.priority, MessagePriority.NORMAL),
                     payload={
                         "agent_id": output.agent_id,
                         "output_type": output.output_type,
@@ -600,9 +596,22 @@ class BaseAutoAgent(ABC):
                         "confidence": output.confidence,
                         "reasoning": output.reasoning,
                     },
+                    sender=self.AGENT_ID,
+                    priority=priority_map.get(output.priority, MessagePriority.NORMAL),
                     ttl=output.ttl_seconds,
                 )
-                self.message_bus.publish(msg)
+
+                # Compatibility: if an alternate bus returns a coroutine,
+                # execute it safely from this synchronous context.
+                if asyncio.iscoroutine(publish_result):
+                    try:
+                        from Spyder.SpyderU_Utilities.SpyderU50_AsyncBridge import run_coro_in_thread
+                        run_coro_in_thread(publish_result, timeout=2.0)
+                    except RuntimeError:
+                        # Already inside an event loop — schedule and continue.
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(publish_result)
+
                 return True
             except Exception as e:
                 logger.error("[%s] Failed to publish: %s", self.AGENT_ID, e)

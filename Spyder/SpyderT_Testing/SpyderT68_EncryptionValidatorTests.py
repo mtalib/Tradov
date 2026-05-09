@@ -38,15 +38,15 @@ def _ensure_pkg(name):
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
 # U04 — no local imports
-_u04 = _load("Spyder/SpyderU_Utilities/SpyderU04_Encryption.py")
+_u04 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU04_Encryption.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU04_Encryption"] = _u04
 
 # U08 — needs U01 already registered above
-_u08 = _load("Spyder/SpyderU_Utilities/SpyderU08_Validators.py")
+_u08 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU08_Validators.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU08_Validators"] = _u08
 
 # ==============================================================================

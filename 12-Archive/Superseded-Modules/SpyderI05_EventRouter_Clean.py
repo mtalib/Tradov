@@ -36,8 +36,8 @@ import uuid
 import logging
 
 try:
-    from SpyderU_Utilities.SpyderU07_Constants import LOG_CONFIG, TRADING_HOURS
-    from SpyderU_Utilities.SpyderU08_Logger import setup_logger
+    from Spyder.SpyderU_Utilities.SpyderU07_Constants import LOG_CONFIG, TRADING_HOURS
+    from Spyder.SpyderU_Utilities.SpyderU08_Logger import setup_logger
 except ImportError as e:
     print(f"Warning: Could not import Spyder utilities: {e}")
     LOG_CONFIG = {"level": "INFO"}

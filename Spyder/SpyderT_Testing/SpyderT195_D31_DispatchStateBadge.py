@@ -42,6 +42,25 @@ def _signal(strategy_type="bull_put_spread"):
     return {"strategy_type": strategy_type, "symbol": "SPY"}
 
 
+def _read_today_audit_records(orc):
+    from datetime import datetime, timezone
+    import json
+    import os
+
+    file_path = orc._resolve_signal_audit_file_path(datetime.now(timezone.utc))
+    if not os.path.exists(file_path):
+        return []
+
+    records = []
+    with open(file_path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            records.append(json.loads(line))
+    return records
+
+
 # ---------------------------------------------------------------------------
 # Baseline state on a fresh orchestrator
 # ---------------------------------------------------------------------------
@@ -71,6 +90,32 @@ def test_dispatch_rejected_does_not_count_as_flowing(orc):
     orc._record_signal_dispatch_outcome("dispatch_rejected", signal=_signal())
     state = orc.get_dispatch_state()
     assert state["state"] == "IDLE"
+
+
+def test_dispatch_submitted_persisted_to_decision_audit(orc):
+    orc._record_signal_dispatch_outcome("dispatch_submitted", signal=_signal())
+
+    records = _read_today_audit_records(orc)
+    submitted = [record for record in records if record.get("event") == "dispatch_submitted"]
+
+    assert submitted
+    latest = submitted[-1]
+    assert latest.get("stage") == "dispatch"
+    assert latest.get("reason") == "dispatch_submitted"
+    assert latest.get("symbol") == "SPY"
+
+
+def test_dispatch_rejected_persisted_to_decision_audit(orc):
+    orc._record_signal_dispatch_outcome("dispatch_rejected", signal=_signal())
+
+    records = _read_today_audit_records(orc)
+    rejected = [record for record in records if record.get("event") == "dispatch_rejected"]
+
+    assert rejected
+    latest = rejected[-1]
+    assert latest.get("stage") == "dispatch"
+    assert latest.get("reason") == "dispatch_rejected"
+    assert latest.get("symbol") == "SPY"
 
 
 # ---------------------------------------------------------------------------

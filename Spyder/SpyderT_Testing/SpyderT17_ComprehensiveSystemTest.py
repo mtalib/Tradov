@@ -484,7 +484,7 @@ class ComprehensiveSystemTest:
         start_time = time.time()
 
         try:
-            from SpyderU_Utilities.SpyderU27_SystemOptimizer import get_system_optimizer
+            from Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer import get_system_optimizer
             optimizer = get_system_optimizer()
 
             # Test diagnostics
@@ -516,7 +516,7 @@ class ComprehensiveSystemTest:
         start_time = time.time()
 
         try:
-            from SpyderU_Utilities.SpyderU23_MemoryMonitor import MemoryMonitor
+            from Spyder.SpyderU_Utilities.SpyderU23_MemoryMonitor import MemoryMonitor
             monitor = MemoryMonitor()
 
             # Test memory monitoring capabilities
@@ -814,7 +814,7 @@ class ComprehensiveSystemTest:
             test_modules = [
                 ("SpyderA_Core", "Core modules"),
                 ("SpyderB_Broker", "Broker modules"),
-                ("SpyderU_Utilities", "Utility modules")
+                ("Spyder.SpyderU_Utilities", "Utility modules")
             ]
 
             for module_name, description in test_modules:
@@ -883,7 +883,7 @@ class ComprehensiveSystemTest:
         start_time = time.time()
 
         try:
-            from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+            from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
             error_handler = SpyderErrorHandler()
 
@@ -913,7 +913,7 @@ class ComprehensiveSystemTest:
         start_time = time.time()
 
         try:
-            from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+            from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
             logger = SpyderLogger.get_logger("test_logger")
             logger.info("Test log message")
@@ -945,7 +945,7 @@ class ComprehensiveSystemTest:
 
             test_imports = [
                 "SpyderB_Broker",
-                "SpyderU_Utilities",
+                "Spyder.SpyderU_Utilities",
                 "SpyderG_GUI"
             ]
 

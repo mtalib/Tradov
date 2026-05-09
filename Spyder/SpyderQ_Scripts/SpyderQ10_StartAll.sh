@@ -23,7 +23,11 @@ set -e  # Exit on error
 # CONFIGURATION
 # ===============================================================================
 SPYDER_HOME="${SPYDER_HOME:-/home/adam/Projects/Spyder}"
-VENV_PATH="$SPYDER_HOME/spyder_venv"
+DEFAULT_VENV_PATH="$SPYDER_HOME/spyder_venv"
+if [ ! -d "$DEFAULT_VENV_PATH" ] && [ -d "$SPYDER_HOME/.venv" ]; then
+    DEFAULT_VENV_PATH="$SPYDER_HOME/.venv"
+fi
+VENV_PATH="${VENV_PATH:-$DEFAULT_VENV_PATH}"
 LOG_DIR="$SPYDER_HOME/logs"
 PID_DIR="$SPYDER_HOME/pids"
 CONFIG_FILE="$SPYDER_HOME/.env"
@@ -45,6 +49,9 @@ GUI_MODE=false
 if [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; then
     GUI_MODE=true
 fi
+
+# Runtime flags
+DRY_RUN=false
 
 # ===============================================================================
 # HELPER FUNCTIONS
@@ -82,6 +89,36 @@ log_message() {
     local message=$2
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     echo "[$timestamp] [$level] $message" >> "$LOG_DIR/startup.log"
+}
+
+show_usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--dry-run] [--help]
+
+Options:
+  --dry-run   Validate environment and show resolved routing without starting services
+  --help      Show this help message and exit
+EOF
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run)
+                DRY_RUN=true
+                shift
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                show_usage >&2
+                exit 1
+                ;;
+        esac
+    done
 }
 
 # ===============================================================================
@@ -124,9 +161,15 @@ SPYDER_ENV=production
 SPYDER_HOME=/home/adam/Projects/Spyder
 
 # Broker API Configuration (Tradier)
-TRADIER_ENVIRONMENT=sandbox
+# Market-data endpoint policy:
+#   paper/live trading modes -> live quotes (api.tradier.com)
+#   sandbox trading mode     -> sandbox quotes (sandbox.tradier.com)
+TRADIER_ENVIRONMENT=live
 # TRADIER_API_KEY=  # Set in .env
 # TRADIER_ACCOUNT_ID=  # Set in .env
+
+# Trading mode policy (paper by default for safety)
+TRADING_MODE=paper
 
 # Trading Configuration
 ENABLE_LIVE_TRADING=false
@@ -196,6 +239,38 @@ check_broker_api() {
 # TRADING ENGINE STARTUP
 # ===============================================================================
 
+normalize_tradier_endpoint_policy() {
+    # Normalize Tradier endpoint policy at runtime so legacy/stale configs
+    # cannot silently force sandbox quotes during paper sessions.
+    local trading_mode="${TRADING_MODE:-paper}"
+    local tradier_env="${TRADIER_ENVIRONMENT:-}"
+
+    if [[ -z "$tradier_env" ]]; then
+        if [[ "$trading_mode" == "sandbox" ]]; then
+            tradier_env="sandbox"
+        else
+            tradier_env="live"
+        fi
+    fi
+
+    if [[ "$trading_mode" == "sandbox" ]]; then
+        if [[ "$tradier_env" != "sandbox" ]]; then
+            print_warning "TRADIER_ENVIRONMENT=$tradier_env while TRADING_MODE=sandbox; overriding to sandbox"
+            tradier_env="sandbox"
+        fi
+    fi
+
+    if [[ "$trading_mode" == "paper" || "$trading_mode" == "live" ]]; then
+        if [[ "$tradier_env" == "sandbox" ]]; then
+            print_warning "TRADIER_ENVIRONMENT=sandbox while TRADING_MODE=$trading_mode; overriding to live per market-data policy"
+            tradier_env="live"
+        fi
+    fi
+
+    export TRADIER_ENVIRONMENT="$tradier_env"
+    print_info "Runtime routing: TRADING_MODE=$trading_mode, TRADIER_ENVIRONMENT=$TRADIER_ENVIRONMENT"
+}
+
 start_trading_engine() {
     print_info "Starting Trading Engine..."
     
@@ -207,6 +282,7 @@ start_trading_engine() {
     
     # Source configuration
     source "$CONFIG_FILE"
+    normalize_tradier_endpoint_policy
     
     # Start main trading engine
     cd "$SPYDER_HOME"
@@ -373,6 +449,8 @@ trap cleanup_on_exit EXIT
 # ===============================================================================
 
 main() {
+    parse_args "$@"
+
     # Clear terminal if running interactively
     if [ -t 1 ]; then
         clear
@@ -391,6 +469,14 @@ main() {
     
     check_broker_api
     echo ""
+
+    if [ "$DRY_RUN" = true ]; then
+        print_info "Dry-run mode enabled — validating routing only"
+        source "$CONFIG_FILE"
+        normalize_tradier_endpoint_policy
+        print_success "Dry-run complete. No services were started."
+        return 0
+    fi
     
     start_trading_engine
     echo ""

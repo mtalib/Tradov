@@ -41,7 +41,7 @@ _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # U16 catches ImportError for its local deps (SpyderLogger/SpyderErrorHandler)
 # and falls back to None — no special injection needed.
-_u16 = _load("Spyder/SpyderU_Utilities/SpyderU16_TechnicalAnalysis.py")
+_u16 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU16_TechnicalAnalysis.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU16_TechnicalAnalysis"] = _u16
 
 # ==============================================================================

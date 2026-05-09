@@ -40,25 +40,25 @@ def _ensure_pkg(name):
 import pytz  # ensure available before injection
 
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
-sys.modules["SpyderU_Utilities.SpyderU01_Logger"] = _u01
+sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
-sys.modules["SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
+sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
 # U03 — inject pytz and SpyderLogger after loading since they're used in methods
-_u03 = _load("Spyder/SpyderU_Utilities/SpyderU03_DateTimeUtils.py")
+_u03 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU03_DateTimeUtils.py")
 _u03.pytz = pytz
 _u03.SpyderLogger = _u01.SpyderLogger
 sys.modules["Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"] = _u03
 
 # U19 — imports U01 + U02 from Spyder namespace (already in sys.modules)
-_u19 = _load("Spyder/SpyderU_Utilities/SpyderU19_InteractionMatrix.py")
+_u19 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU19_InteractionMatrix.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU19_InteractionMatrix"] = _u19
 
 

@@ -1023,9 +1023,10 @@ class CustomMetricsOrchestrator(QObject):
         try:
             if self.fred_client:
                 snap = self.fred_client.get_snapshot()
-                updated_metrics["YIELD_10Y"]     = snap.get("yield_10y", float("nan"))
-                updated_metrics["YIELD_SLOPE"]   = snap.get("spread_10y_2y", float("nan"))
-                updated_metrics["YIELD_INVERTED"] = snap.get("yield_curve_inverted", False)
+                updated_metrics["YIELD_10Y"]      = snap.get("yield_10y", float("nan"))
+                updated_metrics["YIELD_10Y_PREV"] = snap.get("yield_10y_prev", float("nan"))
+                updated_metrics["YIELD_SLOPE"]    = snap.get("spread_10y_2y", float("nan"))
+                updated_metrics["YIELD_INVERTED"]  = snap.get("yield_curve_inverted", False)
                 self.fred_updated.emit(snap)
                 return True
             else:
@@ -1650,6 +1651,17 @@ class CustomMetricsOrchestrator(QObject):
             "date": datetime.now(timezone.utc).date().isoformat(),
             "iv": float(current_iv),
         })
+
+        # Deduplicate: keep only the latest IV snapshot per calendar date so
+        # that intraday calls don't corrupt the 252-entry rolling window with
+        # multiple samples from the same day.  Later entries overwrite earlier
+        # ones for the same date because we iterate in append order.
+        seen: dict[str, float] = {}
+        for entry in history:
+            d = entry.get("date")
+            if d:
+                seen[d] = float(entry["iv"])
+        history = [{"date": d, "iv": iv} for d, iv in sorted(seen.items())]
         history = history[-252:]
         cache_path.write_text(json.dumps(history))
 
@@ -1664,7 +1676,7 @@ class CustomMetricsOrchestrator(QObject):
                 if not vix_df.empty:
                     seed = [
                         {"date": str(idx.date()), "iv": float(v)}
-                        for idx, v in zip(vix_df.index, vix_df.values)
+                        for idx, v in zip(vix_df.index, vix_df.values, strict=False)
                     ]
                     # Prepend seed; real observations at the tail take priority.
                     history = (seed + history)[-252:]
@@ -1728,20 +1740,44 @@ class CustomMetricsOrchestrator(QObject):
 
     def _get_options_tradier_client(self):
         """Return a cached Tradier client for options analytics calls."""
-        trading_mode = os.getenv("TRADING_MODE", "paper").strip().lower()
-        environment_name = os.getenv("TRADIER_ENVIRONMENT", "sandbox").strip().lower() or "sandbox"
-        api_key = os.getenv("TRADIER_API_KEY", "").strip()
-        account_id = os.getenv("TRADIER_ACCOUNT_ID", "").strip()
+        allow_sandbox = str(
+            os.getenv("SPYDER_ALLOW_SANDBOX_MARKET_DATA", "false")
+        ).strip().lower() in {"1", "true", "yes", "on"}
 
-        if trading_mode == "paper" and environment_name != "live":
-            # Paper mode + sandbox data: use sandbox credentials/endpoint.
-            api_key = (os.getenv("TRADIER_SANDBOX_API_KEY", "").strip() or api_key)
-            account_id = (os.getenv("TRADIER_SANDBOX_ACCOUNT_ID", "").strip() or account_id)
+        environment_name = (
+            os.getenv("TRADIER_MARKET_DATA_ENVIRONMENT")
+            or os.getenv("TRADIER_ENVIRONMENT")
+            or "live"
+        ).strip().lower() or "live"
+
+        if environment_name not in {"live", "production"} and not allow_sandbox:
+            self.logger.warning(
+                "S07 forcing LIVE market-data endpoint for options analytics "
+                "(TRADIER_MARKET_DATA_ENVIRONMENT=%s ignored).",
+                environment_name,
+            )
+            environment_name = "live"
+
+        if environment_name in {"live", "production"}:
+            api_key = (
+                os.getenv("TRADIER_LIVE_API_KEY", "").strip()
+                or os.getenv("TRADIER_API_KEY", "").strip()
+            )
+            account_id = (
+                os.getenv("TRADIER_LIVE_ACCOUNT_ID", "").strip()
+                or os.getenv("TRADIER_ACCOUNT_ID", "").strip()
+            )
+            environment_name = "live"
+        else:
+            api_key = (
+                os.getenv("TRADIER_SANDBOX_API_KEY", "").strip()
+                or os.getenv("TRADIER_API_KEY", "").strip()
+            )
+            account_id = (
+                os.getenv("TRADIER_SANDBOX_ACCOUNT_ID", "").strip()
+                or os.getenv("TRADIER_ACCOUNT_ID", "").strip()
+            )
             environment_name = "sandbox"
-        elif trading_mode == "paper":
-            # Paper mode + live data (TRADIER_ENVIRONMENT=live): use production
-            # credentials so market data fetches go to api.tradier.com.
-            pass  # environment_name already "live"; keep production api_key/account_id
 
         if not api_key or not account_id:
             return None
@@ -1892,7 +1928,26 @@ class CustomMetricsOrchestrator(QObject):
             if not expirations:
                 raise ValueError("No SPY option expirations available")
 
-            contracts = client.get_option_chain_with_greeks("SPY", expirations[0])
+            # Target the expiry closest to 30 DTE so that ATM_IV is comparable
+            # with VIX (which measures 30-day implied vol).  Using the nearest
+            # expiry (often 0-2 DTE) produces a materially lower IV value.
+            _today = datetime.now(timezone.utc).date()
+
+            def _dte(exp_str: str) -> int:
+                try:
+                    from datetime import date as _date
+                    return (_date.fromisoformat(exp_str) - _today).days
+                except Exception:
+                    return 9999
+
+            _target_dte = 30
+            _valid_exps = [e for e in expirations if _dte(e) >= 1]
+            nearest_exp = (
+                min(_valid_exps, key=lambda e: abs(_dte(e) - _target_dte))
+                if _valid_exps
+                else expirations[0]
+            )
+            contracts = client.get_option_chain_with_greeks("SPY", nearest_exp)
             atm_iv = self._compute_atm_iv(contracts, spot)
             if atm_iv is None:
                 raise ValueError("ATM IV unavailable from option chain")
@@ -2078,7 +2133,16 @@ class CustomMetricsOrchestrator(QObject):
                 "value": metrics.get("YIELD_10Y", float("nan")),
                 "formatted": f"{metrics.get('YIELD_10Y', float('nan')):.2f}%",
                 "timestamp": timestamp,
-                "quality": self.metric_quality['FRED'].quality_score
+                "quality": self.metric_quality['FRED'].quality_score,
+                # Day-over-day change from FRED's two most-recent GS10 observations.
+                # Included so G05 can display a real change instead of always +0.00.
+                "change": (
+                    float(metrics.get("YIELD_10Y", float("nan")))
+                    - float(metrics.get("YIELD_10Y_PREV", float("nan")))
+                    if not (math.isnan(float(metrics.get("YIELD_10Y", float("nan"))))
+                            or math.isnan(float(metrics.get("YIELD_10Y_PREV", float("nan")))))
+                    else float("nan")
+                ),
             },
             "YIELD_SLOPE": {
                 "value": metrics.get("YIELD_SLOPE", float("nan")),
@@ -2398,8 +2462,8 @@ class CustomMetricsOrchestrator(QObject):
             if not isinstance(payload, dict):
                 continue
 
-            def _extract_change_pct(symbol: str) -> float:
-                entry = payload.get(symbol)
+            def _extract_change_pct(symbol: str, _payload: dict[str, Any] = payload) -> float:
+                entry = _payload.get(symbol)
                 if not isinstance(entry, dict):
                     return float("nan")
                 try:

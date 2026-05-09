@@ -31,7 +31,7 @@ def _ensure_pkg(name: str) -> None:
 
 
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # Stub SpyderLogger
@@ -60,7 +60,7 @@ import json
 import tempfile
 from datetime import datetime, date, timedelta
 
-import SpyderU_Utilities.SpyderU11_FeatureFlags as u11_mod
+import Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags as u11_mod
 from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import (
     FeatureFlag,
     FeatureFlags,
@@ -81,7 +81,7 @@ from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import (
     is_spyderx_enabled,
 )
 
-import SpyderU_Utilities.SpyderU09_DataTypes as u09_mod
+import Spyder.SpyderU_Utilities.SpyderU09_DataTypes as u09_mod
 from Spyder.SpyderU_Utilities.SpyderU09_DataTypes import (
     MarketData,
     OptionContract,

@@ -29,7 +29,7 @@ import threading
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -1217,9 +1217,9 @@ class LiveEngine:
                 checks_passed = False
 
         # Account balance check
-        if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+        if hasattr(self.broker, "get_account_info") and callable(self.broker.get_account_info):
             account_info = self.broker.get_account_info() or {}
-        elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+        elif hasattr(self.broker, "get_account_balances") and callable(self.broker.get_account_balances):
             raw = self.broker.get_account_balances()
             account_info = raw.get("balances", raw) if isinstance(raw, dict) else {}
         else:
@@ -1443,7 +1443,7 @@ class LiveEngine:
                         "Telegram confirmation error: %s — falling back to autonomous decision.", _tg_err  # noqa: E501
                     )
 
-            # Testing override (sandbox/paper only)
+            # Testing override (paper-mode only)
             if os.environ.get('AUTO_CONFIRM_HIGH_RISK_ORDERS', 'false').lower() == 'true':
                 self.logger.warning("AUTO_CONFIRM_HIGH_RISK_ORDERS enabled — auto-approved (TESTING ONLY)")  # noqa: E501
                 return True
@@ -1561,9 +1561,9 @@ class LiveEngine:
         """
         try:
             # Get from broker interface — B40 uses get_account_balances(); B04 uses get_account_info()
-            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+            if hasattr(self.broker, "get_account_info") and callable(self.broker.get_account_info):
                 account_info = self.broker.get_account_info() or {}
-            elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+            elif hasattr(self.broker, "get_account_balances") and callable(self.broker.get_account_balances):
                 raw = self.broker.get_account_balances()
                 account_info = raw.get("balances", raw) if isinstance(raw, dict) else {}
             else:
@@ -2386,7 +2386,7 @@ class LiveEngine:
     ) -> None:
         """Stage 4 — record a successful kill-switch / emergency-flatten drill.
 
-        Call this after a controlled drill run (paper-mode or sandbox) to reset
+        Call this after a controlled paper-mode drill run to reset
         the staleness counter checked by Q14's ``_check_kill_switch_test_staleness``.
         Writes ``~/.spyder_kill_test.json`` with the current timestamp.
 

@@ -34,7 +34,7 @@ import pandas as pd
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from SpyderU_Utilities.SpyderU20_InstitutionalLibraries import get_institutional_libraries
+from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import get_institutional_libraries
 
 
 def calculate_spyder_sharpe_ratio(

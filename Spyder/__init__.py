@@ -25,7 +25,7 @@ This package contains all core modules organized by functionality:
 - SpyderR_Runtime: Runtime management and orchestration
 - SpyderS_Signals: Signal generation and processing
 - SpyderT_Testing: Testing utilities and frameworks
-- SpyderU_Utilities: Common utilities and helpers
+- Spyder.SpyderU_Utilities: Common utilities and helpers
 - SpyderV_QuantModels: Quantitative models and analytics
 - SpyderX_Agents: AI agents and automation (on-demand, stateless)
 - SpyderY_AutoAgents: Autonomous LLM-powered agents (24/7, persistent)
@@ -54,14 +54,14 @@ class _SpyderAliasImporter(_abc.MetaPathFinder, _abc.Loader):
 
     @staticmethod
     def _is_short_spyder(name: str) -> bool:
-        """Return True for short-form Spyder sub-package names like 'SpyderU_Utilities'."""
+        """Return True for short-form Spyder sub-package names like 'Spyder.SpyderU_Utilities'."""
         # Must start with 'Spyder' + an uppercase letter (not a dot or end-of-string)
         return len(name) > 6 and name[:6] == "Spyder" and name[6:7].isupper()
 
     def find_spec(self, fullname: str, path, target=None):  # type: ignore[override]
         # Long-form → short-form: 'Spyder.SpyderX[.Y]' → 'SpyderX[.Y]'
         if fullname.startswith("Spyder.Spyder"):
-            short = fullname[len("Spyder."):]  # e.g. 'SpyderU_Utilities.SpyderU01_Logger'
+            short = fullname[len("Spyder."):]  # e.g. 'Spyder.SpyderU_Utilities.SpyderU01_Logger'
             if short in _sys.modules:
                 return _machinery.ModuleSpec(fullname, self)
 

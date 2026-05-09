@@ -15,7 +15,7 @@ Data Sources:
 
 Module Description:
     Enhanced trading dashboard with TWO TRADING MODES:
-    - PAPER:    Live data with simulated fills via Tradier sandbox + SpyderR02_PaperEngine
+    - PAPER:    Live data with simulated fills via SpyderBox + SpyderR02_PaperEngine
     - LIVE:     Real order execution via Tradier production API + SpyderR04_LiveEngine
 
     Includes real-time market data integration, comprehensive signal monitoring,
@@ -316,7 +316,6 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (  # noqa: E402
     TRADIER_CONNECT_TIME,  # noqa: F401
     TRADIER_DISCONNECT_TIME,  # noqa: F401
     LogThrottle,  # noqa: F401
-    is_dashboard_session as _is_dashboard_session,
     is_tradier_active_window as is_tradier_window,
 )
 
@@ -352,7 +351,7 @@ from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import (  # noqa: E402
     PivotLevels,  # noqa: F401
     compute_chart_indicators,
 )
-from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import (
+from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import (  # noqa: E402
     get_market_overview_symbols,
 )
 
@@ -521,6 +520,8 @@ class SpyderTradingDashboard(QMainWindow):
 
         self.automation_logs = []
         self.trading_mode = TradingMode.PAPER
+        self._real_trading_armed = False
+        self._paper_trading_armed = False
 
         # Per-mode snapshots — preserved across PAPER ↔ LIVE switches so each
         # mode's table contents survive while the other mode is active.
@@ -540,7 +541,7 @@ class SpyderTradingDashboard(QMainWindow):
         from Spyder.SpyderB_Broker.SpyderB06_DashboardOrderManager import (
             DashboardOrderManager,
         )
-        self._order_manager = DashboardOrderManager(client=None, use_live=False)
+        self._order_manager = DashboardOrderManager(client=None, use_live=True)
 
         # Per-mode H05 session DB handles for recent-trade rendering.
         self._live_session_db = None
@@ -605,6 +606,7 @@ class SpyderTradingDashboard(QMainWindow):
         self.data_status_label = None
         self.api_connect_icon = None
         self.mkt_connect_icon = None
+        self.circuit_breaker_dot = None
         self.datetime_label = None
         self.dji_value = None
         self.dji_change = None
@@ -631,6 +633,10 @@ class SpyderTradingDashboard(QMainWindow):
         self.live_btn = None
         self.paper_btn = None
         self.acct_number_lbl = None
+        self.spyderbox_acct_number_lbl = None
+        self.spyderbox_account_type_lbl = None
+        self.spyderbox_paper_status_btn = None
+        self.spyderbox_paper_toggle_btn = None
         self.backtest_controls = None
         self.backtest_pnl_widget = None
         self.paper_pnl_widget = None
@@ -639,6 +645,10 @@ class SpyderTradingDashboard(QMainWindow):
         self.realized_value = None
         self.buying_value = None
         self.unrealized_value = None
+        self.spyderbox_settled_value = None
+        self.spyderbox_realized_value = None
+        self.spyderbox_buying_value = None
+        self.spyderbox_unrealized_value = None
         self.pnl_table = None
         self.refresh_orders_btn = None
         self.recent_trades_history_btn = None
@@ -928,6 +938,9 @@ class SpyderTradingDashboard(QMainWindow):
                 self.add_system_log("EOD market data from Tradier")
 
             self.add_system_log("✅ Real data patch applied successfully!")
+            if not self._market_data_initialized:
+                self._market_data_initialized = True
+                self.add_system_log("✅ Market data loaded — system ready")
 
         except Exception as e:
             self.add_system_log(f"❌ Error applying real data patch: {e}")
@@ -1970,19 +1983,20 @@ class SpyderTradingDashboard(QMainWindow):
     def _get_tradier_client_for_mode(self, mode: "TradingMode | None" = None) -> "TradierClient | None":  # noqa: E501
         """Return a usable TradierClient for the given mode.
 
-        Uses SANDBOX for PAPER, LIVE for LIVE.  Re-uses ``self.tradier_client``
-        when already set; otherwise attempts lazy creation from env vars.
+        Policy: dashboard broker calls always use LIVE Tradier credentials.
+        PAPER mode is simulated in SpyderBox/local state and never targets
+        Tradier sandbox.
         """
         if not TRADIER_AVAILABLE or create_tradier_client_from_env is None:
             return None
         if self.tradier_client is not None:
-            return self.tradier_client
-        mode = mode or self.trading_mode
-        env = (
-            TradingEnvironment.LIVE
-            if mode == TradingMode.LIVE
-            else TradingEnvironment.SANDBOX
-        )
+            existing_env = getattr(self.tradier_client, "environment", None)
+            if existing_env not in (TradingEnvironment.SANDBOX, TradingEnvironment.PAPER):
+                return self.tradier_client
+            self.add_system_log("⚠️ Discarding sandbox Tradier client (live-only policy)")
+            self.tradier_client = None
+
+        env = TradingEnvironment.LIVE
         try:
             client = create_tradier_client_from_env(environment=env)
             self.tradier_client = client
@@ -1993,6 +2007,9 @@ class SpyderTradingDashboard(QMainWindow):
 
     def _fetch_pending_orders(self, mode: "TradingMode | None" = None) -> list[dict]:
         """Thin wrapper — delegates to DashboardOrderManager (audit §5)."""
+        mode = mode or self.trading_mode
+        if mode == TradingMode.PAPER:
+            return []
         self._order_manager.set_client(self._get_tradier_client_for_mode(mode))
         return self._order_manager.fetch_pending_orders()
 
@@ -2000,6 +2017,9 @@ class SpyderTradingDashboard(QMainWindow):
         self, orders: list[dict], mode: "TradingMode | None" = None
     ) -> tuple[int, int]:
         """Thin wrapper — delegates to DashboardOrderManager (audit §5)."""
+        mode = mode or self.trading_mode
+        if mode == TradingMode.PAPER:
+            return 0, 0
         self._order_manager.set_client(self._get_tradier_client_for_mode(mode))
         ok, fail = self._order_manager.cancel_orders(orders)
         for order in orders[:ok]:
@@ -3174,7 +3194,7 @@ class SpyderTradingDashboard(QMainWindow):
             for o in pending[:10]
         )
         suffix = f"\n  … and {len(pending)-10} more" if len(pending) > 10 else ""
-        source = "paper/sandbox" if pending_mode == TradingMode.PAPER else "LIVE"
+        source = "paper/local" if pending_mode == TradingMode.PAPER else "LIVE"
         result = QMessageBox.warning(
             self,
             f"Pending {source.title()} Orders Must Be Cancelled",
@@ -3211,7 +3231,7 @@ class SpyderTradingDashboard(QMainWindow):
         ----------
         PAPER → LIVE  (hard blocks, then typed confirmation)
           1. trading_active must be False         — stop paper engine first
-          2. No pending sandbox orders            — must be cancelled first
+                    2. No pending paper-local actions       — handled inside SpyderBox
           3. api_connected must be True           — Tradier EXEC must be connected
           4. mkt_data_connected must be True      — a data feed must be connected
           5. Typed confirmation gate              — type "I CONFIRM LIVE TRADING"
@@ -3240,7 +3260,7 @@ class SpyderTradingDashboard(QMainWindow):
                 self._update_mode_buttons()
                 return
 
-            # Gate 2: check for pending sandbox orders
+            # Gate 2: local paper mode has no Tradier pending-order dependency
             if not self._handle_pending_orders_gate(
                 TradingMode.PAPER,
                 target_label="LIVE",
@@ -3334,7 +3354,65 @@ class SpyderTradingDashboard(QMainWindow):
 
         self._apply_mode_change(new_mode)
 
-    def _apply_mode_change(self, new_mode: TradingMode):
+    def _on_real_arm_toggle_clicked(self) -> None:
+        """Enable/disable REAL trading arming via the upper-right mode control."""
+        if self.trading_active:
+            QMessageBox.warning(
+                self,
+                "Trading Active",
+                "Stop the active trading session before changing REAL/PAPER arming.",
+            )
+            return
+
+        if self._real_trading_armed:
+            self._real_trading_armed = False
+            self._paper_trading_armed = False
+            self._update_mode_buttons()
+            self.add_system_log("REAL trading disabled — PAPER trading is disabled")
+            return
+
+        if self.trading_mode == TradingMode.LIVE:
+            if not self._confirm_live_trading():
+                self.add_system_log("Enable REAL cancelled by user")
+                return
+        else:
+            self._on_mode_btn_clicked(TradingMode.LIVE)
+            if self.trading_mode != TradingMode.LIVE:
+                return
+
+        self._real_trading_armed = True
+        self._paper_trading_armed = False
+        self._update_mode_buttons()
+        self.add_system_log("REAL trading enabled — PAPER trading will be disabled")
+
+    def _on_paper_arm_toggle_clicked(self) -> None:
+        """Enable/disable SpyderBox PAPER arming via the lower-right mode control."""
+        if self.trading_active:
+            QMessageBox.warning(
+                self,
+                "Trading Active",
+                "Stop the active trading session before changing REAL/PAPER arming.",
+            )
+            return
+
+        if self._paper_trading_armed:
+            self._paper_trading_armed = False
+            self._real_trading_armed = False
+            self._update_mode_buttons()
+            self.add_system_log("PAPER trading disabled")
+            return
+
+        if self.trading_mode != TradingMode.PAPER:
+            self._on_mode_btn_clicked(TradingMode.PAPER)
+            if self.trading_mode != TradingMode.PAPER:
+                return
+
+        self._paper_trading_armed = True
+        self._real_trading_armed = False
+        self._update_mode_buttons()
+        self.add_system_log("PAPER trading enabled")
+
+    def _apply_mode_change(self, new_mode: TradingMode, arm_selected_mode: bool = True):
         """Internal: commit trading mode switch and refresh all dependent UI."""
         # ── Snapshot outgoing mode before committing the switch ───────────────
         old_mode = self.trading_mode
@@ -3344,16 +3422,24 @@ class SpyderTradingDashboard(QMainWindow):
         self.trading_mode = new_mode
         is_paper = new_mode == TradingMode.PAPER
 
+        if arm_selected_mode:
+            self._real_trading_armed = new_mode == TradingMode.LIVE
+            self._paper_trading_armed = new_mode == TradingMode.PAPER
+        elif new_mode == TradingMode.PAPER:
+            self._real_trading_armed = False
+            self._paper_trading_armed = False
+
         self._update_mode_buttons()
 
         # Reset account container to placeholders; real data arrives via broker/signals
         if self.acct_number_lbl:
             import os as _os_mode
-            _paper_acct_id = _os_mode.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT")
-            self.acct_number_lbl.setText(_paper_acct_id if is_paper else "—")
+            _live_acct_id = _os_mode.environ.get("TRADIER_ACCOUNT_ID", "LIVE ACCOUNT UNSET")
+            self.acct_number_lbl.setText(_live_acct_id)
         for lbl in (self.settled_value, self.buying_value, self.realized_value, self.unrealized_value):  # noqa: E501
             if lbl:
                 lbl.setText("—")
+        self._sync_spyderbox_account_labels()
 
         # Update START/STOP tooltips
         if is_paper:
@@ -3407,6 +3493,7 @@ class SpyderTradingDashboard(QMainWindow):
         if new_mode != TradingMode.PAPER and isinstance(saved_account, dict) and saved_account:
             self._apply_account_snapshot(saved_account)
 
+        self._sync_spyderbox_account_labels()
         self._refresh_pnl_table(self._pnl_stats_by_mode.get(new_mode, {}))
 
     def _update_pnl_title(self):
@@ -3434,20 +3521,37 @@ class SpyderTradingDashboard(QMainWindow):
             self.orders_title_label.setStyleSheet("font-weight: normal; font-size: 11pt; color: #00FF00;")  # noqa: E501
 
     def _update_mode_buttons(self):
-        """Apply active/inactive styles to the LIVE / PAPER toggle buttons."""
+        """Apply arming styles for REAL and PAPER controls in both account blocks."""
         if not self.live_btn or not self.paper_btn:
             return
-        is_live = self.trading_mode == TradingMode.LIVE
-        _active_base = "font-size: 12px; border-radius: 3px; padding: 4px 8px; border: none;"
-        _inactive_base = f"font-size: 12px; border-radius: 3px; padding: 4px 8px; border: none; background-color: {COLORS['panel']}; color: #aaaaaa;"  # noqa: E501
+        _pill = "font-size: 12px; border-radius: 3px; padding: 4px 8px; border: none;"
+        _inactive = f"{_pill} background-color: {COLORS['panel']}; color: #aaaaaa;"
+        _enable = f"{_pill} background-color: {COLORS['blue']}; color: white;"
+        _disable = f"{_pill} background-color: #5a5a5a; color: white;"
+
+        self.live_btn.setText("LIVE TRADING")
         self.live_btn.setStyleSheet(
-            f"background-color: {COLORS['positive']}; color: black; {_active_base}"
-            if is_live else _inactive_base
+            f"{_pill} background-color: {COLORS['positive']}; color: black;"
+            if self._real_trading_armed else _inactive
         )
-        self.paper_btn.setStyleSheet(
-            f"background-color: {COLORS['orange']}; color: black; {_active_base}"
-            if not is_live else _inactive_base
-        )
+
+        self.paper_btn.setText("DISABLE REAL" if self._real_trading_armed else "ENABLE REAL")
+        self.paper_btn.setStyleSheet(_disable if self._real_trading_armed else _enable)
+
+        if self.spyderbox_paper_status_btn:
+            self.spyderbox_paper_status_btn.setText("PAPER TRADING")
+            self.spyderbox_paper_status_btn.setStyleSheet(
+                f"{_pill} background-color: {COLORS['orange']}; color: black;"
+                if self._paper_trading_armed else _inactive
+            )
+
+        if self.spyderbox_paper_toggle_btn:
+            self.spyderbox_paper_toggle_btn.setText(
+                "DISABLE PAPER" if self._paper_trading_armed else "ENABLE PAPER"
+            )
+            self.spyderbox_paper_toggle_btn.setStyleSheet(
+                _disable if self._paper_trading_armed else _enable
+            )
 
     # ── Per-mode snapshot helpers ─────────────────────────────────────────────
 
@@ -3544,7 +3648,8 @@ class SpyderTradingDashboard(QMainWindow):
         body = QLabel(
             "This will execute <b>REAL orders</b> with <b>REAL money</b> "
             "through the Tradier <b>production</b> API.\n\n"
-            "All trades are immediately binding and cannot be undone by this application."
+            "All trades are immediately binding and cannot be undone by this application.\n\n"
+            "<b>PAPER TRADING will be disabled</b> while REAL trading is enabled."
         )
         body.setWordWrap(True)
         body.setStyleSheet("font-size: 13px;")
@@ -3588,6 +3693,24 @@ class SpyderTradingDashboard(QMainWindow):
         """Handle start trading button click via unified SessionSupervisor path."""
         if self.trading_active:
             self.add_system_log("Trading already active")
+            return
+
+        if self.trading_mode == TradingMode.LIVE and not self._real_trading_armed:
+            QMessageBox.warning(
+                self,
+                "REAL Trading Not Enabled",
+                "REAL trading is not armed. Click ENABLE REAL before starting.",
+            )
+            self.add_system_log("Start blocked: REAL trading is not enabled")
+            return
+
+        if self.trading_mode == TradingMode.PAPER and not self._paper_trading_armed:
+            QMessageBox.warning(
+                self,
+                "PAPER Trading Not Enabled",
+                "PAPER trading is not armed. Click ENABLE PAPER before starting.",
+            )
+            self.add_system_log("Start blocked: PAPER trading is not enabled")
             return
 
         if not self._market_data_initialized:
@@ -3819,8 +3942,8 @@ class SpyderTradingDashboard(QMainWindow):
                 if fresh_connected:
                     # Drive through the normal handlers so toolbar labels go green.
                     self.on_connection_status_changed(True, f"API CONNECTED ({fresh_mode})")
-                    _is_sandbox = "SANDBOX" in fresh_mode.upper() or "PAPER" in fresh_mode.upper()
-                    self.on_market_data_status_changed("PAPER" if _is_sandbox else "LIVE")
+                    _is_paper_mode = "PAPER" in fresh_mode.upper()
+                    self.on_market_data_status_changed("PAPER" if _is_paper_mode else "LIVE")
                     cached_api = True
                     cached_mkt = True
             except Exception:
@@ -4220,7 +4343,7 @@ class SpyderTradingDashboard(QMainWindow):
         # stay stuck on "Connecting…" indefinitely.)
         if self.acct_number_lbl:
             import os as _os_pt
-            self.acct_number_lbl.setText(_os_pt.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))  # noqa: E501
+            self.acct_number_lbl.setText(_os_pt.environ.get("TRADIER_ACCOUNT_ID", "LIVE ACCOUNT UNSET"))
         # Single source of truth for paper-trading starting capital. Used to
         # initialise the worker AND to scale the E01 risk-manager limits so
         # percentage-based dialog inputs map to the correct dollar amounts.
@@ -4234,6 +4357,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.realized_value.setText("$0.00")
         if self.unrealized_value:
             self.unrealized_value.setText("$0.00")
+        self._sync_spyderbox_account_labels()
 
         # Create worker and thread
         self._paper_thread = QThread(self)
@@ -4275,7 +4399,7 @@ class SpyderTradingDashboard(QMainWindow):
         )
 
         self._paper_thread.start()
-        self.add_system_log("PAPER TRADING — Connecting to Tradier sandbox…")
+        self.add_system_log("PAPER TRADING — Connecting to local SpyderBox account…")
 
     def _stop_paper_trading(self):
         """Stop the paper trading worker gracefully."""
@@ -5214,6 +5338,29 @@ class SpyderTradingDashboard(QMainWindow):
             except Exception as _h07_err:
                 logger.warning("H07 PerformanceAnalytics.get_summary_stats failed: %s", _h07_err)
 
+        # Augment with H05 session-DB period buckets (TODAY / WEEK / MONTH / YEAR).
+        # H05.get_pnl_summary() runs DATE-bucketed SQL across all persisted trades,
+        # so this works across sessions and correctly resets each morning.
+        try:
+            _db = self._get_mode_session_db()
+            if _db is not None:
+                _pnl = _db.get_pnl_summary()  # {today, week, month, year} floats
+                for _period in ("today", "week", "month", "year"):
+                    _val = _pnl.get(_period, 0.0)
+                    _key = f"{_period}_pnl"
+                    if _val != 0.0:
+                        if _period == "today":
+                            # Paper worker's real-time today_pnl wins during an active
+                            # session; use H05 only when today_pnl is missing or empty.
+                            if _key not in stats or str(stats.get(_key, "\u2014")).strip() in {"", "\u2014", "-"}:
+                                stats = {**stats, _key: f"${_val:+,.2f}"}
+                        else:
+                            # H05 is always authoritative for WEEK / MONTH / YEAR —
+                            # overrides any balance-delta fallback set earlier.
+                            stats = {**stats, _key: f"${_val:+,.2f}"}
+        except Exception as _h05_err:
+            logger.debug("H05 get_pnl_summary skipped: %s", _h05_err)
+
         periods = ["today", "week", "month", "year"]
         col_map = {1: "pnl", 2: "win_rate", 3: "win_loss", 4: "profit_factor",
                    5: "sharpe", 6: "sortino", 7: "calmar"}
@@ -5268,10 +5415,11 @@ class SpyderTradingDashboard(QMainWindow):
         # Reset account container to idle state
         if self.acct_number_lbl:
             import os as _os_stop
-            self.acct_number_lbl.setText(_os_stop.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))  # noqa: E501
+            self.acct_number_lbl.setText(_os_stop.environ.get("TRADIER_ACCOUNT_ID", "LIVE ACCOUNT UNSET"))
         for lbl in (self.settled_value, self.buying_value, self.realized_value, self.unrealized_value):  # noqa: E501
             if lbl:
                 lbl.setText("—")
+        self._sync_spyderbox_account_labels()
 
         self.add_system_log("PAPER TRADING STOPPED — Session ended")
 
@@ -5279,7 +5427,7 @@ class SpyderTradingDashboard(QMainWindow):
     def _on_balance_updated(self, equity: float, buying_power: float):
         """Update account balance fields from Tradier API (emitted by market worker heartbeat)."""
         # In paper-trading mode the paper worker keeps these labels updated; skip to avoid
-        # overwriting live paper P&L with the (potentially zero) sandbox account balance.
+        # overwriting live paper P&L with a stale/non-local heartbeat balance.
         if self.trading_active and self._paper_worker is not None:
             return
         if self.settled_value:
@@ -5288,7 +5436,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.buying_value.setText(f"${buying_power:,.2f}")
 
         # Reconcile idle PAPER account balances into visible P&L so orphan
-        # account-level adjustments (for example sandbox cash drift) are not
+        # account-level adjustments (for example local paper cash drift) are not
         # silently omitted from the dashboard's realized/year fields.
         if self.trading_mode == TradingMode.PAPER and not self.trading_active:
             try:
@@ -5303,13 +5451,14 @@ class SpyderTradingDashboard(QMainWindow):
                         f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {color}; text-align: right;"  # noqa: E501
                     )
 
-                # Keep YEAR (and TODAY when empty) in sync with the reconciled
-                # account-level P&L so the performance table is not all dashes.
+                # Keep YEAR in sync with the cumulative account-level P&L as a
+                # fallback when the session DB has no trade records yet.
+                # NOTE: Do NOT write today_pnl here — that would incorrectly
+                # show all-time cumulative P&L in the TODAY row every morning.
+                # TODAY is populated from actual trade records via H05.
                 mode_stats = dict(self._pnl_stats_by_mode.get(self.trading_mode, {}))
                 realized_str = f"${realized_delta:+,.2f}"
-                mode_stats["year_pnl"] = realized_str
-                if str(mode_stats.get("today_pnl", "—")).strip() in {"", "—", "-"}:
-                    mode_stats["today_pnl"] = realized_str
+                mode_stats.setdefault("year_pnl", realized_str)
                 self._refresh_pnl_table(mode_stats)
             except Exception as exc:
                 self.logger.debug("paper balance reconciliation skipped: %s", exc)
@@ -5348,8 +5497,8 @@ class SpyderTradingDashboard(QMainWindow):
             self.update_data_status("PAPER")
             if self.acct_number_lbl:
                 import os as _os_conn
-                self.acct_number_lbl.setText(_os_conn.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "PAPER ACCOUNT"))  # noqa: E501
-            self.add_system_log("PAPER TRADING ACTIVE — Connected to Tradier sandbox")
+                self.acct_number_lbl.setText(_os_conn.environ.get("TRADIER_ACCOUNT_ID", "LIVE ACCOUNT UNSET"))
+            self.add_system_log("PAPER TRADING ACTIVE — Connected to local SpyderBox account")
         else:
             self.add_system_log("❌ Paper trading could not connect to Tradier")
 
@@ -5566,12 +5715,10 @@ class SpyderTradingDashboard(QMainWindow):
             color = COLORS["negative"]
         self.mkt_provider_label.setText(provider.upper() + " DATA")
         self.mkt_provider_label.setStyleSheet(f"color: {color}; font-size: 14px;")
-        if hasattr(self, "mkt_connect_icon") and self.mkt_connect_icon:
-            self.mkt_connect_icon.setStyleSheet(f"color: {color}; font-size: 13px;")
-            if getattr(self, "mkt_data_connected", False):
-                self.mkt_connect_icon.setToolTip("Click to disconnect market data feed")
-            else:
-                self.mkt_connect_icon.setToolTip("Click to connect market data feed")
+        if hasattr(self, "circuit_breaker_dot") and self.circuit_breaker_dot:
+            self.circuit_breaker_dot.setText("●")
+            self.circuit_breaker_dot.setStyleSheet(f"color: {COLORS['positive']}; font-size: 14px;")
+            self.circuit_breaker_dot.setToolTip("Circuit Breaker Status: NORMAL")
 
     def _toggle_data_display(self, event):
         """Toggle data display between EOD and SIMULATED (click handler for data_status_container).
@@ -5705,16 +5852,24 @@ class SpyderTradingDashboard(QMainWindow):
                 continue
 
             value = raw * scale
-            # Compute change vs last known value for the change/pct columns
-            prev_attr = f"_cm_prev_{widget_key}"
-            prev = getattr(self, prev_attr, value)
-            change = value - prev
-            # Use abs(prev) as the denominator so that negative-valued metrics
-            # (e.g. VRP = -1.45, NYMO, $TICK when negative) do not produce a
-            # sign-flipped percentage.  A positive change always yields a positive
-            # percentage regardless of the sign of the level.
-            change_pct = (change / abs(prev) * 100.0) if prev else 0.0
-            setattr(self, prev_attr, value)
+            # If the metric dict carries a pre-computed day-over-day change
+            # (e.g. YIELD_10Y from FRED daily series), use it directly so the
+            # widget shows real change rather than delta vs previous S07 cycle.
+            pre_change = entry.get("change")
+            if pre_change is not None and not (isinstance(pre_change, float) and np.isnan(pre_change)):
+                change = float(pre_change) * scale
+                change_pct = (change / abs(value - change) * 100.0) if (value - change) else 0.0
+            else:
+                # Compute change vs last known value for the change/pct columns
+                prev_attr = f"_cm_prev_{widget_key}"
+                prev = getattr(self, prev_attr, value)
+                change = value - prev
+                # Use abs(prev) as the denominator so that negative-valued metrics
+                # (e.g. VRP = -1.45, NYMO, $TICK when negative) do not produce a
+                # sign-flipped percentage.  A positive change always yields a positive
+                # percentage regardless of the sign of the level.
+                change_pct = (change / abs(prev) * 100.0) if prev else 0.0
+                setattr(self, prev_attr, value)
 
             widget.update_data({"last": value, "change": change, "change_pct": change_pct})
 
@@ -5933,7 +6088,7 @@ class SpyderTradingDashboard(QMainWindow):
         elif any(k in c for k in ("crisis", "event", "halt", "risk-off")):
             bg, border, fg = "#3a1055", "#9a30dd", "#cc88ff"
         elif c == "none" or c.endswith(": none") or c == "idle":
-            bg, border, fg = "#1e1e1e", "#444444", "#888888"
+            bg, border, fg = "#3a3a3a", "#666666", "#aaaaaa"
         elif any(k in c for k in ("range", "neutral", "choppy", "volatile", "cautious", "blocked")):
             bg, border, fg = "#3a2800", "#8a5a00", "#e09020"
         else:
@@ -7344,7 +7499,7 @@ class SpyderTradingDashboard(QMainWindow):
             cfg = get_config_manager()
 
             env_mode = str(os.environ.get("TRADING_MODE", "")).strip().lower()
-            if env_mode in {"paper", "sandbox", "live", "production"}:
+            if env_mode in {"paper", "live", "production"}:
                 mode = "live" if env_mode in {"live", "production"} else "paper"
             else:
                 runtime_paper_mode = cfg.get("runtime.paper_mode", None)
@@ -7511,10 +7666,27 @@ class SpyderTradingDashboard(QMainWindow):
             "unrealized_pnl": unrealized,
         }
 
+    def _sync_spyderbox_account_labels(self) -> None:
+        """Mirror primary account panel values into the SpyderBox account panel."""
+        if self.spyderbox_acct_number_lbl:
+            self.spyderbox_acct_number_lbl.setText("SpyderBox")
+
+        mirrored_pairs = (
+            (self.settled_value, self.spyderbox_settled_value),
+            (self.buying_value, self.spyderbox_buying_value),
+            (self.realized_value, self.spyderbox_realized_value),
+            (self.unrealized_value, self.spyderbox_unrealized_value),
+        )
+        for source_label, target_label in mirrored_pairs:
+            if source_label and target_label:
+                target_label.setText(source_label.text())
+                target_label.setStyleSheet(source_label.styleSheet())
+
     def _remember_current_account_snapshot(self, mode: TradingMode | None = None) -> None:
         """Persist current account labels into in-memory per-mode cache."""
         mode_key = mode or self.trading_mode
         self._account_snapshot_by_mode[mode_key] = self._capture_account_snapshot_from_labels()
+        self._sync_spyderbox_account_labels()
 
     def _apply_account_snapshot(self, snapshot: dict) -> None:
         """Apply account snapshot values back into account panel labels."""
@@ -7541,6 +7713,8 @@ class SpyderTradingDashboard(QMainWindow):
                 f"padding: 2px 5px; background-color: {COLORS['background']}; "
                 f"border: 1px solid {COLORS['border']}; font-size: 12px; color: {u_color}; text-align: right;"  # noqa: E501
             )
+
+        self._sync_spyderbox_account_labels()
 
     def _save_snapshot(self) -> None:
         """Persist current market_data values to disk for next launch."""

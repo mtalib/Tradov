@@ -71,7 +71,7 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     logger = SpyderLogger.get_logger(__name__)
 except ImportError:
     logger = logging.getLogger(__name__)
@@ -255,34 +255,60 @@ class FREDClient:
     # --------------------------------------------------------------------------
 
     def _fetch_all(self) -> dict:
-        """Fetch the latest observation for each configured series from FRED."""
+        """Fetch the latest observation for each configured series from FRED.
+
+        All series are fetched concurrently (one thread per series) so the
+        total wall-clock time is bounded by the slowest single request rather
+        than the sum of all requests.  Each thread creates its own ``Fred``
+        instance because ``requests.Session`` is not thread-safe.
+        """
         if self._fred is None:
             return self._stub_snapshot()
+
+        api_key = self.api_key
+
+        def _fetch_one(item: tuple) -> tuple:
+            """Fetch a single FRED series and return (key, value, prev_value, as_of_dt)."""
+            key, series_id = item
+            try:
+                fred_local = Fred(api_key=api_key)
+                series = fred_local.get_series_latest_release(series_id)
+                if series is None or series.empty:
+                    return key, float("nan"), float("nan"), None
+                latest = series.dropna()
+                if latest.empty:
+                    return key, float("nan"), float("nan"), None
+                value = float(latest.iloc[-1])
+                prev_value = float(latest.iloc[-2]) if len(latest) >= 2 else float("nan")
+                index_dt = latest.index[-1]
+                dt = index_dt.to_pydatetime() if hasattr(index_dt, "to_pydatetime") else None
+                return key, value, prev_value, dt
+            except Exception as exc:
+                logger.debug("FRED series %s fetch failed: %s", series_id, exc)
+                return key, float("nan"), float("nan"), None
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: PLC0415
 
         result: dict = {}
         as_of: Optional[datetime] = None
 
-        for key, series_id in _SERIES.items():
-            try:
-                series = self._fred.get_series_latest_release(series_id)
-                if series is None or series.empty:
-                    result[key] = float("nan")
-                    continue
-                latest = series.dropna()
-                if latest.empty:
-                    result[key] = float("nan")
-                    continue
-                value = float(latest.iloc[-1])
-                index_dt = latest.index[-1]
-                # Track the most-recent observation date across all series
-                if hasattr(index_dt, "to_pydatetime"):
-                    dt = index_dt.to_pydatetime()
-                    if as_of is None or dt > as_of:
+        with ThreadPoolExecutor(max_workers=len(_SERIES)) as executor:
+            futures = {
+                executor.submit(_fetch_one, item): item[0]
+                for item in _SERIES.items()
+            }
+            for future in as_completed(futures):
+                try:
+                    key, value, prev_value, dt = future.result()
+                    result[key] = value
+                    result[f"{key}_prev"] = prev_value
+                    if dt is not None and (as_of is None or dt > as_of):
                         as_of = dt
-                result[key] = value
-            except Exception as exc:
-                logger.debug("FRED series %s fetch failed: %s", series_id, exc)
-                result[key] = float("nan")
+                except Exception as exc:
+                    key = futures[future]
+                    logger.debug("FRED future for %s raised: %s", key, exc)
+                    result[key] = float("nan")
+                    result[f"{key}_prev"] = float("nan")
 
         result["yield_curve_inverted"] = (
             result.get("spread_10y_2y", 0.0) < 0.0

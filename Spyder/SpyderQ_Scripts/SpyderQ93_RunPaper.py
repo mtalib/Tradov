@@ -52,7 +52,8 @@ Options:
 Environment Variables (loaded from .env):
     TRADIER_API_KEY         Tradier bearer token
     TRADIER_ACCOUNT_ID      Tradier account number
-    TRADIER_ENVIRONMENT     "sandbox" | "production" (default: sandbox)
+    TRADIER_ENVIRONMENT     "live" | "sandbox" | "production"
+                            (policy default: live for paper/live modes)
     PAPER_STARTING_EQUITY   Fallback equity when broker unavailable (default: 100000)
     PAPER_SNAPSHOT_DIR      Directory for JSON snapshot files
 """

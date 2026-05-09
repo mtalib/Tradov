@@ -29,8 +29,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from datetime import time as dt_time, timezone
+from datetime import datetime, time as dt_time, timezone
 from enum import Enum
 from typing import Any
 from collections.abc import Callable
@@ -779,7 +778,7 @@ class MasterController:
             return {"module_id": module_id, "status": "singleton"}
 
         if module_id == "U02_ErrorHandler":
-            return _load("SpyderU_Utilities.SpyderU02_ErrorHandler", "SpyderErrorHandler")
+            return _load("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler", "SpyderErrorHandler")
 
         if module_id == "I06_AgentMessageBus":
             return _load("SpyderI_Integration.SpyderI06_AgentMessageBus", "AgentMessageBus")
