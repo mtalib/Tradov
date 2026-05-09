@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
+import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+# Ensure canonical Spyder imports resolve to this repository in CI.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_PACKAGE_ROOT = _REPO_ROOT / "Spyder"
+for _path in (_REPO_ROOT, _PACKAGE_ROOT):
+    _path_str = str(_path)
+    if _path_str not in sys.path:
+        sys.path.insert(0, _path_str)
+
+_existing_spyder = sys.modules.get("Spyder")
+if _existing_spyder is not None:
+    _spyder_file = getattr(_existing_spyder, "__file__", "") or ""
+    _is_pkg = hasattr(_existing_spyder, "__path__")
+    if (not _is_pkg) or (_spyder_file and not _spyder_file.startswith(str(_PACKAGE_ROOT))):
+        sys.modules.pop("Spyder", None)
 
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
