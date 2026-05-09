@@ -39,10 +39,13 @@ Use two document classes:
 
 ### Historical but Retained (Context)
 
-- `2026-05-05-24x5-Autonomous-Operations-Board-Memo-Slide-Format.md`
 - `2026-05-05-24x5-Autonomous-Operations-Board-Memo.md`
 - `2026-05-05-24x5-Autonomous-Operations-End-to-End-Completion-Report.md`
 - `2026-05-05-24x5-Autonomous-Operations-Executive-Completion-Brief.md`
+
+### Archived by Allowlist
+
+- `2026-05-05-24x5-Autonomous-Operations-Board-Memo-Slide-Format.md` moved to `12-Archive/Overview-Specs-Pruned-2026-05-09/`
 
 ## Archive Policy
 
