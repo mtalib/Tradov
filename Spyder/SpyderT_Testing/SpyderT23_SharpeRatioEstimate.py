@@ -35,7 +35,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Import performance metrics
-from SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator
+from Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics import PerformanceCalculator
 
 
 def generate_spyder_returns(fitness: float = 0.949, days: int = 252):

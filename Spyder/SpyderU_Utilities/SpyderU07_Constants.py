@@ -4,7 +4,7 @@ from enum import Enum
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU07_Constants.py
 Purpose: System-wide constants and configuration values with research findings
 Author: Mohamed Talib

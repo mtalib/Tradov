@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+import uuid
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -17,7 +18,7 @@ Module Description:
     consolidation and code reuse across all multi-leg strategies.
 
 CONSOLIDATION UPDATE:
-    Generic multi-leg infrastructure REMOVED and consolidated into D26_MultiLegStrategyCoordinator.
+    Generic multi-leg infrastructure REMOVED and consolidated into D32_MultiLegStrategyCoordinator.
     This module now focuses exclusively on Iron Butterfly specific trading logic:
     - Iron Butterfly entry criteria and neutral market outlook analysis
     - ATM strike selection methodology specific to Iron Butterfly
@@ -32,20 +33,20 @@ Key Features:
     • Stop loss at delta breach or 75% of max profit
     • Time decay optimization (close at 10-15 DTE)
     • Iron Butterfly specific adjustment techniques
-    • Integration with D26 for multi-leg execution
+    • Integration with D32 for multi-leg execution
 
 Removed Infrastructure:
-    • Generic multi-leg order management - Now in D26
-    • Combined Greeks calculations - Now in D26
-    • Multi-leg position sizing - Now in D26
-    • Generic P&L calculations - Now in D26
-    • Position group validation - Now in D26
+    • Generic multi-leg order management - Now in D32
+    • Combined Greeks calculations - Now in D32
+    • Multi-leg position sizing - Now in D32
+    • Generic P&L calculations - Now in D32
+    • Position group validation - Now in D32
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timezone  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
 from typing import Any  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from enum import Enum, auto  # noqa: E402
@@ -63,6 +64,9 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import BaseStrategy  # noqa: E402
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile  # noqa: E402
+from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (  # noqa: E402
+    SignalStrength, SignalType, TradingSignal,
+)
 
 # Integration with consolidated multi-leg coordinator
 try:
@@ -110,6 +114,7 @@ IB_EARLY_CLOSE_PROFIT = 0.15           # Close early at 15%
 
 IB_MIN_CREDIT = 0.50                   # Minimum credit per contract
 IB_MAX_DELTA_THRESHOLD = 0.05          # Maximum delta at entry
+MAX_ACTIVE_SETUPS = 20                 # Trim active_setups beyond this count
 
 # Market condition thresholds for Iron Butterfly
 IB_MAX_EXPECTED_MOVE_RATIO = 0.8       # Max expected move vs wing width
@@ -253,15 +258,60 @@ class IronButterflyStrategy(BaseStrategy):
             'avg_time_to_profit': 0.0
         }
 
-        self.logger.info("Iron Butterfly Strategy initialized with D26 integration")
+        self.logger.info("Iron Butterfly Strategy initialized with D32 integration")
 
     def generate_signals(self, market_data: pd.DataFrame) -> list[Any]:
-        """Legacy adapter for BaseStrategy contract.
+        """Generate Iron Butterfly entry signals from current market data.
 
-        Iron Butterfly entry logic is currently routed through dedicated async
-        analysis and coordinator workflows; this sync hook emits no direct signal.
+        Calls the synchronous analysis pipeline and emits one TradingSignal when
+        the Iron Butterfly conditions are met.  Returns an empty list otherwise.
         """
-        return []
+        if market_data is None or market_data.empty:
+            return []
+        try:
+            analysis = self.analyze_iron_butterfly_opportunity(market_data)
+            if not analysis.market_suitable or analysis.confidence_score <= 0.0:
+                return []
+
+            score = analysis.confidence_score
+            if score >= 0.8:
+                strength = SignalStrength.VERY_STRONG
+            elif score >= 0.6:
+                strength = SignalStrength.STRONG
+            elif score >= 0.4:
+                strength = SignalStrength.MODERATE
+            else:
+                strength = SignalStrength.WEAK
+
+            current_price = float(market_data["close"].iloc[-1])
+            now = datetime.now(timezone.utc)
+            signal = TradingSignal(
+                signal_id=str(uuid.uuid4()),
+                signal_type=SignalType.SELL,
+                symbol="SPY",
+                strength=strength,
+                confidence=score,
+                entry_price=current_price,
+                stop_loss=0.0,
+                take_profit=0.0,
+                position_size=1,
+                timestamp=now,
+                expires_at=now + timedelta(minutes=30),
+                metadata={
+                    "strategy_tag":         "iron_butterfly",
+                    "strategy_type":        "iron_butterfly",
+                    "atm_strike":           analysis.atm_strike_recommendation,
+                    "optimal_wing_width":   analysis.optimal_wing_width,
+                    "iv_rank":              analysis.iv_analysis.get("iv_rank"),
+                    "confidence_score":     score,
+                    "setup_recommendation": analysis.setup_recommendation,
+                    "risk_warnings":        analysis.risk_warnings,
+                },
+            )
+            return [signal]
+        except Exception as exc:
+            self.logger.error("generate_signals failed: %s", exc, exc_info=True)
+            return []
 
     def validate_signal(self, signal: Any) -> bool:
         """Basic safety gate for external signals."""
@@ -307,12 +357,12 @@ class IronButterflyStrategy(BaseStrategy):
     # IRON BUTTERFLY SPECIFIC MARKET ANALYSIS
     # ==========================================================================
 
-    async def analyze_iron_butterfly_opportunity(self, market_data: pd.DataFrame,
-                                               option_chain: pd.DataFrame = None) -> IronButterflyAnalysis:  # noqa: E501
+    def analyze_iron_butterfly_opportunity(self, market_data: pd.DataFrame,
+                                           option_chain: pd.DataFrame = None) -> IronButterflyAnalysis:
         """
         Analyze market conditions for Iron Butterfly entry.
 
-        This is Iron Butterfly specific analysis - generic analysis is in D26.
+        This is Iron Butterfly specific analysis - generic analysis is in D32.
         """
         try:
             current_price = market_data['close'].iloc[-1]
@@ -327,7 +377,7 @@ class IronButterflyStrategy(BaseStrategy):
             iv_analysis = self._analyze_iv_for_iron_butterfly(market_data)
 
             # Time decay analysis (critical for Iron Butterfly profitability)
-            time_decay_analysis = self._analyze_time_decay_potential(market_data)
+            time_decay_analysis = self._analyze_time_decay_potential(market_data, option_chain)
 
             # Expected move analysis (must be smaller than wing width)
             expected_move_analysis = self._analyze_expected_move_for_ib(market_data, current_price)
@@ -456,37 +506,44 @@ class IronButterflyStrategy(BaseStrategy):
             }
 
     def _analyze_iv_for_iron_butterfly(self, market_data: pd.DataFrame) -> dict[str, float]:
-        """Analyze implied volatility specifically for Iron Butterfly strategy"""
+        """Analyze implied volatility specifically for Iron Butterfly strategy.
+
+        Returns iv_data_available=False (no synthetic fallback) when IV is absent.
+        """
+        _no_iv = {
+            'current_iv': float('nan'),
+            'iv_rank': float('nan'),
+            'iv_suitable_for_ib': False,
+            'iv_quality_score': 0.0,
+            'iv_trend': 'unknown',
+            'time_decay_potential': float('nan'),
+            'iv_data_available': False,
+        }
         try:
-            # Get IV data
-            current_iv = market_data.get('iv', pd.Series([0.20])).iloc[-1]
+            iv_col = market_data.get('iv') if isinstance(market_data, pd.DataFrame) else None
+            if iv_col is None or iv_col.dropna().empty:
+                return _no_iv
 
-            # Calculate IV rank
-            iv_history = market_data.get('iv', pd.Series([0.20] * 100)).tail(252)
-            iv_rank = (current_iv > iv_history).sum() / len(iv_history) * 100
+            current_iv = float(iv_col.iloc[-1])
+            if np.isnan(current_iv):
+                return _no_iv
 
-            # Iron Butterfly IV analysis (different from Iron Condor)
-            iv_analysis = {
+            iv_history = iv_col.tail(252)
+            iv_rank = float((current_iv > iv_history).sum() / len(iv_history) * 100)
+
+            return {
                 'current_iv': current_iv,
                 'iv_rank': iv_rank,
                 'iv_suitable_for_ib': IB_MIN_IV_RANK <= iv_rank <= IB_MAX_IV_RANK,
                 'iv_quality_score': self._calculate_ib_iv_quality_score(current_iv, iv_rank),
-                'iv_trend': 'rising' if current_iv > iv_history.mean() else 'falling',
-                'time_decay_potential': current_iv * 0.1  # Simplified theta estimate
+                'iv_trend': 'rising' if current_iv > float(iv_history.mean()) else 'falling',
+                'time_decay_potential': float('nan'),  # Computed separately by _analyze_time_decay_potential
+                'iv_data_available': True,
             }
-
-            return iv_analysis
 
         except Exception as e:
             self.logger.error("IB IV analysis failed: %s", e)
-            return {
-                'current_iv': 0.20,
-                'iv_rank': 40.0,
-                'iv_suitable_for_ib': False,
-                'iv_quality_score': 0.0,
-                'iv_trend': 'unknown',
-                'time_decay_potential': 0.02
-            }
+            return _no_iv
 
     def _calculate_ib_iv_quality_score(self, current_iv: float, iv_rank: float) -> float:
         """Calculate IV quality score for Iron Butterfly (0.0 to 1.0)"""
@@ -514,38 +571,75 @@ class IronButterflyStrategy(BaseStrategy):
             self.logger.warning("Iron Butterfly calculation failed: %s", e)
             return 0.0
 
-    def _analyze_time_decay_potential(self, market_data: pd.DataFrame) -> dict[str, float]:
-        """Analyze time decay potential for Iron Butterfly"""
+    def _analyze_time_decay_potential(self, market_data: pd.DataFrame,
+                                      option_chain: pd.DataFrame = None) -> dict[str, float]:
+        """Analyze time decay potential for Iron Butterfly.
+
+        Uses actual theta from the ATM options chain when available; falls back
+        to a Black-Scholes ATM approximation rather than the former placeholder
+        (estimated_theta = current_iv * 0.1) which was arbitrarily scaled.
+        """
         try:
-            current_iv = market_data.get('iv', pd.Series([0.20])).iloc[-1]
+            # --- Prefer real theta from chain ---
+            estimated_theta: float | None = None
+            if option_chain is not None and not option_chain.empty and 'theta' in option_chain.columns:
+                # Use the average absolute theta of the nearest-ATM options
+                try:
+                    current_price = float(market_data['close'].iloc[-1])
+                    chain = option_chain.copy()
+                    chain['_dist'] = (chain['strike'] - current_price).abs()
+                    atm_rows = chain.nsmallest(4, '_dist')
+                    theta_vals = atm_rows['theta'].dropna()
+                    if not theta_vals.empty:
+                        # Theta is typically negative; use magnitude
+                        estimated_theta = float(theta_vals.abs().mean())
+                except Exception:
+                    pass
 
-            # Estimate theta decay rate
-            estimated_theta = current_iv * 0.1  # Simplified calculation
+            # --- ATM Black-Scholes approximation fallback ---
+            if estimated_theta is None:
+                iv_col = market_data.get('iv') if isinstance(market_data, pd.DataFrame) else None
+                current_iv_raw = iv_col.iloc[-1] if (iv_col is not None and not iv_col.dropna().empty) else None
+                if current_iv_raw is not None and not np.isnan(float(current_iv_raw)):
+                    current_iv = float(current_iv_raw)
+                    spot = float(market_data['close'].iloc[-1])
+                    dte = 25  # working assumption
+                    T = dte / 365.0
+                    # ATM theta (per day) ≈ -S * sigma / (2 * sqrt(2*pi*T) * 365)
+                    estimated_theta = spot * current_iv / (2.0 * np.sqrt(2 * np.pi * T) * 365.0)
+                else:
+                    estimated_theta = float('nan')
 
-            # Days to optimal close
-            optimal_close_days = 15  # Iron Butterfly typically closed around 15 DTE
+            optimal_close_days = 15
+            expected_total_decay = (
+                estimated_theta * optimal_close_days
+                if not np.isnan(estimated_theta) else float('nan')
+            )
+            decay_suitable = (
+                (not np.isnan(estimated_theta)) and estimated_theta >= IB_MIN_TIME_DECAY_RATE
+            )
 
-            # Total expected time decay
-            expected_time_decay = estimated_theta * optimal_close_days
-
-            analysis = {
+            return {
                 'estimated_daily_theta': estimated_theta,
                 'optimal_close_dte': optimal_close_days,
-                'expected_total_decay': expected_time_decay,
-                'decay_rate_suitable': estimated_theta >= IB_MIN_TIME_DECAY_RATE,
-                'time_decay_quality_score': min(1.0, estimated_theta / 0.05)
+                'expected_total_decay': expected_total_decay,
+                'decay_rate_suitable': decay_suitable,
+                'time_decay_quality_score': (
+                    min(1.0, estimated_theta / 0.05)
+                    if not np.isnan(estimated_theta) else 0.0
+                ),
+                'theta_source': 'chain' if option_chain is not None and 'theta' in (option_chain.columns if option_chain is not None else []) else 'approximation',
             }
-
-            return analysis
 
         except Exception as e:
             self.logger.error("Time decay analysis failed: %s", e)
             return {
-                'estimated_daily_theta': 0.02,
+                'estimated_daily_theta': float('nan'),
                 'optimal_close_dte': 15,
-                'expected_total_decay': 0.30,
-                'decay_rate_suitable': True,
-                'time_decay_quality_score': 0.4
+                'expected_total_decay': float('nan'),
+                'decay_rate_suitable': False,
+                'time_decay_quality_score': 0.0,
+                'theta_source': 'error',
             }
 
     def _analyze_expected_move_for_ib(self, market_data: pd.DataFrame,
@@ -602,14 +696,17 @@ class IronButterflyStrategy(BaseStrategy):
 
     def _assess_market_suitability_for_ib(self, neutral_outlook: bool, iv_analysis: dict,
                                         expected_move_analysis: dict, time_decay_analysis: dict) -> bool:  # noqa: E501
-        """Assess overall market suitability for Iron Butterfly"""
+        """Assess overall market suitability for Iron Butterfly.
+
+        Requires real IV data — returns False immediately if IV is unavailable.
+        """
         try:
-            # All conditions must be met for Iron Butterfly
+            if not iv_analysis.get('iv_data_available', False):
+                return False
             outlook_suitable = neutral_outlook
             iv_suitable = iv_analysis.get('iv_suitable_for_ib', False)
             move_suitable = expected_move_analysis.get('expected_move_suitable_for_ib', False)
             decay_suitable = time_decay_analysis.get('decay_rate_suitable', False)
-
             return outlook_suitable and iv_suitable and move_suitable and decay_suitable
 
         except (KeyError, IndexError, ValueError, TypeError, AttributeError) as e:
@@ -622,22 +719,33 @@ class IronButterflyStrategy(BaseStrategy):
 
     def _find_optimal_atm_strike(self, current_price: float,
                                option_chain: pd.DataFrame) -> float | None:
-        """Find optimal ATM strike for Iron Butterfly center"""
+        """Find optimal ATM strike for Iron Butterfly center.
+
+        Derives the acceptance tolerance from the chain's actual minimum strike
+        increment rather than the hardcoded IB_ATM_TOLERANCE constant, which
+        assumed a fixed $0.50 grid and broke on 0-DTE ($1 grid) and standard
+        weeklies ($5 grid).
+        """
         try:
             if option_chain is None or option_chain.empty:
                 return None
 
-            # Get available strikes
             available_strikes = sorted(option_chain['strike'].unique())
-
-            # Find closest strike to current price
             closest_strike = min(available_strikes, key=lambda x: abs(x - current_price))
 
-            # Ensure it's within ATM tolerance
-            if abs(closest_strike - current_price) <= self.atm_tolerance:
-                return closest_strike
+            # Derive tolerance from chain's actual strike spacing
+            if len(available_strikes) >= 2:
+                min_increment = min(
+                    available_strikes[i + 1] - available_strikes[i]
+                    for i in range(len(available_strikes) - 1)
+                )
+                effective_tolerance = min_increment / 2.0
             else:
-                return None
+                effective_tolerance = self.atm_tolerance  # fallback to config value
+
+            if abs(closest_strike - current_price) <= effective_tolerance:
+                return closest_strike
+            return None
 
         except Exception as e:
             self.logger.error("ATM strike selection failed: %s", e)
@@ -645,39 +753,50 @@ class IronButterflyStrategy(BaseStrategy):
 
     def _find_optimal_wing_width(self, current_price: float, option_chain: pd.DataFrame,
                                expected_move_analysis: dict) -> float | None:
-        """Find optimal wing width for Iron Butterfly"""
+        """Find optimal wing width for Iron Butterfly.
+
+        Validates upper and lower wings independently rather than using their
+        average, because an asymmetric chain can produce one invalid wing even
+        when the average falls inside the [MIN, MAX] band.
+        """
         try:
             expected_move = expected_move_analysis.get('expected_move_dollars', 10.0)
 
-            # Wing width should be wider than expected move
             min_width = max(IB_WING_WIDTH_MIN, expected_move * 1.2)
-            max_width = min(IB_WING_WIDTH_MAX, current_price * 0.05)  # 5% of underlying
+            max_width = min(IB_WING_WIDTH_MAX, current_price * 0.05)
 
-            # Choose optimal width
             optimal_width = min(max_width, max(min_width, IB_OPTIMAL_WING_WIDTH))
 
-            # Validate against available strikes
             atm_strike = self._find_optimal_atm_strike(current_price, option_chain)
             if not atm_strike:
                 return None
 
-            # Check if wing strikes exist
             available_strikes = sorted(option_chain['strike'].unique())
-            upper_wing = atm_strike + optimal_width
-            lower_wing = atm_strike - optimal_width
+            upper_wing_target = atm_strike + optimal_width
+            lower_wing_target = atm_strike - optimal_width
 
-            # Find closest available strikes
-            upper_available = min(available_strikes, key=lambda x: abs(x - upper_wing))
-            lower_available = min(available_strikes, key=lambda x: abs(x - lower_wing))
+            upper_available = min(available_strikes, key=lambda x: abs(x - upper_wing_target))
+            lower_available = min(available_strikes, key=lambda x: abs(x - lower_wing_target))
 
-            # Calculate actual wing width
             actual_upper_width = abs(upper_available - atm_strike)
             actual_lower_width = abs(atm_strike - lower_available)
 
-            # Use symmetric width (average of both sides)
-            actual_wing_width = (actual_upper_width + actual_lower_width) / 2
+            # Validate both wings independently (IB-02 fix)
+            if not (IB_WING_WIDTH_MIN <= actual_upper_width <= IB_WING_WIDTH_MAX):
+                self.logger.debug(
+                    "IB: upper wing width %.2f outside [%.0f, %.0f] — aborting",
+                    actual_upper_width, IB_WING_WIDTH_MIN, IB_WING_WIDTH_MAX,
+                )
+                return None
+            if not (IB_WING_WIDTH_MIN <= actual_lower_width <= IB_WING_WIDTH_MAX):
+                self.logger.debug(
+                    "IB: lower wing width %.2f outside [%.0f, %.0f] — aborting",
+                    actual_lower_width, IB_WING_WIDTH_MIN, IB_WING_WIDTH_MAX,
+                )
+                return None
 
-            return actual_wing_width if IB_WING_WIDTH_MIN <= actual_wing_width <= IB_WING_WIDTH_MAX else None  # noqa: E501
+            # Use the narrower wing for a symmetric structure
+            return min(actual_upper_width, actual_lower_width)
 
         except Exception as e:
             self.logger.error("Wing width selection failed: %s", e)
@@ -709,6 +828,9 @@ class IronButterflyStrategy(BaseStrategy):
 
             if position_id:
                 self.active_setups.append(setup)
+                # Trim to prevent unbounded growth
+                if len(self.active_setups) > MAX_ACTIVE_SETUPS:
+                    self.active_setups = self.active_setups[-MAX_ACTIVE_SETUPS:]
                 self.strategy_state = IronButterflyState.ACTIVE
                 self.logger.info("Iron Butterfly position created: %s", position_id)
 
@@ -852,7 +974,7 @@ class IronButterflyStrategy(BaseStrategy):
         """Get Iron Butterfly strategy performance metrics"""
         return {
             'strategy_name': 'Iron Butterfly',
-            'consolidation_status': 'Infrastructure moved to D26',
+            'consolidation_status': 'Infrastructure moved to D32',
             'performance_metrics': self.performance_metrics.copy(),
             'current_state': self.strategy_state.name,
             'active_setups': len(self.active_setups),

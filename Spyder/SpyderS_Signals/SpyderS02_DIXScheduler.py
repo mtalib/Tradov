@@ -43,8 +43,8 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 try:
     from SpyderS_Signals.SpyderS01_DIXCalculator import SpyderDIXCalculator
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderLogger = logging
 

@@ -36,23 +36,23 @@ def _ensure_pkg(name):
 
 
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # U01 Logger (required by U08 via hard import)
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
-sys.modules["SpyderU_Utilities.SpyderU01_Logger"] = _u01
+sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
 # U06 MathUtils (no local framework imports)
-_u06 = _load("Spyder/SpyderU_Utilities/SpyderU06_MathUtils.py")
+_u06 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU06_MathUtils.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU06_MathUtils"] = _u06
-sys.modules["SpyderU_Utilities.SpyderU06_MathUtils"] = _u06
+sys.modules["Spyder.SpyderU_Utilities.SpyderU06_MathUtils"] = _u06
 
 # U08 Validators (imports SpyderLogger at module level)
-_u08 = _load("Spyder/SpyderU_Utilities/SpyderU08_Validators.py")
+_u08 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU08_Validators.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU08_Validators"] = _u08
-sys.modules["SpyderU_Utilities.SpyderU08_Validators"] = _u08
+sys.modules["Spyder.SpyderU_Utilities.SpyderU08_Validators"] = _u08
 
 # ==============================================================================
 # STANDARD TEST IMPORTS

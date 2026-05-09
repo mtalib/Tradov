@@ -57,7 +57,7 @@ from sklearn.covariance import LedoitWolf  # noqa: E402
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler  # noqa: E402
-from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import Message, MessagePriority  # noqa: E402
+from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import MessagePriority  # noqa: E402
 
 # ==============================================================================
 # CONSTANTS
@@ -1102,7 +1102,7 @@ class PortfolioVaR:
     def _send_var_breach_alert(self, result: VaRResult):
         """Send VaR breach alert via message bus"""
         if self.message_bus:
-            message = Message(
+            self.message_bus.publish(
                 topic="risk.var_breach",
                 sender="PortfolioVaR",
                 priority=MessagePriority.CRITICAL,
@@ -1112,14 +1112,13 @@ class PortfolioVaR:
                     'confidence_level': result.confidence_level,
                     'severity': result.breach_severity,
                     'timestamp': result.calculation_time.isoformat()
-                }
+                },
             )
-            self.message_bus.publish(message)
 
     def _send_stress_test_alert(self, result: StressTestResult):
         """Send stress test alert for severe scenarios"""
         if self.message_bus:
-            message = Message(
+            self.message_bus.publish(
                 topic="risk.stress_test",
                 sender="PortfolioVaR",
                 priority=MessagePriority.HIGH,
@@ -1128,9 +1127,8 @@ class PortfolioVaR:
                     'impact': result.portfolio_impact,
                     'impact_pct': result.portfolio_impact_pct,
                     'recovery_days': result.recovery_time_estimate
-                }
+                },
             )
-            self.message_bus.publish(message)
 
     def shutdown(self):
         """Shutdown VaR system and save state"""

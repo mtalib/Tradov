@@ -31,7 +31,7 @@ def _ensure_pkg(name: str) -> None:
 
 
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # Stub SpyderLogger — provides both SpyderLogger class AND top-level get_logger
@@ -65,7 +65,7 @@ import time
 from collections import deque
 from datetime import datetime, timedelta
 
-import SpyderU_Utilities.SpyderU02_ErrorHandler as u02_mod_alias
+import Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler as u02_mod_alias
 
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import (
     SpyderErrorHandler,
@@ -90,7 +90,7 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import (
 )
 
 # U05 NetworkUtils — imports SpyderLogger + SpyderErrorHandler (real)
-import SpyderU_Utilities.SpyderU05_NetworkUtils as u05_mod_alias
+import Spyder.SpyderU_Utilities.SpyderU05_NetworkUtils as u05_mod_alias
 
 from Spyder.SpyderU_Utilities.SpyderU05_NetworkUtils import (
     NetworkUtils,

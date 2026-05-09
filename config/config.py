@@ -115,10 +115,11 @@ EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
 #   "live"    → api.tradier.com    (real-time quotes, live order execution)
 #   "sandbox" → sandbox.tradier.com (simulated fills, delayed/fake data)
 #
-# Default: "live" when TRADING_MODE=live, otherwise "sandbox".
+# Default: "live" for TRADING_MODE=paper|live, "sandbox" for TRADING_MODE=sandbox.
 # Override example:  TRADING_MODE=paper TRADIER_ENVIRONMENT=live
 #   → paper trading with real Tradier market data.
-_tradier_env_default = "live" if TRADING_MODE == "live" else "sandbox"
+_trading_mode_norm = str(TRADING_MODE).strip().lower()
+_tradier_env_default = "sandbox" if _trading_mode_norm == "sandbox" else "live"
 TRADIER_ENVIRONMENT = os.environ.get("TRADIER_ENVIRONMENT", _tradier_env_default)
 
 # ==============================================================================

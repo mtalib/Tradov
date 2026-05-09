@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU04_Encryption.py
 Purpose: Encryption utilities and credential management using Fernet (AES-128-CBC)
          and Argon2id password hashing.

@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU42_StrategyCircuitBreaker.py
 Purpose: Strategy-level circuit breaker that automatically isolates misbehaving
          trading strategies to prevent a single bad strategy from causing

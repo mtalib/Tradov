@@ -39,16 +39,16 @@ _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # U01 and U02 needed by both U13 and U14
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
-_u13 = _load("Spyder/SpyderU_Utilities/SpyderU13_TechnicalIndicators.py")
+_u13 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU13_TechnicalIndicators.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU13_TechnicalIndicators"] = _u13
 
-_u14 = _load("Spyder/SpyderU_Utilities/SpyderU14_OptionStrategies.py")
+_u14 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU14_OptionStrategies.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU14_OptionStrategies"] = _u14
 
 # ==============================================================================

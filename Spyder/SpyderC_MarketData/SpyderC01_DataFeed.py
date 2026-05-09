@@ -1007,11 +1007,43 @@ class DataFeedManager:
             return None
 
         try:
-            trading_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
-            env_raw = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").strip().lower()
+            # Market-data plane defaults to LIVE for both paper and live modes.
+            # Sandbox market data is allowed only with explicit opt-out.
+            allow_sandbox = str(
+                os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA", "false")
+            ).strip().lower() in {"1", "true", "yes", "on"}
 
-            if trading_mode == "paper" and env_raw != "live":
-                # Paper mode + sandbox data: use sandbox credentials and endpoint.
+            env_raw = (
+                os.environ.get("TRADIER_MARKET_DATA_ENVIRONMENT")
+                or os.environ.get("TRADIER_ENVIRONMENT")
+                or "live"
+            ).strip().lower()
+            is_live_env = env_raw in {"live", "production"}
+
+            if not is_live_env and not allow_sandbox:
+                self.logger.warning(
+                    "Forcing LIVE market-data endpoint for quote fallback "
+                    "(TRADIER_MARKET_DATA_ENVIRONMENT=%s ignored).",
+                    env_raw or "<empty>",
+                )
+                is_live_env = True
+
+            environment = (
+                TradingEnvironment.LIVE if is_live_env else TradingEnvironment.SANDBOX
+            )
+
+            if environment == TradingEnvironment.LIVE:
+                api_key = (
+                    os.environ.get("TRADIER_LIVE_API_KEY")
+                    or os.environ.get("TRADIER_API_KEY")
+                    or ""
+                )
+                account_id = (
+                    os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
+                    or os.environ.get("TRADIER_ACCOUNT_ID")
+                    or ""
+                )
+            else:
                 api_key = (
                     os.environ.get("TRADIER_SANDBOX_API_KEY")
                     or os.environ.get("TRADIER_API_KEY")
@@ -1022,13 +1054,6 @@ class DataFeedManager:
                     or os.environ.get("TRADIER_ACCOUNT_ID")
                     or ""
                 )
-                environment = TradingEnvironment.SANDBOX
-            else:
-                # Live data (or paper+live): respect TRADIER_ENVIRONMENT so
-                # TRADING_MODE=paper TRADIER_ENVIRONMENT=live hits api.tradier.com.
-                api_key = os.environ.get("TRADIER_API_KEY", "")
-                account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
-                environment = TradingEnvironment.LIVE if env_raw == "live" else TradingEnvironment.SANDBOX
 
             if not api_key or not account_id:
                 self._quote_client_failed = True

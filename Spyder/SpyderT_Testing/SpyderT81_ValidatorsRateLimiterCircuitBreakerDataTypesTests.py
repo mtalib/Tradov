@@ -40,26 +40,26 @@ def _ensure_pkg(name):
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
 # Load target modules
-_u04 = _load("Spyder/SpyderU_Utilities/SpyderU04_Encryption.py")
+_u04 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU04_Encryption.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU04_Encryption"] = _u04
 
-_u08 = _load("Spyder/SpyderU_Utilities/SpyderU08_Validators.py")
+_u08 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU08_Validators.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU08_Validators"] = _u08
 
-_u09 = _load("Spyder/SpyderU_Utilities/SpyderU09_DataTypes.py")
+_u09 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU09_DataTypes.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU09_DataTypes"] = _u09
 
-_u40 = _load("Spyder/SpyderU_Utilities/SpyderU40_RateLimiter.py")
+_u40 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU40_RateLimiter.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU40_RateLimiter"] = _u40
 
-_u41 = _load("Spyder/SpyderU_Utilities/SpyderU41_CircuitBreaker.py")
+_u41 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU41_CircuitBreaker.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker"] = _u41
 
 # ==============================================================================

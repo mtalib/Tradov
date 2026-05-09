@@ -4,22 +4,20 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderQ_Scripts
 Module: validate_env.py
-Purpose: SPYDER - Environment Configuration Validator (Tradier + Massive)
+Purpose: SPYDER - Environment Configuration Validator (Tradier)
 
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2026-04-07 Time: 00:00:00
 
 Module Description:
-    Validates .env configuration for the Tradier broker (testing) and Massive
-    market data provider (live and paper trading).  Run this script before
-    starting Spyder to confirm all required variables are present and correctly
-    formatted.
+    Validates .env configuration for Tradier-backed paper/live workflows.
+    Run this script before starting Spyder to confirm required variables
+    are present and correctly formatted.
 
 Change Log:
     2026-04-07:
-                - Removed stale provider-migration references; only Tradier + Massive
-          are supported providers
+    - Removed stale provider-migration references
     2026-03-03:
         - Removed legacy broker OAuth validation (broker migrated to Tradier)
         - Added Tradier API key and account validation
@@ -78,7 +76,12 @@ def print_info(text):
 
 def validate_env_file():
     """Validate .env file exists"""
-    env_path = Path(__file__).parent.parent / ".env"
+    script_path = Path(__file__).resolve()
+    env_candidates = [
+        script_path.parents[2] / ".env",  # repo root
+        script_path.parents[1] / ".env",  # legacy in-package fallback
+    ]
+    env_path = next((p for p in env_candidates if p.exists()), env_candidates[0])
 
     if not env_path.exists():
         print_error(f".env file not found at: {env_path}")
@@ -105,6 +108,22 @@ def validate_trading_mode():
         print_success(f"Trading Mode: {trading_mode} (SAFE — no real money)")
     else:
         print_warning(f"Trading Mode: {trading_mode} (LIVE — REAL MONEY)")
+
+    if trading_mode == "paper":
+        paper_source_raw = os.environ.get(
+            "SPYDER_PAPER_ACCOUNT_SOURCE",
+            "spyderbox_local",
+        ).strip().lower()
+        if paper_source_raw in {"spyderbox", "spyderbox_local", "local", "internal", "db"}:
+            print_success("Paper Account Source: spyderbox_local (SpyderBox-local paper ledger)")
+        else:
+            warnings.append(
+                "SPYDER_PAPER_ACCOUNT_SOURCE is not local; policy forces spyderbox_local in paper mode"
+            )
+            print_warning(
+                "Paper Account Source override ignored — using spyderbox_local "
+                "(sandbox fallback disabled)"
+            )
 
     if trading_mode == "live":
         live_confirmed = os.environ.get("LIVE_TRADING_CONFIRMED", "false").lower() == "true"
@@ -147,19 +166,34 @@ def validate_tradier_config():
         print_success(f"TRADIER_ACCOUNT_ID: {account_id} (configured)")
 
     # Environment
-    tradier_env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
-    if tradier_env not in ("sandbox", "production"):
-        errors.append(f"TRADIER_ENVIRONMENT='{tradier_env}' is invalid; must be 'sandbox' or 'production'")
+    tradier_env_raw = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").strip().lower()
+    if tradier_env_raw in ("live", "production"):
+        tradier_env = "live"
+    elif tradier_env_raw == "sandbox":
+        tradier_env = "sandbox"
+    else:
+        tradier_env = "invalid"
+
+    if tradier_env == "invalid":
+        errors.append(
+            f"TRADIER_ENVIRONMENT='{tradier_env_raw}' is invalid; "
+            "must be 'sandbox', 'live', or 'production'"
+        )
     elif tradier_env == "sandbox":
         print_success("TRADIER_ENVIRONMENT: sandbox (safe — connects to https://sandbox.tradier.com)")
     else:
-        print_warning("TRADIER_ENVIRONMENT: production (LIVE — real money, real orders)")
-        trading_mode = os.environ.get("TRADING_MODE", "").lower()
-        if trading_mode != "live":
-            warnings.append(
-                f"TRADIER_ENVIRONMENT=production but TRADING_MODE='{trading_mode}' — "
-                "set TRADING_MODE=live or switch to sandbox"
+        trading_mode = os.environ.get("TRADING_MODE", "").strip().lower()
+        if trading_mode == "paper":
+            print_success(
+                "TRADIER_ENVIRONMENT: live (paper mode — live quotes, simulated fills)"
             )
+        else:
+            print_warning("TRADIER_ENVIRONMENT: live (LIVE endpoint — real-money capable)")
+            if trading_mode == "sandbox":
+                warnings.append(
+                    "TRADIER_ENVIRONMENT=live but TRADING_MODE='sandbox' — "
+                    "set TRADING_MODE=paper/live or switch TRADIER_ENVIRONMENT to sandbox"
+                )
 
     return errors, warnings
 
@@ -240,7 +274,13 @@ def print_summary(all_errors, all_warnings):
 def main():
     """Main validation function"""
     print_header("SPYDER .ENV CONFIGURATION VALIDATOR")
-    print_info("Broker: Tradier  |  Market Data: Massive\n")
+    market_data_provider = str(
+        os.environ.get("MARKET_DATA_PROVIDER")
+        or os.environ.get("DATA_PROVIDER")
+        or "tradier"
+    ).strip().lower()
+    provider_label = market_data_provider.capitalize() if market_data_provider else "Tradier"
+    print_info(f"Broker: Tradier  |  Market Data: {provider_label}\n")
 
     if not validate_env_file():
         sys.exit(1)
@@ -271,7 +311,7 @@ def main():
     if is_valid:
         print(f"{Colors.BOLD}Next Steps:{Colors.END}")
         print("  1. Obtain Tradier API key: https://developer.tradier.com")
-        print("  2. Set TRADING_MODE=sandbox and TRADIER_ENVIRONMENT=sandbox for initial testing")
+        print("  2. Set TRADING_MODE=paper and TRADIER_ENVIRONMENT=live for paper trading with live quotes")
         print("  4. Test configuration:")
         print("     $ python config/config.py")
         print("  5. Run tests:")

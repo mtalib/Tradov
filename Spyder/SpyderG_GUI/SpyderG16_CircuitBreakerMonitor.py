@@ -45,7 +45,7 @@ import logging
 # SPYDER IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU41_CircuitBreaker import (
+    from Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker import (
         tradier_breaker, CircuitState
     )
     CIRCUIT_BREAKERS_AVAILABLE = True

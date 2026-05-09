@@ -52,13 +52,13 @@ def _load(rel_path: str):
 
 # Load modules under test.
 # U06 has no local Spyder imports — load directly.
-_u06 = _load("Spyder/SpyderU_Utilities/SpyderU06_MathUtils.py")
+_u06 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU06_MathUtils.py")
 
 # U08 / U13 / U14 import SpyderLogger/SpyderErrorHandler.
 # sys.path already contains _REPO_ROOT so the `Spyder.*` package is resolvable.
-_u08 = _load("Spyder/SpyderU_Utilities/SpyderU08_Validators.py")
-_u13 = _load("Spyder/SpyderU_Utilities/SpyderU13_TechnicalIndicators.py")
-_u14 = _load("Spyder/SpyderU_Utilities/SpyderU14_OptionStrategies.py")
+_u08 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU08_Validators.py")
+_u13 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU13_TechnicalIndicators.py")
+_u14 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU14_OptionStrategies.py")
 
 # ── U06 symbols ────────────────────────────────────────────────────────────────
 round_price = _u06.round_price

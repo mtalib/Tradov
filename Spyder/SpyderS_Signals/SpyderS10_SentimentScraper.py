@@ -88,7 +88,7 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     logger = SpyderLogger.get_logger(__name__)
 except ImportError:
     logger = logging.getLogger(__name__)

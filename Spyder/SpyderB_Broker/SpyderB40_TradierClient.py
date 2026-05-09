@@ -631,6 +631,94 @@ class TradierClient:
 
         return session
 
+    @staticmethod
+    def _resolve_effective_trading_mode() -> str:
+        """Resolve runtime trading mode for safety guards.
+
+        Prefers explicit trading-mode variables and intentionally ignores
+        ``TRADIER_ENVIRONMENT`` so paper mode can consume live market data.
+        """
+        raw_mode = (
+            os.getenv("TRADING_MODE")
+            or os.getenv("SPYDER_TRADING_MODE")
+            or "paper"
+        )
+        mode = str(raw_mode).strip().lower()
+
+        if mode in {"live", "production", "prod"}:
+            return "live"
+        return "paper"
+
+    @staticmethod
+    def _is_preview_order_payload(
+        data: dict[str, Any] | None = None,
+        json_data: dict[str, Any] | None = None,
+    ) -> bool:
+        """Return True when request payload represents a Tradier preview order."""
+        for payload in (data, json_data):
+            if not isinstance(payload, dict):
+                continue
+            preview = payload.get("preview")
+            if isinstance(preview, bool):
+                return preview
+            if isinstance(preview, str):
+                return preview.strip().lower() in {"1", "true", "yes", "on"}
+        return False
+
+    def _is_order_submission_request(
+        self,
+        method: str,
+        endpoint: str,
+        data: dict[str, Any] | None = None,
+        json_data: dict[str, Any] | None = None,
+    ) -> bool:
+        """Return True for order-submission requests that may mutate broker state."""
+        if str(method).strip().upper() != "POST":
+            return False
+
+        order_endpoint = f"/accounts/{self.account_id}/orders"
+        if not str(endpoint).startswith(order_endpoint):
+            return False
+
+        return not self._is_preview_order_payload(data=data, json_data=json_data)
+
+    def _enforce_paper_mode_execution_guard(
+        self,
+        method: str,
+        endpoint: str,
+        data: dict[str, Any] | None = None,
+        json_data: dict[str, Any] | None = None,
+    ) -> None:
+        """Block live-endpoint order submission while TRADING_MODE is paper.
+
+        This guard is intentionally fail-closed: if runtime mode is not explicitly
+        live, it is treated as paper. Preview orders are exempt.
+        """
+        if not self._is_order_submission_request(
+            method=method,
+            endpoint=endpoint,
+            data=data,
+            json_data=json_data,
+        ):
+            return
+
+        if self._resolve_effective_trading_mode() != "paper":
+            return
+
+        if self.environment in (TradingEnvironment.SANDBOX, TradingEnvironment.PAPER):
+            return
+
+        logger.error(
+            "Paper-mode execution guard blocked order submission: "
+            "mode=paper env=%s endpoint=%s",
+            self.environment.value,
+            endpoint,
+        )
+        raise TradierValidationError(
+            "Paper-mode safety guard rejected live-endpoint order submission. "
+            "When TRADING_MODE=paper, execution client must use sandbox environment."
+        )
+
     def _make_request(
         self,
         method: str,
@@ -661,6 +749,13 @@ class TradierClient:
             TradierAPIError: Other API errors
         """
         url = f"{self.base_url}{endpoint}"
+
+        self._enforce_paper_mode_execution_guard(
+            method=method,
+            endpoint=endpoint,
+            data=data,
+            json_data=json_data,
+        )
 
         try:
             logger.debug("Making %s request to %s", method, endpoint)
@@ -3521,7 +3616,8 @@ def create_tradier_client_from_env(environment: TradingEnvironment | None = None
         - TRADIER_ACCOUNT_ID: Account ID
 
     Optional environment variables:
-        - TRADIER_ENVIRONMENT: ``"live"`` or ``"sandbox"`` (default: ``"sandbox"``).
+        - TRADIER_ENVIRONMENT: ``"live"``, ``"production"``, or ``"sandbox"``
+          (default: ``"sandbox"``).
           When *environment* is not passed explicitly, this variable is read to
           determine which Tradier endpoint to connect to.  This is independent of
           ``TRADING_MODE`` so that paper-trading mode can still consume real
@@ -3555,7 +3651,8 @@ def create_tradier_client_from_env(environment: TradingEnvironment | None = None
 
     if environment is None:
         _env_str = os.getenv("TRADIER_ENVIRONMENT", "sandbox").lower()
-        environment = TradingEnvironment.LIVE if _env_str == "live" else TradingEnvironment.SANDBOX
+        _is_live_env = _env_str in {"live", "production"}
+        environment = TradingEnvironment.LIVE if _is_live_env else TradingEnvironment.SANDBOX
 
     return TradierClient(
         api_key=api_key,

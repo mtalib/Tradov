@@ -46,8 +46,8 @@ if SPYDER_HOME not in sys.path:
     sys.path.insert(0, SPYDER_HOME)
 
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError as e:
     print(f"Warning: Could not import utilities: {e}")
     # Fallback to basic logging

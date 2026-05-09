@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU23_MemoryMonitor.py
 Purpose: Memory management and monitoring utilities for system stability
 Author: Mohamed Talib

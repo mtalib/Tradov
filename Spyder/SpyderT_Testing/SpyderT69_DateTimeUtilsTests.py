@@ -39,12 +39,12 @@ _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # Load U01 so we can inject SpyderLogger into U03
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
 # Load U03 — then inject pytz and SpyderLogger into its global namespace
 # because U03 uses them without importing them at module level (bug in U03)
-_u03 = _load("Spyder/SpyderU_Utilities/SpyderU03_DateTimeUtils.py")
+_u03 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU03_DateTimeUtils.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"] = _u03
 
 import pytz as _pytz

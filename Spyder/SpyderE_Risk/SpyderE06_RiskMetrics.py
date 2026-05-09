@@ -54,7 +54,7 @@ except ImportError:
 # LOCAL IMPORTS - SAFE PATTERN
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:
     import logging
     SpyderLogger = type('SpyderLogger', (), {
@@ -62,7 +62,7 @@ except ImportError:
     })()
 
 try:
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
         'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)

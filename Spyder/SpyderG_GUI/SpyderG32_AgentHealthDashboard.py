@@ -66,13 +66,13 @@ except ImportError:
 # SPYDER IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     _log = SpyderLogger.get_logger(__name__)
 except ImportError:
     _log = logging.getLogger(__name__)
 
 try:
-    from SpyderU_Utilities.SpyderU12_AgentIntegration import (
+    from Spyder.SpyderU_Utilities.SpyderU12_AgentIntegration import (
         AgentRegistry,
         get_registry,
     )

@@ -76,13 +76,11 @@ try:
     from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
         TradierClient,
         TradingEnvironment,
-        create_tradier_client_from_env,
     )
     TRADIER_AVAILABLE = True
 except ImportError:
     TradierClient = None  # type: ignore
     TradingEnvironment = None  # type: ignore
-    create_tradier_client_from_env = None  # type: ignore
     TRADIER_AVAILABLE = False
 
 try:
@@ -109,6 +107,7 @@ REALTIME_QUOTE_MAX_AGE_SECONDS = 45.0   # Survive 1-2 missed 10-s fast-fetch cyc
 REALTIME_SENTINEL_SYMBOLS = get_realtime_sentinel_symbols()
 DIA_REFETCH_MAX_AGE_SECONDS = 20.0
 DIRECT_INDEX_REFRESH_SYMBOLS: tuple[str, ...] = ("DIA", "RUT")
+PAPER_ACCOUNT_SOURCE_SPYDERBOX_LOCAL = "spyderbox_local"
 
 # Options-chain fetch deduplication.
 # The SPY chain is expensive (~200-400ms, Tradier rate-limited).  Multiple
@@ -226,6 +225,19 @@ def _quote_to_live_entry(q: dict) -> tuple[str, dict] | None:
         return None
 
     key = _SYMBOL_REMAP.get(sym, sym)
+    # Direct index symbols and daily indices get stale Tradier quote timestamps
+    # because indices don't "trade" on an exchange — the timestamp reflects the
+    # last CBOE/index calculation, not when we polled Tradier.  Override with
+    # current wall-clock time so the dashboard freshness indicator reflects our
+    # actual polling cadence (30 s), not the index's internal update frequency.
+    #   $DJI  — Tradier's Dow Jones quote can lag 15+ minutes intraday
+    #   SPX   — same issue for direct S&P 500 index symbol
+    #   NDX   — same for NASDAQ-100 index
+    #   RUT   — same for Russell 2000 index
+    #   SKEW  — daily CBOE index, timestamp is from previous day's close
+    _CLOCK_STAMP_SYMBOLS = {"$DJI", "SPX", "NDX", "RUT", "SKEW"}
+    if key in _CLOCK_STAMP_SYMBOLS:
+        timestamp_ms = int(time.time() * 1000)
     return key, {
         "last": last,
         "change": change,
@@ -338,34 +350,122 @@ def _freshest_live_data_timestamp(live_data: dict) -> datetime | None:
 
 
 def _build_market_data_client() -> "TradierClient | None":
-    """Build a Tradier client for market data that respects TRADIER_ENVIRONMENT.
+    """Build a Tradier client for market-data reads.
 
-    Unlike _resolve_tradier_client_config (which forces sandbox in paper mode),
-    this function always honours TRADIER_ENVIRONMENT so that a
-    ``TRADING_MODE=paper TRADIER_ENVIRONMENT=live`` configuration routes market
-    data requests to api.tradier.com instead of sandbox.tradier.com.
+    Market data is always fetched from the LIVE endpoint for both paper
+    and live modes.
 
     Returns:
         Configured TradierClient, or None if Tradier is unavailable or
         credentials are not set.
     """
-    if not TRADIER_AVAILABLE or create_tradier_client_from_env is None:
+    if not TRADIER_AVAILABLE or TradierClient is None or TradingEnvironment is None:
         return None
     try:
         from dotenv import load_dotenv  # noqa: PLC0415
         load_dotenv(override=True)
-        return create_tradier_client_from_env()
+
+        api_key = (
+            os.environ.get("TRADIER_LIVE_API_KEY")
+            or os.environ.get("TRADIER_API_KEY")
+            or ""
+        )
+        account_id = (
+            os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
+            or os.environ.get("TRADIER_ACCOUNT_ID")
+            or ""
+        )
+        env_enum = TradingEnvironment.LIVE
+
+        if not api_key or not account_id:
+            return None
+
+        return TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
     except Exception:
         return None
 
 
-def check_api_connection():
-    """Check if Tradier market-data endpoint (api.tradier.com) is reachable.
+def _paper_account_balance_source() -> str:
+    """Return paper account-balance source policy.
 
-    Always probes the live endpoint via TRADIER_ENVIRONMENT because market data
-    is always fetched from api.tradier.com regardless of TRADING_MODE.  The
-    sandbox endpoint is only used for paper account balance reads and is not a
-    meaningful connectivity signal for quote delivery.
+    Fail-closed policy: paper balances are always sourced from local SpyderBox
+    state/database and never from Tradier sandbox.
+    """
+    raw_source = str(
+        os.environ.get("SPYDER_PAPER_ACCOUNT_SOURCE", PAPER_ACCOUNT_SOURCE_SPYDERBOX_LOCAL)
+    ).strip().lower()
+    if raw_source in {"spyderbox", "spyderbox_local", "local", "internal", "db"}:
+        return PAPER_ACCOUNT_SOURCE_SPYDERBOX_LOCAL
+    return PAPER_ACCOUNT_SOURCE_SPYDERBOX_LOCAL
+
+
+def _spyderbox_paper_state_file() -> Path:
+    """Return the paper-state file used by the SpyderBox local paper account."""
+    state_file = str(os.environ.get("SPYDER_PAPER_ACCOUNT_STATE_FILE", "")).strip()
+    if state_file:
+        return Path(state_file).expanduser()
+    return Path.home() / "Projects/Spyder/market_data/paper_trading_state.json"
+
+
+def _load_spyderbox_paper_account_snapshot() -> tuple[float, float] | None:
+    """Load local SpyderBox paper account snapshot as (equity, buying_power)."""
+    # Prefer the paper worker's persisted runtime state for freshest values.
+    state_path = _spyderbox_paper_state_file()
+    if state_path.exists():
+        try:
+            import json as _json
+
+            with open(state_path, encoding="utf-8") as _sf:
+                state = _json.load(_sf)
+
+            cash = float(state.get("_cash", 0.0) or 0.0)
+            return cash, cash
+        except Exception:
+            pass
+
+    # Fall back to the latest paper account snapshot in the H05 paper DB.
+    try:
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB  # noqa: PLC0415
+
+        snapshot = TradingSessionDB.for_paper().get_latest_snapshot()
+        if not isinstance(snapshot, dict):
+            return None
+
+        equity_raw = snapshot.get("equity")
+        if equity_raw is None:
+            equity_raw = snapshot.get("cash")
+
+        buying_power_raw = snapshot.get("buying_power")
+        if buying_power_raw is None:
+            buying_power_raw = snapshot.get("cash")
+
+        if equity_raw is None or buying_power_raw is None:
+            return None
+
+        return float(equity_raw), float(buying_power_raw)
+    except Exception:
+        return None
+
+
+def _extract_tradier_balance(payload: dict) -> tuple[float, float]:
+    """Return (equity, buying_power) from a Tradier balances payload."""
+    account_data = payload.get("balances", {}) if isinstance(payload, dict) else {}
+    equity = float(account_data.get("total_equity") or 0)
+    cash = float(account_data.get("total_cash") or 0)
+    margin = account_data.get("margin", {})
+    option_bp = float(
+        margin.get("option_buying_power")
+        or account_data.get("buying_power")
+        or cash
+    )
+    return equity, option_bp
+
+
+def check_api_connection():
+    """Check if Tradier live market-data endpoint is reachable.
+
+    Always probes the same live endpoint used for quote/chain reads, regardless
+    of TRADING_MODE.
 
     Returns:
         Tuple of (connected: bool, mode: str)
@@ -377,7 +477,7 @@ def check_api_connection():
                 load_dotenv(override=True)
             except ImportError:
                 pass
-            # Always use the market-data client which respects TRADIER_ENVIRONMENT.
+            # Always use the live-only market-data client.
             # This verifies the endpoint that actually serves quotes/chains.
             client = _build_market_data_client()
             if client is not None and client.test_connection():
@@ -392,27 +492,22 @@ def check_api_connection():
 
 
 def _resolve_tradier_client_config() -> tuple[str, str, "TradingEnvironment"] | tuple[None, None, None]:
-    """Resolve Tradier credentials/environment with paper-mode sandbox override."""
-    trading_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
-    api_key = os.environ.get("TRADIER_API_KEY", "")
-    account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
-    env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").strip().lower()
-
-    if trading_mode == "paper":
-        api_key = os.environ.get("TRADIER_SANDBOX_API_KEY", "") or api_key
-        account_id = os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID", "") or account_id
-        env_enum = TradingEnvironment.SANDBOX
-    else:
-        env_enum = (
-            TradingEnvironment.LIVE
-            if env_str == "live"
-            else TradingEnvironment.SANDBOX
-        )
+    """Resolve Tradier credentials for live-account balance reads only."""
+    api_key = (
+        os.environ.get("TRADIER_LIVE_API_KEY")
+        or os.environ.get("TRADIER_API_KEY")
+        or ""
+    )
+    account_id = (
+        os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
+        or os.environ.get("TRADIER_ACCOUNT_ID")
+        or ""
+    )
 
     if not api_key or not account_id:
         return None, None, None
 
-    return api_key, account_id, env_enum
+    return api_key, account_id, TradingEnvironment.LIVE
 
 
 # ==============================================================================
@@ -563,6 +658,20 @@ class ThreadSafeMarketDataWorker(QObject):
         try:
             from dotenv import load_dotenv
             load_dotenv(override=True)
+
+            trading_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
+            if trading_mode == "paper":
+                local_snapshot = _load_spyderbox_paper_account_snapshot()
+                if local_snapshot is not None:
+                    equity, option_bp = local_snapshot
+                    self.balance_updated.emit(equity, option_bp)
+                    return
+                logger.warning(
+                    "Paper balance unavailable: local SpyderBox snapshot missing "
+                    "(sandbox fallback disabled)."
+                )
+                return
+
             if not TRADIER_AVAILABLE:
                 return
             api_key, account_id, env_enum = _resolve_tradier_client_config()
@@ -571,15 +680,7 @@ class ThreadSafeMarketDataWorker(QObject):
             client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
 
             bal = client.get_account_balances()
-            account_data = bal.get("balances", {})
-            equity = float(account_data.get("total_equity") or 0)
-            cash = float(account_data.get("total_cash") or 0)
-            margin = account_data.get("margin", {})
-            option_bp = float(
-                margin.get("option_buying_power")
-                or account_data.get("buying_power")
-                or cash
-            )
+            equity, option_bp = _extract_tradier_balance(bal)
             # Always emit — even a zero balance is valid data (new account).
             self.balance_updated.emit(equity, option_bp)
         except Exception:
@@ -592,48 +693,39 @@ class ThreadSafeMarketDataWorker(QObject):
             load_dotenv(override=True)
             if not TRADIER_AVAILABLE:
                 return
-            api_key, account_id, env_enum = _resolve_tradier_client_config()
-            if not api_key or not account_id or env_enum is None:
-                return
-            client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
 
             # --- Fetch account balance ---
             # Always fetch balance from the account that matches TRADING_MODE:
-            #   paper → sandbox API with sandbox credentials (VA... account, $100k virtual)
-            #   live  → live API with live credentials
+            #   paper + SPYDER_PAPER_ACCOUNT_SOURCE=spyderbox_local
+            #       → local SpyderBox snapshot (H05/state file)
+            #   live
+            #       → live API with live credentials
             # This keeps market data quotes (live API) separate from paper balance.
             trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
             try:
                 if trading_mode == "paper":
-                    paper_client = TradierClient(
-                        api_key=api_key,
-                        account_id=account_id,
-                        environment=TradingEnvironment.SANDBOX,
-                    )
-                    bal = paper_client.get_account_balances()
-                    account_data = bal.get("balances", {})
-                    equity = float(account_data.get("total_equity") or 0)
-                    cash = float(account_data.get("total_cash") or 0)
-                    margin = account_data.get("margin", {})
-                    option_bp = float(
-                        margin.get("option_buying_power")
-                        or account_data.get("buying_power")
-                        or cash
-                    )
-                    # Always emit — a zero balance is valid for a new/empty account.
-                    self.balance_updated.emit(equity, option_bp)
+                    local_snapshot = _load_spyderbox_paper_account_snapshot()
+                    if local_snapshot is not None:
+                        equity, option_bp = local_snapshot
+                        # Always emit — a zero balance is valid for a new/empty account.
+                        self.balance_updated.emit(equity, option_bp)
+                    else:
+                        logger.warning(
+                            "Paper balance unavailable: local SpyderBox snapshot missing "
+                            "(sandbox fallback disabled)."
+                        )
                 else:
                     # Live trading: fetch from live account
-                    bal = client.get_account_balances()
-                    account_data = bal.get("balances", {})
-                    equity = float(account_data.get("total_equity") or 0)
-                    cash = float(account_data.get("total_cash") or 0)
-                    margin = account_data.get("margin", {})
-                    option_bp = float(
-                        margin.get("option_buying_power")
-                        or account_data.get("buying_power")
-                        or cash
+                    api_key, account_id, env_enum = _resolve_tradier_client_config()
+                    if not api_key or not account_id or env_enum is None:
+                        raise RuntimeError("live_account_client_unavailable")
+                    client = TradierClient(
+                        api_key=api_key,
+                        account_id=account_id,
+                        environment=env_enum,
                     )
+                    bal = client.get_account_balances()
+                    equity, option_bp = _extract_tradier_balance(bal)
                     # Always emit — a zero balance is valid for a new/empty account.
                     self.balance_updated.emit(equity, option_bp)
             except Exception:
@@ -642,9 +734,15 @@ class ThreadSafeMarketDataWorker(QObject):
             # --- Fetch live quotes and write to data_file ---
             symbols = _build_quote_symbol_basket()
             try:
-                # Use market-data client (respects TRADIER_ENVIRONMENT) so that
-                # paper+live config fetches real quotes from api.tradier.com.
-                mkt_client = _build_market_data_client() or client
+                # Use market-data client (always LIVE endpoint) so both paper and
+                # live modes fetch real quotes from api.tradier.com.
+                mkt_client = _build_market_data_client()
+                if mkt_client is None:
+                    logger.warning(
+                        "MarketDataWorker quote fetch skipped: LIVE market-data "
+                        "credentials/client unavailable",
+                    )
+                    return
                 raw = mkt_client.get_quotes(symbols)
                 quotes_raw = raw.get("quotes", {}).get("quote", [])
                 if isinstance(quotes_raw, dict):
@@ -901,8 +999,8 @@ class ThreadSafeMarketDataWorker(QObject):
             load_dotenv(override=True)
             if not TRADIER_AVAILABLE:
                 return
-            # Use market-data client (respects TRADIER_ENVIRONMENT) so that
-            # paper+live config fetches quotes from api.tradier.com.
+            # Use market-data client (always LIVE endpoint) so both paper and
+            # live modes fetch quotes from api.tradier.com.
             client = _build_market_data_client()
             if client is None:
                 return
@@ -1032,8 +1130,8 @@ class ThreadSafeMarketDataWorker(QObject):
             if not TRADIER_AVAILABLE:
                 self.eod_snapshot_fetched.emit(False)
                 return
-            # Use market-data client (respects TRADIER_ENVIRONMENT) so that
-            # paper+live config fetches EOD quotes from api.tradier.com.
+            # Use market-data client (always LIVE endpoint) so both paper and
+            # live modes fetch EOD quotes from api.tradier.com.
             client = _build_market_data_client()
             if client is None:
                 logger.warning("📊 EOD snapshot skipped — TRADIER_API_KEY / TRADIER_ACCOUNT_ID not set")  # noqa: E501

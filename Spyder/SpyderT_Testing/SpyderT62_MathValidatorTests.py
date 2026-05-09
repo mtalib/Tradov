@@ -48,14 +48,14 @@ def _ensure_pkg(name: str):
 # when prior test files have already partially populated sys.modules.
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 sys.modules["SpyderU01_Logger"] = _u01
 
 # ==============================================================================
 # LOAD MODULES UNDER TEST
 # ==============================================================================
-_u06 = _load("Spyder/SpyderU_Utilities/SpyderU06_MathUtils.py")
+_u06 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU06_MathUtils.py")
 round_price = _u06.round_price
 round_to_tick = _u06.round_to_tick
 calculate_percentage_change = _u06.calculate_percentage_change
@@ -76,7 +76,7 @@ linear_interpolation = _u06.linear_interpolation
 rolling_window = _u06.rolling_window
 exponential_moving_average = _u06.exponential_moving_average
 
-_u08 = _load("Spyder/SpyderU_Utilities/SpyderU08_Validators.py")
+_u08 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU08_Validators.py")
 ValidationError = _u08.ValidationError
 is_valid_string = _u08.is_valid_string
 is_valid_number = _u08.is_valid_number

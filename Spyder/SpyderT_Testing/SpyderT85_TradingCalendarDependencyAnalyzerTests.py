@@ -40,16 +40,16 @@ def _ensure_pkg(name):
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
-_u10 = _load("Spyder/SpyderU_Utilities/SpyderU10_TradingCalendar.py")
+_u10 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU10_TradingCalendar.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar"] = _u10
 
-_u18 = _load("Spyder/SpyderU_Utilities/SpyderU18_DependencyAnalyzer.py")
+_u18 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU18_DependencyAnalyzer.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU18_DependencyAnalyzer"] = _u18
 
 # ==============================================================================
@@ -563,13 +563,13 @@ class TestU18Enums:
 
 class TestU18DataStructures:
     def test_module_info_creation(self):
-        mi = ModuleInfo(name="TestModule", path="/test.py", group="SpyderU_Utilities")
+        mi = ModuleInfo(name="TestModule", path="/test.py", group="Spyder.SpyderU_Utilities")
         assert mi.name == "TestModule"
         assert mi.imports == []
         assert mi.lines_of_code == 0
 
     def test_module_info_to_dict(self):
-        mi = ModuleInfo(name="TestModule", path="/test.py", group="SpyderU_Utilities",
+        mi = ModuleInfo(name="TestModule", path="/test.py", group="Spyder.SpyderU_Utilities",
                         functions=["foo"], classes=["Bar"])
         d = mi.to_dict()
         assert d["name"] == "TestModule"
@@ -636,8 +636,8 @@ class TestU18PrivateMethods:
         assert self.analyzer._is_spyder_module("SpyderA_Core") is True
 
     def test_get_module_group_known(self):
-        group = self.analyzer._get_module_group("SpyderU_Utilities.SpyderU01")
-        assert "SpyderU_Utilities" in group or group == "SpyderU_Utilities"
+        group = self.analyzer._get_module_group("Spyder.SpyderU_Utilities.SpyderU01")
+        assert "Spyder.SpyderU_Utilities" in group or group == "Spyder.SpyderU_Utilities"
 
     def test_get_module_group_unknown(self):
         group = self.analyzer._get_module_group("SomeUnknownModule")
@@ -837,4 +837,4 @@ class TestU18ModuleFunctions:
 
     def test_module_groups_constant(self):
         assert isinstance(MODULE_GROUPS, dict)
-        assert "SpyderU_Utilities" in MODULE_GROUPS
+        assert "Spyder.SpyderU_Utilities" in MODULE_GROUPS

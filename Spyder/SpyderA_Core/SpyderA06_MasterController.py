@@ -779,7 +779,7 @@ class MasterController:
             return {"module_id": module_id, "status": "singleton"}
 
         if module_id == "U02_ErrorHandler":
-            return _load("SpyderU_Utilities.SpyderU02_ErrorHandler", "SpyderErrorHandler")
+            return _load("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler", "SpyderErrorHandler")
 
         if module_id == "I06_AgentMessageBus":
             return _load("SpyderI_Integration.SpyderI06_AgentMessageBus", "AgentMessageBus")

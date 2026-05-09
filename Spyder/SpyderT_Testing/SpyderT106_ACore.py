@@ -33,7 +33,7 @@ def _ensure_pkg(name):
 
 
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderA_Core")
 _ensure_pkg("SpyderA_Core")
@@ -55,13 +55,13 @@ class _FakeSpyderLogger:
 _logger_mod.SpyderLogger = _FakeSpyderLogger
 _logger_mod.get_logger = MagicMock(return_value=MagicMock())
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _logger_mod
-sys.modules["SpyderU_Utilities.SpyderU01_Logger"] = _logger_mod
+sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _logger_mod
 
 # ErrorHandler stub
 _err_mod = types.ModuleType("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler")
 _err_mod.SpyderErrorHandler = MagicMock
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _err_mod
-sys.modules["SpyderU_Utilities.SpyderU02_ErrorHandler"] = _err_mod
+sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _err_mod
 
 
 # ==============================================================================

@@ -65,14 +65,14 @@ GUI_AVAILABLE = False
 
 # Try to import core utilities first
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     logger = SpyderLogger.get_logger(__name__)
     print("✅ Logger available")
 except ImportError as e:
     print(f"⚠️ Logger not available: {e}")
 
 try:
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
     error_handler = SpyderErrorHandler()
     print("✅ Error handler available")
 except ImportError as e:
@@ -146,11 +146,18 @@ class SpyderLauncher:
 
         # Set TRADIER_ENVIRONMENT default only if not already explicitly
         # overridden by the user in the process environment.  This allows:
-        #   --mode paper                       → sandbox.tradier.com (default)
-        #   --mode paper TRADIER_ENVIRONMENT=live → api.tradier.com + paper fills
+        #   --mode paper                       → api.tradier.com + paper fills (default)
+        #   --mode paper TRADIER_ENVIRONMENT=sandbox → sandbox.tradier.com + paper fills
         #   --mode live                        → api.tradier.com + live fills
         if "TRADIER_ENVIRONMENT" not in os.environ:
-            os.environ["TRADIER_ENVIRONMENT"] = "live" if args.mode == "live" else "sandbox"
+            os.environ["TRADIER_ENVIRONMENT"] = "live"
+
+        # Market-data plane defaults to live in both paper and live modes.
+        # Explicit sandbox quote routing requires:
+        #   SPYDER_ALLOW_SANDBOX_MARKET_DATA=true
+        #   TRADIER_MARKET_DATA_ENVIRONMENT=sandbox
+        if "TRADIER_MARKET_DATA_ENVIRONMENT" not in os.environ:
+            os.environ["TRADIER_MARKET_DATA_ENVIRONMENT"] = "live"
 
         # Setup logging
         self.log_info = logger.info if logger else print
@@ -195,7 +202,7 @@ class SpyderLauncher:
             ("SpyderD_Strategies", "Trading strategies"),
             ("SpyderE_Risk", "Risk management"),
             ("SpyderG_GUI", "User interface"),
-            ("SpyderU_Utilities", "Utilities"),
+            ("Spyder.SpyderU_Utilities", "Utilities"),
             ("SpyderI_Integration", "System integration")
         ]
 

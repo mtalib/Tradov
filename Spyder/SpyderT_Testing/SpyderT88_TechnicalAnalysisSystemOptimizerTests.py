@@ -38,27 +38,27 @@ def _ensure_pkg(name):
 
 # Ensure namespace packages
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # Load U01 and U02 (needed by both U16 and U27)
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
-sys.modules["SpyderU_Utilities.SpyderU01_Logger"] = _u01
+sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
-sys.modules["SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
+sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
 # Load U16 (optional local imports wrapped in try/except — SpyderLogger may be None)
-_u16 = _load("Spyder/SpyderU_Utilities/SpyderU16_TechnicalAnalysis.py")
+_u16 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU16_TechnicalAnalysis.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU16_TechnicalAnalysis"] = _u16
-sys.modules["SpyderU_Utilities.SpyderU16_TechnicalAnalysis"] = _u16
+sys.modules["Spyder.SpyderU_Utilities.SpyderU16_TechnicalAnalysis"] = _u16
 
 # Load U27 (hard imports require U01+U02 already registered above)
-_u27 = _load("Spyder/SpyderU_Utilities/SpyderU27_SystemOptimizer.py")
+_u27 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU27_SystemOptimizer.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer"] = _u27
-sys.modules["SpyderU_Utilities.SpyderU27_SystemOptimizer"] = _u27
+sys.modules["Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer"] = _u27
 
 # ==============================================================================
 # STANDARD TEST IMPORTS

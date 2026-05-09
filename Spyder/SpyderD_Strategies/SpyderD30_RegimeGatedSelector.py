@@ -110,6 +110,10 @@ except ImportError:
         L09_AVAILABLE = True
     except ImportError:
         L09_AVAILABLE = False
+        # Prevent NameError when _select_lean_strategy references L09MarketRegime
+        L09MarketRegime = None  # type: ignore[assignment]
+        RegimeConsensus = None  # type: ignore[assignment]
+        UnifiedRegimeEngine = None  # type: ignore[assignment]
 
 # Import HMM Regime Detector (fallback)
 try:
@@ -810,6 +814,17 @@ class RegimeGatedSelector:
         pivot_signal: dict[str, Any] | None = None,
     ) -> StrategySelection:
         """Select strategy using lean L09 regime consensus."""
+        if not L09_AVAILABLE or L09MarketRegime is None:
+            return StrategySelection(
+                timestamp=datetime.now(timezone.utc),
+                current_regime=MarketRegime.UNKNOWN,
+                selected_strategy=StrategyType.IRON_CONDOR,
+                previous_strategy=self.current_strategy,
+                confidence=0.5,
+                transition_state=TransitionState.STABLE,
+                transition_progress=1.0,
+                reason="L09 unavailable — default Iron Condor",
+            )
         l09_regime = consensus.regime
         confidence = consensus.confidence
         selector_feature_flag: str | None = None

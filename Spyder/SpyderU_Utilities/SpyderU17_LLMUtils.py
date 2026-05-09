@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU17_LLMUtils.py
 Purpose: Shared utilities for LLM/Ollama integration across X-series and Y-series agents
 

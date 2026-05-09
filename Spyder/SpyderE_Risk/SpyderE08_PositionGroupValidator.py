@@ -36,7 +36,7 @@ from abc import ABC, abstractmethod
 # ==============================================================================
 
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:
     import logging
     SpyderLogger = type('SpyderLogger', (), {
@@ -44,7 +44,7 @@ except ImportError:
     })()
 
 try:
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, ErrorCategory, ErrorSeverity  # noqa: E501
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler, ErrorCategory, ErrorSeverity  # noqa: E501
 except ImportError:
     class ErrorCategory(Enum):
         VALIDATION = "validation"
@@ -62,7 +62,7 @@ except ImportError:
     })
 
 try:
-    from SpyderU_Utilities.SpyderU14_OptionStrategies import OptionStrategy, StrategyType, OptionRight  # noqa: E501, F401
+    from Spyder.SpyderU_Utilities.SpyderU14_OptionStrategies import OptionStrategy, StrategyType, OptionRight  # noqa: E501, F401
 except ImportError:
     # Define minimal enums if not available
     class StrategyType(Enum):

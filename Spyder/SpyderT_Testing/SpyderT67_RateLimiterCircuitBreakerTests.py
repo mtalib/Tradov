@@ -38,15 +38,15 @@ def _ensure_pkg(name):
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
 # U40 has no local imports — load directly
-_u40 = _load("Spyder/SpyderU_Utilities/SpyderU40_RateLimiter.py")
+_u40 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU40_RateLimiter.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU40_RateLimiter"] = _u40
 
 # U41 imports SpyderU01_Logger.get_logger
-_u41 = _load("Spyder/SpyderU_Utilities/SpyderU41_CircuitBreaker.py")
+_u41 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU41_CircuitBreaker.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker"] = _u41
 
 # ==============================================================================

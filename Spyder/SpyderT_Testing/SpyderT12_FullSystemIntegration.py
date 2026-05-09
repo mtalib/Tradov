@@ -154,7 +154,7 @@ def _test_institutional_libraries_fixed() -> dict[str, Any]:
 
     try:
         # Test QuantLib Options Pricing
-        from SpyderU_Utilities.SpyderU20_InstitutionalLibraries import get_institutional_libraries
+        from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import get_institutional_libraries
 
         libs = get_institutional_libraries()
         print("✅ Institutional libraries loaded successfully")
@@ -200,7 +200,7 @@ def _test_options_pricing_fixed(libs) -> dict[str, Any]:
         else:
             # Fallback - check if it's available from the module directly
             try:
-                from SpyderU_Utilities.SpyderU20_InstitutionalLibraries import OptionType
+                from Spyder.SpyderU_Utilities.SpyderU20_InstitutionalLibraries import OptionType
             except ImportError:
                 # Create a simple enum as fallback
                 from enum import Enum

@@ -130,7 +130,7 @@ class _SpyderLoggerCls:
 
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU01_Logger",
-    "SpyderU_Utilities.SpyderU01_Logger",
+    "Spyder.SpyderU_Utilities.SpyderU01_Logger",
 ]:
     _m, _new = _ensure_mod(_key)
     if _new or not hasattr(_m, "SpyderLogger"):
@@ -146,7 +146,7 @@ class _SpyderErrorHandlerCls:
 
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
-    "SpyderU_Utilities.SpyderU02_ErrorHandler",
+    "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
 ]:
     _m, _new = _ensure_mod(_key)
     # Always override SpyderErrorHandler — other test files set it to MagicMock
@@ -158,7 +158,7 @@ for _key in [
 # DateTimeUtils
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils",
-    "SpyderU_Utilities.SpyderU03_DateTimeUtils",
+    "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils",
 ]:
     _m, _new = _ensure_mod(_key)
     if _new or not hasattr(_m, "DateTimeUtils"):
@@ -167,7 +167,7 @@ for _key in [
 # MathUtils
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU06_MathUtils",
-    "SpyderU_Utilities.SpyderU06_MathUtils",
+    "Spyder.SpyderU_Utilities.SpyderU06_MathUtils",
 ]:
     _m, _new = _ensure_mod(_key)
     if _new or not hasattr(_m, "MathUtils"):
@@ -183,7 +183,7 @@ def _rate_limit_decorator(func=None, *args, **kwargs):
 
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU40_RateLimiter",
-    "SpyderU_Utilities.SpyderU40_RateLimiter",
+    "Spyder.SpyderU_Utilities.SpyderU40_RateLimiter",
 ]:
     _m, _new = _ensure_mod(_key)
     if _new or not hasattr(_m, "rate_limit"):
@@ -201,7 +201,7 @@ def _tradier_breaker_decorator(func=None, *args, **kwargs):
 
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker",
-    "SpyderU_Utilities.SpyderU41_CircuitBreaker",
+    "Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker",
 ]:
     _m, _new = _ensure_mod(_key)
     if _new or not hasattr(_m, "tradier_breaker"):
@@ -253,8 +253,8 @@ _b_pkg_bare.__path__ = [_B_PKG_PATH]
 _b_pkg_bare.__package__ = "SpyderB_Broker"
 
 # Stub SpyderB_Utilities bare parent
-_u_pkg_bare = sys.modules.setdefault("SpyderU_Utilities", types.ModuleType("SpyderU_Utilities"))
-_u_pkg_bare.__path__ = [os.path.join(_ROOT, "Spyder", "SpyderU_Utilities")]
+_u_pkg_bare = sys.modules.setdefault("Spyder.SpyderU_Utilities", types.ModuleType("Spyder.SpyderU_Utilities"))
+_u_pkg_bare.__path__ = [os.path.join(_ROOT, "Spyder", "Spyder.SpyderU_Utilities")]
 
 # ==============================================================================
 # MODULE LOADER HELPER
@@ -311,9 +311,9 @@ _b30 = _load_b_module("SpyderB30_SPYOptionsChainManager.py", "Spyder.SpyderB_Bro
 # ==============================================================================
 _STUBS_TO_REMOVE = [
     "Spyder.SpyderU_Utilities.SpyderU40_RateLimiter",
-    "SpyderU_Utilities.SpyderU40_RateLimiter",
+    "Spyder.SpyderU_Utilities.SpyderU40_RateLimiter",
     "Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker",
-    "SpyderU_Utilities.SpyderU41_CircuitBreaker",
+    "Spyder.SpyderU_Utilities.SpyderU41_CircuitBreaker",
 ]
 for _stub_key in _STUBS_TO_REMOVE:
     sys.modules.pop(_stub_key, None)

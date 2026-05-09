@@ -12,8 +12,8 @@ Last Updated: 2026-03-03 Time: 00:00:00
 
 Module Description:
     Automated paper-trading harness that:
-        • Routes all orders through Tradier *sandbox* API (real NBBO fills,
-          zero real-money risk).
+                • Uses LIVE Tradier account balances/market snapshots for visibility,
+                    while paper fills remain local (SpyderBox simulation).
         • Captures one DailySnapshot per trading session → JSON file.
         • Computes rolling Sharpe ratio, max drawdown from rolling peak,
           and win-rate from the accumulated snapshot history.
@@ -558,7 +558,7 @@ class MetricsCalculator:
 
 class PaperTradingHarness:
     """
-    30-day paper-trading validation harness wired to the Tradier sandbox.
+    30-day paper-trading validation harness using LIVE Tradier market data.
 
     The caller is responsible for calling :meth:`start_session` at market open
     and :meth:`end_session` at market close.  Intraday, call
@@ -566,7 +566,7 @@ class PaperTradingHarness:
     (e.g. every minute).
 
     Args:
-        broker_client:      Tradier client configured for *sandbox* mode.
+        broker_client:      Tradier client configured for LIVE mode.
                             ``None`` is accepted (for testing); ``start_session``
                             will still work but equity will be seeded from
                             ``starting_equity_override``.
@@ -915,7 +915,7 @@ class PaperTradingHarness:
 
     def _fetch_equity(self) -> float:
         """
-        Query the Tradier sandbox for the current account equity.
+        Query Tradier for the current account equity.
 
         Falls back to ``_equity_override`` if the client is unavailable or
         raises.
@@ -955,6 +955,7 @@ def create_paper_trading_harness_from_env(
     Reads:
         ``TRADIER_API_KEY``    – broker authentication token.
         ``TRADIER_ACCOUNT_ID`` – account number.
+        ``TRADIER_LIVE_API_KEY`` / ``TRADIER_LIVE_ACCOUNT_ID`` (optional overrides).
         ``PAPER_STARTING_EQUITY`` – override starting equity (default 100 000).
         ``PAPER_SNAPSHOT_DIR``    – root directory for snapshots/alerts.
 
@@ -970,6 +971,8 @@ def create_paper_trading_harness_from_env(
     """
     api_key = os.environ.get("TRADIER_API_KEY", "")
     account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+    api_key = os.environ.get("TRADIER_LIVE_API_KEY", "").strip() or api_key
+    account_id = os.environ.get("TRADIER_LIVE_ACCOUNT_ID", "").strip() or account_id
     starting_equity = float(os.environ.get("PAPER_STARTING_EQUITY", "100000.0"))
 
     env_snapshot_dir = os.environ.get("PAPER_SNAPSHOT_DIR", "")
@@ -983,12 +986,19 @@ def create_paper_trading_harness_from_env(
     client = None
     if HAS_TRADIER and api_key and account_id:
         try:
+            configured_env = (os.environ.get("TRADIER_ENVIRONMENT", "live") or "live").strip().lower()
+            if configured_env != "live":
+                logger.warning(
+                    "PaperTradingHarness forcing LIVE market-data endpoint "
+                    "(TRADIER_ENVIRONMENT=%s ignored)",
+                    configured_env,
+                )
             client = TradierClient(
                 api_key=api_key,
                 account_id=account_id,
-                environment=TradingEnvironment.SANDBOX,
+                environment=TradingEnvironment.LIVE,
             )
-            logger.info("PaperTradingHarness: Tradier sandbox client initialised")
+            logger.info("PaperTradingHarness: Tradier LIVE client initialised")
         except Exception as exc:
             logger.warning(
                 "PaperTradingHarness: Tradier client init failed (%s) — dry-run mode", exc

@@ -39,7 +39,7 @@ def _ensure_pkg(name: str) -> None:
 
 
 _ensure_pkg("Spyder")
-_ensure_pkg("SpyderU_Utilities")
+_ensure_pkg("Spyder.SpyderU_Utilities")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # Stub SpyderU01_Logger — U41 uses module-level `get_logger(__name__)`

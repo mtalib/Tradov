@@ -39,10 +39,10 @@ def _ensure_pkg(name):
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
 # --------------------------------------------------------------------------
@@ -109,14 +109,14 @@ if "qtawesome" not in sys.modules:
     sys.modules["qtawesome"] = _qta
 
 # Load U24
-_u24 = _load("Spyder/SpyderU_Utilities/SpyderU24_StyleManager.py")
+_u24 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU24_StyleManager.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU24_StyleManager"] = _u24
 
 # Load U23 and U27
-_u23 = _load("Spyder/SpyderU_Utilities/SpyderU23_MemoryMonitor.py")
+_u23 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU23_MemoryMonitor.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU23_MemoryMonitor"] = _u23
 
-_u27 = _load("Spyder/SpyderU_Utilities/SpyderU27_SystemOptimizer.py")
+_u27 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU27_SystemOptimizer.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU27_SystemOptimizer"] = _u27
 
 # ==============================================================================

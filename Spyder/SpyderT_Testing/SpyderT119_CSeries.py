@@ -46,19 +46,19 @@ class _Logger:
         return logging.getLogger(name)
 
 for _k in ("Spyder.SpyderU_Utilities.SpyderU01_Logger",
-           "SpyderU_Utilities.SpyderU01_Logger"):
+           "Spyder.SpyderU_Utilities.SpyderU01_Logger"):
     _m = _ensure_mod(_k)
     _m.SpyderLogger = _Logger
 
 for _k in ("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
-           "SpyderU_Utilities.SpyderU02_ErrorHandler"):
+           "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"):
     _m = _ensure_mod(_k)
     _m.SpyderErrorHandler = type("SpyderErrorHandler", (), {})
     _m.TradingError = type("TradingError", (Exception,), {})
     _m.DataValidationError = type("DataValidationError", (Exception,), {})
 
 for _k in ("Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils",
-           "SpyderU_Utilities.SpyderU03_DateTimeUtils"):
+           "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"):
     _m = _ensure_mod(_k)
     _m.DateTimeUtils = MagicMock()
 
@@ -76,7 +76,7 @@ for _k in ("Spyder.SpyderA_Core.SpyderA05_EventManager",
     _m.get_event_manager = (lambda _mod=_m: _mod.EventManager())
 
 for _k in ("Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator",
-           "SpyderU_Utilities.SpyderU44_ShutdownCoordinator"):
+           "Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator"):
     _m = _ensure_mod(_k)
     _m.get_shutdown_coordinator = MagicMock(return_value=MagicMock())
 

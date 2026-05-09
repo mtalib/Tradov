@@ -47,17 +47,17 @@ except ImportError:
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:
     SpyderLogger = None
 
 try:
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = None
 
 try:
-    from SpyderU_Utilities.SpyderU17_LLMUtils import strip_thinking_block
+    from Spyder.SpyderU_Utilities.SpyderU17_LLMUtils import strip_thinking_block
 except ImportError:
     import re as _re
     def strip_thinking_block(content: str) -> str:  # type: ignore[misc]

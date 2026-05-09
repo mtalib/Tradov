@@ -27,6 +27,7 @@ import requests
 from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     TradierClient,
     TradingEnvironment,
+    OptionLeg,
     OrderSide,
     OrderType,
     OrderDuration,
@@ -259,6 +260,87 @@ class TestOrderPlacement:
         # cancel_order() returns bool (True when API confirms the id)
         assert result is True
         assert mock_request.call_args.kwargs["method"] == "DELETE"
+
+    def test_paper_mode_blocks_live_order_submission(self, monkeypatch):
+        """Paper mode must reject order submission on live execution client."""
+        monkeypatch.setenv("TRADING_MODE", "paper")
+        monkeypatch.delenv("SPYDER_TRADING_MODE", raising=False)
+
+        live_client = TradierClient(
+            api_key="test_api_key_12345678",
+            account_id="TEST123456",
+            environment=TradingEnvironment.LIVE,
+        )
+
+        with patch("requests.Session.request") as mock_request:
+            with pytest.raises(TradierValidationError, match="Paper-mode safety guard"):
+                live_client.place_order(
+                    symbol="SPY",
+                    side=OrderSide.BUY,
+                    quantity=1,
+                    order_type=OrderType.MARKET,
+                )
+
+            mock_request.assert_not_called()
+
+    @patch('requests.Session.request')
+    def test_paper_mode_allows_live_preview_order(self, mock_request, monkeypatch):
+        """Preview orders are non-mutating and should bypass execution guard."""
+        monkeypatch.setenv("TRADING_MODE", "paper")
+        monkeypatch.delenv("SPYDER_TRADING_MODE", raising=False)
+
+        live_client = TradierClient(
+            api_key="test_api_key_12345678",
+            account_id="TEST123456",
+            environment=TradingEnvironment.LIVE,
+        )
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "order": {
+                "status": "ok",
+                "preview": True,
+            }
+        }
+        mock_request.return_value = mock_response
+
+        response = live_client.preview_order(
+            symbol="SPY",
+            side=OrderSide.BUY,
+            quantity=1,
+            order_type=OrderType.MARKET,
+        )
+
+        assert response["order"]["status"] == "ok"
+        assert mock_request.call_args.kwargs["method"] == "POST"
+
+    def test_paper_mode_blocks_live_multileg_order_submission(self, monkeypatch):
+        """Paper mode must reject live-endpoint multileg order submission."""
+        monkeypatch.setenv("TRADING_MODE", "paper")
+        monkeypatch.delenv("SPYDER_TRADING_MODE", raising=False)
+
+        live_client = TradierClient(
+            api_key="test_api_key_12345678",
+            account_id="TEST123456",
+            environment=TradingEnvironment.LIVE,
+        )
+
+        legs = [
+            OptionLeg("SPY260320P00535000", OrderSide.BUY_TO_OPEN, 1),
+            OptionLeg("SPY260320P00540000", OrderSide.SELL_TO_OPEN, 1),
+        ]
+
+        with patch("requests.Session.request") as mock_request:
+            with pytest.raises(TradierValidationError, match="Paper-mode safety guard"):
+                live_client.place_multileg_order(
+                    symbol="SPY",
+                    legs=legs,
+                    order_type="credit",
+                    price=1.25,
+                )
+
+            mock_request.assert_not_called()
 
     @patch('requests.Session.request')
     def test_get_order_status(self, mock_request, tradier_client):

@@ -1,0 +1,140 @@
+{
+  "version": "1.0",
+  "description": "Agent handoff authorization policy for paper-mode enforcement",
+  "enforcement": {
+    "paper_mode": true,
+    "live_mode": false,
+    "default_action_paper": "deny",
+    "default_action_live": "allow",
+    "enforce_sender_patterns": [
+      "Y[0-9][0-9]_*",
+      "X[0-9][0-9]_*"
+    ],
+    "enforce_topic_prefixes": [
+      "meta.",
+      "signals.",
+      "execution.",
+      "strategy."
+    ],
+    "enforce_topics": [
+      "meta.decisions",
+      "meta.orchestration",
+      "signals.validated"
+    ]
+  },
+  "role_bindings": {
+    "Y00_*": "observe",
+    "Y01_*": "advisory",
+    "Y02_*": "execution_advisory",
+    "Y03_*": "advisory",
+    "Y04_*": "advisory",
+    "Y05_*": "execution_advisory",
+    "Y06_*": "advisory",
+    "Y07_*": "observe",
+    "Y08_*": "execution_advisory",
+    "Y09_*": "observe",
+    "Y10_*": "observe",
+    "X14_*": "execution_advisory",
+    "X*": "advisory"
+  },
+  "role_permissions": {
+    "observe": {
+      "allow_topics": [
+        "system.*",
+        "meta.health",
+        "meta.heartbeat",
+        "market.regime"
+      ],
+      "allow_actions": [
+        "observe",
+        "status",
+        "heartbeat",
+        "regime_update"
+      ],
+      "deny_topics": [
+        "signals.validated",
+        "execution.*"
+      ],
+      "deny_actions": [
+        "execution_advice",
+        "execution_order",
+        "execute"
+      ]
+    },
+    "advisory": {
+      "allow_topics": [
+        "meta.*",
+        "market.*",
+        "risk.*",
+        "strategy.recommendation"
+      ],
+      "allow_actions": [
+        "observe",
+        "status",
+        "regime_update",
+        "decision",
+        "escalation",
+        "signal"
+      ],
+      "deny_topics": [
+        "execution.*"
+      ],
+      "deny_actions": [
+        "execution_advice",
+        "execution_order",
+        "execute"
+      ]
+    },
+    "execution_advisory": {
+      "allow_topics": [
+        "meta.*",
+        "market.*",
+        "risk.*",
+        "signals.validated",
+        "strategy.*",
+        "execution.intent"
+      ],
+      "allow_actions": [
+        "observe",
+        "status",
+        "regime_update",
+        "decision",
+        "escalation",
+        "signal",
+        "execution_advice"
+      ],
+      "deny_topics": [
+        "execution.orders",
+        "execution.submit",
+        "execution.route"
+      ],
+      "deny_actions": [
+        "execution_order",
+        "execute"
+      ]
+    },
+    "execution_authorized": {
+      "allow_topics": [
+        "meta.*",
+        "market.*",
+        "risk.*",
+        "signals.*",
+        "strategy.*",
+        "execution.*"
+      ],
+      "allow_actions": [
+        "observe",
+        "status",
+        "regime_update",
+        "decision",
+        "escalation",
+        "signal",
+        "execution_advice",
+        "execution_order",
+        "execute"
+      ],
+      "deny_topics": [],
+      "deny_actions": []
+    }
+  }
+}

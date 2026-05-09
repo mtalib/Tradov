@@ -127,7 +127,7 @@ SYMBOL_DESCRIPTIONS = {
     "10Y": "10-Year Treasury Yield (FRED DGS10 — risk-free rate)",
     "TLT": "iShares 20+ Year Treasury Bond ETF",
     "LQD": "iShares Investment Grade Corporate Bond ETF",
-    "DXY": "US Dollar Index (UUP ETF proxy — Tradier has no DXY index)",
+    "DXY": "UUP ETF (Invesco DB US Dollar Index Bullish Fund — Tradier has no direct DXY index)",
     "GLD": "SPDR Gold Trust ETF - Gold proxy",
     "NAAIM": "NAAIM Exposure Index - Active manager equity allocation (0-200%)",
     "AABULL": "AAII Bull% (UMCSENT proxy) - Retail investor bullish sentiment",
@@ -817,7 +817,7 @@ class SpyderWidgetFactory:
 class TradingMode(Enum):
     """Two trading modes available in the Spyder system.
 
-    PAPER:    Simulated fills against live market data via Tradier sandbox + SpyderR02_PaperEngine.
+    PAPER:    Simulated fills against live market data via SpyderBox + SpyderR02_PaperEngine.
     LIVE:     Real order execution through Tradier production API + SpyderR04_LiveEngine.
     """
 
@@ -1423,6 +1423,13 @@ class MarketSymbolWidget(QWidget):
 
     clicked = Signal(str)  # emits the symbol on left-click
 
+    # Map internal symbol keys to the label shown in the Market Overview row.
+    # DXY: Tradier returns UUP (the ETF) remapped to the "DXY" key; show the
+    # actual ticker so users aren't confused by the ~27 ETF price vs ~103 index.
+    _DISPLAY_LABELS: dict[str, str] = {
+        "DXY": "UUP",
+    }
+
     def __init__(self, symbol: str, category: str):
         super().__init__()
         self.symbol = symbol
@@ -1444,7 +1451,8 @@ class MarketSymbolWidget(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 1, 5, 1)
 
-        self.symbol_label = QLabel(self.symbol)
+        display_label = self._DISPLAY_LABELS.get(self.symbol, self.symbol)
+        self.symbol_label = QLabel(display_label)
         self.symbol_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 11px;")
         self.symbol_label.setFixedWidth(60)
 
@@ -1790,7 +1798,7 @@ def main():
     app = QApplication(sys.argv)
 
     # Apply Spyder styling
-    from SpyderU_Utilities.SpyderU24_StyleManager import apply_spyder_style
+    from Spyder.SpyderU_Utilities.SpyderU24_StyleManager import apply_spyder_style
     apply_spyder_style(app)
 
     # Create main window

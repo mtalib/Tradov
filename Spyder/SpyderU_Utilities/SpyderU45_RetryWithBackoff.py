@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU45_RetryWithBackoff.py
 Purpose: Exponential-backoff retry decorator for sync and async callables
 

@@ -26,6 +26,8 @@ Coverage targets:
 
 import unittest
 from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 
@@ -189,6 +191,123 @@ class TestY00BaseAutoAgentAbstract(unittest.TestCase):
         self.assertTrue(hasattr(BaseAutoAgent, "tick"))
         self.assertTrue(hasattr(BaseAutoAgent, "get_state_snapshot"))
         self.assertTrue(hasattr(BaseAutoAgent, "restore_state"))
+
+
+class TestY00PublishContract(unittest.TestCase):
+    """Y00 publish() must call the bus with canonical topic/payload/sender."""
+
+    def _make_agent(self, message_bus):
+        from Spyder.SpyderY_AutoAgents.SpyderY00_BaseAutoAgent import BaseAutoAgent
+
+        class _Backend:
+            name = "dummy"
+
+            def chat(self, model_id, messages, temperature, max_tokens):
+                return None
+
+            def model_id_for_role(self, role: str) -> str:
+                return "dummy"
+
+            def is_available(self) -> bool:
+                return False
+
+        class _Agent(BaseAutoAgent):
+            AGENT_ID = "Y00_phase0_test"
+            AGENT_NAME = "Y00Phase0TestAgent"
+
+            def tick(self, session):
+                return None
+
+            def get_state_snapshot(self):
+                return {}
+
+            def restore_state(self, state):
+                return None
+
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        return _Agent(
+            message_bus=message_bus,
+            inference_backend=_Backend(),
+            state_dir=Path(temp_dir.name),
+        )
+
+    def test_publish_calls_bus_with_canonical_kwargs(self):
+        from Spyder.SpyderY_AutoAgents.SpyderY00_BaseAutoAgent import AgentOutput, MESSAGE_BUS_AVAILABLE
+
+        if not MESSAGE_BUS_AVAILABLE:
+            self.skipTest("Agent message bus types unavailable in this environment")
+
+        class _CaptureBus:
+            def __init__(self):
+                self.calls = []
+
+            def publish(self, **kwargs):
+                self.calls.append(kwargs)
+                return "phase0-msg-id"
+
+        bus = _CaptureBus()
+        agent = self._make_agent(bus)
+        output = AgentOutput(
+            agent_id=agent.AGENT_ID,
+            output_type="signal",
+            topic="signals.validated",
+            payload={"alpha": 1},
+            confidence=0.77,
+            reasoning="phase0 test",
+            priority="HIGH",
+        )
+
+        ok = agent.publish(output)
+
+        self.assertTrue(ok)
+        self.assertEqual(len(bus.calls), 1)
+        call = bus.calls[0]
+        self.assertEqual(call.get("topic"), "signals.validated")
+        self.assertEqual(call.get("sender"), agent.AGENT_ID)
+        self.assertIn("payload", call)
+        self.assertEqual(call["payload"].get("data"), {"alpha": 1})
+        self.assertEqual(call["payload"].get("confidence"), 0.77)
+        self.assertEqual(getattr(call.get("priority"), "name", None), "HIGH")
+
+    def test_publish_executes_coroutine_result_from_alternate_bus(self):
+        from Spyder.SpyderY_AutoAgents.SpyderY00_BaseAutoAgent import AgentOutput, MESSAGE_BUS_AVAILABLE
+
+        if not MESSAGE_BUS_AVAILABLE:
+            self.skipTest("Agent message bus types unavailable in this environment")
+
+        class _AsyncBus:
+            def __init__(self):
+                self.called = False
+                self.kwargs = None
+
+            async def _publish_impl(self, **kwargs):
+                self.called = True
+                self.kwargs = kwargs
+                return "phase0-async-msg-id"
+
+            def publish(self, **kwargs):
+                return self._publish_impl(**kwargs)
+
+        bus = _AsyncBus()
+        agent = self._make_agent(bus)
+        output = AgentOutput(
+            agent_id=agent.AGENT_ID,
+            output_type="alert",
+            topic="risk.alerts",
+            payload={"severity": "high"},
+            confidence=0.91,
+            reasoning="async bus path",
+            priority="CRITICAL",
+        )
+
+        ok = agent.publish(output)
+
+        self.assertTrue(ok)
+        self.assertTrue(bus.called)
+        self.assertIsNotNone(bus.kwargs)
+        self.assertEqual(bus.kwargs.get("topic"), "risk.alerts")
+        self.assertEqual(bus.kwargs.get("sender"), agent.AGENT_ID)
 
 
 # ===========================================================================

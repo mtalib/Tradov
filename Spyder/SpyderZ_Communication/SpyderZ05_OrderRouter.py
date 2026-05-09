@@ -53,8 +53,8 @@ import numpy as np
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
     from SpyderB_Broker.SpyderB02_OrderManager import Order, OrderStatus  # noqa: F401
     from SpyderM_Monitoring.SpyderM05_TransactionCostAnalysis import ExecutionVenue
     LOCAL_IMPORTS = True

@@ -39,15 +39,15 @@ _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
 # U01 — Logger (required by U09 and U22)
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
 # U02 — ErrorHandler (required by U09)
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
 # U09 — DataTypes (needs U01 + U02)
-_u09 = _load("Spyder/SpyderU_Utilities/SpyderU09_DataTypes.py")
+_u09 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU09_DataTypes.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU09_DataTypes"] = _u09
 
 # U03 mock — U22 only needs the US_EASTERN constant
@@ -56,7 +56,7 @@ _u03_mock.US_EASTERN = "US/Eastern"
 sys.modules["Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"] = _u03_mock
 
 # U22 — ETTimeDisplay (needs U01 + U03.US_EASTERN)
-_u22 = _load("Spyder/SpyderU_Utilities/SpyderU22_ETTimeDisplay.py")
+_u22 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU22_ETTimeDisplay.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU22_ETTimeDisplay"] = _u22
 
 # ==============================================================================

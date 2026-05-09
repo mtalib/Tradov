@@ -70,7 +70,7 @@ except ImportError:  # noqa: BLE001
 class PaperTradingQtWorker(QObject):
     """Runs paper trading with real Tradier market data in a background QThread.
 
-    Polls SPY quotes from Tradier (sandbox or live) every poll_interval seconds,
+    Polls SPY quotes from Tradier live endpoint every poll_interval seconds,
     maintains a price history buffer, runs a simple momentum strategy, and
     tracks paper positions and P&L.  Emits Qt signals for the dashboard to
     display status, positions, and metrics in real time.
@@ -827,14 +827,33 @@ class PaperTradingQtWorker(QObject):
             from dotenv import load_dotenv
             load_dotenv(override=True)
 
-            api_key = os.environ.get("TRADIER_API_KEY", "")
-            account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
-            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox")
+            env = (
+                os.environ.get("TRADIER_MARKET_DATA_ENVIRONMENT")
+                or os.environ.get("TRADIER_ENVIRONMENT")
+                or "live"
+            ).strip().lower()
+
+            is_live_env = env in {"live", "production"}
+            if not is_live_env:
+                self.status_update.emit(
+                    "⚠️ Forcing LIVE market-data endpoint "
+                    f"(TRADIER_MARKET_DATA_ENVIRONMENT={env or '<empty>'} ignored)",
+                )
+
+            api_key = (
+                os.environ.get("TRADIER_LIVE_API_KEY", "")
+                or os.environ.get("TRADIER_API_KEY", "")
+            )
+            account_id = (
+                os.environ.get("TRADIER_LIVE_ACCOUNT_ID", "")
+                or os.environ.get("TRADIER_ACCOUNT_ID", "")
+            )
+            env = "live"
 
             if not api_key or not account_id:
                 self.error.emit(
                     "TRADIER_API_KEY and TRADIER_ACCOUNT_ID must be set in .env\n"
-                    "Paper trading requires Tradier sandbox credentials.",
+                    "Paper trading requires Tradier market-data credentials.",
                 )
                 self.connection_ready.emit(False)
                 self.stopped.emit()
@@ -842,11 +861,7 @@ class PaperTradingQtWorker(QObject):
 
             self.status_update.emit(f"Connecting to Tradier ({env})…")
 
-            env_enum = (
-                TradingEnvironment.LIVE
-                if env.lower() == "live"
-                else TradingEnvironment.SANDBOX
-            )
+            env_enum = TradingEnvironment.LIVE
             self._client = TradierClient(
                 api_key=api_key,
                 account_id=account_id,
@@ -863,8 +878,7 @@ class PaperTradingQtWorker(QObject):
                 return
 
             self.connection_ready.emit(True)
-            mode_label = "SANDBOX" if env == "sandbox" else "LIVE"
-            self.status_update.emit(f"✅ Connected to Tradier ({mode_label})")
+            self.status_update.emit("✅ Connected to Tradier (LIVE)")
 
             # Restore any open positions from the previous session before
             # printing the "started" banner so the UI immediately shows the

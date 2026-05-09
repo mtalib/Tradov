@@ -39,16 +39,16 @@ def _ensure_pkg(name):
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
-_u11 = _load("Spyder/SpyderU_Utilities/SpyderU11_FeatureFlags.py")
+_u11 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU11_FeatureFlags.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags"] = _u11
 
-_u15 = _load("Spyder/SpyderU_Utilities/SpyderU15_PerformanceMetrics.py")
+_u15 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU15_PerformanceMetrics.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics"] = _u15
 
 # ==============================================================================

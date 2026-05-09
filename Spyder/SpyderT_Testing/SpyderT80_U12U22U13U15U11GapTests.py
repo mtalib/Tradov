@@ -42,14 +42,14 @@ def _ensure_pkg(name):
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
 # U12 AgentIntegration — no extra deps
-_u12 = _load("Spyder/SpyderU_Utilities/SpyderU12_AgentIntegration.py")
+_u12 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU12_AgentIntegration.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU12_AgentIntegration"] = _u12
 
 # U22 ETTimeDisplay — needs U03 mock (only US_EASTERN constant used)
@@ -58,19 +58,19 @@ _u03_mock.US_EASTERN = "US/Eastern"
 if "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils" not in sys.modules:
     sys.modules["Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils"] = _u03_mock
 
-_u22 = _load("Spyder/SpyderU_Utilities/SpyderU22_ETTimeDisplay.py")
+_u22 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU22_ETTimeDisplay.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU22_ETTimeDisplay"] = _u22
 
 # U13 TechnicalIndicators
-_u13 = _load("Spyder/SpyderU_Utilities/SpyderU13_TechnicalIndicators.py")
+_u13 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU13_TechnicalIndicators.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU13_TechnicalIndicators"] = _u13
 
 # U15 PerformanceMetrics
-_u15 = _load("Spyder/SpyderU_Utilities/SpyderU15_PerformanceMetrics.py")
+_u15 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU15_PerformanceMetrics.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics"] = _u15
 
 # U11 FeatureFlags
-_u11 = _load("Spyder/SpyderU_Utilities/SpyderU11_FeatureFlags.py")
+_u11 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU11_FeatureFlags.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags"] = _u11
 
 # ==============================================================================

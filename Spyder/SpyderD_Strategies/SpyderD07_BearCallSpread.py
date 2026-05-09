@@ -17,13 +17,13 @@ Module Description:
 
     Extends CreditSpreadStrategy with bear-call-only logic:
     - Disables bull put spread generation.
-    - Tightens delta selection to the bearish range.
-    - Requires RSI > 50 and negative price momentum for entry.
+    - Requires RSI > configurable threshold and negative price momentum for entry.
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import math
 from typing import Any
 
 # ==============================================================================
@@ -43,8 +43,11 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import EventManager, RiskP
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-BEAR_CALL_MIN_RSI = 50          # Only enter when RSI is above neutral
-BEAR_CALL_MAX_MOMENTUM = -0.001  # Maximum upward momentum (must be declining)
+# Filter defaults (overridable via config)
+BEAR_CALL_DEFAULT_MIN_RSI: float = 50.0               # Market not oversold
+BEAR_CALL_DEFAULT_MAX_MOMENTUM: float = -0.0015       # Maximum (most negative) cumulative return
+BEAR_CALL_DEFAULT_MOMENTUM_LOOKBACK: int = 5          # Number of bars for momentum calculation
+BEAR_CALL_DEFAULT_TARGET_DELTA_RANGE = (0.15, 0.30)  # Bearish short-call delta range
 
 
 # ==============================================================================
@@ -83,6 +86,12 @@ class BearCallSpreadStrategy(CreditSpreadStrategy):
         # Force bear-call-only mode
         config = {**config, "use_bull_puts": False, "use_bear_calls": True}
         super().__init__(event_manager, risk_profile, config)
+        # Read filter params from config (with defaults for backward-compat)
+        self._min_rsi = float(self.config.get("min_rsi", BEAR_CALL_DEFAULT_MIN_RSI))
+        self._max_momentum = float(self.config.get("max_momentum", BEAR_CALL_DEFAULT_MAX_MOMENTUM))
+        self._momentum_lookback = int(self.config.get("momentum_lookback", BEAR_CALL_DEFAULT_MOMENTUM_LOOKBACK))
+        target_delta_range = self.config.get("target_delta_range", BEAR_CALL_DEFAULT_TARGET_DELTA_RANGE)
+        self.config["short_call_delta_range"] = target_delta_range
         self.logger.info("BearCallSpreadStrategy initialized (bear-call-only mode)")
 
     # --------------------------------------------------------------------------
@@ -110,19 +119,27 @@ class BearCallSpreadStrategy(CreditSpreadStrategy):
 
             # --- Bearish pre-filter ---
             if "rsi" in market_data.columns:
-                latest_rsi = float(market_data["rsi"].iloc[-1])
-                if latest_rsi < BEAR_CALL_MIN_RSI:
+                rsi_val = float(market_data["rsi"].iloc[-1])
+                if math.isnan(rsi_val):
+                    self.logger.debug("BearCallSpread: skipping — RSI is NaN")
+                    return []
+                if rsi_val < self._min_rsi:
                     self.logger.debug(
-                        f"BearCallSpread: skipping — RSI {latest_rsi:.1f} < {BEAR_CALL_MIN_RSI}"
+                        "BearCallSpread: skipping — RSI %.1f < %.1f", rsi_val, self._min_rsi
                     )
                     return []
 
-            if "close" in market_data.columns and len(market_data) >= 2:
+            if "close" in market_data.columns and len(market_data) >= self._momentum_lookback + 1:
                 closes = market_data["close"]
-                momentum = (float(closes.iloc[-1]) - float(closes.iloc[-2])) / float(closes.iloc[-2])  # noqa: E501
-                if momentum > BEAR_CALL_MAX_MOMENTUM:
+                base_price = float(closes.iloc[-(self._momentum_lookback + 1)])
+                if base_price == 0.0:
+                    self.logger.debug("BearCallSpread: skipping — base price is zero")
+                    return []
+                momentum = (float(closes.iloc[-1]) - base_price) / base_price
+                if momentum > self._max_momentum:
                     self.logger.debug(
-                        f"BearCallSpread: skipping — momentum {momentum:.4f} above threshold"
+                        "BearCallSpread: skipping — %d-bar momentum %.4f above %.4f",
+                        self._momentum_lookback, momentum, self._max_momentum,
                     )
                     return []
 

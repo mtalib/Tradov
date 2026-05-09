@@ -38,8 +38,8 @@ try:
     from SpyderS_Signals.SpyderS01_DIXCalculator import SpyderDIXCalculator
     from SpyderS_Signals.SpyderS02_DIXDemo import SpyderDIXDemo
     from SpyderS_Signals.SpyderS03_DIXVisualizer import SpyderDIXVisualizer
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     # Fallback for standalone operation
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

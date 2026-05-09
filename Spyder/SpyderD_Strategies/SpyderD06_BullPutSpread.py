@@ -17,13 +17,13 @@ Module Description:
 
     Extends CreditSpreadStrategy with bull-put-only logic:
     - Disables bear call spread generation.
-    - Tightens delta selection to the bullish range.
-    - Requires RSI < 50 and positive price momentum for entry.
+    - Requires RSI < configurable threshold and positive price momentum for entry.
 """
 
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import math
 from typing import Any
 
 # ==============================================================================
@@ -43,8 +43,11 @@ from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import EventManager, RiskP
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-BULL_PUT_MAX_RSI = 50          # Only enter when RSI is below neutral
-BULL_PUT_MIN_MOMENTUM = 0.001  # Minimum upward price momentum (%)
+# Filter defaults (overridable via config)
+BULL_PUT_DEFAULT_MAX_RSI: float = 50.0               # Market not overbought
+BULL_PUT_DEFAULT_MIN_MOMENTUM: float = 0.0015        # Minimum cumulative return over lookback bars
+BULL_PUT_DEFAULT_MOMENTUM_LOOKBACK: int = 5          # Number of bars for momentum calculation
+BULL_PUT_DEFAULT_TARGET_DELTA_RANGE = (-0.30, -0.15) # Bullish short-put delta range
 
 
 # ==============================================================================
@@ -83,6 +86,12 @@ class BullPutSpreadStrategy(CreditSpreadStrategy):
         # Force bull-put-only mode
         config = {**config, "use_bull_puts": True, "use_bear_calls": False}
         super().__init__(event_manager, risk_profile, config)
+        # Read filter params from config (with defaults for backward-compat)
+        self._max_rsi = float(self.config.get("max_rsi", BULL_PUT_DEFAULT_MAX_RSI))
+        self._min_momentum = float(self.config.get("min_momentum", BULL_PUT_DEFAULT_MIN_MOMENTUM))
+        self._momentum_lookback = int(self.config.get("momentum_lookback", BULL_PUT_DEFAULT_MOMENTUM_LOOKBACK))
+        target_delta_range = self.config.get("target_delta_range", BULL_PUT_DEFAULT_TARGET_DELTA_RANGE)
+        self.config["short_put_delta_range"] = target_delta_range
         self.logger.info("BullPutSpreadStrategy initialized (bull-put-only mode)")
 
     # --------------------------------------------------------------------------
@@ -110,19 +119,27 @@ class BullPutSpreadStrategy(CreditSpreadStrategy):
 
             # --- Bullish pre-filter ---
             if "rsi" in market_data.columns:
-                latest_rsi = float(market_data["rsi"].iloc[-1])
-                if latest_rsi > BULL_PUT_MAX_RSI:
+                rsi_val = float(market_data["rsi"].iloc[-1])
+                if math.isnan(rsi_val):
+                    self.logger.debug("BullPutSpread: skipping — RSI is NaN")
+                    return []
+                if rsi_val > self._max_rsi:
                     self.logger.debug(
-                        f"BullPutSpread: skipping — RSI {latest_rsi:.1f} > {BULL_PUT_MAX_RSI}"
+                        "BullPutSpread: skipping — RSI %.1f > %.1f", rsi_val, self._max_rsi
                     )
                     return []
 
-            if "close" in market_data.columns and len(market_data) >= 2:
+            if "close" in market_data.columns and len(market_data) >= self._momentum_lookback + 1:
                 closes = market_data["close"]
-                momentum = (float(closes.iloc[-1]) - float(closes.iloc[-2])) / float(closes.iloc[-2])  # noqa: E501
-                if momentum < BULL_PUT_MIN_MOMENTUM:
+                base_price = float(closes.iloc[-(self._momentum_lookback + 1)])
+                if base_price == 0.0:
+                    self.logger.debug("BullPutSpread: skipping — base price is zero")
+                    return []
+                momentum = (float(closes.iloc[-1]) - base_price) / base_price
+                if momentum < self._min_momentum:
                     self.logger.debug(
-                        f"BullPutSpread: skipping — momentum {momentum:.4f} below threshold"
+                        "BullPutSpread: skipping — %d-bar momentum %.4f below %.4f",
+                        self._momentum_lookback, momentum, self._min_momentum,
                     )
                     return []
 

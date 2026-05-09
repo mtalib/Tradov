@@ -63,7 +63,7 @@ except ImportError:
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
-from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import Message, MessagePriority
+from Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus import MessagePriority
 
 # ==============================================================================
 # HELPERS
@@ -1183,7 +1183,7 @@ class MultiStrategyAllocator:
     def _send_rebalance_message(self, event: RebalanceEvent):
         """Send rebalance event via message bus"""
         if self.message_bus:
-            message = Message(
+            self.message_bus.publish(
                 topic="portfolio.rebalance",
                 sender="MultiStrategyAllocator",
                 priority=MessagePriority.HIGH,
@@ -1192,9 +1192,8 @@ class MultiStrategyAllocator:
                     'trades': event.trades_required,
                     'new_allocations': event.new_allocations,
                     'reason': event.reason.value
-                }
+                },
             )
-            self.message_bus.publish(message)
 
     def get_portfolio_state(self) -> PortfolioState:
         """Get current portfolio state"""

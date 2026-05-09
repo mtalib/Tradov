@@ -135,6 +135,27 @@ def test_d31_lean_allowlist_keeps_debit_spread_extensions_disabled_without_flags
     assert "BearPutSpread" not in orchestrator.available_strategies
 
 
+def test_d31_lean_weights_follow_d30_selector_output():
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    orchestrator.lean_mode = True
+    orchestrator.market_regime.current_regime = mod.MarketRegime.BULL_LOW_VOL
+    orchestrator._build_d30_consensus = MagicMock(return_value=SimpleNamespace())
+    orchestrator._d30_selector_init_attempted = True
+    orchestrator._d30_selector = SimpleNamespace(
+        select_strategy_from_consensus=lambda *_args, **_kwargs: SimpleNamespace(
+            selected_strategy=SimpleNamespace(value="bull_put_spread"),
+            reason="Bull trend - Bull Put Spread",
+            selector_feature_flag=None,
+        )
+    )
+
+    weights = orchestrator._get_regime_strategy_weights()
+
+    assert weights == {"BullPutSpread": 1.0}
+
+
 def test_d31_evolved_credit_spread_adapter_maps_native_signal_to_base_signal():
     orchestrator = _make_orchestrator()
     cls = orchestrator.available_strategies["EvolvedCreditSpread"]

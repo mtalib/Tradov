@@ -54,7 +54,7 @@ def _ensure_pkg(pkg_name: str):
 # partially populated sys.modules under various name variants.
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
-_u01_logger = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01_logger = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 # Force-register so any stale/broken entry (loaded by earlier test files) is
 # replaced with the fully-populated version that contains get_logger.
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01_logger
@@ -63,13 +63,13 @@ sys.modules["SpyderU01_Logger"] = _u01_logger
 # ==============================================================================
 # LOAD MODULES UNDER TEST
 # ==============================================================================
-_u40 = _load("Spyder/SpyderU_Utilities/SpyderU40_RateLimiter.py")
+_u40 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU40_RateLimiter.py")
 TokenBucket = _u40.TokenBucket
 RateLimiter = _u40.RateLimiter
 MultiRateLimiter = _u40.MultiRateLimiter
 rate_limit = _u40.rate_limit
 
-_u41 = _load("Spyder/SpyderU_Utilities/SpyderU41_CircuitBreaker.py")
+_u41 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU41_CircuitBreaker.py")
 CircuitState = _u41.CircuitState
 CircuitBreakerConfig = _u41.CircuitBreakerConfig
 CircuitBreakerError = _u41.CircuitBreakerError

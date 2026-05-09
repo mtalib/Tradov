@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU47_OptionalImport.py
 Purpose: Canonical helper for optional imports with loud-on-use fallbacks
 Author: SPYDER Trading System

@@ -66,7 +66,7 @@ except ImportError:
 # LOCAL IMPORTS WITH FALLBACKS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:
     logging.info("WARNING: SpyderLogger not available - using basic logging")
     import logging
@@ -76,7 +76,7 @@ except ImportError:
             return logging.getLogger(name)
 
 try:
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     logging.info("WARNING: SpyderErrorHandler not available - using basic error handling")
     class SpyderErrorHandler:

@@ -220,10 +220,30 @@ class TradierMarketDataAdapter:
         from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
             TradierClient,
             TradierMarketStream,
+            TradingEnvironment,
             create_tradier_client_from_env,
         )
         self._TradierMarketStream = TradierMarketStream
-        self._client: TradierClient = create_tradier_client_from_env()
+
+        allow_sandbox = str(
+            os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA", "false")
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        market_data_env = (
+            os.environ.get("TRADIER_MARKET_DATA_ENVIRONMENT")
+            or os.environ.get("TRADIER_ENVIRONMENT")
+            or "live"
+        ).strip().lower()
+        is_live_env = market_data_env in {"live", "production"}
+        if not is_live_env and not allow_sandbox:
+            logger.warning(
+                "TradierMarketDataAdapter forcing LIVE market-data endpoint "
+                "(TRADIER_MARKET_DATA_ENVIRONMENT=%s ignored).",
+                market_data_env or "<empty>",
+            )
+            is_live_env = True
+
+        env_enum = TradingEnvironment.LIVE if is_live_env else TradingEnvironment.SANDBOX
+        self._client: TradierClient = create_tradier_client_from_env(environment=env_enum)
         self._stream: Any = None
 
     def get_quotes(self, symbols: list[str]) -> dict[str, Any]:

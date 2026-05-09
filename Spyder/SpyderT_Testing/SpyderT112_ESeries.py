@@ -110,7 +110,7 @@ _SpyderLoggerCls = type(
 )
 for _u01_key in [
     "Spyder.SpyderU_Utilities.SpyderU01_Logger",
-    "SpyderU_Utilities.SpyderU01_Logger",
+    "Spyder.SpyderU_Utilities.SpyderU01_Logger",
 ]:
     _u01 = _ensure_mod(_u01_key)
     if not hasattr(_u01, "SpyderLogger"):
@@ -126,7 +126,7 @@ _SpyderErrorHandlerCls = type(
 )
 for _u02_key in [
     "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
-    "SpyderU_Utilities.SpyderU02_ErrorHandler",
+    "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
 ]:
     _u02 = _ensure_mod(_u02_key)
     if not hasattr(_u02, "SpyderErrorHandler"):
@@ -138,7 +138,7 @@ for _u02_key in [
 _DateTimeUtilsCls = type("DateTimeUtils", (), {"__init__": lambda self, *a, **k: None})
 for _u03_key in [
     "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils",
-    "SpyderU_Utilities.SpyderU03_DateTimeUtils",
+    "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils",
 ]:
     _u03 = _ensure_mod(_u03_key)
     if not hasattr(_u03, "DateTimeUtils"):
@@ -156,7 +156,7 @@ for _u03_key in [
 _MathUtilsCls = type("MathUtils", (), {"__init__": lambda self, *a, **k: None})
 for _u06_key in [
     "Spyder.SpyderU_Utilities.SpyderU06_MathUtils",
-    "SpyderU_Utilities.SpyderU06_MathUtils",
+    "Spyder.SpyderU_Utilities.SpyderU06_MathUtils",
 ]:
     _u06 = _ensure_mod(_u06_key)
     if not hasattr(_u06, "MathUtils"):
@@ -186,7 +186,7 @@ _U07_ATTRS = {
 }
 for _u07_key in [
     "Spyder.SpyderU_Utilities.SpyderU07_Constants",
-    "SpyderU_Utilities.SpyderU07_Constants",
+    "Spyder.SpyderU_Utilities.SpyderU07_Constants",
 ]:
     _u07 = _ensure_mod(_u07_key)
     for _k, _v in _U07_ATTRS.items():
@@ -198,7 +198,7 @@ for _u07_key in [
 # ---------------------------------------------------------------------------
 for _u14_key in [
     "Spyder.SpyderU_Utilities.SpyderU14_OptionStrategies",
-    "SpyderU_Utilities.SpyderU14_OptionStrategies",
+    "Spyder.SpyderU_Utilities.SpyderU14_OptionStrategies",
 ]:
     _u14 = _ensure_mod(_u14_key)
     for _attr in ["StrategyType", "OptionPosition", "OptionStrategy", "OptionLeg"]:
@@ -292,7 +292,7 @@ if not hasattr(_p05, "MultiStrategyAllocator"):
 
 # ---------------------------------------------------------------------------
 # Bare-name stubs for E13's try/except Spyder imports
-# (E13 imports SpyderU_Utilities.*, SpyderB_Broker.*, SpyderD_Strategies.*,
+# (E13 imports Spyder.SpyderU_Utilities.*, SpyderB_Broker.*, SpyderD_Strategies.*,
 #  SpyderA_Core.* — all without the 'Spyder.' prefix)
 # ---------------------------------------------------------------------------
 _SpyderClientCls = type("SpyderClient", (), {"__init__": lambda self, *a, **k: None})
@@ -302,16 +302,16 @@ _StrategyOrchestratorCls = type("StrategyOrchestrator", (), {"__init__": lambda 
 _TradingErrorCls = type("TradingError", (Exception,), {})
 _PerformanceMetricsCls = type("PerformanceMetrics", (), {"__init__": lambda self, *a, **k: None})
 
-# SpyderU_Utilities bare-name stubs
-_u15_bare = _ensure_mod("SpyderU_Utilities.SpyderU15_PerformanceMetrics")
+# Spyder.SpyderU_Utilities bare-name stubs
+_u15_bare = _ensure_mod("Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics")
 if not hasattr(_u15_bare, "PerformanceMetrics"):
     _u15_bare.PerformanceMetrics = _PerformanceMetricsCls
 
-_u10_bare = _ensure_mod("SpyderU_Utilities.SpyderU10_TradingCalendar")
+_u10_bare = _ensure_mod("Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar")
 if not hasattr(_u10_bare, "TradingCalendar"):
     _u10_bare.TradingCalendar = type("TradingCalendar", (), {"__init__": lambda self, *a, **k: None})
 
-_u02_bare = sys.modules.get("SpyderU_Utilities.SpyderU02_ErrorHandler")
+_u02_bare = sys.modules.get("Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler")
 if _u02_bare and not hasattr(_u02_bare, "TradingError"):
     _u02_bare.TradingError = _TradingErrorCls
 
@@ -371,11 +371,11 @@ _e_pkg_bare = sys.modules.setdefault("SpyderE_Risk", types.ModuleType("SpyderE_R
 _e_pkg_bare.__path__ = [_E_PKG_PATH]
 _e_pkg_bare.__package__ = "SpyderE_Risk"
 
-# Also pre-stub the bare SpyderU_Utilities package
+# Also pre-stub the bare Spyder.SpyderU_Utilities package
 _u_pkg_bare = sys.modules.setdefault(
-    "SpyderU_Utilities", types.ModuleType("SpyderU_Utilities")
+    "Spyder.SpyderU_Utilities", types.ModuleType("Spyder.SpyderU_Utilities")
 )
-_u_pkg_bare.__path__ = [os.path.join(_ROOT, "Spyder", "SpyderU_Utilities")]
+_u_pkg_bare.__path__ = [os.path.join(_ROOT, "Spyder", "Spyder.SpyderU_Utilities")]
 
 # ==============================================================================
 # MODULE LOADER HELPER

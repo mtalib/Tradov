@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import (
@@ -58,6 +61,101 @@ def test_market_data_worker_uses_canonical_quote_basket_builder() -> None:
     from Spyder.SpyderG_GUI.SpyderG18_MarketDataWorker import _build_quote_symbol_basket
 
     assert _build_quote_symbol_basket() == get_quote_symbol_basket()
+
+
+def test_paper_account_balance_source_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Paper account source env should always normalize to SpyderBox local."""
+    pytest.importorskip("PySide6")
+    from Spyder.SpyderG_GUI import SpyderG18_MarketDataWorker as worker
+
+    monkeypatch.delenv("SPYDER_PAPER_ACCOUNT_SOURCE", raising=False)
+    assert worker._paper_account_balance_source() == worker.PAPER_ACCOUNT_SOURCE_SPYDERBOX_LOCAL
+
+    monkeypatch.setenv("SPYDER_PAPER_ACCOUNT_SOURCE", "spyderbox")
+    assert worker._paper_account_balance_source() == worker.PAPER_ACCOUNT_SOURCE_SPYDERBOX_LOCAL
+
+    monkeypatch.setenv("SPYDER_PAPER_ACCOUNT_SOURCE", "local")
+    assert worker._paper_account_balance_source() == worker.PAPER_ACCOUNT_SOURCE_SPYDERBOX_LOCAL
+
+    monkeypatch.setenv("SPYDER_PAPER_ACCOUNT_SOURCE", "tradier_sandbox")
+    assert worker._paper_account_balance_source() == worker.PAPER_ACCOUNT_SOURCE_SPYDERBOX_LOCAL
+
+    monkeypatch.setenv("SPYDER_PAPER_ACCOUNT_SOURCE", "unexpected_value")
+    assert worker._paper_account_balance_source() == worker.PAPER_ACCOUNT_SOURCE_SPYDERBOX_LOCAL
+
+
+def test_load_spyderbox_snapshot_from_state_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """State-file fallback should provide local paper equity and buying power."""
+    pytest.importorskip("PySide6")
+    from Spyder.SpyderG_GUI import SpyderG18_MarketDataWorker as worker
+
+    state_path = tmp_path / "paper_state.json"
+    state_path.write_text(json.dumps({"_cash": 12345.67}), encoding="utf-8")
+
+    monkeypatch.setenv("SPYDER_PAPER_ACCOUNT_STATE_FILE", str(state_path))
+    snapshot = worker._load_spyderbox_paper_account_snapshot()
+
+    assert snapshot == (12345.67, 12345.67)
+
+
+def test_fetch_balance_only_prefers_local_spyderbox_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Balance-only path should emit SpyderBox local snapshot in paper mode."""
+    pytest.importorskip("PySide6")
+    from Spyder.SpyderG_GUI import SpyderG18_MarketDataWorker as worker
+
+    emitted: list[tuple[float, float]] = []
+
+    class _SignalStub:
+        def emit(self, equity: float, buying_power: float) -> None:
+            emitted.append((equity, buying_power))
+
+    class _WorkerStub:
+        balance_updated = _SignalStub()
+
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("SPYDER_PAPER_ACCOUNT_SOURCE", "spyderbox_local")
+    monkeypatch.setattr(worker, "_load_spyderbox_paper_account_snapshot", lambda: (101000.0, 99000.0))
+    monkeypatch.setattr(worker, "TRADIER_AVAILABLE", False)
+
+    worker.ThreadSafeMarketDataWorker._fetch_balance_only(_WorkerStub())
+
+    assert emitted == [(101000.0, 99000.0)]
+
+
+def test_fetch_balance_only_has_no_tradier_fallback_when_local_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Paper-mode balance fetch must fail closed when local snapshot is unavailable."""
+    pytest.importorskip("PySide6")
+    from Spyder.SpyderG_GUI import SpyderG18_MarketDataWorker as worker
+
+    emitted: list[tuple[float, float]] = []
+
+    class _SignalStub:
+        def emit(self, equity: float, buying_power: float) -> None:
+            emitted.append((equity, buying_power))
+
+    class _WorkerStub:
+        balance_updated = _SignalStub()
+
+    class _UnexpectedTradierClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Tradier fallback must not be used in paper mode")
+
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("SPYDER_PAPER_ACCOUNT_SOURCE", "tradier_sandbox")
+    monkeypatch.setattr(worker, "_load_spyderbox_paper_account_snapshot", lambda: None)
+    monkeypatch.setattr(worker, "TRADIER_AVAILABLE", True)
+    monkeypatch.setattr(worker, "TradierClient", _UnexpectedTradierClient)
+
+    worker.ThreadSafeMarketDataWorker._fetch_balance_only(_WorkerStub())
+
+    assert emitted == []
 
 
 def test_deprecated_symbols_are_not_part_of_market_overview() -> None:

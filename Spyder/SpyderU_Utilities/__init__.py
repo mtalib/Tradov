@@ -2,7 +2,7 @@
 """
 SPYDER - Automated SPY Options Trading System
 
-Module: SpyderU_Utilities/__init__.py
+Module: Spyder.SpyderU_Utilities/__init__.py
 Purpose: Utility functions and classes package initialization
 
 Description:
@@ -239,7 +239,7 @@ except ImportError as e:
     logging.info("Warning: SpyderU15_PerformanceMetrics import failed: %s", e)
 
 # SpyderU16_TechnicalAnalysis - ADVANCED TECHNICAL ANALYSIS
-# NOTE: Deferred from eager load — its module-level import of SpyderU_Utilities
+# NOTE: Deferred from eager load — its module-level import of Spyder.SpyderU_Utilities
 # (short form) triggers a full second load of this __init__, adding ~340ms.
 # Import SpyderU16_TechnicalAnalysis directly when TechnicalAnalysis is needed.
 # try:
@@ -290,7 +290,7 @@ def list_available_utilities():
 # ==============================================================================
 # Count successfully loaded modules
 loaded_modules = len([m for m in __all__ if m in globals()])
-logging.info("✅ SpyderU_Utilities: %s modules loaded successfully", loaded_modules)
+logging.info("✅ Spyder.SpyderU_Utilities: %s modules loaded successfully", loaded_modules)
 
 # ==============================================================================
 # BACKWARDS COMPATIBILITY ALIASES

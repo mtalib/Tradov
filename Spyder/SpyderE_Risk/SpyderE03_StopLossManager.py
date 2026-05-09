@@ -37,7 +37,7 @@ import pandas as pd
 import numpy as np
 
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 except ImportError:
     import logging
     SpyderLogger = type('SpyderLogger', (), {
@@ -45,14 +45,14 @@ except ImportError:
     })()
 
 try:
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
     SpyderErrorHandler = type('SpyderErrorHandler', (), {
         'handle_error': lambda self, e, context: logging.warning("Error in %s: %s", context, e)
     })
 
 try:
-    from SpyderU_Utilities.SpyderU07_Constants import OrderType, OrderAction, PositionSide
+    from Spyder.SpyderU_Utilities.SpyderU07_Constants import OrderType, OrderAction, PositionSide
 except ImportError:
     pass  # fallback defined below
 try:
@@ -64,7 +64,7 @@ except ImportError:
     _e03_get_n04_calculator = None  # type: ignore[assignment]
     _E03_N04_AVAILABLE = False
 try:
-    from SpyderU_Utilities.SpyderU07_Constants import OrderType, OrderAction, PositionSide
+    from Spyder.SpyderU_Utilities.SpyderU07_Constants import OrderType, OrderAction, PositionSide
 except ImportError:
     # Define minimal enums if not available
     class OrderType(Enum):

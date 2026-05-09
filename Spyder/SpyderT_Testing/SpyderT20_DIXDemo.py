@@ -41,8 +41,8 @@ import yfinance as yf
 import requests
 
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-    from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
     from SpyderS_Signals.SpyderS01_DIXCalculator import (
         DataSource, CalculationStatus, StockDPI, DIXResult,
         FINRA_BASE_URL, FINRA_FILE_PREFIX, FINRA_DATE_FORMAT

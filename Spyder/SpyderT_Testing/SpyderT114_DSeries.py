@@ -32,7 +32,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 _D_PKG_PATH = os.path.join(_ROOT, "Spyder", "SpyderD_Strategies")
-_U_PKG_PATH = os.path.join(_ROOT, "Spyder", "SpyderU_Utilities")
+_U_PKG_PATH = os.path.join(_ROOT, "Spyder", "Spyder.SpyderU_Utilities")
 
 
 def _ensure_mod(key, force=False):
@@ -140,7 +140,7 @@ class _SpyderLoggerCls:
 
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU01_Logger",
-    "SpyderU_Utilities.SpyderU01_Logger",
+    "Spyder.SpyderU_Utilities.SpyderU01_Logger",
 ]:
     _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
     if _new:
@@ -164,7 +164,7 @@ class _ErrHandlerCls:
 
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
-    "SpyderU_Utilities.SpyderU02_ErrorHandler",
+    "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
 ]:
     _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
     if _new:
@@ -181,7 +181,7 @@ _u07_spec = _ilu.spec_from_file_location(
 _u07_real = _ilu.module_from_spec(_u07_spec)
 _u07_real.__package__ = "Spyder.SpyderU_Utilities"
 sys.modules["Spyder.SpyderU_Utilities.SpyderU07_Constants"] = _u07_real
-sys.modules.setdefault("SpyderU_Utilities.SpyderU07_Constants", _u07_real)
+sys.modules.setdefault("Spyder.SpyderU_Utilities.SpyderU07_Constants", _u07_real)
 _u07_spec.loader.exec_module(_u07_real)
 
 # Inject constants that D modules import but are absent from the real U07 file
@@ -192,7 +192,7 @@ _u07_real.CALENDAR_SPREAD_STOP_LOSS = 2.00
 # ---- U13 TechnicalIndicators ------------------------------------------------
 for _key in [
     "Spyder.SpyderU_Utilities.SpyderU13_TechnicalIndicators",
-    "SpyderU_Utilities.SpyderU13_TechnicalIndicators",
+    "Spyder.SpyderU_Utilities.SpyderU13_TechnicalIndicators",
 ]:
     _m, _new = _ensure_mod(_key, force=_key.startswith("Spyder."))
     if _new:
@@ -594,7 +594,7 @@ _d_pkg_bare.__package__ = "SpyderD_Strategies"
 
 # Bare-form parent stubs
 for _bare in [
-    "SpyderU_Utilities",
+    "Spyder.SpyderU_Utilities",
     "SpyderA_Core",
     "SpyderE_Risk",
     "SpyderF_Analysis",
@@ -838,7 +838,7 @@ _d30 = _load_d_module(
 )
 
 # D31 — patch U15 (PerformanceMetrics doesn't exist in real U15, only PerformanceCalculator)
-_u15_mod = sys.modules.get("SpyderU_Utilities.SpyderU15_PerformanceMetrics")
+_u15_mod = sys.modules.get("Spyder.SpyderU_Utilities.SpyderU15_PerformanceMetrics")
 if _u15_mod and not hasattr(_u15_mod, "PerformanceMetrics"):
     _u15_mod.PerformanceMetrics = MagicMock
 

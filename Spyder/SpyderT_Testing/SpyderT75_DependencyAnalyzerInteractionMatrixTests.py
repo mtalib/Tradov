@@ -38,16 +38,16 @@ def _ensure_pkg(name):
 _ensure_pkg("Spyder")
 _ensure_pkg("Spyder.SpyderU_Utilities")
 
-_u01 = _load("Spyder/SpyderU_Utilities/SpyderU01_Logger.py")
+_u01 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU01_Logger.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU01_Logger"] = _u01
 
-_u02 = _load("Spyder/SpyderU_Utilities/SpyderU02_ErrorHandler.py")
+_u02 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU02_ErrorHandler.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler"] = _u02
 
-_u18 = _load("Spyder/SpyderU_Utilities/SpyderU18_DependencyAnalyzer.py")
+_u18 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU18_DependencyAnalyzer.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU18_DependencyAnalyzer"] = _u18
 
-_u19 = _load("Spyder/SpyderU_Utilities/SpyderU19_InteractionMatrix.py")
+_u19 = _load("Spyder/Spyder.SpyderU_Utilities/SpyderU19_InteractionMatrix.py")
 sys.modules["Spyder.SpyderU_Utilities.SpyderU19_InteractionMatrix"] = _u19
 
 # ==============================================================================
@@ -137,8 +137,8 @@ class BrokerClient:
     _write(tmp, "SpyderB_Broker/__init__.py", "")
 
     # Module U (utilities)
-    (Path(tmp) / "SpyderU_Utilities").mkdir()
-    _write(tmp, "SpyderU_Utilities/SpyderU01_Logger.py", """
+    (Path(tmp) / "Spyder.SpyderU_Utilities").mkdir()
+    _write(tmp, "Spyder.SpyderU_Utilities/SpyderU01_Logger.py", """
 import logging
 
 class SpyderLogger:
@@ -149,7 +149,7 @@ class SpyderLogger:
 def get_logger(name):
     return SpyderLogger.get_logger(name)
 """)
-    _write(tmp, "SpyderU_Utilities/__init__.py", "")
+    _write(tmp, "Spyder.SpyderU_Utilities/__init__.py", "")
 
     return tmp
 
@@ -232,7 +232,7 @@ class TestModuleInfoDataclass:
             name="SpyderA_Core.SpyderA01_Main",
             path="/spyder/SpyderA_Core/SpyderA01_Main.py",
             group="SpyderA_Core",
-            imports=["SpyderU_Utilities.SpyderU01_Logger"],
+            imports=["Spyder.SpyderU_Utilities.SpyderU01_Logger"],
             external_imports=["os", "requests"],
             functions=["start", "stop"],
             classes=["MainOrchestrator"],

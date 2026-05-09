@@ -2,7 +2,7 @@
 """
 SPYDER - Autonomous Options Trading System v1.0
 
-Series: SpyderU_Utilities
+Series: Spyder.SpyderU_Utilities
 Module: SpyderU12_AgentIntegration.py
 Purpose: Centralised agent registry, health aggregator, and lifecycle manager
 
@@ -46,7 +46,7 @@ from collections.abc import Callable
 # LOCAL IMPORTS
 # ==============================================================================
 try:
-    from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+    from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     _log = SpyderLogger.get_logger(__name__)
 except ImportError:
     _log = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ class AgentRegistry:
 
     Example usage (from any agent module)::
 
-        from SpyderU_Utilities.SpyderU12_AgentIntegration import get_registry, AgentSeries
+        from Spyder.SpyderU_Utilities.SpyderU12_AgentIntegration import get_registry, AgentSeries
 
         _reg = get_registry()
         _reg.register("X01_Greeks", AgentSeries.X, "Real-time Greeks calculation")

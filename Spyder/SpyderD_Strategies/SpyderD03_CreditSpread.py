@@ -22,11 +22,12 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as _time, timedelta, timezone
 from typing import Any
 from dataclasses import dataclass, field
 import uuid
 from enum import Enum, auto
+from zoneinfo import ZoneInfo
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -79,6 +80,23 @@ VOLUME_THRESHOLD = 1.5  # Volume relative to average
 # Position limits
 MAX_CREDIT_SPREAD_POSITIONS = 5
 POSITION_SIZE_PERCENT = 0.02  # 2% of capital per position
+
+# Eastern-Time zone constant
+_TZ_ET = ZoneInfo("America/New_York")
+
+# Parse OPTIMAL_ENTRY_START / OPTIMAL_ENTRY_END from U07 into datetime.time objects.
+# U07 stores them as "HH:MM:SS" strings representing ET times.  The fallback
+# values mirror the U07 defaults so the gate is still active even if parsing fails.
+def _parse_et_time(t_str: Any, fallback_h: int, fallback_m: int) -> _time:
+    try:
+        parts = str(t_str).split(":")
+        return _time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
+    except (AttributeError, ValueError, IndexError):
+        return _time(fallback_h, fallback_m)
+
+
+_OPTIMAL_ENTRY_START_T: _time = _parse_et_time(OPTIMAL_ENTRY_START, 10, 15)
+_OPTIMAL_ENTRY_END_T: _time = _parse_et_time(OPTIMAL_ENTRY_END, 11, 40)
 
 # ==============================================================================
 # ENUMS
@@ -280,9 +298,9 @@ class CreditSpreadStrategy(BaseStrategy):
             if len(self.active_spreads) >= self.max_spreads:
                 return signals
 
-            # Check entry time window
-            current_time = datetime.now(timezone.utc).time()
-            if not (OPTIMAL_ENTRY_START <= current_time <= OPTIMAL_ENTRY_END):
+            # Check entry time window (constants are ET times)
+            current_time = datetime.now(_TZ_ET).time()
+            if not (_OPTIMAL_ENTRY_START_T <= current_time <= _OPTIMAL_ENTRY_END_T):
                 return signals
 
             # Get current price

@@ -1443,7 +1443,7 @@ class LiveEngine:
                         "Telegram confirmation error: %s — falling back to autonomous decision.", _tg_err  # noqa: E501
                     )
 
-            # Testing override (sandbox/paper only)
+            # Testing override (paper-mode only)
             if os.environ.get('AUTO_CONFIRM_HIGH_RISK_ORDERS', 'false').lower() == 'true':
                 self.logger.warning("AUTO_CONFIRM_HIGH_RISK_ORDERS enabled — auto-approved (TESTING ONLY)")  # noqa: E501
                 return True
@@ -2386,7 +2386,7 @@ class LiveEngine:
     ) -> None:
         """Stage 4 — record a successful kill-switch / emergency-flatten drill.
 
-        Call this after a controlled drill run (paper-mode or sandbox) to reset
+        Call this after a controlled paper-mode drill run to reset
         the staleness counter checked by Q14's ``_check_kill_switch_test_staleness``.
         Writes ``~/.spyder_kill_test.json`` with the current timestamp.
 
