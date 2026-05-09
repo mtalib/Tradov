@@ -1676,7 +1676,7 @@ class CustomMetricsOrchestrator(QObject):
                 if not vix_df.empty:
                     seed = [
                         {"date": str(idx.date()), "iv": float(v)}
-                        for idx, v in zip(vix_df.index, vix_df.values)
+                        for idx, v in zip(vix_df.index, vix_df.values, strict=False)
                     ]
                     # Prepend seed; real observations at the tail take priority.
                     history = (seed + history)[-252:]
@@ -2462,8 +2462,8 @@ class CustomMetricsOrchestrator(QObject):
             if not isinstance(payload, dict):
                 continue
 
-            def _extract_change_pct(symbol: str) -> float:
-                entry = payload.get(symbol)
+            def _extract_change_pct(symbol: str, _payload: dict[str, Any] = payload) -> float:
+                entry = _payload.get(symbol)
                 if not isinstance(entry, dict):
                     return float("nan")
                 try:

@@ -67,8 +67,6 @@ except ImportError:  # pragma: no cover
     _F20_RSI_AVAILABLE = False
     _f20_rsi = None  # type: ignore[assignment]
 
-# VWAP is not exported by SpyderF20_Indicators; local implementation is primary.
-_F20_VWAP_AVAILABLE = False
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
     BaseStrategy,
     EventManager,
@@ -88,6 +86,9 @@ from Spyder.SpyderS_Signals.SpyderS08_PivotMeanReversionSignal import (
     PivotMRSignal,
 )
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: F401
+
+# VWAP is not exported by SpyderF20_Indicators; local implementation is primary.
+_F20_VWAP_AVAILABLE = False
 
 # ==============================================================================
 # CONSTANTS

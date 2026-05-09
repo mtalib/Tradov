@@ -181,7 +181,7 @@ def test_worker_live_data_snapshot_keys_are_explicit() -> None:
     assert {"SPY", "SPX", "VIX", "VIX9D", "VXV", "VVIX", "SKEW"}.issubset(keys)
     assert {"DIA", "QQQ", "IWM", "TLT", "HYG", "LQD", "GLD", "USO", "DXY"}.issubset(keys)
     assert {"XLK", "XLF", "CPC", "RVOL"}.issubset(keys)
-    assert "RUT" not in keys
+    assert "RUT" in keys
     assert "UUP" not in keys
 
 

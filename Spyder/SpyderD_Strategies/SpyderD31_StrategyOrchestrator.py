@@ -249,7 +249,7 @@ try:
             return []
 
         def _to_d18_market_data(self, market_data: pd.DataFrame) -> dict[str, Any]:
-            prices = self._extract_series(market_data, ["SPY", "close", "Close", "price", "last"]) 
+            prices = self._extract_series(market_data, ["SPY", "close", "Close", "price", "last"])
             volumes = self._extract_series(market_data, ["volume", "Volume"])
             vix_series = self._extract_series(market_data, ["VIX", "vix"])
 
@@ -4934,7 +4934,8 @@ class StrategyOrchestrator:
 
         position_tracker = getattr(supervisor, "position_tracker", None)
         if position_tracker is None and hasattr(supervisor, "engine"):
-            position_tracker = getattr(getattr(supervisor, "engine"), "position_tracker", None)
+            engine = supervisor.engine
+            position_tracker = engine.position_tracker if hasattr(engine, "position_tracker") else None
         if position_tracker is None:
             return 0
 

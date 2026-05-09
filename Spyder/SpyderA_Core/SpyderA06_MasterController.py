@@ -29,8 +29,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from datetime import time as dt_time, timezone
+from datetime import datetime, time as dt_time, timezone
 from enum import Enum
 from typing import Any
 from collections.abc import Callable

@@ -29,7 +29,7 @@ import threading
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -1217,9 +1217,9 @@ class LiveEngine:
                 checks_passed = False
 
         # Account balance check
-        if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+        if hasattr(self.broker, "get_account_info") and callable(self.broker.get_account_info):
             account_info = self.broker.get_account_info() or {}
-        elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+        elif hasattr(self.broker, "get_account_balances") and callable(self.broker.get_account_balances):
             raw = self.broker.get_account_balances()
             account_info = raw.get("balances", raw) if isinstance(raw, dict) else {}
         else:
@@ -1561,9 +1561,9 @@ class LiveEngine:
         """
         try:
             # Get from broker interface — B40 uses get_account_balances(); B04 uses get_account_info()
-            if hasattr(self.broker, "get_account_info") and callable(getattr(self.broker, "get_account_info")):
+            if hasattr(self.broker, "get_account_info") and callable(self.broker.get_account_info):
                 account_info = self.broker.get_account_info() or {}
-            elif hasattr(self.broker, "get_account_balances") and callable(getattr(self.broker, "get_account_balances")):
+            elif hasattr(self.broker, "get_account_balances") and callable(self.broker.get_account_balances):
                 raw = self.broker.get_account_balances()
                 account_info = raw.get("balances", raw) if isinstance(raw, dict) else {}
             else:

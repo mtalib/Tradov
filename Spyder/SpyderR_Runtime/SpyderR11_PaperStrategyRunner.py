@@ -1292,11 +1292,11 @@ def create_paper_strategy_runner_from_env(harness: Any) -> PaperStrategyRunner:
         # Paper sessions can run without broker position sync; avoid startup-only
         # cold-state vetoes that block autonomous entry loops indefinitely.
         if hasattr(risk_manager, "_account_state_synced"):
-            setattr(risk_manager, "_account_state_synced", True)
+            risk_manager._account_state_synced = True
         # Paper runner frequently operates without full S07 quality feeds
         # (vol-surface/dealer-flow), so keep this guard telemetry-only here.
         if hasattr(risk_manager, "_enforce_decision_quality_slo"):
-            setattr(risk_manager, "_enforce_decision_quality_slo", False)
+            risk_manager._enforce_decision_quality_slo = False
         logger.info("PaperStrategyRunner: risk gate = SpyderE01.RiskManager")
     except Exception as exc:
         logger.warning("Could not build E01 RiskManager (%s) — running without risk gate", exc)

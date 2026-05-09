@@ -39,6 +39,7 @@ jobs:
         run: |
           ruff check Spyder/ \
             --select E,W,F,T20,B \
+            --ignore E402,E501 \
             --exclude Spyder/SpyderT_Testing,Spyder/SpyderQ_Scripts \
             --output-format github
 

@@ -24,19 +24,16 @@ Change Log:
 # ==============================================================================
 import json
 import os
+import threading
 import time
 import uuid
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
-
-_ET_TZ = ZoneInfo("America/New_York")
-from typing import Any
-from dataclasses import dataclass, field
-from enum import Enum
 from collections import deque
-import threading
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
-from queue import Queue, Empty
+from queue import Empty, Queue
+from typing import Any
 from zoneinfo import ZoneInfo
 
 # ==============================================================================
@@ -58,6 +55,8 @@ from Spyder.SpyderA_Core.SpyderA05_EventManager import (
     EventPriority,
 )
 from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import get_session_supervisor
+
+_ET_TZ = ZoneInfo("America/New_York")
 
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/{method}"
 MAX_MESSAGE_LENGTH = 4096
@@ -2247,7 +2246,7 @@ class TelegramBot:
 
         risk = getattr(supervisor, "risk", None)
         if risk is not None and hasattr(risk, "_account_state_synced"):
-            if not bool(getattr(risk, "_account_state_synced")):
+            if not bool(risk._account_state_synced):
                 failed.append("risk_sync")
 
         return failed

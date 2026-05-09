@@ -316,7 +316,6 @@ from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (  # noqa: E402
     TRADIER_CONNECT_TIME,  # noqa: F401
     TRADIER_DISCONNECT_TIME,  # noqa: F401
     LogThrottle,  # noqa: F401
-    is_dashboard_session as _is_dashboard_session,
     is_tradier_active_window as is_tradier_window,
 )
 
@@ -352,7 +351,7 @@ from Spyder.SpyderG_GUI.SpyderG19_ChartIndicators import (  # noqa: E402
     PivotLevels,  # noqa: F401
     compute_chart_indicators,
 )
-from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import (
+from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import (  # noqa: E402
     get_market_overview_symbols,
 )
 

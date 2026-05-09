@@ -29,7 +29,6 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
     OrderType,
     TradierAPIError,
     TradierClient,
-    TradingEnvironment,
 )
 
 
