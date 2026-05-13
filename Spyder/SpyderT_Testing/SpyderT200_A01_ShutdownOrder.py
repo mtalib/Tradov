@@ -394,6 +394,38 @@ def test_a01_start_pending_session_supervisor_autostart_hands_paper_to_dashboard
     assert getattr(supervisor, "_spyder_autostart_in_progress", False) is False
 
 
+def test_r12_stop_cancels_deferred_paper_l09_attach(monkeypatch) -> None:
+    r12 = import_module("Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor")
+    l09_module = import_module("Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine")
+
+    created_configs: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        l09_module,
+        "create_unified_regime_engine",
+        lambda config=None: created_configs.append(dict(config or {})) or SimpleNamespace(),
+    )
+    monkeypatch.setattr(r12, "_PAPER_ORCHESTRATOR_L09_DEFER_SECONDS", 5.0)
+
+    supervisor = r12.SessionSupervisor(mode="paper", dry_run=True, skip_orphan_sweep=True)
+    supervisor.logger = SimpleNamespace(
+        info=lambda *_args, **_kwargs: None,
+        warning=lambda *_args, **_kwargs: None,
+        error=lambda *_args, **_kwargs: None,
+        debug=lambda *_args, **_kwargs: None,
+    )
+    supervisor._components = []
+    supervisor._running = True
+    orchestrator = SimpleNamespace(set_regime_engine=MagicMock())
+    supervisor.orchestrator = orchestrator
+
+    supervisor._start_deferred_orchestrator_regime_engine_initialization(orchestrator)
+    supervisor.stop()
+
+    assert created_configs == []
+    orchestrator.set_regime_engine.assert_not_called()
+    assert supervisor._deferred_l09_thread is None
+
+
 def test_a01_resolve_gui_paper_autostart_delay_ms_defers_paper_until_opening_warmup_end() -> None:
     a01_main = import_module("Spyder.SpyderA_Core.SpyderA01_Main")
 

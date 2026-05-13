@@ -1415,6 +1415,12 @@ Status Distribution:
         previous_handler = self._previous_signal_handlers.get(signum)
         self.logger.info("Received signal %s", signum)
         self.stop()
+        if previous_handler == signal.SIG_IGN:
+            return
+        if previous_handler == signal.SIG_DFL:
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+            return
         if callable(previous_handler) and previous_handler is not self._signal_handler:
             previous_handler(signum, frame)
 

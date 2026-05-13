@@ -217,8 +217,12 @@ class CustomMetricsOrchestrator(QObject):
         self._startup_thread: threading.Thread | None = None
         self._update_thread: threading.Thread | None = None
         self._update_running = False
+        self._startup_join_timeout_seconds = float(
+            self.config.get("startup_join_timeout_seconds", 12.0)
+        )
         self._calculator_init_lock = threading.Lock()
         self._calculators_initialized = False
+        self._has_published_metrics = False
 
         # Optional calculators are resolved lazily off the GUI thread so the
         # dashboard can finish painting before heavy import chains begin.
@@ -600,48 +604,52 @@ class CustomMetricsOrchestrator(QObject):
 
         Runs entirely off the Qt main thread — no GUI calls allowed here.
         """
-        if self._shutdown_requested:
-            return
-
-        self._ensure_calculators_initialized()
-
-        if self._shutdown_requested:
-            return
-
-        if self.swan_scheduler is not None:
-            try:
-                self.swan_scheduler.start(daemon=True)
-                self.logger.debug("✅ S04_BlackSwanScheduler started (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM ET)")  # noqa: E501
-            except Exception as e:
-                self.logger.error("Black Swan scheduler startup failed: %s", e)
-
-        # S02 DIX Scheduler — initialize() hits FINRA over HTTP; must be off-thread
-        if self.dix_scheduler is not None:
-            try:
-                if self.dix_scheduler.initialize():
-                    if self._shutdown_requested:
-                        return
-                    self.dix_scheduler.start(run_initial_calculation=False)
-                    self.logger.debug("✅ S02_DIXScheduler started (9:00 AM + 6:30 PM ET)")
-                else:
-                    self.logger.warning("⚠️ DIX scheduler init failed; skipping scheduled collection")  # noqa: E501
-            except Exception as e:
-                self.logger.error("DIX scheduler startup failed: %s", e)
-
-        # Full startup metrics fetch is deferred to the regular timer path.
-        # The one-shot startup refresh was the main source of shutdown-time
-        # stragglers because it fans out into multiple blocking network sources.
-
-        # Late-start Black Swan catch-up check
         try:
             if self._shutdown_requested:
                 return
+
+            self._ensure_calculators_initialized()
+
+            if self._shutdown_requested:
+                return
+
             if self.swan_scheduler is not None:
-                # Run the 9:15 AM check so late starts don't silently miss the
-                # pre-open window.
-                self.swan_scheduler.run_now("daily_check_0915")
-        except Exception as e:
-            self.logger.error("Startup Black Swan check failed: %s", e)
+                try:
+                    self.swan_scheduler.start(daemon=True)
+                    self.logger.debug("✅ S04_BlackSwanScheduler started (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM ET)")  # noqa: E501
+                except Exception as e:
+                    self.logger.error("Black Swan scheduler startup failed: %s", e)
+
+            # S02 DIX Scheduler — initialize() hits FINRA over HTTP; must be off-thread
+            if self.dix_scheduler is not None:
+                try:
+                    if self.dix_scheduler.initialize():
+                        if self._shutdown_requested:
+                            return
+                        self.dix_scheduler.start(run_initial_calculation=False)
+                        self.logger.debug("✅ S02_DIXScheduler started (9:00 AM + 6:30 PM ET)")
+                    else:
+                        self.logger.warning("⚠️ DIX scheduler init failed; skipping scheduled collection")  # noqa: E501
+                except Exception as e:
+                    self.logger.error("DIX scheduler startup failed: %s", e)
+
+            # Full startup metrics fetch is deferred to the regular timer path.
+            # The one-shot startup refresh was the main source of shutdown-time
+            # stragglers because it fans out into multiple blocking network sources.
+
+            # Late-start Black Swan catch-up check
+            try:
+                if self._shutdown_requested:
+                    return
+                if self.swan_scheduler is not None:
+                    # Run the 9:15 AM check so late starts don't silently miss the
+                    # pre-open window.
+                    self.swan_scheduler.run_now("daily_check_0915")
+            except Exception as e:
+                self.logger.error("Startup Black Swan check failed: %s", e)
+        finally:
+            if self._startup_thread is threading.current_thread():
+                self._startup_thread = None
 
     def stop(self):
         """Stop the orchestrator"""
@@ -649,6 +657,11 @@ class CustomMetricsOrchestrator(QObject):
             self._shutdown_requested = True
             startup_thread = self._startup_thread
             update_thread = self._update_thread
+            startup_thread_still_running = False
+            update_thread_still_running = False
+            startup_join_timeout = float(
+                getattr(self, "_startup_join_timeout_seconds", 12.0)
+            )
 
             # Stop data collection schedulers first
             if self.dix_scheduler is not None:
@@ -668,7 +681,8 @@ class CustomMetricsOrchestrator(QObject):
                 and startup_thread.is_alive()
                 and startup_thread is not threading.current_thread()
             ):
-                startup_thread.join(timeout=1.0)
+                startup_thread.join(timeout=startup_join_timeout)
+                startup_thread_still_running = startup_thread.is_alive()
 
             if (
                 update_thread is not None
@@ -676,12 +690,28 @@ class CustomMetricsOrchestrator(QObject):
                 and update_thread is not threading.current_thread()
             ):
                 update_thread.join(timeout=2.0)
+                update_thread_still_running = update_thread.is_alive()
 
-            self._startup_thread = None
-            self._update_thread = None
+            if not startup_thread_still_running and self._startup_thread is startup_thread:
+                self._startup_thread = None
+            if not update_thread_still_running and self._update_thread is update_thread:
+                self._update_thread = None
             self._update_running = False
 
-            self.logger.info("⏹️ Orchestrator stopped")
+            if startup_thread_still_running:
+                self.logger.warning(
+                    "S07 startup thread still active after %.1fs stop wait; leaving handle attached",
+                    startup_join_timeout,
+                )
+            if update_thread_still_running:
+                self.logger.warning(
+                    "S07 update thread still active after 2.0s stop wait; leaving handle attached"
+                )
+
+            if startup_thread_still_running or update_thread_still_running:
+                self.logger.info("⏹️ Orchestrator stop requested")
+            else:
+                self.logger.info("⏹️ Orchestrator stopped")
             self.connection_status_changed.emit(False, f"Client {CLIENT_ID} Stopped")
 
         except Exception as e:
@@ -719,6 +749,10 @@ class CustomMetricsOrchestrator(QObject):
     def _shutdown_in_progress(self) -> bool:
         """Return True once orchestrator shutdown has begun."""
         return bool(getattr(self, "_shutdown_requested", False))
+
+    def has_published_metrics_snapshot(self) -> bool:
+        """Return True after at least one full metrics update has completed."""
+        return bool(getattr(self, "_has_published_metrics", False))
 
     def update_all_metrics(self, include_breadth: bool = True):
         """Update all metrics from S-Series calculators"""
@@ -843,6 +877,7 @@ class CustomMetricsOrchestrator(QObject):
 
                 # Format and emit signals
                 formatted_metrics = self._format_metrics(updated_metrics)
+                self._has_published_metrics = True
                 self.metrics_updated.emit(formatted_metrics)
 
                 # Log successful update

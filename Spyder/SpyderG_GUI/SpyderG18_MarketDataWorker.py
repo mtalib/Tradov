@@ -465,6 +465,21 @@ BALANCE_SOURCE_LIVE = "live"
 BALANCE_SOURCE_PAPER = "paper"
 
 
+def _emit_balance_update(worker: Any, source: str, equity: float, option_bp: float) -> bool:
+    """Emit a balance update while remaining compatible with older 2-arg stubs."""
+    signal_obj = getattr(worker, "balance_updated", None)
+    emit = getattr(signal_obj, "emit", None)
+    if not callable(emit):
+        return False
+
+    try:
+        emit(source, equity, option_bp)
+    except TypeError:
+        emit(equity, option_bp)
+
+    return True
+
+
 def _emit_paper_balance_update(worker: Any) -> bool:
     """Emit the local SpyderBox paper balance snapshot when available."""
     local_snapshot = _load_spyderbox_paper_account_snapshot()
@@ -473,8 +488,7 @@ def _emit_paper_balance_update(worker: Any) -> bool:
 
     setattr(worker, "_paper_balance_snapshot_missing_warned", False)
     equity, option_bp = local_snapshot
-    worker.balance_updated.emit(BALANCE_SOURCE_PAPER, equity, option_bp)
-    return True
+    return _emit_balance_update(worker, BALANCE_SOURCE_PAPER, equity, option_bp)
 
 
 def _paper_snapshot_gap_requires_warning() -> bool:
@@ -525,8 +539,7 @@ def _emit_live_balance_update(worker: Any) -> bool:
     client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
     bal = client.get_account_balances()
     equity, option_bp = _extract_tradier_balance(bal)
-    worker.balance_updated.emit(BALANCE_SOURCE_LIVE, equity, option_bp)
-    return True
+    return _emit_balance_update(worker, BALANCE_SOURCE_LIVE, equity, option_bp)
 
 
 def _runtime_trading_mode() -> str:

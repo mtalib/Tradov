@@ -102,3 +102,50 @@ def test_adopt_running_session_supervisor_ui_state_marks_paper_session_active() 
         "🚀 PAPER trading started — market data confirmed live",
         "TRADING ACTIVE [PAPER] - Unified session started",
     ]
+
+
+def test_start_metrics_orchestrator_waits_for_first_live_snapshot() -> None:
+    dash = _build_dashboard_stub()
+    dash._on_custom_metrics_updated = MagicMock()
+    dash._on_market_stress_changed = MagicMock()
+    dash.symbol_widgets = {}
+    dash.current_dialog = None
+    dash.signal_panel = None
+
+    orchestrator = SimpleNamespace(
+        metrics_updated=SimpleNamespace(connect=MagicMock()),
+        stress_level_changed=SimpleNamespace(connect=MagicMock()),
+        has_published_metrics_snapshot=lambda: False,
+        current_metrics={},
+        _format_metrics=lambda payload: payload,
+    )
+
+    with patch(
+        "SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator.get_metrics_orchestrator",
+        return_value=orchestrator,
+    ):
+        SpyderTradingDashboard._start_metrics_orchestrator(dash)
+
+    dash._on_custom_metrics_updated.assert_not_called()
+    assert dash._metrics_orchestrator is orchestrator
+    assert dash._log_lines == [
+        "⏳ Custom metrics orchestrator started — awaiting first live snapshot",
+    ]
+
+
+def test_on_custom_metrics_updated_announces_active_once() -> None:
+    dash = _build_dashboard_stub()
+    dash.symbol_widgets = {}
+    dash.current_dialog = None
+    dash.signal_panel = None
+    dash.update_regime_pills = MagicMock()
+    dash._update_liquidity_diagnostics_panel = MagicMock()
+    dash._custom_metrics_live_announced = False
+
+    SpyderTradingDashboard._on_custom_metrics_updated(dash, {})
+    SpyderTradingDashboard._on_custom_metrics_updated(dash, {})
+
+    assert dash._log_lines == [
+        "✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)",
+        "AUTONOMOUS METRICS ACTIVE - DIX/SWAN stress monitor online",
+    ]

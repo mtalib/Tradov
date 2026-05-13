@@ -18,6 +18,7 @@ import os
 import sys
 import types
 import logging
+import signal
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -418,6 +419,22 @@ class TestS04Scheduler(unittest.TestCase):
     def test_running_flag_initially_false(self):
         scheduler = BlackSwanScheduler()
         self.assertFalse(scheduler.running)
+
+    def test_signal_handler_chains_default_sigterm(self):
+        scheduler = BlackSwanScheduler()
+        scheduler._previous_signal_handlers[signal.SIGTERM] = signal.SIG_DFL
+        scheduler.stop = MagicMock()
+
+        with patch(
+            "Spyder.SpyderS_Signals.SpyderS04_BlackSwanScheduler.signal.signal"
+        ) as signal_mock, patch(
+            "Spyder.SpyderS_Signals.SpyderS04_BlackSwanScheduler.os.kill"
+        ) as kill_mock:
+            scheduler._signal_handler(signal.SIGTERM, None)
+
+        scheduler.stop.assert_called_once_with()
+        signal_mock.assert_called_once_with(signal.SIGTERM, signal.SIG_DFL)
+        kill_mock.assert_called_once_with(os.getpid(), signal.SIGTERM)
 
 
 # ==============================================================================

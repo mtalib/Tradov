@@ -7455,20 +7455,31 @@ class SpyderTradingDashboard(QMainWindow):
             # Wire S07 output → custom metric widgets in the Market Overview panel
             self._metrics_orchestrator.metrics_updated.connect(self._on_custom_metrics_updated)
             self._metrics_orchestrator.stress_level_changed.connect(self._on_market_stress_changed)
-            self._hydrate_metrics_orchestrator_snapshot()
-            self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")  # noqa: E501
-            self.add_system_log("AUTONOMOUS METRICS ACTIVE - DIX/SWAN stress monitor online")
+            self._custom_metrics_live_announced = True
+            if self._hydrate_metrics_orchestrator_snapshot():
+                self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")  # noqa: E501
+                self.add_system_log("AUTONOMOUS METRICS ACTIVE - DIX/SWAN stress monitor online")
+            else:
+                self._custom_metrics_live_announced = False
+                self.add_system_log("⏳ Custom metrics orchestrator started — awaiting first live snapshot")
         except Exception as e:
             self.logger.error("Failed to start metrics orchestrator: %s", e, exc_info=True)
             self.add_system_log(f"⚠️ Metrics orchestrator unavailable: {e}")
 
-    def _hydrate_metrics_orchestrator_snapshot(self) -> None:
+    def _hydrate_metrics_orchestrator_snapshot(self) -> bool:
         """Backfill Market Overview rows from S07 cached metrics after late connection."""
         orchestrator = getattr(self, "_metrics_orchestrator", None)
         if orchestrator is None:
-            return
+            return False
 
         try:
+            has_snapshot = getattr(orchestrator, "has_published_metrics_snapshot", None)
+            if callable(has_snapshot):
+                if not has_snapshot():
+                    return False
+            elif not bool(getattr(orchestrator, "_has_published_metrics", False)):
+                return False
+
             metrics_lock = getattr(orchestrator, "_metrics_lock", None)
             if metrics_lock is None:
                 snapshot = dict(getattr(orchestrator, "current_metrics", {}) or {})
@@ -7478,11 +7489,13 @@ class SpyderTradingDashboard(QMainWindow):
 
             formatter = getattr(orchestrator, "_format_metrics", None)
             if not snapshot or not callable(formatter):
-                return
+                return False
 
             self._on_custom_metrics_updated(formatter(snapshot))
+            return True
         except Exception as exc:
             self.logger.debug("Custom metrics snapshot hydrate skipped: %s", exc)
+            return False
 
     def _on_market_stress_changed(self, stress_level: str) -> None:
         """Surface market stress-regime transitions in Autonomous AI Activity."""
@@ -7504,6 +7517,11 @@ class SpyderTradingDashboard(QMainWindow):
         self._last_custom_metrics_payload = (
             dict(metrics) if isinstance(metrics, dict) else {}
         )
+
+        if not getattr(self, "_custom_metrics_live_announced", False):
+            self._custom_metrics_live_announced = True
+            self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")  # noqa: E501
+            self.add_system_log("AUTONOMOUS METRICS ACTIVE - DIX/SWAN stress monitor online")
 
         for s07_key, (widget_key, scale) in self._S07_METRIC_ROUTING.items():
             entry = metrics.get(s07_key)

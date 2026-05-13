@@ -141,6 +141,8 @@ class SessionSupervisor:
             os.getenv("SPYDER_SESSION_SUPERVISOR_PROFILE_STARTUP")
         )
         self._startup_profile_started_at: float | None = None
+        self._deferred_l09_cancel = threading.Event()
+        self._deferred_l09_thread: threading.Thread | None = None
 
     # --------------------------------------------------------------------------
     # PUBLIC API
@@ -158,6 +160,7 @@ class SessionSupervisor:
             ``True`` on success, ``False`` if any required component fails.
         """
         self.session_id = f"{self.mode}-{uuid.uuid4().hex[:12]}"
+        self._deferred_l09_cancel.clear()
         self.logger.debug(
             "SessionSupervisor.start() — mode=%s symbols=%s session_id=%s",
             self.mode,
@@ -257,6 +260,19 @@ class SessionSupervisor:
                 return
             self._running = False
 
+        self._deferred_l09_cancel.set()
+        deferred_l09_thread = self._deferred_l09_thread
+        if (
+            deferred_l09_thread is not None
+            and deferred_l09_thread.is_alive()
+            and deferred_l09_thread is not threading.current_thread()
+        ):
+            deferred_l09_thread.join(timeout=2.0)
+            if deferred_l09_thread.is_alive():
+                self.logger.warning("Deferred L09 attach thread still active during shutdown")
+            elif self._deferred_l09_thread is deferred_l09_thread:
+                self._deferred_l09_thread = None
+
         # O10 (v14): formalized shutdown phases with named log lines so an
         # operator (or the Q24 watchdog) can pinpoint where a shutdown hung.
         self.logger.info("SessionSupervisor.stop() — flatten=%s", flatten)
@@ -304,6 +320,7 @@ class SessionSupervisor:
         # C3 (v18): clear the singleton so get_session_supervisor() returns None
         # once this instance is stopped.  Prevents stale references from
         # accumulating in long-running processes that start multiple sessions.
+        self._deferred_l09_thread = None
         set_session_supervisor(None)
 
     def block_until_signal(self) -> None:
@@ -694,15 +711,20 @@ class SessionSupervisor:
 
         def _hydrate() -> None:
             try:
-                time.sleep(_PAPER_ORCHESTRATOR_L09_DEFER_SECONDS)
+                if self._deferred_l09_cancel.wait(_PAPER_ORCHESTRATOR_L09_DEFER_SECONDS):
+                    return
                 from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (
-                    get_unified_regime_engine,
+                    create_unified_regime_engine,
                 )
 
-                l09_engine = get_unified_regime_engine(
+                l09_engine = create_unified_regime_engine(
                     _PAPER_ORCHESTRATOR_L09_DEFER_CONFIG
                 )
-                if self.orchestrator is not orchestrator:
+                if (
+                    self._deferred_l09_cancel.is_set()
+                    or not self._running
+                    or self.orchestrator is not orchestrator
+                ):
                     return
 
                 if hasattr(orchestrator, "set_regime_engine"):
@@ -718,12 +740,16 @@ class SessionSupervisor:
                     "⚠️ Deferred L09 UnifiedRegimeEngine initialization failed: %s",
                     l09_exc,
                 )
+            finally:
+                if self._deferred_l09_thread is threading.current_thread():
+                    self._deferred_l09_thread = None
 
-        threading.Thread(
+        self._deferred_l09_thread = threading.Thread(
             target=_hydrate,
             daemon=True,
             name="SpyderR12DeferredL09Init",
-        ).start()
+        )
+        self._deferred_l09_thread.start()
 
     def _start_liveness_monitor(self) -> None:
         """Start the LivenessMonitor (v14 O1/O9/A13)."""
