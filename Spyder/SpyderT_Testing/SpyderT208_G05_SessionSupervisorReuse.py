@@ -149,3 +149,23 @@ def test_on_custom_metrics_updated_announces_active_once() -> None:
         "✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)",
         "AUTONOMOUS METRICS ACTIVE - DIX/SWAN stress monitor online",
     ]
+
+
+def test_complete_start_button_loading_transition_cancels_after_shutdown_begins() -> None:
+    dash = _build_dashboard_stub()
+    dash._shutdown_in_progress = True
+    dash._start_button_loading_generation = 3
+    dash._start_button_loading_timer_active = True
+    dash._paper_session_start_pending = True
+    dash._paper_session_start_show_failure_dialog = True
+    dash._start_unified_session_supervisor = MagicMock(return_value=True)
+    dash._set_start_button_active_state = MagicMock()
+
+    SpyderTradingDashboard._complete_start_button_loading_transition(dash, 3)
+
+    dash._start_unified_session_supervisor.assert_not_called()
+    dash._set_start_button_active_state.assert_not_called()
+    assert dash._paper_session_start_pending is False
+    assert dash._paper_session_start_show_failure_dialog is False
+    assert dash._start_button_loading_timer_active is False
+    assert dash._start_button_loading_generation == 4

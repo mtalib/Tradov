@@ -1325,6 +1325,10 @@ class SpyderTradingDashboard(QMainWindow):
 
     def _queue_paper_session_start(self, *, show_failure_dialog: bool = True) -> None:
         """Delay paper session startup until the launch-time loading window completes."""
+        if getattr(self, "_shutdown_in_progress", False):
+            self._cancel_start_button_loading_transition()
+            return
+
         if self.trading_mode != TradingMode.PAPER:
             return
 
@@ -1348,6 +1352,10 @@ class SpyderTradingDashboard(QMainWindow):
     def _finalize_queued_paper_session_start(self) -> None:
         """Start the paper session once the loading-live-data window completes."""
         if not getattr(self, "_paper_session_start_pending", False):
+            return
+
+        if getattr(self, "_shutdown_in_progress", False):
+            self._cancel_start_button_loading_transition()
             return
 
         self._paper_session_start_pending = False
@@ -1385,6 +1393,10 @@ class SpyderTradingDashboard(QMainWindow):
     def _complete_start_button_loading_transition(self, generation: int) -> None:
         """Switch the loading button into the steady active state after the delay."""
         if generation != getattr(self, "_start_button_loading_generation", 0):
+            return
+
+        if getattr(self, "_shutdown_in_progress", False):
+            self._cancel_start_button_loading_transition()
             return
 
         self._start_button_loading_timer_active = False
@@ -9842,6 +9854,7 @@ class SpyderTradingDashboard(QMainWindow):
         """Enhanced close event handler with real data cleanup and heartbeat monitoring"""
         try:
             self._shutdown_in_progress = True
+            self._cancel_start_button_loading_transition()
 
             # Stop real data timer if active
             if hasattr(self, "_real_data_timer") and self._real_data_timer:

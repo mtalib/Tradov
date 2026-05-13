@@ -100,6 +100,7 @@ import schedule
 import signal
 import pandas as pd
 import numpy as np
+import pytz
 
 try:
     import smtplib
@@ -1217,7 +1218,8 @@ Status Distribution:
         still produces at least one risk snapshot before the first future check fires.
         Only MARKET_CHECK tasks are considered; report/cleanup tasks are skipped.
         """
-        now = datetime.now(timezone.utc)
+        eastern_tz = pytz.timezone("US/Eastern")
+        now = datetime.now(eastern_tz)
         today = now.date()
 
         missed: list[str] = []
@@ -1228,12 +1230,10 @@ Status Distribution:
                 continue
             # schedule_time is "HH:MM" for daily checks; skip interval tasks
             try:
-                scheduled_dt = datetime.strptime(
+                scheduled_naive = datetime.strptime(
                     f"{today} {task.schedule_time}", "%Y-%m-%d %H:%M"
                 )
-                # Keep awareness aligned for safe comparisons.
-                if now.tzinfo is not None and scheduled_dt.tzinfo is None:
-                    scheduled_dt = scheduled_dt.replace(tzinfo=now.tzinfo)
+                scheduled_dt = eastern_tz.localize(scheduled_naive)
             except ValueError:
                 continue
             if scheduled_dt < now:

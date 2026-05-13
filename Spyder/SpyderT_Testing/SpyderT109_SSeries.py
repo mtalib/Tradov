@@ -23,6 +23,8 @@ import unittest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
+import pytz
+
 logging.disable(logging.CRITICAL)
 
 _ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -435,6 +437,42 @@ class TestS04Scheduler(unittest.TestCase):
         scheduler.stop.assert_called_once_with()
         signal_mock.assert_called_once_with(signal.SIGTERM, signal.SIG_DFL)
         kill_mock.assert_called_once_with(os.getpid(), signal.SIGTERM)
+
+    def test_run_missed_startup_checks_uses_eastern_schedule_times(self):
+        scheduler = BlackSwanScheduler()
+        scheduler.logger = MagicMock()
+        scheduler.scheduled_tasks = {
+            "daily_check_0400": ScheduledTask(
+                task_id="daily_check_0400",
+                task_type=ScheduleType.MARKET_CHECK,
+                schedule_time="04:00",
+                callback=lambda: None,
+                enabled=True,
+                last_run=None,
+                next_run=None,
+            ),
+            "daily_check_0915": ScheduledTask(
+                task_id="daily_check_0915",
+                task_type=ScheduleType.MARKET_CHECK,
+                schedule_time="09:15",
+                callback=lambda: None,
+                enabled=True,
+                last_run=None,
+                next_run=None,
+            ),
+        }
+        scheduler.run_now = MagicMock()
+        eastern_tz = pytz.timezone("US/Eastern")
+        startup_now = eastern_tz.localize(datetime(2026, 5, 14, 8, 0))
+
+        with patch(
+            "Spyder.SpyderS_Signals.SpyderS04_BlackSwanScheduler.datetime"
+        ) as datetime_mock:
+            datetime_mock.now.return_value = startup_now
+            datetime_mock.strptime.side_effect = datetime.strptime
+            scheduler._run_missed_startup_checks()
+
+        scheduler.run_now.assert_called_once_with("daily_check_0400")
 
 
 # ==============================================================================
