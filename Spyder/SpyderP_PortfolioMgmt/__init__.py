@@ -1,4 +1,3 @@
-import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -33,6 +32,10 @@ Key Features:
     • Performance attribution analysis
 """
 
+import logging
+from importlib import import_module
+from importlib.util import find_spec
+
 # ==============================================================================
 # VERSION INFORMATION
 # ==============================================================================
@@ -41,97 +44,56 @@ __author__ = "Mohamed Talib"
 __email__ = "mtalib@spyder-trading.com"
 __status__ = "Production"
 
-# ==============================================================================
-# CORE MODULE IMPORTS
-# ==============================================================================
+_MODULE_EXPORTS = {
+    "SpyderP01_PortfolioManager": ["PortfolioManager"],
+    "SpyderP02_AllocationOptimizer": ["AllocationOptimizer"],
+    "SpyderP03_CorrelationAnalyzer": ["CorrelationAnalyzer"],
+    "SpyderP04_CapitalAllocator": ["CapitalAllocator"],
+    "SpyderP05_MultiStrategyAllocator": ["MultiStrategyAllocator"],
+    "SpyderP06_StrategyRotation": ["StrategyRotation"],
+    "SpyderP07_RenaissancePositionSizer": [
+        "RenaissancePositionSizer",
+        "PositionSizeMethod",
+        "PositionSizeResult",
+        "TradeRecord",
+        "PerformanceMetrics",
+        "create_position_sizer",
+    ],
+}
+_LAZY_EXPORTS = {
+    export_name: (module_name, export_name)
+    for module_name, export_names in _MODULE_EXPORTS.items()
+    for export_name in export_names
+}
+_MODULE_AVAILABILITY_CACHE: dict[str, bool] = {}
 
-# Portfolio Manager
-try:
-    from .SpyderP01_PortfolioManager import (
-        PortfolioManager,
-        # Add main classes from PortfolioManager when inspected
-    )
 
-    PORTFOLIO_MANAGER_AVAILABLE = True
-except ImportError as e:
-    logging.info("⚠️ SpyderP01_PortfolioManager not available: %s", e)
-    PORTFOLIO_MANAGER_AVAILABLE = False
+def _module_is_available(module_name: str) -> bool:
+    cached = _MODULE_AVAILABILITY_CACHE.get(module_name)
+    if cached is not None:
+        return cached
 
-# Allocation Optimizer
-try:
-    from .SpyderP02_AllocationOptimizer import (
-        AllocationOptimizer,
-        # Add main classes from AllocationOptimizer when inspected
-    )
+    try:
+        available = find_spec(f"{__name__}.{module_name}") is not None
+    except Exception:
+        available = False
 
-    ALLOCATION_OPTIMIZER_AVAILABLE = True
-except ImportError as e:
-    logging.info("⚠️ SpyderP02_AllocationOptimizer not available: %s", e)
-    ALLOCATION_OPTIMIZER_AVAILABLE = False
+    _MODULE_AVAILABILITY_CACHE[module_name] = available
+    return available
 
-# Correlation Analyzer
-try:
-    from .SpyderP03_CorrelationAnalyzer import (
-        CorrelationAnalyzer,
-        # Add main classes from CorrelationAnalyzer when inspected
-    )
 
-    CORRELATION_ANALYZER_AVAILABLE = True
-except Exception as e:
-    logging.info("⚠️ SpyderP03_CorrelationAnalyzer not available: %s", e)
-    CORRELATION_ANALYZER_AVAILABLE = False
+def _load_export(export_name: str):
+    module_name, attribute_name = _LAZY_EXPORTS[export_name]
 
-# Capital Allocator
-try:
-    from .SpyderP04_CapitalAllocator import (
-        CapitalAllocator,
-        # Add main classes from CapitalAllocator when inspected
-    )
+    try:
+        module = import_module(f".{module_name}", __name__)
+        value = getattr(module, attribute_name)
+    except ImportError as exc:
+        logging.info("⚠️ %s.%s not available: %s", module_name, attribute_name, exc)
+        raise AttributeError(f"module {__name__!r} has no attribute {export_name!r}") from exc
 
-    CAPITAL_ALLOCATOR_AVAILABLE = True
-except ImportError as e:
-    logging.info("⚠️ SpyderP04_CapitalAllocator not available: %s", e)
-    CAPITAL_ALLOCATOR_AVAILABLE = False
-
-# Multi-Strategy Allocator
-try:
-    from .SpyderP05_MultiStrategyAllocator import (
-        MultiStrategyAllocator,
-        # Add main classes from MultiStrategyAllocator when inspected
-    )
-
-    MULTI_STRATEGY_ALLOCATOR_AVAILABLE = True
-except ImportError as e:
-    logging.info("⚠️ SpyderP05_MultiStrategyAllocator not available: %s", e)
-    MULTI_STRATEGY_ALLOCATOR_AVAILABLE = False
-
-# Strategy Rotation
-try:
-    from .SpyderP06_StrategyRotation import (
-        StrategyRotation,
-        # Add main classes from StrategyRotation when inspected
-    )
-
-    STRATEGY_ROTATION_AVAILABLE = True
-except ImportError as e:
-    logging.info("⚠️ SpyderP06_StrategyRotation not available: %s", e)
-    STRATEGY_ROTATION_AVAILABLE = False
-
-# Renaissance Position Sizer
-try:
-    from .SpyderP07_RenaissancePositionSizer import (
-        RenaissancePositionSizer,
-        PositionSizeMethod,
-        PositionSizeResult,
-        TradeRecord,
-        PerformanceMetrics,
-        create_position_sizer,
-    )
-
-    RENAISSANCE_POSITION_SIZER_AVAILABLE = True
-except ImportError as e:
-    logging.info("⚠️ SpyderP07_RenaissancePositionSizer not available: %s", e)
-    RENAISSANCE_POSITION_SIZER_AVAILABLE = False
+    globals()[export_name] = value
+    return value
 
 # ==============================================================================
 # PACKAGE CONVENIENCE FUNCTIONS
@@ -146,13 +108,8 @@ def get_available_modules():
         dict: Dictionary with module availability status
     """
     return {
-        "SpyderP01_PortfolioManager": PORTFOLIO_MANAGER_AVAILABLE,
-        "SpyderP02_AllocationOptimizer": ALLOCATION_OPTIMIZER_AVAILABLE,
-        "SpyderP03_CorrelationAnalyzer": CORRELATION_ANALYZER_AVAILABLE,
-        "SpyderP04_CapitalAllocator": CAPITAL_ALLOCATOR_AVAILABLE,
-        "SpyderP05_MultiStrategyAllocator": MULTI_STRATEGY_ALLOCATOR_AVAILABLE,
-        "SpyderP06_StrategyRotation": STRATEGY_ROTATION_AVAILABLE,
-        "SpyderP07_RenaissancePositionSizer": RENAISSANCE_POSITION_SIZER_AVAILABLE,
+        module_name: _module_is_available(module_name)
+        for module_name in _MODULE_EXPORTS
     }
 
 
@@ -176,17 +133,45 @@ def get_package_info():
         "available_modules": available_count,
         "module_status": available_modules,
         "capabilities": {
-            "portfolio_management": PORTFOLIO_MANAGER_AVAILABLE,
-            "allocation_optimization": ALLOCATION_OPTIMIZER_AVAILABLE,
-            "correlation_analysis": CORRELATION_ANALYZER_AVAILABLE,
-            "capital_allocation": CAPITAL_ALLOCATOR_AVAILABLE,
-            "multi_strategy_allocation": MULTI_STRATEGY_ALLOCATOR_AVAILABLE,
-            "strategy_rotation": STRATEGY_ROTATION_AVAILABLE,
+            "portfolio_management": available_modules.get("SpyderP01_PortfolioManager", False),
+            "allocation_optimization": available_modules.get("SpyderP02_AllocationOptimizer", False),
+            "correlation_analysis": available_modules.get("SpyderP03_CorrelationAnalyzer", False),
+            "capital_allocation": available_modules.get("SpyderP04_CapitalAllocator", False),
+            "multi_strategy_allocation": available_modules.get("SpyderP05_MultiStrategyAllocator", False),
+            "strategy_rotation": available_modules.get("SpyderP06_StrategyRotation", False),
         },
     }
 
 
-def create_portfolio_manager():
+def get_global_portfolio_manager():
+    """Get the shared portfolio manager instance without importing P01."""
+    from .SpyderP00_GlobalPortfolioRegistry import get_global_portfolio_manager as _get_global
+
+    return _get_global()
+
+
+def get_portfolio_manager():
+    """Backward-compatible alias for the shared portfolio manager accessor."""
+    from .SpyderP00_GlobalPortfolioRegistry import get_portfolio_manager as _get_portfolio_manager
+
+    return _get_portfolio_manager()
+
+
+def set_global_portfolio_manager(portfolio_manager):
+    """Publish the shared portfolio manager instance without importing P01."""
+    from .SpyderP00_GlobalPortfolioRegistry import set_global_portfolio_manager as _set_global
+
+    _set_global(portfolio_manager)
+
+
+def reset_global_portfolio_manager():
+    """Reset the shared portfolio manager instance without importing P01."""
+    from .SpyderP00_GlobalPortfolioRegistry import reset_global_portfolio_manager as _reset_global
+
+    _reset_global()
+
+
+def create_portfolio_manager(initial_capital: float = 100000, config: dict | None = None):
     """
     Factory function to create a PortfolioManager instance.
 
@@ -196,10 +181,9 @@ def create_portfolio_manager():
     Raises:
         ImportError: If PortfolioManager is not available
     """
-    if not PORTFOLIO_MANAGER_AVAILABLE:
-        raise ImportError("PortfolioManager module is not available")
+    from .SpyderP00_GlobalPortfolioRegistry import create_portfolio_manager as _create_portfolio_manager
 
-    return PortfolioManager()
+    return _create_portfolio_manager(initial_capital=initial_capital, config=config)
 
 
 def create_optimization_suite():
@@ -214,20 +198,20 @@ def create_optimization_suite():
     """
     suite = {}
 
-    if ALLOCATION_OPTIMIZER_AVAILABLE:
-        suite["allocation_optimizer"] = AllocationOptimizer()
+    if _module_is_available("SpyderP02_AllocationOptimizer"):
+        suite["allocation_optimizer"] = _load_export("AllocationOptimizer")()
 
-    if CORRELATION_ANALYZER_AVAILABLE:
-        suite["correlation_analyzer"] = CorrelationAnalyzer()
+    if _module_is_available("SpyderP03_CorrelationAnalyzer"):
+        suite["correlation_analyzer"] = _load_export("CorrelationAnalyzer")()
 
-    if CAPITAL_ALLOCATOR_AVAILABLE:
-        suite["capital_allocator"] = CapitalAllocator()
+    if _module_is_available("SpyderP04_CapitalAllocator"):
+        suite["capital_allocator"] = _load_export("CapitalAllocator")()
 
-    if MULTI_STRATEGY_ALLOCATOR_AVAILABLE:
-        suite["multi_strategy_allocator"] = MultiStrategyAllocator()
+    if _module_is_available("SpyderP05_MultiStrategyAllocator"):
+        suite["multi_strategy_allocator"] = _load_export("MultiStrategyAllocator")()
 
-    if STRATEGY_ROTATION_AVAILABLE:
-        suite["strategy_rotation"] = StrategyRotation()
+    if _module_is_available("SpyderP06_StrategyRotation"):
+        suite["strategy_rotation"] = _load_export("StrategyRotation")()
 
     if not suite:
         raise ImportError("No optimization modules are available")
@@ -264,6 +248,18 @@ def validate_package():
         return False
 
 
+def __getattr__(name):
+    """Lazily expose heavyweight convenience exports on first access."""
+    if name in _LAZY_EXPORTS:
+        return _load_export(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    """Expose lazy exports in dir() without importing them."""
+    return sorted(set(globals()) | set(__all__) | set(_LAZY_EXPORTS))
+
+
 # ==============================================================================
 # PACKAGE EXPORTS
 # ==============================================================================
@@ -275,48 +271,33 @@ __all__ = [
     # Utility functions
     "get_available_modules",
     "get_package_info",
+    "get_global_portfolio_manager",
+    "get_portfolio_manager",
+    "set_global_portfolio_manager",
+    "reset_global_portfolio_manager",
     "create_portfolio_manager",
     "create_optimization_suite",
     "validate_package",
+    "PortfolioManager",
+    "AllocationOptimizer",
+    "CorrelationAnalyzer",
+    "CapitalAllocator",
+    "MultiStrategyAllocator",
+    "StrategyRotation",
+    "RenaissancePositionSizer",
+    "PositionSizeMethod",
+    "PositionSizeResult",
+    "TradeRecord",
+    "PerformanceMetrics",
+    "create_position_sizer",
 ]
-
-# Conditionally add available classes to __all__
-if PORTFOLIO_MANAGER_AVAILABLE:
-    __all__.extend(["PortfolioManager"])
-
-if ALLOCATION_OPTIMIZER_AVAILABLE:
-    __all__.extend(["AllocationOptimizer"])
-
-if CORRELATION_ANALYZER_AVAILABLE:
-    __all__.extend(["CorrelationAnalyzer"])
-
-if CAPITAL_ALLOCATOR_AVAILABLE:
-    __all__.extend(["CapitalAllocator"])
-
-if MULTI_STRATEGY_ALLOCATOR_AVAILABLE:
-    __all__.extend(["MultiStrategyAllocator"])
-
-if STRATEGY_ROTATION_AVAILABLE:
-    __all__.extend(["StrategyRotation"])
-
-if RENAISSANCE_POSITION_SIZER_AVAILABLE:
-    __all__.extend([
-        "RenaissancePositionSizer",
-        "PositionSizeMethod",
-        "PositionSizeResult",
-        "TradeRecord",
-        "PerformanceMetrics",
-        "create_position_sizer",
-    ])
 
 # ==============================================================================
 # INITIALIZATION
 # ==============================================================================
 
-# Perform package validation on import
-if __name__ != "__main__":
-    validate_package()
-else:
+# Keep validation available for manual checks, but do not run it on import.
+if __name__ == "__main__":
     # If running as main, show detailed package info
     logging.info("=" * 70)
     logging.info("SPYDER P - PORTFOLIO MANAGEMENT PACKAGE")

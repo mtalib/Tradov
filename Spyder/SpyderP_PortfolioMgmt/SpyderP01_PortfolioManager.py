@@ -2027,33 +2027,31 @@ def optimize_portfolio_allocation(expected_returns: np.ndarray,
 # MODULE INITIALIZATION
 # ==============================================================================
 
-import threading as _threading  # noqa: E402
+from .SpyderP00_GlobalPortfolioRegistry import (  # noqa: E402
+    get_global_portfolio_manager as _get_global_portfolio_manager,
+    reset_global_portfolio_manager as _reset_global_portfolio_manager,
+    set_global_portfolio_manager as _set_global_portfolio_manager,
+)
 
-# Global portfolio manager instance guarded by a lock so concurrent
-# init/reset/get calls from different threads cannot race.
-_global_portfolio_manager: PortfolioManager | None = None
-_global_portfolio_manager_lock = _threading.RLock()
 
 def get_global_portfolio_manager() -> PortfolioManager | None:
-    """Get global portfolio manager instance"""
-    with _global_portfolio_manager_lock:
-        return _global_portfolio_manager
+    """Get global portfolio manager instance."""
+    return _get_global_portfolio_manager()
+
 
 def get_portfolio_manager() -> PortfolioManager | None:
     """Backward-compatible accessor for the global portfolio manager."""
     return get_global_portfolio_manager()
 
+
 def set_global_portfolio_manager(portfolio_manager: PortfolioManager) -> None:
-    """Set global portfolio manager instance"""
-    global _global_portfolio_manager
-    with _global_portfolio_manager_lock:
-        _global_portfolio_manager = portfolio_manager
+    """Set global portfolio manager instance."""
+    _set_global_portfolio_manager(portfolio_manager)
+
 
 def reset_global_portfolio_manager() -> None:
     """Clear global portfolio manager instance (for shutdown/testing)."""
-    global _global_portfolio_manager
-    with _global_portfolio_manager_lock:
-        _global_portfolio_manager = None
+    _reset_global_portfolio_manager()
 
 # ==============================================================================
 # MAIN EXECUTION

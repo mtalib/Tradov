@@ -108,6 +108,8 @@ SYMBOL_DESCRIPTIONS = {
     "DEX": "Delta Exposure - Directional hedging flow",
     "OGL": "Zero Gamma Level - Key support/resistance",
     "DIX": "Dark Index - Dark pool buying percentage",
+    "PCA-PROXY": "PCA Proxy - Sector ETF eigenfactor signal for broad SPY leadership and dispersion",
+    "PCA-IV": "PCA IV Surface Factor - Live SPY implied-volatility surface eigenfactor; seeds until history is sufficient",
     "WRS": "Weighted Regime Score - Composite market regime signal",
     "PSR": "Probabilistic Sharpe Ratio - Strategy edge confidence",
     "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
