@@ -260,6 +260,10 @@ class ConfigManager:
         self.sync_lock = threading.RLock()
         self.is_syncing = False
         self.sync_thread: threading.Thread | None = None
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_event = threading.Event()
+        self._shutdown_registered = False
+        self._shutdown_complete = False
 
         # Encryption
         self.encryption_manager = EncryptionManager()
@@ -284,6 +288,7 @@ class ConfigManager:
         self._load_existing_configs()
         self._start_file_watching()
         self._start_sync_thread()
+        self._register_shutdown_cleanup()
 
         # Register with integration hub
         if HUB_AVAILABLE:
@@ -891,6 +896,9 @@ class ConfigManager:
     def _start_sync_thread(self) -> None:
         """Start synchronization thread"""
         try:
+            if self._shutdown_event.is_set():
+                return
+
             if self.sync_thread and self.sync_thread.is_alive():
                 return
 
@@ -900,11 +908,25 @@ class ConfigManager:
         except Exception as e:
             self.error_handler.handle_error(e, "_start_sync_thread")
 
+    def _register_shutdown_cleanup(self) -> None:
+        """Register instance shutdown with the process-wide shutdown coordinator."""
+        if self._shutdown_registered:
+            return
+
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator
+
+            get_shutdown_coordinator().register_cleanup(self.shutdown)
+            self._shutdown_registered = True
+        except Exception as e:
+            self.logger.debug("ConfigManager shutdown coordinator unavailable: %s", e)
+
     def _sync_loop(self) -> None:
         """Main synchronization loop"""
-        while True:
+        while not self._shutdown_event.is_set():
             try:
-                time.sleep(CONFIG_SYNC_INTERVAL)  # thread-safe: time.sleep() intentional
+                if self._shutdown_event.wait(CONFIG_SYNC_INTERVAL):
+                    break
 
                 if self.pending_changes:
                     self._process_pending_changes()
@@ -919,7 +941,8 @@ class ConfigManager:
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_sync_loop")
-                time.sleep(10)  # thread-safe: time.sleep() intentional
+                if self._shutdown_event.wait(10):
+                    break
 
     def _process_pending_changes(self) -> None:
         """Process pending configuration changes"""
@@ -1169,11 +1192,25 @@ class ConfigManager:
 
     def shutdown(self) -> None:
         """Shutdown configuration manager"""
+        with self._shutdown_lock:
+            if self._shutdown_complete:
+                return
+
+            self._shutdown_complete = True
+            self._shutdown_event.set()
+
         try:
             # Stop file watching
             if self.file_observer:
                 self.file_observer.stop()
-                self.file_observer.join()
+                self.file_observer.join(timeout=2.0)
+
+            if (
+                self.sync_thread
+                and self.sync_thread.is_alive()
+                and self.sync_thread is not threading.current_thread()
+            ):
+                self.sync_thread.join(timeout=2.0)
 
             # Save any pending changes
             if self.pending_changes:

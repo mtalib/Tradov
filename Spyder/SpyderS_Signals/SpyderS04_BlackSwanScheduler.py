@@ -300,14 +300,14 @@ class BlackSwanScheduler:
         self._last_logged_check_status: RiskStatus | None = None
         self.running = False
         self.scheduler_thread: threading.Thread | None = None
+        self._previous_signal_handlers: dict[int, Any] = {}
 
         # Create output directory
         self.report_dir = Path(self.config.get('report_dir', REPORT_OUTPUT_DIR))
         self.report_dir.mkdir(exist_ok=True)
 
         # Setup signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        self._install_signal_handlers()
 
         # Initialize default tasks
         self._setup_default_tasks()
@@ -491,6 +491,25 @@ class BlackSwanScheduler:
             self.scheduler_thread.daemon = daemon
             self.scheduler_thread.start()
 
+    def _install_signal_handlers(self) -> None:
+        """Install scheduler-local signal handlers without stealing the process exit path."""
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            try:
+                self._previous_signal_handlers[signum] = signal.getsignal(signum)
+                signal.signal(signum, self._signal_handler)
+            except ValueError:
+                self.logger.debug("Skipping signal handler install outside main thread: %s", signum)
+
+    def _restore_signal_handlers(self) -> None:
+        """Restore the process handlers that were present before scheduler startup."""
+        for signum, previous_handler in list(self._previous_signal_handlers.items()):
+            try:
+                if signal.getsignal(signum) == self._signal_handler:
+                    signal.signal(signum, previous_handler)
+            except ValueError:
+                self.logger.debug("Skipping signal handler restore outside main thread: %s", signum)
+        self._previous_signal_handlers.clear()
+
     def stop(self):
         """Stop the scheduler."""
         self.logger.info("Stopping Black Swan Scheduler")
@@ -501,6 +520,7 @@ class BlackSwanScheduler:
 
         # Clear schedules
         schedule.clear()
+        self._restore_signal_handlers()
 
         self.logger.info("Black Swan Scheduler stopped")
 
@@ -1392,8 +1412,11 @@ Status Distribution:
 
     def _signal_handler(self, signum, frame):
         """Handle system signals."""
+        previous_handler = self._previous_signal_handlers.get(signum)
         self.logger.info("Received signal %s", signum)
         self.stop()
+        if callable(previous_handler) and previous_handler is not self._signal_handler:
+            previous_handler(signum, frame)
 
     # ==========================================================================
     # PUBLIC METHODS - Status and Reporting

@@ -66,77 +66,34 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 
 # ==============================================================================
-# S-SERIES SIGNAL IMPORTS
+# LAZY OPTIONAL IMPORTS
 # ==============================================================================
-try:
-    from SpyderS_Signals.SpyderS01_DIXCalculator import (
-        DIXCalculator, get_calculator_instance)  # noqa: F401
-    DIX_AVAILABLE = True
-except ImportError:
-    DIX_AVAILABLE = False
-    logging.info("⚠️ S01_DIXCalculator not available")
+GEXDataUnavailableError = Exception
+SKEWDataUnavailableError = Exception
 
-try:
-    from SpyderS_Signals.SpyderS03_BlackSwanIndicator import (
-        BlackSwanIndicator, get_black_swan_indicator)  # noqa: F401
-    SWAN_AVAILABLE = True
-except ImportError:
-    SWAN_AVAILABLE = False
-    logging.info("⚠️ S03_BlackSwanIndicator not available")
 
-try:
-    from SpyderS_Signals.SpyderS05_GEXDEXCalculator import GEXDEXCalculator
-    from SpyderS_Signals.SpyderS05_GEXDEXCalculator import DataUnavailableError as GEXDataUnavailableError  # noqa: E501
-    GEX_AVAILABLE = True
-except ImportError:
-    GEX_AVAILABLE = False
-    GEXDataUnavailableError = Exception
-    logging.info("⚠️ S05_GEXDEXCalculator not available")
+def _signal_module_variants(module_name: str) -> tuple[str, str]:
+    """Return both import paths used across the Spyder package surfaces."""
+    return (
+        f"SpyderS_Signals.{module_name}",
+        f"Spyder.SpyderS_Signals.{module_name}",
+    )
 
-try:
-    from SpyderS_Signals.SpyderS06_SKEWCalculator import (
-        SpyderS06_SKEWCalculator, get_skew_calculator)  # noqa: F401
-    from SpyderS_Signals.SpyderS06_SKEWCalculator import DataUnavailableError as SKEWDataUnavailableError  # noqa: E501
-    SKEW_AVAILABLE = True
-except ImportError:
-    SKEW_AVAILABLE = False
-    SKEWDataUnavailableError = Exception
-    logging.info("⚠️ S06_SKEWCalculator not available")
 
-try:
-    from SpyderS_Signals.SpyderS09_FREDClient import get_fred_client
-    FRED_AVAILABLE = True
-except ImportError:
-    FRED_AVAILABLE = False
-    logging.info("⚠️ S09_FREDClient not available")
+def _import_optional_symbols(module_names: tuple[str, ...], *symbol_names: str) -> tuple[Any, ...]:
+    """Import optional symbols lazily without penalizing dashboard first paint."""
+    last_error: ImportError | None = None
+    for module_name in module_names:
+        try:
+            module = importlib.import_module(module_name)
+            return tuple(getattr(module, symbol_name) for symbol_name in symbol_names)
+        except ImportError as exc:
+            last_error = exc
 
-try:
-    from SpyderS_Signals.SpyderS10_SentimentScraper import get_sentiment_scraper
-    SENTIMENT_AVAILABLE = True
-except ImportError:
-    SENTIMENT_AVAILABLE = False
-    logging.info("⚠️ S10_SentimentScraper not available")
+    if last_error is not None:
+        raise last_error
 
-try:
-    from SpyderS_Signals.SpyderS02_DIXScheduler import SpyderDIXScheduler
-    DIX_SCHEDULER_AVAILABLE = True
-except ImportError:
-    DIX_SCHEDULER_AVAILABLE = False
-    logging.info("⚠️ S02_DIXScheduler not available")
-
-try:
-    from SpyderS_Signals.SpyderS04_BlackSwanScheduler import BlackSwanScheduler as BlackSwanSchedulerCls  # noqa: E501
-    SWAN_SCHEDULER_AVAILABLE = True
-except ImportError:
-    SWAN_SCHEDULER_AVAILABLE = False
-    logging.info("⚠️ S04_BlackSwanScheduler not available")
-
-try:
-    from SpyderS_Signals.SpyderS11_TradingViewInternals import get_tv_internals_client
-    TV_INTERNALS_AVAILABLE = True
-except ImportError:
-    TV_INTERNALS_AVAILABLE = False
-    logging.info("⚠️ S11_TradingViewInternals not available")
+    raise ImportError(f"Could not import any of: {module_names!r}")
 
 # ==============================================================================
 # CONSTANTS
@@ -256,9 +213,25 @@ class CustomMetricsOrchestrator(QObject):
         self.error_handler = SpyderErrorHandler()
         self.config = config or {}
         self.client_id = CLIENT_ID
+        self._shutdown_requested = False
+        self._startup_thread: threading.Thread | None = None
+        self._update_thread: threading.Thread | None = None
+        self._update_running = False
+        self._calculator_init_lock = threading.Lock()
+        self._calculators_initialized = False
 
-        # Initialize calculators with availability checks
-        self._init_calculators()
+        # Optional calculators are resolved lazily off the GUI thread so the
+        # dashboard can finish painting before heavy import chains begin.
+        self.dix_calculator = None
+        self.swan_indicator = None
+        self.gex_calculator = None
+        self.skew_calculator = None
+        self.fred_client = None
+        self.sentiment_scraper = None
+        self.dix_scheduler = None
+        self.swan_scheduler = None
+        self.tv_client = None
+        self.pca_signal_engine = None
 
         # Current metrics storage with thread-safe access
         self._metrics_lock = threading.RLock()
@@ -269,6 +242,8 @@ class CustomMetricsOrchestrator(QObject):
             "DIX": 0.0,
             "SWAN": 1.0,
             "SKEW": 100.0,
+            "PCA-PROXY": 0.0,
+            "PCA-IV": 0.0,
             "VEX": 0.0,
             "CHEX": 0.0,
             "YIELD_10Y": float("nan"),
@@ -316,6 +291,8 @@ class CustomMetricsOrchestrator(QObject):
             "XLF_CHANGE_PCT": float("nan"),
             "LIQUIDITY_DIAGNOSTICS": {},
             "DATA_QUALITY_FEED": {},
+            "PCA-PROXY_DETAILS": {},
+            "PCA-IV_DETAILS": {},
         }
 
         self._options_tradier_client = None
@@ -402,110 +379,179 @@ class CustomMetricsOrchestrator(QObject):
 
     def _init_calculators(self):
         """Initialize all available calculators"""
+        global GEXDataUnavailableError, SKEWDataUnavailableError
+
         # S01 - DIX Calculator
-        if DIX_AVAILABLE:
-            try:
-                self.dix_calculator = get_calculator_instance()
-                self.logger.debug("✅ S01_DIXCalculator initialized")
-            except Exception as e:
-                self.logger.error("Failed to init DIX: %s", e, exc_info=True)
-                self.dix_calculator = None
-        else:
+        try:
+            (get_calculator_instance,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS01_DIXCalculator"),
+                "get_calculator_instance",
+            )
+            self.dix_calculator = get_calculator_instance()
+            self.logger.debug("✅ S01_DIXCalculator initialized")
+        except ImportError as exc:
+            self.dix_calculator = None
+            self.logger.debug("S01_DIXCalculator unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init DIX: %s", e, exc_info=True)
             self.dix_calculator = None
 
         # S03 - Black Swan Indicator
-        if SWAN_AVAILABLE:
-            try:
-                self.swan_indicator = get_black_swan_indicator()
-                self.logger.debug("✅ S03_BlackSwanIndicator initialized")
-            except Exception as e:
-                self.logger.error("Failed to init SWAN: %s", e, exc_info=True)
-                self.swan_indicator = None
-        else:
+        try:
+            (get_black_swan_indicator,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS03_BlackSwanIndicator"),
+                "get_black_swan_indicator",
+            )
+            self.swan_indicator = get_black_swan_indicator()
+            self.logger.debug("✅ S03_BlackSwanIndicator initialized")
+        except ImportError as exc:
+            self.swan_indicator = None
+            self.logger.debug("S03_BlackSwanIndicator unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init SWAN: %s", e, exc_info=True)
             self.swan_indicator = None
 
         # S05 - GEX/DEX Calculator
-        if GEX_AVAILABLE:
-            try:
-                self.gex_calculator = GEXDEXCalculator()
-                self.logger.debug("✅ S05_GEXDEXCalculator initialized")
-            except Exception as e:
-                self.logger.error("Failed to init GEX: %s", e, exc_info=True)
-                self.gex_calculator = None
-        else:
+        try:
+            GEXDEXCalculator, GEXDataUnavailableError = _import_optional_symbols(
+                _signal_module_variants("SpyderS05_GEXDEXCalculator"),
+                "GEXDEXCalculator",
+                "DataUnavailableError",
+            )
+            self.gex_calculator = GEXDEXCalculator()
+            self.logger.debug("✅ S05_GEXDEXCalculator initialized")
+        except ImportError as exc:
             self.gex_calculator = None
+            GEXDataUnavailableError = Exception
+            self.logger.debug("S05_GEXDEXCalculator unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init GEX: %s", e, exc_info=True)
+            self.gex_calculator = None
+            GEXDataUnavailableError = Exception
 
         # S06 - SKEW Calculator
-        if SKEW_AVAILABLE:
-            try:
-                self.skew_calculator = get_skew_calculator()
-                self.logger.debug("✅ S06_SKEWCalculator initialized")
-            except Exception as e:
-                self.logger.error("Failed to init SKEW: %s", e, exc_info=True)
-                self.skew_calculator = None
-        else:
+        try:
+            get_skew_calculator, SKEWDataUnavailableError = _import_optional_symbols(
+                _signal_module_variants("SpyderS06_SKEWCalculator"),
+                "get_skew_calculator",
+                "DataUnavailableError",
+            )
+            self.skew_calculator = get_skew_calculator()
+            self.logger.debug("✅ S06_SKEWCalculator initialized")
+        except ImportError as exc:
             self.skew_calculator = None
+            SKEWDataUnavailableError = Exception
+            self.logger.debug("S06_SKEWCalculator unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init SKEW: %s", e, exc_info=True)
+            self.skew_calculator = None
+            SKEWDataUnavailableError = Exception
 
         # S09 - FRED Client (Treasury yields, DXY proxy, yield curve)
-        if FRED_AVAILABLE:
-            try:
-                self.fred_client = get_fred_client()
-                self.logger.debug("✅ S09_FREDClient initialized")
-            except Exception as e:
-                self.logger.error("Failed to init FRED: %s", e, exc_info=True)
-                self.fred_client = None
-        else:
+        try:
+            (get_fred_client,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS09_FREDClient"),
+                "get_fred_client",
+            )
+            self.fred_client = get_fred_client()
+            self.logger.debug("✅ S09_FREDClient initialized")
+        except ImportError as exc:
+            self.fred_client = None
+            self.logger.debug("S09_FREDClient unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init FRED: %s", e, exc_info=True)
             self.fred_client = None
 
         # S10 - Sentiment Scraper (AAII + NAAIM weekly surveys)
-        if SENTIMENT_AVAILABLE:
-            try:
-                self.sentiment_scraper = get_sentiment_scraper()
-                self.logger.debug("✅ S10_SentimentScraper initialized")
-            except Exception as e:
-                self.logger.error("Failed to init Sentiment: %s", e, exc_info=True)
-                self.sentiment_scraper = None
-        else:
+        try:
+            (get_sentiment_scraper,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS10_SentimentScraper"),
+                "get_sentiment_scraper",
+            )
+            self.sentiment_scraper = get_sentiment_scraper()
+            self.logger.debug("✅ S10_SentimentScraper initialized")
+        except ImportError as exc:
+            self.sentiment_scraper = None
+            self.logger.debug("S10_SentimentScraper unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init Sentiment: %s", e, exc_info=True)
             self.sentiment_scraper = None
 
         # S02 - DIX Scheduler (pre-market 9:00 AM + EOD 6:30 PM ET cron collection)
-        if DIX_SCHEDULER_AVAILABLE:
-            try:
-                self.dix_scheduler = SpyderDIXScheduler()
-                self.logger.debug("✅ S02_DIXScheduler initialized")
-            except Exception as e:
-                self.logger.error("Failed to init DIX scheduler: %s", e, exc_info=True)
-                self.dix_scheduler = None
-        else:
+        try:
+            (SpyderDIXScheduler,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS02_DIXScheduler"),
+                "SpyderDIXScheduler",
+            )
+            self.dix_scheduler = SpyderDIXScheduler()
+            self.logger.debug("✅ S02_DIXScheduler initialized")
+        except ImportError as exc:
+            self.dix_scheduler = None
+            self.logger.debug("S02_DIXScheduler unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init DIX scheduler: %s", e, exc_info=True)
             self.dix_scheduler = None
 
         # S04 - Black Swan Scheduler (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM / 4:30 PM ET)
-        if SWAN_SCHEDULER_AVAILABLE:
-            try:
-                self.swan_scheduler = BlackSwanSchedulerCls()
-                self.logger.debug("✅ S04_BlackSwanScheduler initialized")
-            except Exception as e:
-                self.logger.error("Failed to init Black Swan scheduler: %s", e, exc_info=True)
-                self.swan_scheduler = None
-        else:
+        try:
+            (BlackSwanSchedulerCls,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS04_BlackSwanScheduler"),
+                "BlackSwanScheduler",
+            )
+            self.swan_scheduler = BlackSwanSchedulerCls()
+            self.logger.debug("✅ S04_BlackSwanScheduler initialized")
+        except ImportError as exc:
+            self.swan_scheduler = None
+            self.logger.debug("S04_BlackSwanScheduler unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init Black Swan scheduler: %s", e, exc_info=True)
             self.swan_scheduler = None
 
         # S11 - TradingView Breadth Internals (TICK, TRIN, ADD)
-        if TV_INTERNALS_AVAILABLE:
-            try:
-                self.tv_client = get_tv_internals_client()
-                self.logger.debug("✅ S11_TradingViewInternals initialized")
-            except Exception as e:
-                self.logger.error("Failed to init TradingView internals: %s", e, exc_info=True)
-                self.tv_client = None
-        else:
+        try:
+            (get_tv_internals_client,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS11_TradingViewInternals"),
+                "get_tv_internals_client",
+            )
+            self.tv_client = get_tv_internals_client()
+            self.logger.debug("✅ S11_TradingViewInternals initialized")
+        except ImportError as exc:
             self.tv_client = None
+            self.logger.debug("S11_TradingViewInternals unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init TradingView internals: %s", e, exc_info=True)
+            self.tv_client = None
+
+        try:
+            (get_pca_signal_engine,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS14_PCASignals"),
+                "get_pca_signal_engine",
+            )
+            self.pca_signal_engine = get_pca_signal_engine()
+            self.logger.debug("✅ S14_PCASignals initialized")
+        except ImportError as exc:
+            self.pca_signal_engine = None
+            self.logger.debug("S14_PCASignals unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init PCA signals: %s", e, exc_info=True)
+            self.pca_signal_engine = None
+
+    def _ensure_calculators_initialized(self) -> None:
+        """Resolve optional calculators once, outside the GUI-thread constructor."""
+        if self._calculators_initialized:
+            return
+
+        with self._calculator_init_lock:
+            if self._calculators_initialized:
+                return
+            self._init_calculators()
+            self._calculators_initialized = True
 
     def _init_quality_tracking(self):
         """Initialize quality tracking for all metrics"""
-        metrics = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW']  # noqa: E501
+        metric_names = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'PCA-PROXY', 'PCA-IV', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW']  # noqa: E501
 
-        for metric in metrics:
+        for metric in metric_names:
             self.metric_quality[metric] = MetricQuality(
                 metric_name=metric,
                 quality_score=1.0,  # Start with perfect score
@@ -528,27 +574,22 @@ class CustomMetricsOrchestrator(QObject):
         """
         import threading
         try:
+            self._shutdown_requested = False
             self.update_timer.start()
             self.ib_connected = True
-
-            # swan_scheduler.start() only spawns a thread — safe on main thread.
-            # dix_scheduler.initialize() makes a live HTTP request, so it belongs
-            # in the background thread below.
-            if self.swan_scheduler is not None:
-                self.swan_scheduler.start(daemon=True)
-                self.logger.debug("✅ S04_BlackSwanScheduler started (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM ET)")  # noqa: E501
 
             self.logger.debug("✅ Orchestrator started — background fetch beginning")
             self.connection_status_changed.emit(True, f"Client {CLIENT_ID} Active")
 
-            # All blocking network I/O (DIX init + metric fetch + Black Swan
-            # catch-up) runs in a background daemon thread so the Qt event loop
-            # is never stalled during startup.
-            threading.Thread(
+            # All blocking setup (optional imports, calculator init, DIX init,
+            # metric fetch, Black Swan catch-up) runs in a background daemon
+            # thread so the Qt event loop is never stalled during startup.
+            self._startup_thread = threading.Thread(
                 target=self._startup_fetch,
                 name="S07-startup-fetch",
                 daemon=True,
-            ).start()
+            )
+            self._startup_thread.start()
 
         except Exception as e:
             self.logger.error("Failed to start orchestrator: %s", e, exc_info=True)
@@ -559,25 +600,42 @@ class CustomMetricsOrchestrator(QObject):
 
         Runs entirely off the Qt main thread — no GUI calls allowed here.
         """
+        if self._shutdown_requested:
+            return
+
+        self._ensure_calculators_initialized()
+
+        if self._shutdown_requested:
+            return
+
+        if self.swan_scheduler is not None:
+            try:
+                self.swan_scheduler.start(daemon=True)
+                self.logger.debug("✅ S04_BlackSwanScheduler started (4:00 AM / 9:15 AM / 12:00 PM / 3:45 PM ET)")  # noqa: E501
+            except Exception as e:
+                self.logger.error("Black Swan scheduler startup failed: %s", e)
+
         # S02 DIX Scheduler — initialize() hits FINRA over HTTP; must be off-thread
         if self.dix_scheduler is not None:
             try:
                 if self.dix_scheduler.initialize():
-                    self.dix_scheduler.start()
+                    if self._shutdown_requested:
+                        return
+                    self.dix_scheduler.start(run_initial_calculation=False)
                     self.logger.debug("✅ S02_DIXScheduler started (9:00 AM + 6:30 PM ET)")
                 else:
                     self.logger.warning("⚠️ DIX scheduler init failed; skipping scheduled collection")  # noqa: E501
             except Exception as e:
                 self.logger.error("DIX scheduler startup failed: %s", e)
 
-        # Initial metric fetch across all S-Series sources
-        try:
-            self.update_all_metrics()
-        except Exception as e:
-            self.logger.error("Startup metric fetch failed: %s", e)
+        # Full startup metrics fetch is deferred to the regular timer path.
+        # The one-shot startup refresh was the main source of shutdown-time
+        # stragglers because it fans out into multiple blocking network sources.
 
         # Late-start Black Swan catch-up check
         try:
+            if self._shutdown_requested:
+                return
             if self.swan_scheduler is not None:
                 # Run the 9:15 AM check so late starts don't silently miss the
                 # pre-open window.
@@ -588,14 +646,40 @@ class CustomMetricsOrchestrator(QObject):
     def stop(self):
         """Stop the orchestrator"""
         try:
+            self._shutdown_requested = True
+            startup_thread = self._startup_thread
+            update_thread = self._update_thread
+
             # Stop data collection schedulers first
             if self.dix_scheduler is not None:
                 self.dix_scheduler.stop()
             if self.swan_scheduler is not None:
                 self.swan_scheduler.stop()
 
+            if self.tv_client is not None and hasattr(self.tv_client, "close"):
+                self.tv_client.close()
+                self.tv_client = None
+
             self.update_timer.stop()
             self.ib_connected = False
+
+            if (
+                startup_thread is not None
+                and startup_thread.is_alive()
+                and startup_thread is not threading.current_thread()
+            ):
+                startup_thread.join(timeout=1.0)
+
+            if (
+                update_thread is not None
+                and update_thread.is_alive()
+                and update_thread is not threading.current_thread()
+            ):
+                update_thread.join(timeout=2.0)
+
+            self._startup_thread = None
+            self._update_thread = None
+            self._update_running = False
 
             self.logger.info("⏹️ Orchestrator stopped")
             self.connection_status_changed.emit(False, f"Client {CLIENT_ID} Stopped")
@@ -603,7 +687,7 @@ class CustomMetricsOrchestrator(QObject):
         except Exception as e:
             self.logger.error("Error stopping orchestrator: %s", e, exc_info=True)
 
-    def _dispatch_metrics_update(self) -> None:
+    def _dispatch_metrics_update(self, include_breadth: bool = True) -> None:
         """Qt-thread-safe timer slot: run update_all_metrics in a daemon thread.
 
         Called by QTimer.timeout (main thread) every UPDATE_INTERVAL seconds.
@@ -619,22 +703,37 @@ class CustomMetricsOrchestrator(QObject):
 
         def _run():
             try:
-                self.update_all_metrics()
+                self.update_all_metrics(include_breadth=include_breadth)
             finally:
                 self._update_running = False
+                if self._update_thread is threading.current_thread():
+                    self._update_thread = None
 
-        threading.Thread(
+        self._update_thread = threading.Thread(
             target=_run,
             name="S07-metrics-update",
             daemon=True,
-        ).start()
+        )
+        self._update_thread.start()
 
-    def update_all_metrics(self):
+    def _shutdown_in_progress(self) -> bool:
+        """Return True once orchestrator shutdown has begun."""
+        return bool(getattr(self, "_shutdown_requested", False))
+
+    def update_all_metrics(self, include_breadth: bool = True):
         """Update all metrics from S-Series calculators"""
+        if self._shutdown_in_progress():
+            return
+
+        self._ensure_calculators_initialized()
+
         start_time = time.time()
 
         try:
             with self._metrics_lock:
+                if self._shutdown_in_progress():
+                    return
+
                 updated_metrics = {}
                 update_errors = []
 
@@ -650,14 +749,26 @@ class CustomMetricsOrchestrator(QObject):
                 # S06 - SKEW Updates
                 skew_success = self._update_skew_metrics(updated_metrics, update_errors)
 
+                # S14 - PCA proxy and IV placeholder
+                pca_success = self._update_pca_metrics(updated_metrics, update_errors)
+
                 # S09 - FRED Macro Updates (Treasury yields, yield curve, DXY)
                 fred_success = self._update_fred_metrics(updated_metrics, update_errors)
 
                 # S10 - Sentiment Updates (AAII weekly surveys, NAAIM exposure)
                 sentiment_success = self._update_sentiment_metrics(updated_metrics, update_errors)
 
+                if self._shutdown_in_progress():
+                    return
+
                 # S11 - TradingView Breadth Internals (TICK, TRIN, ADD)
-                breadth_success = self._update_tv_breadth_metrics(updated_metrics, update_errors)
+                if include_breadth:
+                    breadth_success = self._update_tv_breadth_metrics(updated_metrics, update_errors)
+                else:
+                    breadth_success = True
+
+                if self._shutdown_in_progress():
+                    return
 
                 # Options analytics metrics (ATM IV, IV rank, volatility risk premium)
                 options_success = self._update_options_analytics_metrics(updated_metrics, update_errors)  # noqa: E501
@@ -738,6 +849,7 @@ class CustomMetricsOrchestrator(QObject):
                 calculation_time = time.time() - start_time
                 success_count = sum([
                     gex_success, dix_success, swan_success, skew_success,
+                    pca_success,
                     fred_success, sentiment_success, breadth_success, options_success,
                     vol_surface_success,
                     dealer_flow_success,
@@ -747,10 +859,11 @@ class CustomMetricsOrchestrator(QObject):
                 # Keep custom-metrics cycle summaries in DEBUG so NORMAL logs
                 # remain focused on lifecycle, warnings, and errors.
                 _summary = (
-                    f"{success_count}/12 | "
+                    f"{success_count}/13 | "
                     f"GEX={updated_metrics.get('GEX', 0):.1f}B "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}% "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f} "
+                    f"PCA={updated_metrics.get('PCA-PROXY', 0):+.2f} "
                     f"SKEW={updated_metrics.get('SKEW', 100):.1f} "
                     f"TICK={updated_metrics.get('TICK', float('nan'))}"
                 )
@@ -1018,6 +1131,74 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["SKEW"] = self.current_metrics.get("SKEW", 125.5)
             return False
 
+    def _update_pca_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update PCA proxy and IV-surface metrics."""
+        proxy_success = False
+        iv_success = False
+
+        try:
+            if self.pca_signal_engine is None:
+                raise RuntimeError("PCA signal engine unavailable")
+
+            proxy_snapshot = self.pca_signal_engine.get_proxy_snapshot()
+            updated_metrics["PCA-PROXY"] = float(proxy_snapshot.signal_value)
+            updated_metrics["PCA-PROXY_CHANGE"] = float(proxy_snapshot.change)
+            updated_metrics["PCA-PROXY_DETAILS"] = {
+                "source": proxy_snapshot.source,
+                "status": proxy_snapshot.status,
+                "explained_variance": proxy_snapshot.explained_variance,
+                "spectral_gap": proxy_snapshot.spectral_gap,
+                "dispersion_score": proxy_snapshot.dispersion_score,
+                "universe_size": proxy_snapshot.universe_size,
+                "confidence": proxy_snapshot.confidence,
+                "timestamp": proxy_snapshot.timestamp.isoformat(),
+                "details": proxy_snapshot.details or {},
+            }
+            proxy_success = proxy_snapshot.status == "live"
+        except Exception as e:
+            errors.append(f"PCA-PROXY update error: {e}")
+            self._log_deduped_issue(
+                channel="pca_proxy_update_error",
+                message=f"PCA-PROXY update error: {e}",
+                level="warning",
+            )
+            updated_metrics["PCA-PROXY"] = self.current_metrics.get("PCA-PROXY", 0.0)
+            updated_metrics["PCA-PROXY_CHANGE"] = 0.0
+            updated_metrics["PCA-PROXY_DETAILS"] = self.current_metrics.get("PCA-PROXY_DETAILS", {})
+
+        try:
+            if self.pca_signal_engine is None:
+                raise RuntimeError("PCA signal engine unavailable")
+
+            iv_snapshot = self.pca_signal_engine.get_iv_snapshot()
+            updated_metrics["PCA-IV"] = float(iv_snapshot.signal_value)
+            updated_metrics["PCA-IV_CHANGE"] = float(iv_snapshot.change)
+            updated_metrics["PCA-IV_DETAILS"] = {
+                "source": iv_snapshot.source,
+                "status": iv_snapshot.status,
+                "placeholder": iv_snapshot.placeholder,
+                "explained_variance": iv_snapshot.explained_variance,
+                "spectral_gap": iv_snapshot.spectral_gap,
+                "dispersion_score": iv_snapshot.dispersion_score,
+                "universe_size": iv_snapshot.universe_size,
+                "confidence": iv_snapshot.confidence,
+                "timestamp": iv_snapshot.timestamp.isoformat(),
+                "details": iv_snapshot.details or {},
+            }
+            iv_success = iv_snapshot.status == "live"
+        except Exception as e:
+            errors.append(f"PCA-IV update error: {e}")
+            self._log_deduped_issue(
+                channel="pca_iv_update_error",
+                message=f"PCA-IV update error: {e}",
+                level="warning",
+            )
+            updated_metrics["PCA-IV"] = self.current_metrics.get("PCA-IV", 0.0)
+            updated_metrics["PCA-IV_CHANGE"] = 0.0
+            updated_metrics["PCA-IV_DETAILS"] = self.current_metrics.get("PCA-IV_DETAILS", {})
+
+        return proxy_success or iv_success
+
     def _update_fred_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update FRED macro metrics (10Y yield, yield curve slope, yield curve inversion flag)"""
         try:
@@ -1073,6 +1254,9 @@ class CustomMetricsOrchestrator(QObject):
 
     def _update_tv_breadth_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update TICK, TRIN, ADD breadth internals from TradingView."""
+        if self._shutdown_in_progress():
+            return False
+
         def _coerce_float(value: Any, default: float = float("nan")) -> float:
             try:
                 if value is None:
@@ -1743,6 +1927,12 @@ class CustomMetricsOrchestrator(QObject):
         allow_sandbox = str(
             os.getenv("SPYDER_ALLOW_SANDBOX_MARKET_DATA", "false")
         ).strip().lower() in {"1", "true", "yes", "on"}
+        if allow_sandbox:
+            self.logger.error(
+                "S07 options client disabled: SPYDER_ALLOW_SANDBOX_MARKET_DATA=true "
+                "is not permitted by live-only policy"
+            )
+            return None
 
         environment_name = (
             os.getenv("TRADIER_MARKET_DATA_ENVIRONMENT")
@@ -1750,34 +1940,23 @@ class CustomMetricsOrchestrator(QObject):
             or "live"
         ).strip().lower() or "live"
 
-        if environment_name not in {"live", "production"} and not allow_sandbox:
-            self.logger.warning(
-                "S07 forcing LIVE market-data endpoint for options analytics "
-                "(TRADIER_MARKET_DATA_ENVIRONMENT=%s ignored).",
+        if environment_name not in {"live", "production"}:
+            self.logger.error(
+                "S07 options client disabled: TRADIER_MARKET_DATA_ENVIRONMENT=%s "
+                "violates live-only policy",
                 environment_name,
             )
-            environment_name = "live"
+            return None
 
-        if environment_name in {"live", "production"}:
-            api_key = (
-                os.getenv("TRADIER_LIVE_API_KEY", "").strip()
-                or os.getenv("TRADIER_API_KEY", "").strip()
-            )
-            account_id = (
-                os.getenv("TRADIER_LIVE_ACCOUNT_ID", "").strip()
-                or os.getenv("TRADIER_ACCOUNT_ID", "").strip()
-            )
-            environment_name = "live"
-        else:
-            api_key = (
-                os.getenv("TRADIER_SANDBOX_API_KEY", "").strip()
-                or os.getenv("TRADIER_API_KEY", "").strip()
-            )
-            account_id = (
-                os.getenv("TRADIER_SANDBOX_ACCOUNT_ID", "").strip()
-                or os.getenv("TRADIER_ACCOUNT_ID", "").strip()
-            )
-            environment_name = "sandbox"
+        api_key = (
+            os.getenv("TRADIER_LIVE_API_KEY", "").strip()
+            or os.getenv("TRADIER_API_KEY", "").strip()
+        )
+        account_id = (
+            os.getenv("TRADIER_LIVE_ACCOUNT_ID", "").strip()
+            or os.getenv("TRADIER_ACCOUNT_ID", "").strip()
+        )
+        environment_name = "live"
 
         if not api_key or not account_id:
             return None
@@ -1796,7 +1975,7 @@ class CustomMetricsOrchestrator(QObject):
 
         environment_enum = getattr(tradier_module.TradingEnvironment, environment_name.upper(), None)  # noqa: E501
         if environment_enum is None:
-            environment_enum = tradier_module.TradingEnvironment.SANDBOX
+            environment_enum = tradier_module.TradingEnvironment.LIVE
 
         self._options_tradier_client = tradier_module.TradierClient(
             api_key=api_key,
@@ -1997,6 +2176,30 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["FLY_25D"] = float(snapshot.get("fly_25d", float("nan")))
             updated_metrics["SURFACE_CONFIDENCE"] = float(snapshot.get("surface_confidence", float("nan")))  # noqa: E501
             updated_metrics["SURFACE_AGE_MS"] = float(snapshot.get("surface_age_ms", float("nan")))
+
+            if self.pca_signal_engine is not None:
+                try:
+                    storage_status = self.pca_signal_engine.record_iv_surface_snapshot(snapshot)
+                    pca_iv_details = updated_metrics.get(
+                        "PCA-IV_DETAILS",
+                        self.current_metrics.get("PCA-IV_DETAILS", {}),
+                    )
+                    if not isinstance(pca_iv_details, dict):
+                        pca_iv_details = {}
+                    else:
+                        pca_iv_details = dict(pca_iv_details)
+
+                    nested_details = pca_iv_details.get("details", {})
+                    if not isinstance(nested_details, dict):
+                        nested_details = {}
+                    else:
+                        nested_details = dict(nested_details)
+
+                    nested_details.update(storage_status)
+                    pca_iv_details["details"] = nested_details
+                    updated_metrics["PCA-IV_DETAILS"] = pca_iv_details
+                except Exception as exc:
+                    self.logger.debug("PCA-IV history seed skipped: %s", exc)
             return True
         except Exception as e:
             if self._is_transient_options_unavailable(str(e)):
@@ -2077,6 +2280,26 @@ class CustomMetricsOrchestrator(QObject):
         def _format_vrp(value: Any) -> str:
             return "---" if _is_nan(value) else f"{float(value):+.1f}"
 
+        def _format_signed_float(value: Any, digits: int = 2) -> str:
+            return "---" if _is_nan(value) else f"{float(value):+.{digits}f}"
+
+        pca_iv_details = metrics.get("PCA-IV_DETAILS", {})
+        if not isinstance(pca_iv_details, dict):
+            pca_iv_details = {}
+        pca_iv_nested = pca_iv_details.get("details", {})
+        if not isinstance(pca_iv_nested, dict):
+            pca_iv_nested = {}
+        pca_iv_status = str(pca_iv_details.get("status") or "").lower()
+        pca_iv_phase = str(pca_iv_nested.get("phase") or "").lower()
+        if pca_iv_status == "live":
+            pca_iv_formatted = _format_signed_float(metrics.get("PCA-IV", float("nan")))
+        elif pca_iv_phase == "history-seeding":
+            pca_iv_formatted = "SEED"
+        elif pca_iv_status == "fallback":
+            pca_iv_formatted = "HOLD"
+        else:
+            pca_iv_formatted = "PEND"
+
         def _format_float(value: Any, digits: int = 2, suffix: str = "") -> str:
             return "---" if _is_nan(value) else f"{float(value):.{digits}f}{suffix}"
 
@@ -2116,6 +2339,22 @@ class CustomMetricsOrchestrator(QObject):
                 "formatted": f"{metrics.get('SKEW', 0):.1f}",
                 "timestamp": timestamp,
                 "quality": self.metric_quality['SKEW'].quality_score
+            },
+            "PCA-PROXY": {
+                "value": metrics.get("PCA-PROXY", 0.0),
+                "formatted": _format_float(metrics.get("PCA-PROXY", 0.0), 2),
+                "timestamp": timestamp,
+                "quality": self.metric_quality['PCA-PROXY'].quality_score,
+                "change": metrics.get("PCA-PROXY_CHANGE", 0.0),
+                "details": metrics.get("PCA-PROXY_DETAILS", {}),
+            },
+            "PCA-IV": {
+                "value": metrics.get("PCA-IV", 0.0),
+                "formatted": pca_iv_formatted,
+                "timestamp": timestamp,
+                "quality": self.metric_quality['PCA-IV'].quality_score,
+                "change": metrics.get("PCA-IV_CHANGE", 0.0),
+                "details": metrics.get("PCA-IV_DETAILS", {}),
             },
             "VEX": {
                 "value": metrics.get("VEX", 0),

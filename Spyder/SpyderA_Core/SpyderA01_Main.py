@@ -21,8 +21,11 @@ import logging
 import signal
 import time
 import asyncio
+import threading
+from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 # Install uvloop as the asyncio event loop (2-4x faster on Linux/macOS)
 try:
@@ -34,6 +37,56 @@ except ImportError:
 # Add project root to path (now need to go up 3 levels: SpyderA01_Main.py -> SpyderA_Core -> Spyder -> project_root)  # noqa: E501
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
+
+_A01_EASTERN_TZ = ZoneInfo("America/New_York")
+_A01_PAPER_LOAD_START_ET = dt_time(9, 25)
+_A01_MARKET_OPEN_ET = dt_time(9, 30)
+_A01_PAPER_AUTOSTART_WARMUP_END_ET = dt_time(9, 33)
+
+
+def _next_et_session_time(target_time: dt_time, now_et: datetime | None = None) -> datetime:
+    """Return the next weekday occurrence of *target_time* in Eastern Time."""
+    current_et = now_et or datetime.now(_A01_EASTERN_TZ)
+    candidate = current_et.replace(
+        hour=target_time.hour,
+        minute=target_time.minute,
+        second=0,
+        microsecond=0,
+    )
+    if current_et.weekday() < 5 and current_et.time() <= target_time:
+        return candidate
+
+    next_day = current_et + timedelta(days=1)
+    while next_day.weekday() >= 5:
+        next_day += timedelta(days=1)
+    return next_day.replace(
+        hour=target_time.hour,
+        minute=target_time.minute,
+        second=0,
+        microsecond=0,
+    )
+
+
+def _resolve_gui_paper_autostart_delay_ms(mode: str, now_et: datetime | None = None) -> int:
+    """Return the GUI autostart delay for paper launches."""
+    if mode != "paper":
+        return 250
+
+    current_et = now_et or datetime.now(_A01_EASTERN_TZ)
+    if current_et.weekday() < 5 and _A01_MARKET_OPEN_ET <= current_et.time() < dt_time(16, 0):
+        return 250
+
+    if current_et.weekday() < 5 and _A01_PAPER_LOAD_START_ET <= current_et.time() < _A01_MARKET_OPEN_ET:
+        target = current_et.replace(
+            hour=_A01_PAPER_AUTOSTART_WARMUP_END_ET.hour,
+            minute=_A01_PAPER_AUTOSTART_WARMUP_END_ET.minute,
+            second=0,
+            microsecond=0,
+        )
+    else:
+        target = _next_et_session_time(_A01_PAPER_AUTOSTART_WARMUP_END_ET, current_et)
+
+    return max(250, int((target - current_et).total_seconds() * 1000))
 
 # Try to import Qt modules for GUI
 # Using lowercase to avoid constant redefinition warnings
@@ -127,7 +180,7 @@ try:
 except ImportError:
     pass
 
-# Broker modules — B01_SpyderClient and B05_ConnectionManager removed (legacy broker)
+# Broker modules — legacy broker connection modules removed
 # Tradier API integration is handled by SpyderB40_TradierClient
 has_broker_modules = False
 get_spyder_client = None
@@ -168,6 +221,31 @@ class SpyderConfig:
         # Operation modes
         self.headless_mode: bool = False
         self.simulation_mode: bool = False
+
+
+class StartupInterrupted(RuntimeError):
+    """Raised when shutdown interrupts the A01 startup path."""
+
+
+if TYPE_CHECKING or has_qt:
+    class _SessionSupervisorAutostartWorker(QObject):  # type: ignore[misc, valid-type]
+        """Run deferred SessionSupervisor startup off the GUI thread."""
+
+        finished = Signal(object, object)
+
+        def __init__(self, spyder_app: "SpyderApplication", supervisor: Any) -> None:
+            super().__init__()
+            self._spyder_app = spyder_app
+            self._supervisor = supervisor
+
+        def run(self) -> None:
+            self._spyder_app._run_session_supervisor_autostart(self._supervisor)
+            self.finished.emit(
+                self._spyder_app._session_supervisor_autostart_result,
+                self._spyder_app._session_supervisor_autostart_exception,
+            )
+else:
+    _SessionSupervisorAutostartWorker = None
 
 
 # ==============================================================================
@@ -395,6 +473,13 @@ class SpyderApplication:
         self.client: Any = None
         self.telegram_bot: Any = None
         self.session_supervisor: Any = None
+        self._session_supervisor_autostart_pending: bool = False
+        self._session_supervisor_autostart_mode: str | None = None
+        self._session_supervisor_autostart_thread: Any = None
+        self._session_supervisor_autostart_worker: Any = None
+        self._session_supervisor_autostart_active: bool = False
+        self._session_supervisor_autostart_result: bool | None = None
+        self._session_supervisor_autostart_exception: Exception | None = None
         self.gui_app: Any = None
         self.main_window: Any = None
 
@@ -530,6 +615,353 @@ class SpyderApplication:
             if not _spyder_root.handlers:
                 _spyder_root.addHandler(logging.StreamHandler())
 
+    def _raise_if_shutdown_requested(self, phase: str) -> None:
+        """Abort startup work once a shutdown request has already been received."""
+        if self.shutdown_requested:
+            self.logger.info(
+                "Shutdown requested during %s; aborting startup path",
+                phase,
+            )
+            raise StartupInterrupted(phase)
+
+    def _should_defer_session_supervisor_autostart(self) -> bool:
+        """Return True when SessionSupervisor startup should wait for first paint."""
+        return bool(
+            self.config.enable_gui
+            and not self.config.headless_mode
+            and has_qt
+            and QTimer is not None
+        )
+
+    def _clear_injected_session_supervisor_reference(self, supervisor: Any) -> None:
+        """Drop the injected dashboard supervisor reference when it matches."""
+        if (
+            self.main_window is not None
+            and getattr(self.main_window, "_session_supervisor", None) is supervisor
+        ):
+            self.main_window._session_supervisor = None
+
+    def _prepare_session_supervisor_autostart(self, mode: str) -> bool:
+        """Create the SessionSupervisor and either start or defer it."""
+        from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
+            create_session_supervisor,
+        )
+
+        self._session_supervisor_autostart_pending = False
+        self._session_supervisor_autostart_mode = None
+        self._session_supervisor_autostart_thread = None
+        self._session_supervisor_autostart_worker = None
+        self._session_supervisor_autostart_active = False
+        self._session_supervisor_autostart_delegated_to_dashboard = False
+        self._session_supervisor_autostart_result = None
+        self._session_supervisor_autostart_exception = None
+        self.session_supervisor = create_session_supervisor(mode=mode)
+        setattr(self.session_supervisor, "_spyder_autostart_in_progress", False)
+        if self._should_defer_session_supervisor_autostart():
+            self._session_supervisor_autostart_pending = True
+            self._session_supervisor_autostart_mode = mode
+            self.logger.info(
+                "⏳ SessionSupervisor autostart deferred until after GUI launch (mode=%s)",
+                mode,
+            )
+            return True
+
+        if self.session_supervisor.start():
+            self._session_supervisor_autostart_mode = None
+            self.logger.info(
+                "✅ SessionSupervisor autostarted from A01 (mode=%s)",
+                mode,
+            )
+            return True
+
+        self._session_supervisor_autostart_mode = None
+        self.logger.warning(
+            "SessionSupervisor autostart failed from A01 (mode=%s)",
+            mode,
+        )
+        self.session_supervisor = None
+        return False
+
+    def _run_session_supervisor_autostart(self, supervisor: Any) -> None:
+        """Run SessionSupervisor autostart in a background thread."""
+        self._session_supervisor_autostart_result = None
+        self._session_supervisor_autostart_exception = None
+        try:
+            self._session_supervisor_autostart_result = bool(supervisor.start())
+        except Exception as exc:  # noqa: BLE001
+            self._session_supervisor_autostart_exception = exc
+
+        if self.shutdown_requested and self._session_supervisor_autostart_result:
+            try:
+                supervisor.stop(flatten=False)
+            except Exception as exc:  # noqa: BLE001
+                self.logger.warning(
+                    "SessionSupervisor background shutdown stop error: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+    def _is_session_supervisor_autostart_thread_running(self) -> bool:
+        """Return True while the deferred autostart worker is still running."""
+        thread = self._session_supervisor_autostart_thread
+        if thread is None:
+            return False
+        if hasattr(thread, "isRunning"):
+            try:
+                return bool(thread.isRunning())
+            except RuntimeError:
+                self._session_supervisor_autostart_thread = None
+                self._session_supervisor_autostart_worker = None
+                return False
+        if hasattr(thread, "is_alive"):
+            return bool(thread.is_alive())
+        return False
+
+    def _wait_for_session_supervisor_autostart_thread(self, timeout_seconds: float) -> bool:
+        """Wait briefly for the deferred autostart worker to finish."""
+        thread = self._session_supervisor_autostart_thread
+        if thread is None:
+            return True
+        if hasattr(thread, "wait"):
+            try:
+                return bool(thread.wait(int(timeout_seconds * 1000)))
+            except RuntimeError:
+                self._session_supervisor_autostart_thread = None
+                self._session_supervisor_autostart_worker = None
+                return True
+        if hasattr(thread, "join"):
+            thread.join(timeout=timeout_seconds)
+            return not bool(thread.is_alive())
+        return True
+
+    def _on_session_supervisor_autostart_finished(self, started: object, exc: object) -> None:
+        """Capture deferred autostart completion back on the GUI thread."""
+        self._session_supervisor_autostart_result = bool(started)
+        self._session_supervisor_autostart_exception = (
+            exc if isinstance(exc, Exception) else None
+        )
+        self._finalize_session_supervisor_autostart()
+
+    def _finalize_session_supervisor_autostart(self) -> None:
+        """Finalize deferred SessionSupervisor startup on the GUI thread."""
+        if self._is_session_supervisor_autostart_thread_running():
+            return
+
+        if getattr(self, "_session_supervisor_autostart_delegated_to_dashboard", False):
+            self._session_supervisor_autostart_thread = None
+            self._session_supervisor_autostart_worker = None
+            self._session_supervisor_autostart_active = False
+            self._session_supervisor_autostart_mode = None
+            self._session_supervisor_autostart_result = None
+            self._session_supervisor_autostart_exception = None
+            self._session_supervisor_autostart_delegated_to_dashboard = False
+            return
+
+        supervisor = self.session_supervisor
+        if supervisor is not None:
+            setattr(supervisor, "_spyder_autostart_in_progress", False)
+
+        mode = self._session_supervisor_autostart_mode or "paper"
+        started = bool(self._session_supervisor_autostart_result)
+        exc = self._session_supervisor_autostart_exception
+
+        self._session_supervisor_autostart_thread = None
+        self._session_supervisor_autostart_worker = None
+        self._session_supervisor_autostart_active = False
+        self._session_supervisor_autostart_mode = None
+        self._session_supervisor_autostart_delegated_to_dashboard = False
+        self._session_supervisor_autostart_result = None
+        self._session_supervisor_autostart_exception = None
+
+        if self.shutdown_requested:
+            return
+
+        if started:
+            self.logger.info(
+                "✅ SessionSupervisor autostarted from A01 (mode=%s)",
+                mode,
+            )
+            adopt_running_ui = getattr(self.main_window, "_adopt_running_session_supervisor_ui_state", None)
+            begin_loading_transition = getattr(self.main_window, "_begin_start_button_loading_transition", None)
+            if callable(adopt_running_ui):
+                try:
+                    adopt_running_ui()
+                    if mode == "paper" and callable(begin_loading_transition):
+                        begin_loading_transition()
+                except Exception as ui_exc:
+                    self.logger.warning(
+                        "SessionSupervisor autostart UI adoption failed: %s",
+                        ui_exc,
+                    )
+            return
+
+        if exc is not None:
+            self.logger.warning(
+                "SessionSupervisor autostart exception in A01: %s",
+                exc,
+            )
+        else:
+            self.logger.warning(
+                "SessionSupervisor autostart failed from A01 (mode=%s)",
+                mode,
+            )
+
+        if supervisor is not None:
+            self._clear_injected_session_supervisor_reference(supervisor)
+        if self.session_supervisor is supervisor:
+            self.session_supervisor = None
+
+    def _poll_pending_session_supervisor_autostart_completion(self) -> None:
+        """Poll for completion of the deferred SessionSupervisor startup."""
+        if not self._session_supervisor_autostart_active:
+            return
+
+        if self._is_session_supervisor_autostart_thread_running():
+            if QTimer is not None:
+                QTimer.singleShot(100, self._poll_pending_session_supervisor_autostart_completion)
+            return
+
+        self._finalize_session_supervisor_autostart()
+
+    def _start_pending_session_supervisor_autostart(self) -> None:
+        """Start a previously prepared SessionSupervisor after first paint."""
+        if not self._session_supervisor_autostart_pending:
+            return
+
+        mode = self._session_supervisor_autostart_mode or "paper"
+        self._session_supervisor_autostart_pending = False
+
+        if self.shutdown_requested:
+            self._session_supervisor_autostart_mode = None
+            self.logger.info(
+                "Shutdown requested before deferred SessionSupervisor autostart; skipping"
+            )
+            return
+
+        supervisor = self.session_supervisor
+        if supervisor is None:
+            self._session_supervisor_autostart_mode = None
+            return
+
+        if mode == "paper":
+            queue_paper_session_start = getattr(self.main_window, "_queue_paper_session_start", None)
+            if callable(queue_paper_session_start):
+                self._session_supervisor_autostart_mode = None
+                try:
+                    self._session_supervisor_autostart_delegated_to_dashboard = True
+                    queue_paper_session_start(show_failure_dialog=False)
+                    self.logger.info(
+                        "⏳ SessionSupervisor autostart handed off to dashboard loading window (mode=%s)",
+                        mode,
+                    )
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    self._session_supervisor_autostart_delegated_to_dashboard = False
+                    self.logger.warning(
+                        "SessionSupervisor delayed autostart handoff failed; falling back to background start: %s",
+                        exc,
+                    )
+
+        if getattr(supervisor, "is_running", False):
+            self._session_supervisor_autostart_mode = None
+            self.logger.info(
+                "ℹ️ SessionSupervisor already running before deferred A01 autostart callback"
+            )
+            return
+
+        if self._session_supervisor_autostart_active:
+            self.logger.info(
+                "ℹ️ Deferred SessionSupervisor autostart already in progress (mode=%s)",
+                mode,
+            )
+            return
+
+        self._session_supervisor_autostart_active = True
+        self._session_supervisor_autostart_result = None
+        self._session_supervisor_autostart_exception = None
+        setattr(supervisor, "_spyder_autostart_in_progress", True)
+
+        if QThread is not None and _SessionSupervisorAutostartWorker is not None:
+            thread = QThread()
+            worker = _SessionSupervisorAutostartWorker(self, supervisor)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(self._on_session_supervisor_autostart_finished)
+            worker.finished.connect(thread.quit)
+            worker.finished.connect(worker.deleteLater)
+            thread.finished.connect(self._finalize_session_supervisor_autostart)
+            thread.finished.connect(thread.deleteLater)
+            self._session_supervisor_autostart_thread = thread
+            self._session_supervisor_autostart_worker = worker
+            thread.start()
+            self.logger.info(
+                "🚀 SessionSupervisor autostart running in background QThread (mode=%s)",
+                mode,
+            )
+            return
+
+        thread = threading.Thread(
+            target=lambda: self._run_session_supervisor_autostart(supervisor),
+            name="A01-session-supervisor-autostart",
+            daemon=True,
+        )
+        self._session_supervisor_autostart_thread = thread
+        thread.start()
+        self.logger.info(
+            "🚀 SessionSupervisor autostart running in background thread (mode=%s)",
+            mode,
+        )
+        self._poll_pending_session_supervisor_autostart_completion()
+
+    def _schedule_session_supervisor_autostart_after_gui_launch(self) -> None:
+        """Schedule any deferred SessionSupervisor startup after the window shows."""
+        if not self._session_supervisor_autostart_pending or QTimer is None:
+            return
+
+        mode = self._session_supervisor_autostart_mode or "paper"
+        delay_ms = _resolve_gui_paper_autostart_delay_ms(mode)
+        QTimer.singleShot(delay_ms, self._start_pending_session_supervisor_autostart)
+        if delay_ms <= 250:
+            self.logger.info(
+                "⏳ SessionSupervisor autostart scheduled after first paint (mode=%s)",
+                mode,
+            )
+
+    def _stop_loaded_metrics_orchestrators(self) -> None:
+        """Stop any already-loaded S07 singleton instances without creating new ones."""
+        seen: set[int] = set()
+        for module_name in (
+            "Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator",
+            "SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator",
+        ):
+            module = sys.modules.get(module_name)
+            if module is None:
+                continue
+
+            orchestrator = getattr(module, "_orchestrator_instance", None)
+            if orchestrator is None:
+                continue
+
+            orchestrator_id = id(orchestrator)
+            if orchestrator_id in seen:
+                continue
+            seen.add(orchestrator_id)
+
+            try:
+                orchestrator.stop()
+                self.logger.info("📉 Metrics orchestrator stopped from A01 cleanup")
+            except Exception as e:
+                self.logger.warning(
+                    "Metrics orchestrator cleanup stop error: %s",
+                    e,
+                    exc_info=True,
+                )
+
+            try:
+                setattr(module, "_orchestrator_instance", None)
+            except Exception:
+                pass
+
     def initialize_core_systems(self) -> bool:
         """
         Initialize core systems with PROVEN race condition fix.
@@ -540,6 +972,7 @@ class SpyderApplication:
             self.logger.info(
                 "🔧 Initializing core systems with PROVEN race condition fix..."
             )
+            self._raise_if_shutdown_requested("core system initialization")
 
             # Initialize event manager (optional)
             if has_event_manager and EventManager:
@@ -553,6 +986,7 @@ class SpyderApplication:
                 self.logger.info(
                     "ℹ️ Event manager not available - continuing without it"
                 )
+            self._raise_if_shutdown_requested("event manager initialization")
 
             # Using standard connection approach
             self.logger.info(
@@ -590,14 +1024,27 @@ class SpyderApplication:
                 )
             else:
                 self.logger.info("ℹ️ Telegram bot not configured for A01 startup")
+            self._raise_if_shutdown_requested("Telegram bot initialization")
 
             # Optionally autostart SessionSupervisor from A01. This is useful
             # for icon-launch workflows that rely on Telegram /status and
-            # /resume gates checking session_supervisor state.
+            # /resume gates checking session_supervisor state. Autostart is
+            # paper-only by policy; live must always be armed and started
+            # manually by the operator.
             autostart_raw = os.environ.get(
                 "SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR", "0"
             ).strip().lower()
             should_autostart = autostart_raw in ("1", "true", "yes", "on")
+            if should_autostart and self.config.enable_gui and not self.config.headless_mode:
+                allow_gui_autostart = os.environ.get(
+                    "SPYDER_A01_ALLOW_GUI_AUTOSTART", "0"
+                ).strip().lower() in ("1", "true", "yes", "on")
+                if not allow_gui_autostart:
+                    self.logger.warning(
+                        "SessionSupervisor autostart requested, but blocked for GUI launches. "
+                        "Use SPYDER_A01_ALLOW_GUI_AUTOSTART=1 to re-enable deferred GUI autostart."
+                    )
+                    should_autostart = False
             if should_autostart:
                 mode = os.environ.get("SPYDER_A01_AUTOSTART_MODE", "paper").strip().lower()
                 if mode not in ("paper", "live"):
@@ -607,35 +1054,15 @@ class SpyderApplication:
                     )
                     mode = "paper"
 
-                # Never autostart live mode unless explicitly allowed.
                 if mode == "live":
-                    allow_live = os.environ.get(
-                        "SPYDER_A01_ALLOW_LIVE_AUTOSTART", "0"
-                    ).strip().lower() in ("1", "true", "yes", "on")
-                    if not allow_live:
-                        self.logger.warning(
-                            "Live autostart requested but blocked. "
-                            "Set SPYDER_A01_ALLOW_LIVE_AUTOSTART=1 to enable. "
-                            "Falling back to paper mode."
-                        )
-                        mode = "paper"
+                    self.logger.warning(
+                        "Live autostart requested but permanently disallowed. "
+                        "Falling back to paper mode."
+                    )
+                    mode = "paper"
 
                 try:
-                    from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
-                        create_session_supervisor,
-                    )
-
-                    self.session_supervisor = create_session_supervisor(mode=mode)
-                    if self.session_supervisor.start():
-                        self.logger.info(
-                            "✅ SessionSupervisor autostarted from A01 (mode=%s)",
-                            mode,
-                        )
-                    else:
-                        self.logger.warning(
-                            "SessionSupervisor autostart failed from A01 (mode=%s)",
-                            mode,
-                        )
+                    if not self._prepare_session_supervisor_autostart(mode):
                         self.session_supervisor = None
                 except Exception as exc:
                     self.logger.warning(
@@ -646,6 +1073,7 @@ class SpyderApplication:
                     self.session_supervisor = None
             else:
                 self.logger.info("ℹ️ SessionSupervisor autostart disabled in A01")
+            self._raise_if_shutdown_requested("SessionSupervisor autostart")
 
             self.logger.info("✅ Core systems initialized successfully!")
 
@@ -653,6 +1081,9 @@ class SpyderApplication:
             self._log_capability_report()
 
             return True
+
+        except StartupInterrupted:
+            raise
 
         except Exception as e:
             self.logger.error("❌ Core system initialization failed: %s", e, exc_info=True)
@@ -681,11 +1112,19 @@ class SpyderApplication:
             self.logger.info(
                 "🎨 Starting GUI with PROVEN race condition fix validation..."
             )
+            self._raise_if_shutdown_requested("GUI startup")
 
             # Create Qt application
             if QApplication is None:
                 raise RuntimeError("QApplication is not available")
-            self.gui_app = QApplication(sys.argv)
+            existing_app = None
+            if hasattr(QApplication, "instance"):
+                try:
+                    existing_app = QApplication.instance()
+                except Exception:
+                    existing_app = None
+
+            self.gui_app = existing_app if existing_app is not None else QApplication(sys.argv)
 
             # CRITICAL: Set desktop file name for Wayland/GNOME integration
             # This ensures the window appears under the launcher icon
@@ -693,6 +1132,7 @@ class SpyderApplication:
 
             self.gui_app.setApplicationName(self.config.app_name)
             self.gui_app.setApplicationVersion(self.config.version)
+            self._raise_if_shutdown_requested("Qt application initialization")
 
             # Create main window - lazy-load GUI modules (deferred to avoid slow startup)
             # Try real SpyderG05 Trading Dashboard first
@@ -730,6 +1170,8 @@ class SpyderApplication:
             except Exception:
                 pass
 
+            self._raise_if_shutdown_requested("GUI module loading")
+
             if has_trading_dashboard and SpyderTradingDashboard:
                 self.logger.info("🚀 Starting REAL SpyderG05 Trading Dashboard...")
 
@@ -741,6 +1183,8 @@ class SpyderApplication:
 
                     self.logger.debug(traceback.format_exc())
                     raise
+
+                self._raise_if_shutdown_requested("Trading Dashboard construction")
 
                 # The dashboard now manages its own connection via its polling timer.
                 # No client needs to be passed from the main application.
@@ -756,9 +1200,27 @@ class SpyderApplication:
                     self.logger.info(
                         "✅ A01 SessionSupervisor injected into dashboard — reusing existing session"
                     )
+                    if (
+                        getattr(self, "_session_supervisor_autostart_pending", False)
+                        and getattr(self, "_session_supervisor_autostart_mode", "paper") == "paper"
+                    ):
+                        current_et = datetime.now(_A01_EASTERN_TZ)
+                        if _A01_PAPER_LOAD_START_ET <= current_et.time() < dt_time(16, 0):
+                            set_loading_state = getattr(
+                                self.main_window,
+                                "_set_start_button_loading_live_data_state",
+                                None,
+                            )
+                            if callable(set_loading_state):
+                                try:
+                                    set_loading_state()
+                                except Exception:
+                                    pass
 
+                self._raise_if_shutdown_requested("Trading Dashboard display")
                 self.main_window.show()
                 self.logger.info("✅ Real Trading Dashboard launched successfully!")
+                self._schedule_session_supervisor_autostart_after_gui_launch()
 
                 # Setup GUI logging to route logs to dashboard widgets
                 try:
@@ -784,6 +1246,7 @@ class SpyderApplication:
                     self.logger.debug(traceback.format_exc())
                     raise
 
+                self._raise_if_shutdown_requested("Working Dashboard display")
                 self.main_window.show()
                 self.logger.info("✅ Working Trading Dashboard launched successfully!")
 
@@ -804,11 +1267,15 @@ class SpyderApplication:
                     "⚠️ Trading Dashboard not available, using test window..."
                 )
                 self.main_window = SpyderMainWindow(self)
+                self._raise_if_shutdown_requested("fallback window display")
                 self.main_window.show()
 
             self.logger.debug("✅ GUI started successfully")
 
             return True
+
+        except StartupInterrupted:
+            raise
 
         except Exception as e:
             self.logger.error("❌ GUI startup failed: %s", e, exc_info=True)
@@ -827,6 +1294,7 @@ class SpyderApplication:
         try:
             self.logger.info("🚀 Starting SPYDER with PROVEN race condition fix...")
             self.running = True
+            self._raise_if_shutdown_requested("application startup")
 
             # Fail-fast: validate all required environment variables before doing
             # anything else.  validate_startup_config() raises ConfigurationError
@@ -840,17 +1308,21 @@ class SpyderApplication:
             except Exception as cfg_err:  # ConfigurationError or anything unexpected
                 self.logger.error("❌ Startup configuration invalid:\n%s", cfg_err)
                 return 1
+            self._raise_if_shutdown_requested("startup configuration validation")
 
             # Initialize core systems (includes broker connection with race condition fix)
             if not self.initialize_core_systems():
                 self.logger.error("❌ Core system initialization failed")
                 return 1
+            self._raise_if_shutdown_requested("post-core initialization")
 
             # Start GUI (only appears if broker connection succeeded)
             if self.config.enable_gui and not self.config.headless_mode:
+                self._raise_if_shutdown_requested("pre-GUI startup")
                 if not self.start_gui():
                     self.logger.error("❌ GUI startup failed")
                     return 1
+                self._raise_if_shutdown_requested("GUI event loop startup")
 
                 # Run GUI event loop
                 self.logger.debug("🔄 Running GUI event loop...")
@@ -866,6 +1338,10 @@ class SpyderApplication:
                 except KeyboardInterrupt:
                     self.logger.info("Received keyboard interrupt")
                 return 0
+
+        except StartupInterrupted:
+            self.logger.info("Startup interrupted by shutdown request")
+            return 0
 
         except Exception as e:
             self.logger.error("❌ Application runtime error: %s", e, exc_info=True)
@@ -899,6 +1375,40 @@ class SpyderApplication:
                 except Exception as e:
                     self.logger.warning("Telegram bot stop error: %s", e, exc_info=True)
 
+            # Close the dashboard before stopping the injected SessionSupervisor.
+            # G05's closeEvent stops its Qt worker/timer threads; if we stop the
+            # backend first, those GUI-owned threads can keep the process alive
+            # during bounded SIGTERM-based launcher validations.
+            if self.main_window and hasattr(self.main_window, "close"):
+                try:
+                    self.main_window.close()
+                    if self.gui_app and hasattr(self.gui_app, "processEvents"):
+                        self.gui_app.processEvents()
+                except Exception as e:
+                    self.logger.warning("Main window close error: %s", e, exc_info=True)
+
+            if getattr(self, "_session_supervisor_autostart_pending", False):
+                self._session_supervisor_autostart_pending = False
+                self._session_supervisor_autostart_mode = None
+
+            autostart_thread = getattr(self, "_session_supervisor_autostart_thread", None)
+            if autostart_thread is not None:
+                try:
+                    finished = self._wait_for_session_supervisor_autostart_thread(1.0)
+                except Exception as e:
+                    self.logger.warning(
+                        "SessionSupervisor autostart thread join error: %s",
+                        e,
+                        exc_info=True,
+                    )
+                    finished = False
+                if not finished:
+                    self.logger.warning(
+                        "SessionSupervisor autostart thread still running during shutdown"
+                    )
+                else:
+                    self._finalize_session_supervisor_autostart()
+
             # Stop unified session supervisor if A01 started it.
             if self.session_supervisor:
                 try:
@@ -909,12 +1419,61 @@ class SpyderApplication:
                 finally:
                     self.session_supervisor = None
 
+            self._stop_loaded_metrics_orchestrators()
+
+            # Stop the EventManager while the application is still in an
+            # explicit shutdown path instead of leaving it to atexit cleanup.
+            if self.event_manager:
+                try:
+                    self.event_manager.stop()
+                    self.logger.info("🧵 EventManager stopped")
+                except Exception as e:
+                    self.logger.warning("EventManager stop error: %s", e, exc_info=True)
+                finally:
+                    self.event_manager = None
+
+            # Stop the shared A03 ConfigManager singleton so its watchdog
+            # observer threads do not outlive the bounded launcher shutdown.
+            try:
+                from Spyder.SpyderA_Core.SpyderA03_Configuration import reset_config_manager
+
+                reset_config_manager()
+                self.logger.info("⚙️ ConfigManager reset")
+            except Exception as e:
+                self.logger.warning("ConfigManager reset error: %s", e, exc_info=True)
+
+            # Signal and join any remaining background workers registered with
+            # the process-wide shutdown coordinator before the main thread exits.
+            if _HAS_COORDINATOR and _get_coordinator is not None:
+                try:
+                    _get_coordinator().shutdown(timeout=1.0)
+                    self.logger.info("🧹 ShutdownCoordinator drained background workers")
+                except Exception as e:
+                    self.logger.warning(
+                        "ShutdownCoordinator drain error: %s",
+                        e,
+                        exc_info=True,
+                    )
+
             # Cleanup GUI
             if self.gui_app:
                 try:
                     self.gui_app.quit()
+                    if hasattr(self.gui_app, "processEvents"):
+                        self.gui_app.processEvents()
                 except Exception as e:
                     self.logger.warning("GUI cleanup error: %s", e, exc_info=True)
+
+            live_threads = [
+                f"{thread.name}(daemon={thread.daemon})"
+                for thread in threading.enumerate()
+                if thread is not threading.current_thread()
+            ]
+            if live_threads:
+                self.logger.warning(
+                    "Live non-main threads remain after shutdown: %s",
+                    ", ".join(live_threads),
+                )
 
             self.logger.info("✅ Shutdown complete")
 
@@ -1003,5 +1562,11 @@ def main() -> int:
     return exit_code
 
 
+def _finalize_process_exit(exit_code: int) -> None:
+    """Flush logs and terminate the A01 entrypoint process immediately."""
+    logging.shutdown()
+    os._exit(exit_code)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    _finalize_process_exit(main())

@@ -839,6 +839,31 @@ class ConfigManager:
                 self.logger.error("Error getting config value %s: %s", key, e)
                 return default
 
+    def get_config(self, key: str, default: Any = None) -> Any:
+        """Compatibility wrapper for callers that still expect get_config()."""
+        return self.get(key, default)
+
+    def is_feature_enabled(self, key: str) -> bool:
+        """Compatibility wrapper for F-series feature-flag checks."""
+        candidates = (
+            f"features.{key}",
+            f"feature_flags.{key}",
+            key,
+        )
+
+        for candidate in candidates:
+            value = self.get(candidate, None)
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return bool(value)
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+        return False
+
     def get_all(self) -> dict[str, Any]:
         """Get all configuration values (with sensitive data masked)"""
         with self._lock:
@@ -1568,7 +1593,7 @@ class ConfigManager:
 
         if not ok and normalized_mode != "live":
             self._set_nested_value(effective, "automation.enabled", False)
-            warnings.append("paper/sandbox mode: blocking errors present, automation disabled")
+            warnings.append("paper mode: blocking errors present, automation disabled")
             ok = True
 
         return {

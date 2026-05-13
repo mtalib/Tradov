@@ -39,6 +39,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -448,9 +449,8 @@ def _load_spyderbox_paper_account_snapshot() -> tuple[float, float] | None:
 
 
 def _extract_tradier_balance(payload: dict) -> tuple[float, float]:
-    """Return (equity, buying_power) from a Tradier balances payload."""
+    """Return (settled_cash, buying_power) from a Tradier balances payload."""
     account_data = payload.get("balances", {}) if isinstance(payload, dict) else {}
-    equity = float(account_data.get("total_equity") or 0)
     cash = float(account_data.get("total_cash") or 0)
     margin = account_data.get("margin", {})
     option_bp = float(
@@ -458,7 +458,100 @@ def _extract_tradier_balance(payload: dict) -> tuple[float, float]:
         or account_data.get("buying_power")
         or cash
     )
-    return equity, option_bp
+    return cash, option_bp
+
+
+BALANCE_SOURCE_LIVE = "live"
+BALANCE_SOURCE_PAPER = "paper"
+
+
+def _emit_paper_balance_update(worker: Any) -> bool:
+    """Emit the local SpyderBox paper balance snapshot when available."""
+    local_snapshot = _load_spyderbox_paper_account_snapshot()
+    if local_snapshot is None:
+        return False
+
+    setattr(worker, "_paper_balance_snapshot_missing_warned", False)
+    equity, option_bp = local_snapshot
+    worker.balance_updated.emit(BALANCE_SOURCE_PAPER, equity, option_bp)
+    return True
+
+
+def _paper_snapshot_gap_requires_warning() -> bool:
+    """Return True when a missing paper snapshot indicates unexpected drift."""
+    state_path = _spyderbox_paper_state_file()
+    if state_path.exists():
+        return True
+
+    try:
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB  # noqa: PLC0415
+
+        db = TradingSessionDB.for_paper()
+        if db.get_latest_snapshot() is not None:
+            return True
+        if db.get_open_positions():
+            return True
+        if db.get_recent_trades(limit=1):
+            return True
+        return False
+    except Exception:
+        # If we cannot inspect local paper state, preserve the warning.
+        return True
+
+
+def _warn_missing_paper_snapshot(worker: Any) -> None:
+    """Emit a single warning when paper balance state should exist but does not."""
+    if not _paper_snapshot_gap_requires_warning():
+        return
+    if bool(getattr(worker, "_paper_balance_snapshot_missing_warned", False)):
+        return
+
+    logger.warning(
+        "Paper balance unavailable: local SpyderBox snapshot missing "
+        "(sandbox fallback disabled)."
+    )
+    setattr(worker, "_paper_balance_snapshot_missing_warned", True)
+
+
+def _emit_live_balance_update(worker: Any) -> bool:
+    """Emit the live Tradier balance snapshot when credentials are available."""
+    if not TRADIER_AVAILABLE:
+        return False
+
+    api_key, account_id, env_enum = _resolve_tradier_client_config()
+    if not api_key or not account_id or env_enum is None:
+        return False
+
+    client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
+    bal = client.get_account_balances()
+    equity, option_bp = _extract_tradier_balance(bal)
+    worker.balance_updated.emit(BALANCE_SOURCE_LIVE, equity, option_bp)
+    return True
+
+
+def _runtime_trading_mode() -> str:
+    """Return the normalized runtime trading mode used by safety guards."""
+    override = str(os.environ.get("SPYDER_TRADING_MODE", "")).strip().lower()
+    if override:
+        return override
+    return str(os.environ.get("TRADING_MODE", "paper")).strip().lower()
+
+
+def _live_account_balance_reads_enabled() -> bool:
+    """Allow live-account balance reads only when runtime mode is explicitly live."""
+    return _runtime_trading_mode() == "live"
+
+
+def _market_data_probe_succeeded(payload: dict) -> bool:
+    """Return True when a lightweight quote probe returns any SPY quote payload."""
+    quotes_raw = payload.get("quotes", {}).get("quote", []) if isinstance(payload, dict) else []
+    if isinstance(quotes_raw, dict):
+        quotes_raw = [quotes_raw]
+
+    return any(
+        isinstance(quote, dict) and str(quote.get("symbol", "")).upper() == "SPY"
+        for quote in quotes_raw
+    )
 
 
 def check_api_connection():
@@ -478,12 +571,17 @@ def check_api_connection():
             except ImportError:
                 pass
             # Always use the live-only market-data client.
-            # This verifies the endpoint that actually serves quotes/chains.
+            # Use the same lightweight quote endpoint the dashboard depends on,
+            # rather than the heavier account-profile connectivity check.
             client = _build_market_data_client()
-            if client is not None and client.test_connection():
-                trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
-                mode_label = "PAPER" if trading_mode == "paper" else "LIVE"
-                return True, f"Tradier API ({mode_label})"
+            if client is not None:
+                quote_probe = client.get_quotes(["SPY"])
+                if _market_data_probe_succeeded(quote_probe):
+                    trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
+                    mode_label = "PAPER" if trading_mode == "paper" else "LIVE"
+                    return True, f"Tradier API ({mode_label})"
+
+                return False, "Tradier API probe returned no quotes"
 
         return False, "Tradier API not configured"
 
@@ -523,14 +621,15 @@ class ThreadSafeMarketDataWorker(QObject):
     heartbeat_received = Signal(str)
     heartbeat_status_changed = Signal(str)  # New signal for heartbeat status
     log_message = Signal(str)  # New signal for log messages
-    balance_updated = Signal(float, float)  # (equity/settled, buying_power)
+    balance_updated = Signal(str, float, float)  # (source, settled_cash/equity, buying_power)
     fetch_requested = Signal()       # Trigger full live fetch from GUI thread safely
     fast_fetch_requested = Signal()  # Trigger lightweight quote-only refresh
     eod_snapshot_fetched = Signal(bool)  # True = real EOD prices written to live_data.json
 
-    def __init__(self):
+    def __init__(self, quiet_startup: bool = False):
         super().__init__()
         self.logger = SpyderLogger.get_logger(__name__)
+        self._quiet_startup = bool(quiet_startup)
 
         # FIXED: Start with actual connection check instead of assuming connected
         self.api_connected = False
@@ -548,14 +647,111 @@ class ThreadSafeMarketDataWorker(QObject):
         self.market_hours_timer = None
         self.heartbeat_timer = None
         self.heartbeat_warning_timer = None
+        self._shutdown_requested = False
 
         self.last_data_update = {}
         self._healthy_log_throttle = LogThrottle(HEARTBEAT_LOG_INTERVAL)
         self._offline_log_throttle = LogThrottle(HEARTBEAT_LOG_INTERVAL)
+        self._event_manager = None
+        self._market_data_event_type = None
+        self._last_spy_market_data_key = None
+        self._paper_balance_snapshot_missing_warned = False
         self._init_simulation_data()
 
-        logger.info("🔧 Market Data Worker initialized with heartbeat monitoring")
-        logger.info("📊 Market: %s", 'OPEN' if self.market_hours else 'CLOSED')
+        if not self._quiet_startup:
+            logger.info("🔧 Market Data Worker initialized with heartbeat monitoring")
+            logger.info("📊 Market: %s", 'OPEN' if self.market_hours else 'CLOSED')
+
+    def _shutdown_in_progress(self) -> bool:
+        """Return True once the worker has entered shutdown."""
+        return bool(getattr(self, "_shutdown_requested", False))
+
+    def _resolve_market_event_bridge(self):
+        """Return the active A05 market-data event bridge."""
+        event_manager = getattr(self, "_event_manager", None)
+        market_data_event_type = getattr(self, "_market_data_event_type", None)
+        if event_manager is not None and market_data_event_type is not None:
+            return event_manager, market_data_event_type
+
+        try:
+            from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType, get_event_manager
+
+            event_manager = get_event_manager()
+            market_data_event_type = EventType.MARKET_DATA
+            self._event_manager = event_manager
+            self._market_data_event_type = market_data_event_type
+            return event_manager, market_data_event_type
+        except Exception as exc:
+            self.logger.debug("G18: EventManager unavailable for market-data bridge: %s", exc)
+            return None, None
+
+    def _emit_spy_market_data_event(
+        self,
+        entry: dict[str, Any] | None,
+        quote: dict[str, Any] | None = None,
+    ) -> None:
+        """Publish a normalized SPY market-data event for A05 consumers."""
+        if not isinstance(entry, dict):
+            return
+
+        try:
+            last = float(entry.get("last") or 0.0)
+        except (TypeError, ValueError):
+            return
+        if last <= 0.0:
+            return
+
+        event_manager, market_data_event_type = self._resolve_market_event_bridge()
+        if event_manager is None or market_data_event_type is None:
+            return
+
+        timestamp_ms = _coerce_epoch_ms(entry.get("timestamp_ms")) or int(time.time() * 1000)
+        timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+        event_key = (timestamp_ms, round(last, 6))
+
+        if getattr(self, "_last_spy_market_data_key", None) == event_key:
+            return
+
+        tick = {
+            "symbol": "SPY",
+            "open": last,
+            "high": last,
+            "low": last,
+            "close": last,
+            "price": last,
+            "last": last,
+        }
+
+        if isinstance(quote, dict):
+            for key in ("bid", "ask", "volume"):
+                value = quote.get(key)
+                if value in (None, ""):
+                    continue
+                try:
+                    tick[key] = float(value)
+                except (TypeError, ValueError):
+                    continue
+
+        event_payload = {
+            "symbol": "SPY",
+            "last": last,
+            "price": last,
+            "change": float(entry.get("change") or 0.0),
+            "change_pct": float(entry.get("change_pct") or 0.0),
+            "timestamp_ms": timestamp_ms,
+            "timestamp": timestamp,
+            "tick": tick,
+        }
+
+        try:
+            event_manager.emit(
+                market_data_event_type,
+                event_payload,
+                source=self.__class__.__name__,
+            )
+            self._last_spy_market_data_key = event_key
+        except Exception as exc:
+            self.logger.debug("G18: failed to publish SPY MARKET_DATA bridge event: %s", exc)
 
     def _heartbeat_check(self):
         """30-second heartbeat check for Tradier API connection"""
@@ -652,84 +848,54 @@ class ThreadSafeMarketDataWorker(QObject):
         """Fetch account balance from Tradier without touching quotes or market-hours guards.
 
         Called at startup (both inside and outside trading window) so the account
-        section (SETTLED CASH, BUYING POWER) is populated as soon as credentials
-        are available, regardless of whether the market is open.
+        panels are populated as soon as credentials are available, regardless of
+        whether the market is open.
         """
+        if bool(getattr(self, "_quiet_startup", False)):
+            return
+
         try:
             from dotenv import load_dotenv
             load_dotenv(override=True)
 
-            trading_mode = os.environ.get("TRADING_MODE", "paper").strip().lower()
-            if trading_mode == "paper":
-                local_snapshot = _load_spyderbox_paper_account_snapshot()
-                if local_snapshot is not None:
-                    equity, option_bp = local_snapshot
-                    self.balance_updated.emit(equity, option_bp)
-                    return
-                logger.warning(
-                    "Paper balance unavailable: local SpyderBox snapshot missing "
-                    "(sandbox fallback disabled)."
-                )
-                return
+            trading_mode = _runtime_trading_mode()
+            paper_snapshot_emitted = _emit_paper_balance_update(self)
+            if trading_mode == "paper" and not paper_snapshot_emitted:
+                _warn_missing_paper_snapshot(self)
 
-            if not TRADIER_AVAILABLE:
-                return
-            api_key, account_id, env_enum = _resolve_tradier_client_config()
-            if not api_key or not account_id or env_enum is None:
-                return
-            client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
-
-            bal = client.get_account_balances()
-            equity, option_bp = _extract_tradier_balance(bal)
-            # Always emit — even a zero balance is valid data (new account).
-            self.balance_updated.emit(equity, option_bp)
+            if _live_account_balance_reads_enabled():
+                _emit_live_balance_update(self)
         except Exception:
             pass
 
     def _fetch_live_data_from_tradier(self):
         """Fetch live quotes and account balance from Tradier, write to data_file."""
         try:
+            if self._shutdown_in_progress():
+                return
+
             from dotenv import load_dotenv
             load_dotenv(override=True)
             if not TRADIER_AVAILABLE:
                 return
 
-            # --- Fetch account balance ---
-            # Always fetch balance from the account that matches TRADING_MODE:
-            #   paper + SPYDER_PAPER_ACCOUNT_SOURCE=spyderbox_local
-            #       → local SpyderBox snapshot (H05/state file)
-            #   live
-            #       → live API with live credentials
-            # This keeps market data quotes (live API) separate from paper balance.
-            trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
-            try:
-                if trading_mode == "paper":
-                    local_snapshot = _load_spyderbox_paper_account_snapshot()
-                    if local_snapshot is not None:
-                        equity, option_bp = local_snapshot
-                        # Always emit — a zero balance is valid for a new/empty account.
-                        self.balance_updated.emit(equity, option_bp)
-                    else:
-                        logger.warning(
-                            "Paper balance unavailable: local SpyderBox snapshot missing "
-                            "(sandbox fallback disabled)."
-                        )
-                else:
-                    # Live trading: fetch from live account
-                    api_key, account_id, env_enum = _resolve_tradier_client_config()
-                    if not api_key or not account_id or env_enum is None:
-                        raise RuntimeError("live_account_client_unavailable")
-                    client = TradierClient(
-                        api_key=api_key,
-                        account_id=account_id,
-                        environment=env_enum,
-                    )
-                    bal = client.get_account_balances()
-                    equity, option_bp = _extract_tradier_balance(bal)
-                    # Always emit — a zero balance is valid for a new/empty account.
-                    self.balance_updated.emit(equity, option_bp)
-            except Exception:
-                pass
+            # --- Fetch account balances for the active runtime posture ---
+            # SpyderBox paper balances stay local-only. Live Tradier balance
+            # reads are allowed only when the runtime mode is explicitly live.
+            if not bool(getattr(self, "_quiet_startup", False)):
+                trading_mode = _runtime_trading_mode()
+                try:
+                    paper_snapshot_emitted = _emit_paper_balance_update(self)
+                    if trading_mode == "paper" and not paper_snapshot_emitted:
+                        _warn_missing_paper_snapshot(self)
+
+                    if _live_account_balance_reads_enabled():
+                        _emit_live_balance_update(self)
+                except Exception:
+                    pass
+
+            if self._shutdown_in_progress():
+                return
 
             # --- Fetch live quotes and write to data_file ---
             symbols = _build_quote_symbol_basket()
@@ -840,8 +1006,13 @@ class ThreadSafeMarketDataWorker(QObject):
                     }
                     with open(_snapshot_file, "w") as _sf:
                         _json.dump({**live_data, **_snapshot_meta}, _sf)
+
+                    self._emit_spy_market_data_event(live_data.get("SPY"), _spy_q_slow)
             except Exception:
                 pass
+
+            if self._shutdown_in_progress():
+                return
 
             # --- Compute put/call ratio (CPC) from SPY options chain ---
             # CBOE does not publish CPC via Tradier; we compute it from SPY chain volume.
@@ -868,6 +1039,9 @@ class ThreadSafeMarketDataWorker(QObject):
                             _json3.dump(live_data, f)
             except Exception:
                 pass
+
+            if self._shutdown_in_progress():
+                return
 
             # --- Fetch 5-min SPY bars for chart ---
             # Only fetch after 9:30 AM ET — start="09:30" is invalid if market hasn't opened yet
@@ -908,6 +1082,9 @@ class ThreadSafeMarketDataWorker(QObject):
             except Exception:
                 pass
 
+            if self._shutdown_in_progress():
+                return
+
             # --- Fetch previous trading day's daily OHLC for pivot anchoring ---
             # Pivots must use yesterday's H/L/C (fixed for the whole session).
             # We try a 5-day lookback so weekends/holidays are handled correctly.
@@ -939,6 +1116,9 @@ class ThreadSafeMarketDataWorker(QObject):
                 pass
             except Exception:
                 pass  # non-critical — pivot fallback is today's intraday range
+
+            if self._shutdown_in_progress():
+                return
 
             # --- Fetch RUT previous-day close for day-change derivation ---
             # Tradier does not return change/prevclose for RUT in its quote
@@ -994,6 +1174,9 @@ class ThreadSafeMarketDataWorker(QObject):
         picks them up immediately without overwriting CPC or other computed keys.
         """
         try:
+            if self._shutdown_in_progress():
+                return
+
             import json as _json
             from dotenv import load_dotenv
             load_dotenv(override=True)
@@ -1088,6 +1271,9 @@ class ThreadSafeMarketDataWorker(QObject):
                         updated = True
 
             if updated:
+                if self._shutdown_in_progress():
+                    return
+
                 import time as _time_fast
                 existing["_fetch_time_ms"] = int(_time_fast.time() * 1000)
 
@@ -1104,6 +1290,8 @@ class ThreadSafeMarketDataWorker(QObject):
                 self.data_file.parent.mkdir(parents=True, exist_ok=True)
                 with open(self.data_file, "w") as _f:
                     _json.dump(existing, _f)
+
+                self._emit_spy_market_data_event(existing.get("SPY"), _spy_q_raw)
 
             # --- Market internals ($TICK, $ADD, $TRIN, $VOLD) ---
             # Sourced via Playwright/TradingView scraping in SpyderS11_TradingViewInternals.py
@@ -1282,22 +1470,25 @@ class ThreadSafeMarketDataWorker(QObject):
     @Slot()
     def start(self):
         """Start the worker: create QTimers in worker thread and emit initial connection status."""
-        logger.info("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
+        self._quiet_startup = bool(getattr(self, "_quiet_startup", False))
+        if not self._quiet_startup:
+            logger.info("🚀 Starting Thread-Safe Market Data Worker with heartbeat monitoring...")
+        self._shutdown_requested = False
 
         # CRITICAL: Create QTimers in the worker thread, not the main thread
-        self.update_timer = QTimer()
+        self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._emit_data)
         self.update_timer.start(2000)
 
-        self.market_hours_timer = QTimer()
+        self.market_hours_timer = QTimer(self)
         self.market_hours_timer.timeout.connect(self._check_market_hours)
         self.market_hours_timer.start(60000)
 
-        self.heartbeat_timer = QTimer()
+        self.heartbeat_timer = QTimer(self)
         self.heartbeat_timer.timeout.connect(self._heartbeat_check)
         self.heartbeat_timer.start(HEARTBEAT_INTERVAL)
 
-        self.heartbeat_warning_timer = QTimer()
+        self.heartbeat_warning_timer = QTimer(self)
         self.heartbeat_warning_timer.timeout.connect(self._heartbeat_warning)
 
         # Only attempt initial connection if within the trading window
@@ -1305,7 +1496,8 @@ class ThreadSafeMarketDataWorker(QObject):
             import pytz as _pytz
             _et_now = datetime.now(_pytz.timezone("US/Eastern"))
             _open_str = TRADIER_CONNECT_TIME.strftime("%I:%M %p")
-            logger.info("🕐 Outside trading window — Tradier will connect at %s ET", _open_str)
+            if not self._quiet_startup:
+                logger.info("🕐 Outside trading window — Tradier will connect at %s ET", _open_str)
             self.connection_status_changed.emit(False, "WAITING FOR MARKET")
             self.market_data_status_changed.emit("NONE")
             self.heartbeat_status_changed.emit("disconnected")
@@ -1333,19 +1525,39 @@ class ThreadSafeMarketDataWorker(QObject):
                 _startup_mkt = "PAPER" if _startup_sandbox else "LIVE"
                 self.market_data_status_changed.emit(_startup_mkt)
                 self.heartbeat_status_changed.emit("connected")  # Green heart
-                logger.info("✅ Tradier API connected at startup: %s", mode)
+                # Queue one immediate full fetch so launch-time hydration does
+                # not wait for the G05 retry timer or the 30s heartbeat.
+                self.fetch_requested.emit()
+                if not self._quiet_startup:
+                    logger.info("✅ Tradier API connected at startup: %s", mode)
             else:
                 self.connection_status_changed.emit(False, "API DISCONNECTED")
                 self.market_data_status_changed.emit("NONE")
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
-                logger.info("❌ Tradier API disconnected at startup")
+                if not self._quiet_startup:
+                    logger.info("❌ Tradier API disconnected at startup")
 
         except Exception as e:
-            logger.info("⚠️ Startup connection check error: %s", e)
+            if not self._quiet_startup:
+                logger.info("⚠️ Startup connection check error: %s", e)
             self.api_connected = False
             self.connection_status_changed.emit(False, "API DISCONNECTED")
             self.market_data_status_changed.emit("NONE")
             self.heartbeat_status_changed.emit("error")  # Red heart
+
+    @Slot()
+    def run_full_fetch(self):
+        """Execute a queued full fetch unless shutdown has already begun."""
+        if self._shutdown_in_progress():
+            return
+        self._fetch_live_data_from_tradier()
+
+    @Slot()
+    def run_fast_fetch(self):
+        """Execute a queued fast fetch unless shutdown has already begun."""
+        if self._shutdown_in_progress():
+            return
+        self._fetch_quotes_fast()
 
     def _emit_data(self):
         """Emit current market data"""
@@ -1408,9 +1620,17 @@ class ThreadSafeMarketDataWorker(QObject):
         self.connection_status_changed.emit(False, "API DISCONNECTED")
         self.market_data_status_changed.emit("NONE")
 
+    @Slot()
+    def pause_periodic_updates(self):
+        """Stop the worker-owned periodic data timer from the worker thread."""
+        if self.update_timer:
+            self.update_timer.stop()
+
+    @Slot()
     def stop(self):
         """Stop worker and all timers"""
         logger.info("🛑 Stopping worker and heartbeat monitoring...")
+        self._shutdown_requested = True
         if self.update_timer:
             self.update_timer.stop()
         if self.market_hours_timer:
@@ -1437,5 +1657,6 @@ __all__ = [
     "_freshest_live_data_timestamp",
     "_freshest_quote_timestamp_ms",
     "_get_cached_chain",
+    "_market_data_probe_succeeded",
     "check_api_connection",
 ]

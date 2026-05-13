@@ -35,6 +35,7 @@ from enum import Enum
 # ==============================================================================
 import pytz
 import requests
+from apscheduler.schedulers.base import SchedulerNotRunningError
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -306,15 +307,22 @@ class SpyderDIXScheduler:
     # ==========================================================================
     # PUBLIC METHODS - SCHEDULER CONTROL
     # ==========================================================================
-    def start(self) -> None:
-        """Start the scheduler."""
+    def start(self, run_initial_calculation: bool = True) -> None:
+        """Start the scheduler.
+
+        Args:
+            run_initial_calculation: When True, run an immediate DIX calculation
+                after the APScheduler worker starts. Disable this for startup
+                paths that must stay non-blocking during application shutdown.
+        """
         try:
             self.scheduler.start()
             self.logger.debug("DIX Scheduler started")
 
             # Run initial calculation
-            self.logger.debug("Running initial DIX calculation...")
-            self.run_scheduled_calculation()
+            if run_initial_calculation:
+                self.logger.debug("Running initial DIX calculation...")
+                self.run_scheduled_calculation()
 
         except Exception as e:
             self.logger.error("Failed to start scheduler: %s", e)
@@ -325,6 +333,9 @@ class SpyderDIXScheduler:
         try:
             self.scheduler.shutdown(wait=True)
             self.logger.info("DIX Scheduler stopped")
+
+        except SchedulerNotRunningError:
+            self.logger.debug("DIX Scheduler stop skipped; scheduler not running")
 
         except Exception as e:
             self.logger.error("Error stopping scheduler: %s", e)

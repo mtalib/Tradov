@@ -529,6 +529,8 @@ class EventManager:
                     )
                 """)
 
+                self._migrate_event_log_schema(conn)
+
                 conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_timestamp
                     ON event_log(timestamp)
@@ -543,6 +545,16 @@ class EventManager:
 
         except Exception as e:
             self.logger.error("Database initialization error: %s", e)
+
+    def _migrate_event_log_schema(self, conn: sqlite3.Connection) -> None:
+        """Bring legacy event_log tables up to the current insert contract."""
+        existing_columns = {
+            str(row[1]).strip().lower()
+            for row in conn.execute("PRAGMA table_info(event_log)")
+        }
+        if existing_columns and "metadata" not in existing_columns:
+            conn.execute("ALTER TABLE event_log ADD COLUMN metadata TEXT")
+            self.logger.info("Event database migrated: added event_log.metadata column")
 
     # ==========================================================================
     # LIFECYCLE MANAGEMENT
@@ -610,31 +622,40 @@ class EventManager:
             self.error_handler.handle_error(e, "event_manager_start")
             return False
 
-    def stop(self, timeout: float = 5.0) -> bool:
+    def stop(self, timeout: float = 5.0, quiet: bool = False) -> bool:
         """
         Stop the event manager.
 
         Args:
             timeout: Maximum time to wait for shutdown
+            quiet: When True, suppress shutdown logging and skip emitting the
+                shutdown event. Used by atexit cleanup after logging streams may
+                already be closing.
 
         Returns:
             bool: True if stopped successfully
         """
         try:
+            def _log(level: str, message: str, *args: Any) -> None:
+                if quiet:
+                    return
+                getattr(self.logger, level)(message, *args)
+
             if not self.is_running:
-                self.logger.warning("EventManager not running")
+                _log("warning", "EventManager not running")
                 return True
 
-            self.logger.info("Stopping EventManager...")
+            _log("info", "Stopping EventManager...")
 
-            # Emit shutdown event
-            self.emit(
-                EventType.SHUTDOWN,
-                {
-                    'component': 'EventManager',
-                    'timestamp': datetime.now(timezone.utc)
-                }
-            )
+            if not quiet:
+                # Emit shutdown event
+                self.emit(
+                    EventType.SHUTDOWN,
+                    {
+                        'component': 'EventManager',
+                        'timestamp': datetime.now(timezone.utc)
+                    }
+                )
 
             # Signal shutdown
             self._shutdown_event.set()
@@ -655,7 +676,8 @@ class EventManager:
                         # task_done called too many times; stop draining safely
                         break
                 if dropped:
-                    self.logger.info(
+                    _log(
+                        "info",
                         "A10: dropped %s unprocessed %s events during shutdown",
                         dropped,
                         name,
@@ -681,23 +703,26 @@ class EventManager:
 
             try:
                 if not _bounded_join(self.event_queue):
-                    self.logger.warning(
+                    _log(
+                        "warning",
                         "A10: event_queue drain timed out; %s tasks left unfinished",
                         getattr(self.event_queue, "unfinished_tasks", "?"),
                     )
                 if not _bounded_join(self.priority_queue):
-                    self.logger.warning(
+                    _log(
+                        "warning",
                         "A10: priority_queue drain timed out; %s tasks left unfinished",
                         getattr(self.priority_queue, "unfinished_tasks", "?"),
                     )
                 if self.persist_events and not _bounded_join(self._persist_queue):
-                    self.logger.warning(
+                    _log(
+                        "warning",
                         "A10: persist_queue drain timed out; %s tasks left unfinished",
                         getattr(self._persist_queue, "unfinished_tasks", "?"),
                     )
             except (RuntimeError, AttributeError) as e:
                 # Queue join may fail if queue already closed or in invalid state
-                self.logger.warning("Error waiting for queues during shutdown: %s", e)
+                _log("warning", "Error waiting for queues during shutdown: %s", e)
 
             # Stop worker threads
             for thread in self.worker_threads:
@@ -719,13 +744,14 @@ class EventManager:
                 self.executor.shutdown(wait=True)
 
             self.is_running = False
-            self.logger.info("EventManager stopped successfully")
+            _log("info", "EventManager stopped successfully")
 
             return True
 
         except Exception as e:
-            self.logger.error("Error stopping EventManager: %s", e)
-            self.error_handler.handle_error(e, "event_manager_stop")
+            _log("error", "Error stopping EventManager: %s", e)
+            if not quiet:
+                self.error_handler.handle_error(e, "event_manager_stop")
             return False
 
     def shutdown(self):
@@ -1356,7 +1382,7 @@ def _event_manager_atexit_cleanup() -> None:
         inst = _event_manager_instance
     if inst is not None and getattr(inst, "is_running", False):
         try:
-            inst.stop()
+            inst.stop(quiet=True)
         except Exception:
             pass
 

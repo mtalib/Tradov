@@ -60,6 +60,13 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 # CONSTANTS
 # ==============================================================================
 _DEFAULT_SYMBOLS = ["SPY", "SPX", "VIX"]
+_PAPER_ORCHESTRATOR_L09_DEFER_SECONDS = 0.25
+_PAPER_ORCHESTRATOR_L09_DEFER_CONFIG = {
+    "defer_attribution_until_after_first_regime": True,
+    "enable_quant_models": False,
+    "enable_hmm": False,
+    "connect_metrics_orchestrator": False,
+}
 
 # ==============================================================================
 # TYPES
@@ -101,6 +108,7 @@ class SessionSupervisor:
     ) -> None:
         self.logger = SpyderLogger.get_logger(__name__)
         self.mode = mode
+        os.environ["SPYDER_TRADING_MODE"] = str(mode)
         self.session_id: str = ""
         self.dry_run: bool = dry_run
         self.skip_orphan_sweep: bool = skip_orphan_sweep
@@ -129,6 +137,10 @@ class SessionSupervisor:
         # O1/O9/A13 (v14): LivenessMonitor — heartbeat + /healthz + deadman.
         self.liveness: Any = None
         self._flatten_request_handler_id: Optional[str] = None
+        self._startup_profile_enabled: bool = self._is_truthy_env(
+            os.getenv("SPYDER_SESSION_SUPERVISOR_PROFILE_STARTUP")
+        )
+        self._startup_profile_started_at: float | None = None
 
     # --------------------------------------------------------------------------
     # PUBLIC API
@@ -152,8 +164,17 @@ class SessionSupervisor:
             self.symbols,
             self.session_id,
         )
+        self._begin_startup_profile()
         if self.dry_run:
             self.logger.warning("⚠️  DRY-RUN MODE — order submission is suppressed; no orders will reach the broker")  # noqa: E501
+
+        policy_ok, policy_violation = self._validate_live_only_tradier_policy()
+        if not policy_ok:
+            self.logger.critical(
+                "❌ Live-only Tradier policy violation; refusing startup (%s)",
+                policy_violation,
+            )
+            return self._abort("LiveOnlyTradierPolicy")
 
         # 1. EventManager ── shared event bus
         if not self._start_event_manager():
@@ -183,32 +204,41 @@ class SessionSupervisor:
         # 7. RiskManager ── mandatory fail-closed startup
         if not self._start_risk_manager():
             return self._abort("RiskManager")
+        self._log_startup_profile("risk_manager_ready")
 
         # 8. LiveEngine
         if not self._start_live_engine():
             return self._abort("LiveEngine")
+        self._log_startup_profile("live_engine_ready")
 
         # 9. StrategyOrchestrator
         if not self._start_orchestrator():
             return self._abort("StrategyOrchestrator")
+        self._log_startup_profile("strategy_orchestrator_ready")
 
         # 10. ExitMonitor — must come after orchestrator so strategy_map is populated
         self._start_exit_monitor()  # non-fatal
+        self._log_startup_profile("exit_monitor_ready")
 
         # 11. LivenessMonitor — heartbeat + /healthz + deadman (v14 O1/O9/A13)
         self._start_liveness_monitor()  # non-fatal
+        self._log_startup_profile("liveness_monitor_ready")
 
         # O-2: One-shot orphan sweep immediately after boot to surface any
         # pre-existing broker positions not owned by a registered strategy
         # (e.g. left open after a crash).
         self._boot_orphan_sweep()
+        self._log_startup_profile("boot_orphan_sweep_complete")
 
         # P1-13: Boot-time synthetic signal self-test. Fail closed if the
         # strategy signal path does not produce ORDER_REJECTED(reason=dry_run).
         if not self._run_boot_self_test(timeout_seconds=3.0):
             return self._abort("BootSelfTest")
+        self._log_startup_profile("boot_self_test_complete")
 
         self._running = True
+        self._log_startup_profile("start_complete")
+        self._end_startup_profile()
         self.logger.debug("✅ SessionSupervisor fully started in %s mode", self.mode)
 
         return True
@@ -265,7 +295,7 @@ class SessionSupervisor:
 
         self.logger.info("SessionSupervisor stopped.")
         try:
-            from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import (
+            from Spyder.SpyderP_PortfolioMgmt import (
                 reset_global_portfolio_manager,
             )
             reset_global_portfolio_manager()
@@ -459,6 +489,8 @@ class SessionSupervisor:
             # even if the balance call succeeded (belt-and-suspenders).
             if self.mode != "live":
                 self.risk.mark_account_synced()
+                if hasattr(self.risk, "_enforce_decision_quality_slo"):
+                    self.risk._enforce_decision_quality_slo = False
             # R12-B1: register a sync stop shim so the component loop can
             # signal shutdown and join threads (RiskManager.stop is async).
             _risk = self.risk
@@ -515,7 +547,7 @@ class SessionSupervisor:
 
             self.engine.start_trading()
             try:
-                from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import (
+                from Spyder.SpyderP_PortfolioMgmt import (
                     set_global_portfolio_manager,
                 )
                 _pm = getattr(self.engine, "portfolio_manager", None)
@@ -557,18 +589,28 @@ class SessionSupervisor:
             allocation_method = _alloc_map.get(_alloc_key, AllocationMethod.RISK_PARITY)
 
             l09_engine = None
-            try:
-                from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import UnifiedRegimeEngine
+            if self.mode != "paper":
+                try:
+                    from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (
+                        get_unified_regime_engine,
+                    )
 
-                l09_engine = UnifiedRegimeEngine()
-                self.logger.debug(
-                    "✅ L09 UnifiedRegimeEngine initialized for StrategyOrchestrator"
-                )
-            except Exception as l09_exc:
-                self.logger.warning(
-                    "⚠️ L09 UnifiedRegimeEngine unavailable for StrategyOrchestrator "
-                    "(fallback heuristic mode): %s",
-                    l09_exc,
+                    l09_engine = get_unified_regime_engine(
+                        {"defer_attribution_until_after_first_regime": True}
+                    )
+                    self.logger.debug(
+                        "✅ L09 UnifiedRegimeEngine initialized for StrategyOrchestrator"
+                    )
+                except Exception as l09_exc:
+                    self.logger.warning(
+                        "⚠️ L09 UnifiedRegimeEngine unavailable for StrategyOrchestrator "
+                        "(fallback heuristic mode): %s",
+                        l09_exc,
+                    )
+            elif not self.dry_run:
+                self.logger.info(
+                    "Paper mode: deferring L09 UnifiedRegimeEngine initialization "
+                    "until after orchestrator startup"
                 )
 
             self.orchestrator = StrategyOrchestrator(
@@ -591,38 +633,97 @@ class SessionSupervisor:
             if self.risk is not None and hasattr(self.orchestrator, "set_risk_manager"):
                 self.orchestrator.set_risk_manager(self.risk)
                 self.logger.debug("✅ RiskManager injected into StrategyOrchestrator")
-            # v27 SPEC-6: wire OrderManager so D31's _dispatch_approved_signal
-            # uses the mid-price walk path instead of falling back to bare
-            # market orders through the live engine. Without this, every
-            # options entry pays full bid/ask spread (~$5-15 per round trip
-            # on SPY 0DTE).
-            try:
-                from Spyder.SpyderB_Broker.SpyderB02_OrderManager import OrderManager
-                # Reuse the already-constructed Tradier client from the broker
-                # phase if available, so we don't open a second session.
-                tradier_client = getattr(self.broker, "tradier", None)
-                om = OrderManager(tradier_client=tradier_client)
-                self.orchestrator.set_order_manager(om)
-                self._components.append(om)
-                self.logger.debug("✅ OrderManager wired to StrategyOrchestrator")
-            except Exception as om_exc:
-                self.logger.error(
-                    "❌ OrderManager wiring failed (mid-price walk disabled, "
-                    "orders will fall back to market through LiveEngine): %s",
-                    om_exc,
+            # In paper mode we intentionally skip OrderManager mid-walk.
+            # This avoids accidental live-endpoint order submissions when
+            # OrderManager auto-creates a Tradier client from environment.
+            if self.mode == "paper":
+                self.logger.info(
+                    "Paper mode: skipping OrderManager wiring; "
+                    "dispatch will use engine -> PaperBroker path"
                 )
-            self.orchestrator.start_orchestration()
+                if hasattr(self.orchestrator, "emit_decision_audit_marker"):
+                    self.orchestrator.emit_decision_audit_marker(
+                        "order_manager_skipped_paper_mode",
+                        detail=(
+                            "mid-walk disabled in paper mode; "
+                            "using engine/PaperBroker dispatch"
+                        ),
+                    )
+            else:
+                # v27 SPEC-6: wire OrderManager in live mode so D31's
+                # _dispatch_approved_signal can use the mid-price walk path.
+                try:
+                    from Spyder.SpyderB_Broker.SpyderB02_OrderManager import OrderManager
+                    # Reuse the already-constructed Tradier client from the broker
+                    # phase if available, so we don't open a second session.
+                    tradier_client = getattr(self.broker, "tradier", None)
+                    om = OrderManager(tradier_client=tradier_client)
+                    self.orchestrator.set_order_manager(om)
+                    self._components.append(om)
+                    self.logger.debug("✅ OrderManager wired to StrategyOrchestrator")
+                except Exception as om_exc:
+                    self.logger.error(
+                        "❌ OrderManager wiring failed (mid-price walk disabled, "
+                        "orders will fall back to market through LiveEngine): %s",
+                        om_exc,
+                    )
+            self.orchestrator.start_orchestration(
+                defer_initial_strategy_activation=(self.mode == "paper")
+            )
             if hasattr(self.orchestrator, "emit_decision_audit_marker"):
                 self.orchestrator.emit_decision_audit_marker(
                     "session_started",
                     detail=f"mode={self.mode}; source=session_supervisor",
                 )
             self._components.append(self.orchestrator)
+            if self.mode == "paper" and not self.dry_run:
+                self._start_deferred_orchestrator_regime_engine_initialization(
+                    self.orchestrator
+                )
             self.logger.debug("✅ StrategyOrchestrator started")
             return True
         except Exception as exc:
             self.logger.error("❌ StrategyOrchestrator failed: %s", exc)
             return False
+
+    def _start_deferred_orchestrator_regime_engine_initialization(
+        self,
+        orchestrator: Any,
+    ) -> None:
+        """Attach L09 to the paper-mode orchestrator after startup returns."""
+
+        def _hydrate() -> None:
+            try:
+                time.sleep(_PAPER_ORCHESTRATOR_L09_DEFER_SECONDS)
+                from Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine import (
+                    get_unified_regime_engine,
+                )
+
+                l09_engine = get_unified_regime_engine(
+                    _PAPER_ORCHESTRATOR_L09_DEFER_CONFIG
+                )
+                if self.orchestrator is not orchestrator:
+                    return
+
+                if hasattr(orchestrator, "set_regime_engine"):
+                    orchestrator.set_regime_engine(l09_engine)
+                else:
+                    setattr(orchestrator, "_l09_engine", l09_engine)
+
+                self.logger.info(
+                    "✅ L09 UnifiedRegimeEngine attached to StrategyOrchestrator after startup"
+                )
+            except Exception as l09_exc:
+                self.logger.warning(
+                    "⚠️ Deferred L09 UnifiedRegimeEngine initialization failed: %s",
+                    l09_exc,
+                )
+
+        threading.Thread(
+            target=_hydrate,
+            daemon=True,
+            name="SpyderR12DeferredL09Init",
+        ).start()
 
     def _start_liveness_monitor(self) -> None:
         """Start the LivenessMonitor (v14 O1/O9/A13)."""
@@ -643,31 +744,21 @@ class SessionSupervisor:
     def _start_exit_monitor(self) -> None:
         try:
             from Spyder.SpyderR_Runtime.SpyderR14_ExitMonitor import create_exit_monitor
-            from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import (
+            from Spyder.SpyderP_PortfolioMgmt import (
                 get_global_portfolio_manager,
             )
 
-            portfolio_manager = get_global_portfolio_manager()
-            if portfolio_manager is None and self.engine is not None:
-                portfolio_manager = getattr(self.engine, "portfolio_manager", None)
+            def _resolve_portfolio_manager() -> Any | None:
+                portfolio_manager = get_global_portfolio_manager()
+                if portfolio_manager is None and self.engine is not None:
+                    portfolio_manager = getattr(self.engine, "portfolio_manager", None)
+                return portfolio_manager
 
+            portfolio_manager = _resolve_portfolio_manager()
             if portfolio_manager is None:
-                try:
-                    from Spyder.SpyderP_PortfolioMgmt.SpyderP01_PortfolioManager import (
-                        create_portfolio_manager,
-                        set_global_portfolio_manager,
-                    )
-                    portfolio_manager = create_portfolio_manager(
-                        initial_capital=float(os.environ.get("BASE_CAPITAL", 100_000))
-                    )
-                    set_global_portfolio_manager(portfolio_manager)
-                    self.logger.info("ℹ️ ExitMonitor using fallback PortfolioManager instance")
-                except Exception as pm_exc:
-                    self.logger.warning("⚠️ ExitMonitor fallback portfolio manager failed: %s", pm_exc)  # noqa: E501
-
-            if portfolio_manager is None:
-                self.logger.warning("⚠️ ExitMonitor skipped: portfolio manager unavailable")
-                return
+                self.logger.info(
+                    "ℹ️ ExitMonitor starting without PortfolioManager; will adopt one lazily"
+                )
 
             strategy_map = (
                 getattr(self.orchestrator, "active_strategies", {})
@@ -678,6 +769,9 @@ class SessionSupervisor:
                 portfolio_manager=portfolio_manager,
                 strategy_map=strategy_map,
                 event_manager=self.em,
+                portfolio_manager_provider=(
+                    _resolve_portfolio_manager if portfolio_manager is None else None
+                ),
             )
             self.exit_monitor.start()
             self._components.append(self.exit_monitor)
@@ -693,8 +787,10 @@ class SessionSupervisor:
         sweep is fire-and-forget — failures are logged but never re-raised.
         """
         if self.exit_monitor is None:
+            self._log_startup_profile("boot_orphan_sweep_skipped_no_exit_monitor")
             return
         try:
+            self._log_startup_profile("boot_orphan_sweep_begin")
             # P1-3: Skip sweep if no strategies are loaded — nothing to reconcile
             # against, and orphan alerts on a cold boot are misleading.
             if self.orchestrator is not None:
@@ -703,14 +799,18 @@ class SessionSupervisor:
                     self.logger.warning(
                         "⏭ Boot-time orphan sweep skipped — no strategies loaded yet."
                     )
+                    self._log_startup_profile("boot_orphan_sweep_skipped_no_strategies")
                     return
             # P1-3: Honour the --skip-orphan-sweep CLI flag.
             if getattr(self, "skip_orphan_sweep", False):
                 self.logger.info("⏭ Boot-time orphan sweep skipped (--skip-orphan-sweep).")
+                self._log_startup_profile("boot_orphan_sweep_skipped_flag")
                 return
             self.exit_monitor._sweep_once()
+            self._log_startup_profile("boot_orphan_sweep_end")
             self.logger.debug("✅ Boot-time orphan sweep completed")
         except Exception as exc:
+            self._log_startup_profile("boot_orphan_sweep_error")
             self.logger.warning("⚠️ Boot-time orphan sweep error (non-fatal): %s", exc)
 
     def _run_boot_self_test(self, timeout_seconds: float = 3.0) -> bool:
@@ -721,22 +821,26 @@ class SessionSupervisor:
         synthetic order_id. Returns False on timeout or any hard failure.
         """
         if self.em is None:
+            self._log_startup_profile("boot_self_test_failed_no_event_manager")
             self.logger.error("❌ Boot self-test failed: EventManager unavailable")
             return False
 
         if self.orchestrator is None:
+            self._log_startup_profile("boot_self_test_failed_no_orchestrator")
             self.logger.error("❌ Boot self-test failed: StrategyOrchestrator unavailable")
             return False
 
         try:
             from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType
         except Exception:
+            self._log_startup_profile("boot_self_test_failed_no_event_type")
             self.logger.error("❌ Boot self-test failed: unable to import EventType")
             return False
 
         test_order_id = f"boot-self-test-{uuid.uuid4().hex[:12]}"
         done = threading.Event()
         result_ok = {"value": False}
+        self._log_startup_profile("boot_self_test_begin")
 
         def _on_order_rejected(event: Any) -> None:
             data = (getattr(event, "data", None) or {})
@@ -767,10 +871,13 @@ class SessionSupervisor:
                 source="SessionSupervisor",
             )
             if not published:
+                self._log_startup_profile("boot_self_test_publish_failed")
                 self.logger.error("❌ Boot self-test failed: STRATEGY_SIGNAL not published")
                 return False
+            self._log_startup_profile("boot_self_test_signal_emitted")
 
             if not done.wait(timeout=timeout_seconds):
+                self._log_startup_profile("boot_self_test_timeout")
                 self.logger.error(
                     "❌ Boot self-test failed: ORDER_REJECTED(reason=dry_run) not observed within %.1fs",  # noqa: E501
                     timeout_seconds,
@@ -778,9 +885,11 @@ class SessionSupervisor:
                 return False
 
             if not result_ok["value"]:
+                self._log_startup_profile("boot_self_test_wrong_reason")
                 self.logger.error("❌ Boot self-test failed: rejection reason was not dry_run")
                 return False
 
+            self._log_startup_profile("boot_self_test_rejected_dry_run")
             self.logger.debug("✅ Boot self-test passed (order_id=%s)", test_order_id)
             return True
         finally:
@@ -793,7 +902,58 @@ class SessionSupervisor:
     # PRIVATE — helpers
     # --------------------------------------------------------------------------
 
+    @staticmethod
+    def _is_truthy_env(raw_value: Optional[str]) -> bool:
+        """Return ``True`` when an env-var string is an enabled/true token."""
+        return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def _validate_live_only_tradier_policy(self) -> tuple[bool, str]:
+        """Reject startup unless all Tradier routes are explicitly live-only."""
+        violations: list[str] = []
+
+        broker_env = str(os.getenv("TRADIER_ENVIRONMENT", "live")).strip().lower()
+        if broker_env not in {"live", "production"}:
+            violations.append(f"TRADIER_ENVIRONMENT={broker_env}")
+
+        market_data_env = str(
+            os.getenv("TRADIER_MARKET_DATA_ENVIRONMENT", broker_env or "live")
+        ).strip().lower()
+        if market_data_env not in {"live", "production"}:
+            violations.append(f"TRADIER_MARKET_DATA_ENVIRONMENT={market_data_env}")
+
+        if self._is_truthy_env(os.getenv("SPYDER_ALLOW_SANDBOX_MARKET_DATA")):
+            violations.append("SPYDER_ALLOW_SANDBOX_MARKET_DATA=true")
+
+        if violations:
+            return False, ", ".join(violations)
+        return True, ""
+
+    def _begin_startup_profile(self) -> None:
+        """Start env-gated startup timing for late-session profiling."""
+        if not self._startup_profile_enabled:
+            return
+        self._startup_profile_started_at = time.perf_counter()
+        self._log_startup_profile("start_entered")
+
+    def _log_startup_profile(self, stage: str) -> None:
+        """Emit a startup timing marker when profiling is enabled."""
+        if not self._startup_profile_enabled:
+            return
+        started_at = self._startup_profile_started_at
+        if started_at is None:
+            return
+        self.logger.info(
+            "⏱ SessionSupervisor startup %s at %.3fs",
+            stage,
+            time.perf_counter() - started_at,
+        )
+
+    def _end_startup_profile(self) -> None:
+        """Clear startup profiling state after startup or rollback ends."""
+        self._startup_profile_started_at = None
+
     def _abort(self, failed_component: str) -> bool:
+        self._log_startup_profile(f"abort_{failed_component}")
         self.logger.error(
             "❌ Session aborted — %s failed to start.  "
             "Cleaning up already-started components.",
@@ -806,7 +966,106 @@ class SessionSupervisor:
             except Exception:
                 pass
         # Note: EM singleton not stopped here — see stop().
+        self._end_startup_profile()
         return False
+
+    @staticmethod
+    def _normalize_position_rows(pos_resp: Any) -> list[dict[str, Any]]:
+        """Normalize mixed broker/tracker position payloads into row dicts."""
+        if isinstance(pos_resp, list):
+            return [dict(pos) for pos in pos_resp if isinstance(pos, dict)]
+
+        if isinstance(pos_resp, dict):
+            if "positions" in pos_resp:
+                raw = (pos_resp.get("positions") or {}).get("position", [])
+                if isinstance(raw, dict):
+                    raw = [raw]
+                return [dict(pos) for pos in raw if isinstance(pos, dict)]
+
+            rows: list[dict[str, Any]] = []
+            for symbol, pos in pos_resp.items():
+                if isinstance(pos, dict):
+                    row = dict(pos)
+                else:
+                    row = {
+                        "quantity": getattr(pos, "quantity", 0),
+                        "average_fill_price": getattr(pos, "average_fill_price", 0.0),
+                    }
+                row.setdefault("symbol", str(symbol))
+                rows.append(row)
+            return rows
+
+        return []
+
+    def _get_positions_for_flatten(self) -> list[dict[str, Any]]:
+        """Resolve flatten inventory from the broker first, then paper-local state."""
+        raw = self._normalize_position_rows(getattr(self.broker, "get_positions", lambda: [])())
+        if raw or self.mode != "paper":
+            return raw
+
+        tracker = getattr(self, "position_tracker", None)
+        if tracker is not None and hasattr(tracker, "get_positions"):
+            try:
+                raw = self._normalize_position_rows(tracker.get_positions())
+            except Exception as exc:
+                self.logger.warning("_get_positions_for_flatten tracker lookup failed: %s", exc)
+                raw = []
+            if raw:
+                self.logger.warning(
+                    "Using PositionTracker inventory for paper flatten (%d position(s))",
+                    len(raw),
+                )
+                return raw
+
+        engine = getattr(self, "engine", None)
+        if engine is not None and hasattr(engine, "get_active_positions_snapshot"):
+            try:
+                raw = self._normalize_position_rows(engine.get_active_positions_snapshot())
+            except Exception as exc:
+                self.logger.warning("_get_positions_for_flatten engine lookup failed: %s", exc)
+                raw = []
+            if raw:
+                self.logger.warning(
+                    "Using LiveEngine inventory for paper flatten (%d position(s))",
+                    len(raw),
+                )
+                return raw
+
+        return []
+
+    def _submit_flatten_close(self, symbol: str, qty: int, reason: str) -> dict[str, Any]:
+        """Submit a flatten close, carrying signed paper quantity when supported."""
+        broker = self.broker
+        close_kwargs = {
+            "urgency": "IMMEDIATE",
+            "reason": reason,
+        }
+
+        if self.mode == "paper":
+            close_kwargs["position_quantity"] = qty
+
+        verified_close = getattr(broker, "close_position_verified", None)
+        if callable(verified_close):
+            try:
+                return verified_close(
+                    symbol,
+                    timeout_s=10.0,
+                    **close_kwargs,
+                )
+            except TypeError:
+                close_kwargs.pop("position_quantity", None)
+                return verified_close(
+                    symbol,
+                    timeout_s=10.0,
+                    **close_kwargs,
+                )
+
+        close_position = getattr(broker, "close_position")
+        try:
+            return close_position(symbol, **close_kwargs)
+        except TypeError:
+            close_kwargs.pop("position_quantity", None)
+            return close_position(symbol, **close_kwargs)
 
     def _flatten_positions(self) -> None:
         """Best-effort position flatten before shutdown.
@@ -817,15 +1076,7 @@ class SessionSupervisor:
         cannot block shutdown of the remaining positions.
         """
         try:
-            pos_resp = self.broker.get_positions()
-            # Tradier returns {"positions": {"position": [...]}}
-            # _NullBroker / PaperBroker return a plain list.
-            if isinstance(pos_resp, list):
-                raw: list[Any] = pos_resp
-            else:
-                raw = (pos_resp.get("positions") or {}).get("position", [])
-                if isinstance(raw, dict):  # single position returned as dict
-                    raw = [raw]
+            raw = self._get_positions_for_flatten()
 
             if not raw:
                 self.logger.info("_flatten_positions: no open positions — nothing to do")
@@ -839,17 +1090,12 @@ class SessionSupervisor:
                 if not symbol or qty == 0:
                     continue
                 try:
-                    # A23/O7 (v14): prefer the verified variant so shutdown
-                    # actually confirms the close fills rather than returning
-                    # on ACK. Fall back to plain close_position if the broker
-                    # hasn't implemented the verified API (older PaperBroker).
+                    result = self._submit_flatten_close(
+                        symbol,
+                        qty,
+                        reason="session_flatten",
+                    )
                     if hasattr(self.broker, "close_position_verified"):
-                        result = self.broker.close_position_verified(
-                            symbol,
-                            timeout_s=10.0,
-                            urgency="IMMEDIATE",
-                            reason="session_flatten",
-                        )
                         status = (result or {}).get("status")
                         order_id = (
                             ((result or {}).get("order") or {})
@@ -871,9 +1117,6 @@ class SessionSupervisor:
                                 symbol, qty, order_id,
                             )
                     else:
-                        result = self.broker.close_position(
-                            symbol, urgency="IMMEDIATE", reason="session_flatten"
-                        )
                         order_id = (result or {}).get("order", {}).get("id", "?")
                         self.logger.info(
                             "Flatten order submitted for %s (qty=%s) — broker id=%s",
@@ -934,13 +1177,7 @@ class SessionSupervisor:
     def _flatten_at_risk_short_options(self, reason: str) -> int:
         """Best-effort flatten of short option positions only."""
         try:
-            pos_resp = self.broker.get_positions()
-            if isinstance(pos_resp, list):
-                raw: list[Any] = pos_resp
-            else:
-                raw = (pos_resp.get("positions") or {}).get("position", [])
-                if isinstance(raw, dict):
-                    raw = [raw]
+            raw = self._get_positions_for_flatten()
 
             if not raw:
                 self.logger.info("_flatten_at_risk_short_options: no open positions")
@@ -957,13 +1194,8 @@ class SessionSupervisor:
                     continue
 
                 try:
+                    result = self._submit_flatten_close(symbol, qty, reason=reason)
                     if hasattr(self.broker, "close_position_verified"):
-                        result = self.broker.close_position_verified(
-                            symbol,
-                            timeout_s=10.0,
-                            urgency="IMMEDIATE",
-                            reason=reason,
-                        )
                         status = (result or {}).get("status")
                         if status == "verified":
                             closed += 1
@@ -974,11 +1206,6 @@ class SessionSupervisor:
                                 (result or {}).get("reason"),
                             )
                     else:
-                        self.broker.close_position(
-                            symbol,
-                            urgency="IMMEDIATE",
-                            reason=reason,
-                        )
                         closed += 1
                 except Exception as exc:
                     self.logger.error("Failed to flatten at-risk short option %s: %s", symbol, exc)
