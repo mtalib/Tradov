@@ -408,7 +408,7 @@ SpyderT77_CalendarInstitutionalLibrariesTests.py
 SpyderT106_ACore.py
 SpyderT107_FSeries.py ... SpyderT128_ZSeries.py  # Full A–Z series test suites
 SpyderT129_ProtocolCompliance.py
-SpyderT130_IronCondorSandbox_Test.py
+SpyderT130 manual legacy Tradier order test
 (80+ total test modules)
 ```
 

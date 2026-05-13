@@ -100,7 +100,7 @@
 **Timeline**: March 2026
 
 - [ ] **End-to-end paper trading campaign** (4–8 weeks)
-  - Validate all 29 strategies with live Tradier sandbox
+  - Validate all 29 strategies with SpyderBox paper execution and live Tradier data
   - Collect real fill data, slippage, and execution metrics
   - Compare against backtest assumptions
 
@@ -143,7 +143,7 @@
 
 - [ ] **Configuration centralization**
   - Move all hardcoded values to config/
-  - Environment-specific configs (dev/sandbox/prod)
+  - Environment-specific configs (dev/paper/live)
   - Config validation on startup
 
 ---

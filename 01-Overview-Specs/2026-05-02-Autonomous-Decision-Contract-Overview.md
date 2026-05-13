@@ -70,4 +70,4 @@ Anything rejected at F09 or E01 is logged with a reason; no order is placed.
 - CRISIS and EVENT hard-halt all new entries — no exceptions.
 - Missing or stale required data (SPY/VIX series < 50 samples) → DATA_STALE event → entries halted.
 - All regime transitions, strategy selections, and gate decisions are timestamped and logged.
-- System defaults to paper/sandbox mode; live requires explicit confirmation.
+- System defaults to paper mode with the SpyderBox local ledger; live requires explicit confirmation.

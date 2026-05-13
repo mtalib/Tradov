@@ -1,6 +1,6 @@
-# Trading Decision Workflow (Full) — v16
+# Trading Decision Workflow (Full) — v29
 
-Last Updated: 2026-05-08
+Last Updated: 2026-05-12
 Status: Design + As-Implemented Verification Specification
 Scope: 6-Regime Master Logic and Strategy Mapping for SPY options
 
@@ -24,6 +24,19 @@ Scope: 6-Regime Master Logic and Strategy Mapping for SPY options
 | v14 | 2026-05-06 | Re-audited trading-decision path on branch `fix/audit-v14-all`. Found and fixed a real regression: D31 dispatch path could emit `dispatch_exception` when `_record_signal_dispatch_outcome` is monkeypatched with a one-arg callable in tests (TypeError from unexpected `signal=` kwarg). Added safe wrapper usage in D31 dispatch path. Regression suite re-run: T193/T194/T195 = 28 passed. |
 | v15 | 2026-05-07 | Root-caused permanent CRISIS regime in dashboard-only mode (Section 10.8). G18 (`MarketDataWorker`) writes `live_data.json` every 10 s but never publishes `EventType.MARKET_DATA` events to the A05 event bus. D31's `market_data_cache["SPY"]` therefore stays at 0 entries all session → regime classifier fails closed to CRISIS → no strategies loaded → ENTRY permanently IDLE. Fix: added `_recover_cache_if_cold()` to D31 (reads `live_data.json` when SPY cache has fewer than 2 closes; throttled 30 s); called at the top of `_classify_market_regime_unified()` before the CRISIS guard. Also set `SPYDER_ENABLE_STARTUP_CACHE_SEED=1` in `.env` for immediate cache warm-start on every restart. Also confirmed as-implemented: today's decision log shows only `orchestrator_paused` (×15) and `session_window_gate` (×11) drops with zero real strategy blocks — evidence that D31 never reached the dispatch stage because strategies were never loaded under permanent CRISIS. |
 | v16 | 2026-05-08 | Fixed silent regime divergence between D31 (L09) and dashboard (S07): added 70% confidence threshold gate to D31's `_classify_market_regime_unified()` — when L09 returns confidence < 0.70 (D30's existing threshold), D31 now defers to the heuristic classifier rather than using the low-confidence result (Section 10.9.1). Documented two as-implemented gaps: (1) D31 heuristic fallback uses a simple momentum proxy, not the canonical EMA50 logic from Section 4.0 (Section 10.9.2); (2) corrected §5.3 — the dashboard REGIME pill source is S07 DIX/SWAN/SKEW via G05 `update_regime_pills()`, not L09 (Section 10.9.3). |
+| v17 | 2026-05-09 | Added explicit operations directive for an extended SpyderBox paper phase before any live promotion (Section 9.2). Documented live-switch controls (typed arming phrase + typed start confirmation) and live-only Tradier endpoint/data hard locks now enforced across startup, validator, and data-routing layers. |
+| v18 | 2026-05-10 | Closed remaining live-only policy drift outside R12/Q02/C29: shared `config/config.py` now rejects `TRADING_MODE=sandbox` and non-live Tradier envs, launcher/factory defaults were normalized to live, `SpyderQ93_RunPaper` now permits paper mode only, and standalone WRS/PSR signal modules ignore sandbox flags instead of routing to the Tradier sandbox endpoint (Sections 9.2, 10.10). |
+| v19 | 2026-05-10 | Added S14 PCA-PROXY / PCA-IV workflow coverage as supplemental S07 custom-metric observability only. Documented non-gating operator-awareness role, accurate PCA-IV row-state semantics (`live` signed value vs `SEED` / `HOLD` / `PEND`), and G05 cached-row hydration after late S07 connection (Sections 1.1, 3.1, 5.5, 7, 10.11). |
+| v20 | 2026-05-12 | Added a pre-open verification note for the current paper-trading stack. Confirmed the active local environment passes Q02 validation, Q10 dry-run resolves to `TRADING_MODE=paper` with `TRADIER_ENVIRONMENT=live`, focused startup/no-trade regressions passed 65/65, and the present workstation remains explicitly configured for Tradier market data (Section 10.12). Also documented and fixed a real post-paint GUI stall: G05 started S07 on the main thread, and S07 eagerly imported/initialized heavy calculators in its constructor; S07 now defers calculator setup to background startup/update paths and returns immediately from the dashboard startup call site (Section 10.13). |
+| v21 | 2026-05-12 | Documented three runtime-truth fixes discovered during the live paper session: (1) R04 now persists `POSITION_UPDATED` net positions into H05 and H05 updates quantity/entry price on conflict, closing the gap where paper fills wrote trade rows but never open positions; (2) G05 paper mode now falls back to persisted H05 open positions instead of rendering a false `no open spreads` empty-state when the legacy spread worker is not the source of truth; and (3) G18 now deduplicates identical SPY `MARKET_DATA` bridge events so overlapping slow/fast quote fetches do not feed D31 twice per quote update and over-dispatch duplicate paper orders (Section 10.14). |
+| v22 | 2026-05-12 | Documented the remaining root cause behind the repeated paper `iron_condor` sell loop: duplicate orders were still possible because D31 had no open-position admission gate. D31 now blocks new entry actions when R04 already reports a nonzero open position for the same symbol/strategy, both before the “approved for dispatch” log and again in the dispatch path as a defensive fallback. Focused D31 regression validation passed 21/21; a fresh Spyder restart is still required before the running paper session picks up the new guard (Section 10.15). |
+| v23 | 2026-05-12 | Restart verification of v22 showed the D31 guard was live, but the latest paper session still leaked two SPY `iron_condor` sells during startup because R04 booted with `Loaded 0 active positions` before H05 was attached. R04 now hydrates paper `active_positions` from persisted H05 open positions as soon as `set_session_db()` runs, closing the restart-only window before D31 can enforce the duplicate-entry block. Focused R04/H05 startup validation passed 3/3; one more Spyder restart is required to load the startup hydration fix (Section 10.16). |
+| v24 | 2026-05-12 | Verified the v23 startup hydration fix in a fresh Spyder restart. Latest launch logs now show R04 hydrating `1` active paper position from H05 immediately after the initial empty broker snapshot and before the paper session begins; the dashboard now shows the carried paper SPY `iron_condor` position as an active trade, D31 stays in duplicate-entry block mode, and the paper `trades` table has not advanced beyond the prior startup leak timestamp. This closes the restart-time duplicate-entry window for the currently active paper position (Section 10.17). |
+| v25 | 2026-05-12 | Closed a separate paper-flatten blind spot and completed the requested clean-slate reset. R12 flatten now falls back to paper-local inventory when broker positions are empty, PaperBroker closes use the signed held quantity to submit the correct side and full size, and G05 emergency-close now routes through `SessionSupervisor.stop(flatten=True)`. After stopping Spyder, the carried paper state was backed up, `data/spyder_paper.db` and `~/.spyder/position_tracker_state.json` were cleared, Spyder was relaunched, and the recreated paper DB was verified at `0` open positions / `0` trades with no tracker carryover (Section 10.18). |
+| v26 | 2026-05-12 | Closed the remaining paper account-panel truth gap on the current R12/R04 paper path. A fresh paper session produced `1` open position and `1` trade in H05 but `0` account snapshots, so G18 correctly warned that the local SpyderBox paper balance snapshot was missing and left the SpyderBox balance panel blank. R04 now seeds a paper account snapshot from the attached broker balance when a paper session starts and no local snapshot exists, while preserving any existing snapshot on restart. Focused R04 regression validation passed 4/4 for the touched slice (Section 10.19). |
+| v27 | 2026-05-12 | Verified the v26 paper snapshot fix in a fresh real restart: H05 now contains `1` paper account snapshot with `$100,000` cash/equity/buying power alongside the carried `SPY qty=-1` paper position, and the SpyderBox account panel now renders those values correctly. This same restart exposed one adjacent UI-only truth gap: when A01 autostarts the injected `SessionSupervisor`, G05 reused the backend but left the top action pill on `START TRADING`. A01 now notifies G05 to adopt the already-running session into the active UI state; focused A01/G05 regression validation passed 5/5 for the touched slice (Section 10.20). |
+| v28 | 2026-05-12 | Final live restart verification of the v27 UI-state fix. The top action pill now correctly shows `PAPER ACTIVE` on startup, matching the already-running A01-autostarted paper session. D31 telemetry shows `approved=0`, `dispatched=0`, and `top_drop=pre_dispatch:duplicate_open_position x36`, which is the expected steady state while the carried `SPY -1 iron_condor` paper position remains open. No additional runtime blocker was found; the remaining `ENTRY: BLOCKED` state is execution-truth for the carried paper position, not a defect (Section 10.21). |
+| v29 | 2026-05-12 | A clean-slate restart exposed one more D31 duplicate-entry race after v28: when the paper DB was reset and Spyder relaunched, D31 approved the same `SPY` paper entry twice before `POSITION_UPDATED` landed, resulting in `PAPER-000001`, `PAPER-000002`, and a persisted `SPY qty=-2` paper position. D31 now reserves an in-flight `symbol+strategy` entry before handing work to the async dispatch executor, treats that reservation as a duplicate-entry block during the pre-fill window, and clears the reservation on `POSITION_UPDATED`, terminal order events, and local dispatch rejection/exception. Focused D31 regression validation passed `23/23` across T141+T193, and the poisoned paper DB/tracker state from the failing startup was backed up and cleared again so the next restart begins clean (Section 10.22). |
 
 ## 1) Objective
 
@@ -38,19 +51,28 @@ Define a single deterministic workflow for regime detection and strategy gating 
 
 ```mermaid
 flowchart TD
-  A[S07 Market Conditions Snapshot] --> B[L09 Regime Detection]
-  B --> C[D30 Regime to Strategy Mapping]
-  C --> D[D31 Strategy Activation and Signal]
-  D --> E[F09 Entry Trust Gate]
-  E --> F{Regime Policy Allowlisted?}
-  F -- No --> X[Drop Signal and Log Reason]
-  F -- Yes --> G[E01 Risk Validation]
-  G -- Rejected --> X
-  G -- Approved --> H[D31 Dispatch Approved Signal]
-  H --> I[B02 OrderManager Execution Gate]
-  I --> J[B40 Tradier API Order Placement]
-  J --> K[Order Lifecycle, Fill, Telemetry]
+  subgraph AUTO[Automated execution path]
+    A[S07 Market Conditions Snapshot] --> B[L09 Regime Detection]
+    B --> C[D30 Regime to Strategy Mapping]
+    C --> D[D31 Strategy Activation and Signal]
+    D --> E[F09 Entry Trust Gate]
+    E --> F{Regime Policy Allowlisted?}
+    F -- No --> X[Drop Signal and Log Reason]
+    F -- Yes --> G[E01 Risk Validation]
+    G -- Rejected --> X
+    G -- Approved --> H[D31 Dispatch Approved Signal]
+    H --> I[B02 OrderManager Execution Gate]
+    I --> J[B40 Tradier API Order Placement]
+    J --> K[Order Lifecycle, Fill, Telemetry]
+  end
+
+  subgraph PCA[Supplemental observability path]
+    P[S14 PCA-Proxy and PCA-IV snapshots] --> Q[S07 publish and format PCA rows]
+    Q --> R[G05 and G13 Market Overview rows and detail dialogs]
+  end
 ```
+
+PCA-PROXY and PCA-IV are currently surfaced through S07/G05/G13 for operator awareness and confirmation only. In the current code they are not deterministic regime triggers, not regime-policy allowlist inputs, and not hard execution gates.
 
 ## 2) Allowed Strategies and Regime Mapping (Default Contract)
 
@@ -129,6 +151,21 @@ This satisfies the v5 spirit of Rule 6.1 (pivot overlay as a qualifier) while le
 - Intraday SPY return over short horizon (for shock detection)
 - Daily pivot ladder: P, R1, R2, R3, S1, S2, S3
 - Distance-to-pivot metrics (in ATR units) for nearest support and resistance
+
+### 3.1) Supplemental Observability Inputs (Non-Gating)
+
+The dashboard now carries two additional S07 custom metrics sourced from S14. These sit alongside the automated workflow as operator-awareness inputs; they do **not** currently change Section 4 regime classification, Section 6 policy gating, or dispatch behavior.
+
+| Metric | Source path | High-level meaning | Current contract |
+|---|---|---|---|
+| PCA-PROXY | S14 `get_proxy_snapshot()` → S07 `PCA-PROXY` → G05/G13 row/dialog | Rolling sector-ETF eigenfactor signal. Positive values mean the latest sector move aligns with the dominant common factor; negative values mean it moved against that factor; higher dispersion means more internal rotation under the headline move. | Supplemental confirmation / observability only |
+| PCA-IV | S14 `get_iv_snapshot()` + persisted SPY surface features from S07/N06 → S07 `PCA-IV` → G05/G13 row/dialog | SPY implied-volatility-surface eigenfactor. Positive live values align with higher-volatility surface stress / expansion; negative live values align with compression / normalization. Before live computation is ready, the row stays in explicit seed / pending / hold states. | Supplemental confirmation / observability only |
+
+Implementation note:
+
+- PCA-IV persistence and readiness are fed from S07's volatility-surface update path, which stores compact SPY surface feature snapshots for S14.
+- When the dedicated PCA-IV surface-history file is empty, S14 may bootstrap an approximate starter history from the persisted scalar SPY IV cache (`data/cache/spy_iv_history.json`). This is a cold-start aid only; true surface snapshots still replace and extend that seed during live operation.
+- These PCA rows are intended to help an operator interpret breadth / surface context around the deterministic regime and strategy pipeline, not to override it.
 
 ## 4) Regime Trigger Logic (Deterministic, Priority-Ordered)
 
@@ -450,6 +487,28 @@ Env flags are resolved at tooltip render time so changes take effect without a r
 - DISPATCH falls back to IDLE when no SessionSupervisor is running (paper/live not yet started). HALT still applies in this case if REGIME is CRISIS/EVENT (regime evaluation is independent of D31).
 - T195 ([SpyderT195_D31_DispatchStateBadge.py](../Spyder/SpyderT_Testing/SpyderT195_D31_DispatchStateBadge.py)) is the regression guard for the four D31-returned base states (FLOWING / IDLE / BLOCKED / ERROR), priority ordering, recency-window collapse, and strategy-type capture: 16 tests, GREEN. The HALT layer is a thin G05 conditional and is not exercised by T195.
 
+### 5.5) PCA Custom Metrics in Market Overview (Observability Only)
+
+S07 now publishes `PCA-PROXY` and `PCA-IV` into the Market Overview custom-metrics panel, and G05/G13 render them as clickable rows with detail dialogs. Their current role is to supplement operator interpretation of sector leadership / dispersion and SPY IV-surface shape.
+
+| Row | Current display behavior | Operator reading | Current policy impact |
+|---|---|---|---|
+| PCA-PROXY | Signed numeric value (for example `+1.25`, `-0.40`) | Dominant sector-factor alignment and internal rotation | None — not a hard gate |
+| PCA-IV | Signed live numeric value when live, otherwise explicit state label | Live SPY IV-surface factor when enough seeded history exists; explicit staging/fallback states otherwise | None — not a hard gate |
+
+#### PCA-IV Row-State Semantics
+
+- `live` signed value: shown when S14 returns `status="live"`. This can happen as soon as the persisted feature history has at least `PCA_IV_MIN_OBSERVATIONS = 30` clean rows and live computation succeeds.
+- A cold-start bootstrap from the scalar SPY IV cache may satisfy that minimum before the dedicated surface-history file has accumulated enough true surface rows on its own, so `live` can appear immediately after startup even while the broader seed history is still synthetic / approximate.
+- `SEED`: shown when the row is not live and the nested storage `phase` is `history-seeding`. This is the pre-live accumulation phase while stored snapshots are still below the 30-row live threshold.
+- `HOLD`: shown when S14 returns `status="fallback"`. This means the row has crossed into the live-compute path but the current live PCA-IV build failed, so the dashboard surfaces an explicit hold/fallback state instead of inventing a new signed reading.
+- `PEND`: shown for the remaining non-live placeholder states, including the zero-history case when neither true surface rows nor scalar-history bootstrap rows are available yet.
+
+Important nuance:
+
+- `phase="live-seeding"` is **not** a separate display gate. Once S14 can compute a live PCA-IV snapshot, the row shows the signed live value even if readiness progress is still working toward the broader `PCA_IV_HISTORY_TARGET = 120` burn-in target.
+- The 120-snapshot target is a readiness / progress milestone surfaced in the details dialog, not a requirement before the row can leave `SEED`.
+
 ## 6) Strategy Gating and Concurrency Rules
 
 ### Hard Policy
@@ -484,13 +543,15 @@ Env flags are resolved at tooltip render time so changes take effect without a r
 
 1. Ingest SPY/VIX/VIX9D/VXV prices and event clock.
 2. Compute deterministic indicators (EMA50, ATR percent, VIX percentile, short-horizon SPY return).
-3. Evaluate regime rules in strict priority order.
-4. Emit one regime label.
-5. Apply regime-to-strategy map (default per Section 2; extension flags from Section 2.1 may swap the mapped strategy within the same regime).
-6. Apply pivot opportunity overlay as entry timing qualifier for the mapped strategy.
-7. Enforce hard halt rules for EVENT/CRISIS.
-8. Enforce max 2 concurrent strategies (one long-term/swing + one intraday/0DTE, enforced per horizon bucket).
-9. Pass only allowed strategy signals downstream to risk and execution.
+3. In parallel, refresh S07 custom-metric context, including S14-backed `PCA-PROXY` and `PCA-IV` rows for Market Overview observability.
+4. Evaluate regime rules in strict priority order.
+5. Emit one regime label.
+6. Apply regime-to-strategy map (default per Section 2; extension flags from Section 2.1 may swap the mapped strategy within the same regime).
+7. Apply pivot opportunity overlay as entry timing qualifier for the mapped strategy.
+8. Enforce hard halt rules for EVENT/CRISIS.
+9. Enforce max 2 concurrent strategies (one long-term/swing + one intraday/0DTE, enforced per horizon bucket).
+10. Pass only allowed strategy signals downstream to risk and execution.
+11. Surface PCA and other S07 custom-metric context in G05/G13 for operator awareness and confirmation; current automation does not treat PCA rows as hard gates.
 
 ## 8) Decision Contract for L09 and D30
 
@@ -532,6 +593,25 @@ L09's regime classifier requires per-symbol rolling tick series for SPY, VIX, VI
 - **Failure mode**: if a required series (SPY or VIX) is empty or has fewer than 50 close samples, L09 must emit DATA_STALE and the orchestrator must halt new entries until the series recovers. Synthesizing a default (`spy_price = 500.0`, NaN EMAs) and continuing classification is an explicit anti-pattern: it produces a permanent SIDEWAYS_RANGE / RANGE label that is indistinguishable from a legitimate calm-market reading.
 
 This contract is verified by the regression test in `Spyder/SpyderT_Testing/SpyderT185_D31_MarketDataCacheShape.py`.
+
+### 9.2) Current Operations Directive (2026-05-10)
+
+For current operations, the system remains in **SpyderBox paper trading** for an extended evaluation period until results are consistently acceptable to the operator.
+
+- Default operating posture: `TRADING_MODE=paper` with local SpyderBox paper ledger (`SPYDER_PAPER_ACCOUNT_SOURCE=spyderbox_local`).
+- Market-data and broker endpoints remain live (`TRADIER_ENVIRONMENT=live`, `TRADIER_MARKET_DATA_ENVIRONMENT=live`) so paper decisions are trained on live conditions.
+- Promotion to real live trading is explicit and gated:
+  - Mode/arming switch requires exact typed phrase: `I WANT TO SWITCH TO REAL LIVE TRADING`.
+  - Start-live action requires a second typed confirmation (`I CONFIRM LIVE TRADING`).
+  - If trading is active, mode/arming changes are blocked until the session is stopped.
+- Live-only market-data policy is fail-closed:
+  - Startup aborts on sandbox requests (`LiveOnlyTradierPolicy` in R12).
+  - Shared config validation rejects `TRADING_MODE=sandbox`, rejects non-live `TRADIER_ENVIRONMENT` / `TRADIER_MARKET_DATA_ENVIRONMENT`, and rejects `SPYDER_ALLOW_SANDBOX_MARKET_DATA=true`.
+  - Launcher and factory fallbacks default to live rather than sandbox when env is missing or invalid.
+  - Router/adapter/fallback layers reject or disable sandbox override paths.
+  - Standalone signal/data helper modules may keep legacy sandbox CLI flags for compatibility, but the flag is inert and the request is forced back to live.
+
+This directive means "paper-first by default" is not a temporary UI preference; it is an explicit runtime safety policy.
 
 ## 10) Implementation State (2026-05-02)
 
@@ -746,7 +826,7 @@ No evidence of a single silent "strategy gate broken" failure. The no-trade outc
    **DONE in v11** — code (`MAX_CONCURRENT_STRATEGIES = 2`, `MAX_ACTIVE_HORIZON_BUCKETS = 2`) was already correct; docs updated to 2 slots throughout. G05 TRADEABLE tooltip refreshed to "Max 2 strategies open (one long-term/swing + one intraday/0DTE)" in v12.
 3. ~~Add a dashboard badge sourced from latest D31 decision-drop reason (execution truth), not only pill-derived state.~~  
    **DONE in v12** — DISPATCH pill replaces legacy BIAS pill. Powered by `D31.get_dispatch_state()`; renders FLOWING / IDLE / BLOCKED / ERROR with 120s recency. Regression guard: T195 (16 tests) GREEN. See §5.3, §5.4.
-4. Run a weekday paper-session validation window and confirm at least one fully approved-and-dispatched trade path in logs.
+4. Continue extended weekday RTH SpyderBox paper validation and only promote to live after sustained approved-and-dispatched trade quality in logs and operator sign-off.
 
 ## 10.5) Root-Cause Analysis and Fixes (2026-05-05)
 
@@ -903,6 +983,40 @@ D31 regime: SPY cache has 0 closes (<2) — failing closed to CRISIS
 This means **any dashboard restart** (without R12 `SessionSupervisor` running) produces a cold D31 that cannot exit CRISIS no matter how long it runs or how many SPY quotes G18 fetches.
 
 The optional `SPYDER_ENABLE_STARTUP_CACHE_SEED` flag provides a one-time warm-start at init, but was defaulting to `"0"` — and even when set, it only seeds 2 entries at boot without any mechanism to keep the cache updated during the session.
+
+## 10.10) Live-Only Tradier Policy Closure Outside R12 (2026-05-10)
+
+### Discovery context
+
+Section 9.2 in v17 correctly described the intended operating policy, but a follow-up audit on 2026-05-10 found that some older shared-config and launcher paths still encoded sandbox as a valid default even after R12, Q02, C29, and B40 had already been hardened.
+
+### Root cause
+
+The live-only policy had been enforced in the primary runtime path, but not fully propagated into older helper layers:
+
+- `config/config.py` still allowed `TRADING_MODE=sandbox` and did not reject non-live Tradier env tokens.
+- `SpyderA06_MasterController`, `SpyderQ04_LaunchDashboard`, and `SpyderB_Broker.__init__.create_broker_client()` still had sandbox-oriented defaults or fallback branches.
+- `SpyderQ93_RunPaper` still accepted `TRADING_MODE=sandbox`.
+- `SpyderS12_WRSSignal` and `SpyderS13_PSRSignal` still exposed a functional `--sandbox` path for their standalone Tradier market-data helpers.
+
+### Fix applied
+
+- `config/config.py` now treats `paper` and `live` as the only valid trading modes and rejects non-live broker/data environments plus sandbox-market-data override flags.
+- `config/config_template.py` and `.env.example` now default to `TRADING_MODE=paper` and `TRADIER_ENVIRONMENT=live`.
+- `SpyderA06_MasterController`, `SpyderQ04_LaunchDashboard`, `SpyderB06_DashboardOrderManager`, `SpyderB40_TradierClient`, and `SpyderB_Broker.__init__.create_broker_client()` now default to live rather than sandbox.
+- `SpyderQ93_RunPaper` now requires `TRADING_MODE=paper`.
+- `SpyderQ10_StartAll.sh` now treats sandbox mode/env values as invalid and normalizes endpoint routing back to live.
+- `SpyderS12_WRSSignal` and `SpyderS13_PSRSignal` keep the legacy `--sandbox` CLI switch only as a deprecated no-op; requests are forced to live and a warning is logged.
+
+### Validation
+
+- `pytest -q --no-cov Spyder/SpyderT_Testing/SpyderT54_StartupConfigValidation_Test.py` → **47 passed**
+- `python -m compileall` on the touched controller/launcher/broker/signal files → success
+- `pytest -q --no-cov Spyder/SpyderT_Testing/SpyderT40_TradierClient_Test.py Spyder/SpyderT_Testing/SpyderT54_StartupConfigValidation_Test.py` → **74 passed**
+
+### Operational interpretation
+
+As of v18, the intended policy and the practical runtime defaults are aligned: SpyderBox paper mode uses live Tradier data/endpoints, live trading remains separately armed, and missing or stale legacy defaults no longer reopen a Tradier sandbox route.
 
 ### Evidence from logs
 
@@ -1066,3 +1180,567 @@ This was incorrect as-implemented. The dashboard `REGIME` pill is driven by G05 
 A dual-regime-path note has been added to §5.3 explaining the intentional split and when the two classifiers may disagree.
 
 **Operational consequence:** When L09 confidence is ≥ 0.70 and L09's regime disagrees with the S07-derived dashboard label, D31 will execute against L09's classification while the dashboard shows the S07 label. This is a known display gap. The DISPATCH pill remains the single surface that reflects execution truth — if D31 is selecting a different regime from the display label, this will manifest as IDLE when BULL TREND strategies are expected to fire, or FLOWING when strategies consistent with the S07 label would not.
+
+## 10.11) PCA Row Hydration After Late S07 Connection (2026-05-10)
+
+### Discovery context
+
+G05 starts the custom-metrics orchestrator on a delayed timer after the main dashboard UI is already live. Before that late connection completes, optional Market Overview rows begin in an explicit unavailable placeholder state.
+
+### As-implemented behavior
+
+After wiring `metrics_updated`, G05 now immediately calls `_hydrate_metrics_orchestrator_snapshot()`. That method:
+
+- reads S07 `current_metrics` under the orchestrator lock,
+- runs the snapshot through S07 `_format_metrics()`, and
+- feeds the result through the normal `_on_custom_metrics_updated()` slot.
+
+Operational effect:
+
+- off-hours startup no longer needs to wait for the next fresh S07 emit before PCA rows leave the unavailable startup placeholder,
+- if S07 already has cached `PCA-PROXY` / `PCA-IV` values, G05 backfills those rows as soon as the late connection is established,
+- the hydrated `PCA-IV` row preserves the same display semantics as live updates (`signed live value`, `SEED`, `HOLD`, `PEND`).
+
+Boundary note:
+
+- This is a dashboard-state hydration improvement only. It does **not** promote PCA rows into regime triggers, execution gates, or policy controls.
+- If S07 has no cached PCA payload yet, the explicit unavailable / pending row state remains correct until S07 produces one.
+
+## 10.12) Pre-Open Smoke Verification (2026-05-12)
+
+### Scope
+
+This revision adds a dated operator-readiness note for the current local SpyderBox paper session, focused on catching immediate pre-open blockers rather than changing the deterministic workflow contract.
+
+### Validation executed
+
+- `python Spyder/SpyderQ_Scripts/SpyderQ02_ValidateEnv.py` completed successfully against the active local `.env`. The active runtime remained in `TRADING_MODE=paper`, with live-only Tradier broker and market-data environments accepted under the current policy.
+- `bash Spyder/SpyderQ_Scripts/SpyderQ10_StartAll.sh --dry-run` completed successfully and resolved runtime routing to `TRADING_MODE=paper`, `TRADIER_ENVIRONMENT=live`. No services were started during this check.
+- Focused regression suite executed successfully:
+  `pytest -o addopts='' Spyder/SpyderT_Testing/SpyderT54_StartupConfigValidation_Test.py Spyder/SpyderT_Testing/SpyderT177_Q02_I12_Coverage.py Spyder/SpyderT_Testing/SpyderT197_C29_LiveOnlyPolicy.py Spyder/SpyderT_Testing/SpyderT185_D31_MarketDataCacheShape.py Spyder/SpyderT_Testing/SpyderT210_D02_IronCondorNoSignalDiagnostics.py`
+  Result: **65 passed** in 11.45 s.
+
+### Local runtime note
+
+- The current local `.env` is explicitly configured for Tradier market data (`DATA_PROVIDER=tradier`, `MARKET_DATA_PROVIDER=tradier`).
+- `MASSIVE_API_KEY` is not present in the current local `.env`.
+- Therefore the validator's current `Market Data: Tradier` status line is accurate for this workstation's active pre-open runtime; it is not evidence of a new startup misroute discovered in this audit.
+
+### Operational interpretation
+
+- No blocking pre-open issue was found for launching the current SpyderBox paper session.
+- No changes to regime logic, strategy mapping, policy gating, or dispatch behavior were required for this revision.
+- This verification is intentionally narrow: it confirms the current local configuration, launcher routing, and the most recent startup/no-trade regression surfaces are green immediately before launch, but it does not guarantee that all external dependencies will remain healthy after the market opens.
+
+## 10.13) Post-Paint GUI Stall During S07 Startup (2026-05-12)
+
+### Discovery context
+
+During the pre-open dashboard session, the visible UI reached first paint but then triggered the desktop shell's "not responding" dialog before normal interaction resumed. The launcher log showed that the freeze began immediately after G05's delayed custom-metrics startup path fired.
+
+### Evidence
+
+- `SpyderG05_TradingDashboard` schedules `_start_metrics_orchestrator()` with `QTimer.singleShot(1000, ...)` after first paint.
+- `_start_metrics_orchestrator()` called `get_metrics_orchestrator()` synchronously on the Qt main thread.
+- `CustomMetricsOrchestrator.__init__()` eagerly ran `_init_calculators()`, which imported and instantiated S01/S02/S03/S04/S05/S06/S09/S10/S11/S14 dependencies up front.
+- The launcher log showed the correlated stall window:
+  - normal startup activity through about `13:24:26`,
+  - then no further progress logs until `13:25:30`,
+  - matching the delayed S07 startup path rather than the initial window construction.
+
+### Root cause
+
+This was not a chart-widget paint bug. The real issue was a **main-thread post-paint import/initialization cascade**:
+
+- G05 correctly delayed S07 startup until after first paint,
+- but S07's constructor still did heavyweight optional imports and calculator/scheduler construction synchronously,
+- so the event loop was blocked anyway, only later in the startup sequence.
+
+### Fix applied
+
+File: `Spyder/SpyderS_Signals/SpyderS07_CustomMetricsOrchestrator.py`
+
+- Removed eager optional S-series dependency imports from module scope and replaced them with lazy import helpers.
+- Removed synchronous calculator initialization from `CustomMetricsOrchestrator.__init__()`.
+- Added `_ensure_calculators_initialized()` so optional calculators/schedulers initialize exactly once, on demand.
+- Moved S07 calculator/scheduler setup into the existing background startup/update paths, leaving the Qt-thread constructor lightweight.
+
+### Validation
+
+- New regression tests: `Spyder/SpyderT_Testing/SpyderT211_S07_CustomMetricsStartup.py` → **2 passed**.
+- Direct runtime timing check: `CustomMetricsOrchestrator(config={"auto_start": False})` constructed in effectively `0.000 s`.
+- Exact dashboard call-path timing check: `get_metrics_orchestrator()` returned in `0.001 s` instead of blocking behind the previous import cascade.
+
+### Operational interpretation
+
+- This fix targets a real operator-facing startup blockage and materially reduces the chance of the dashboard becoming unresponsive immediately after opening.
+- The custom-metrics subsystem still initializes and warms up in the background; first-paint responsiveness is now prioritized over having every optional metric ready synchronously.
+
+## 10.14) Paper Runtime Truth, Position Persistence, and Duplicate G18 Bridge Events (2026-05-12)
+
+### Discovery context
+
+During the live paper session, backend logs and SQLite state showed confirmed paper fills continuing to execute while the dashboard Orders & Positions panel still displayed `Paper trading - no open spreads`. At the same time, D31 continued to approve repeated SPY sell orders roughly every 10 seconds, with occasional near-duplicate approvals within the same poll window.
+
+### Evidence
+
+- `data/spyder_paper.db` began recording correct `trades` rows after the earlier fill-normalization repair, but `positions` remained empty for the same restart window.
+- `SpyderB03_PositionTracker` logged growing net SPY quantities (`record_fill: SPY qty=-1 ... -> net=-81`, later lower) and emitted `POSITION_UPDATED`, but the H05 `positions` table still contained zero rows.
+- G05 paper-mode rendering used only `open_spreads_detail`; when the legacy paper worker had no spread payload, the panel rendered the fixed empty-state string even if H05 or PositionTracker had active symbol positions.
+- Launcher logs showed D31 approval/dispatch pairs separated by about 0.6 s during some poll windows, while only one Iron Condor strategy instance was active. G18 was publishing normalized SPY `MARKET_DATA` from both `_fetch_live_data_from_tradier()` and `_fetch_quotes_fast()`.
+
+### Root causes
+
+1. **Trade persistence and position persistence were separate paths, and only trades were wired.**
+   R04 `_on_reconciler_fill()` recorded trades into H05 but nothing ever called `TradingSessionDB.upsert_position()` for live paper fills.
+
+2. **H05 position upserts froze the original quantity.**
+   `upsert_position()` updated mark/P&L/status on conflict but did not update `quantity` or refresh `entry_price` when the same aggregated symbol position changed.
+
+3. **G05 paper-mode table assumed the legacy spread worker was the only truth source.**
+   When `open_spreads_detail` was empty, the panel rendered the empty-state without checking persisted H05 open positions.
+
+4. **G18 slow and fast quote paths could publish the same normalized SPY event twice.**
+   D31 subscribes to `EventType.MARKET_DATA`; duplicate SPY bridge emits could feed the same active strategy twice on one quote update.
+
+### Fixes applied
+
+Files:
+
+- `Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py`
+  - subscribed R04 to `EventType.POSITION_UPDATED`,
+  - normalized/persisted aggregated symbol positions into H05 with stable `paper:SYMBOL` identifiers,
+  - updated local `active_positions` from the same event so runtime state and persisted state move together.
+
+- `Spyder/SpyderH_Storage/SpyderH05_TradingSessionDB.py`
+  - `upsert_position()` now updates `strategy`, `quantity`, and `entry_price` on conflict instead of freezing the initial row.
+
+- `Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py`
+  - added a paper-mode fallback that queries H05 `get_open_positions()` and renders persisted symbol positions when no spread snapshot is available.
+
+- `Spyder/SpyderG_GUI/SpyderG18_MarketDataWorker.py`
+  - added duplicate suppression in `_emit_spy_market_data_event()` so identical `(timestamp_ms, last)` SPY bridge events are published only once.
+
+### Focused validation
+
+- `pytest -o addopts='' -q Spyder/SpyderT_Testing/SpyderT116_RSeries.py -k PositionPersistence` -> **2 passed**.
+- `pytest -o addopts='' -q Spyder/SpyderT_Testing/SpyderT212_G05_PaperPositionFallback.py` -> **1 passed**.
+- `pytest -o addopts='' -q Spyder/SpyderT_Testing/SpyderT188_G05_MarketWorkerThreadSafety.py -k "spy_market_data_bridge_event or duplicate_spy_market_data_bridge_event"` -> **2 passed**.
+
+### Operational interpretation
+
+- After restart, paper fills should persist into both `trades` and `positions`, and the paper Orders & Positions panel should stop claiming there are no open positions when H05 has live paper exposure.
+- The G18 dedupe narrows one verified duplicate-input path into D31, but it is still a paper-safety fix only until the next runtime restart applies the new code.
+- Persistent negative net SPY carryover in `~/.spyder/position_tracker_state.json` is a separate reconciliation issue; this revision makes the runtime and dashboard truthful about those positions, but does not clear historical paper exposure automatically.
+
+## 10.15) Duplicate Paper Entry Loop — D31 Open-Position Admission Gate (2026-05-12)
+
+### Discovery context
+
+After the v21 runtime-truth fixes were in place, the next restart finally showed a truthful H05 open position row (`paper:SPY`) and the dashboard path had enough information to render paper exposure correctly. Even so, launcher logs still showed repeated D31 `Strategy signal approved for dispatch` entries and the `trades` table continued to accumulate new SPY `iron_condor` SELL rows. That narrowed the remaining defect from “paper truth is missing” to “new entries are still being admitted after a position is already open.”
+
+### Evidence
+
+- `data/spyder_paper.db` now contained an OPEN `positions` row for `paper:SPY`, confirming the R04/H05 persistence repair was live.
+- The same restart window still accumulated a large number of recent SPY `iron_condor` SELL trades in `trades`.
+- Earlier G18 exact-key dedupe reduced one overlapping bridge case, but it did not eliminate the repeated entry loop.
+- D01/D02 strategy review showed no strategy-side subscription that synchronizes fills or net open positions back into `BaseStrategy.positions`, so a positive entry signal could continue to recur on later market-data events.
+- D31 review showed no admission check against R04 `active_positions` before logging `Strategy signal approved for dispatch` or before calling `LiveEngine.execute_order()`.
+
+### Root cause
+
+The remaining paper-order loop was no longer primarily a market-data duplication problem. The controlling defect was that D31 had no open-position admission gate. Once a paper entry filled, R04 tracked the position, but D31 still had no rule preventing a later opening signal for the same symbol/strategy from being treated as a fresh entry candidate.
+
+### Fix applied
+
+File:
+
+- `Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`
+  - added `_is_entry_action()` to classify actions that open new exposure,
+  - added `_has_duplicate_open_position()` to read R04 `get_active_positions_snapshot()` and detect nonzero open positions for the same symbol/strategy,
+  - inserted the gate into `_on_strategy_signal()` so duplicate entries are blocked before D31 logs `Strategy signal approved for dispatch`,
+  - kept the same guard in `_dispatch_approved_signal()` as a defensive fallback in case a signal reaches the dispatch hop through another path.
+
+### Focused validation
+
+- `pytest -o addopts='' -q Spyder/SpyderT_Testing/SpyderT141_D31_EntryTrustGate.py Spyder/SpyderT_Testing/SpyderT193_D31_DispatchResultHardening.py` -> **21 passed**.
+- Added regression coverage for both control points:
+  - pre-dispatch block in `SpyderT141_D31_EntryTrustGate.py`,
+  - dispatch-path duplicate-entry rejection in `SpyderT193_D31_DispatchResultHardening.py`.
+
+### Operational interpretation
+
+- This change moves the paper safety stop to the correct control layer: D31 should no longer claim a duplicate entry is approved once R04 already reports that exposure as open.
+- The currently running Spyder process will not use this fix until the next restart. Any live paper observations taken before that restart still reflect the old code path.
+- This repair does not reconcile or flatten historical paper carryover by itself; it only prevents D31 from opening the same paper position again while that exposure is already active.
+
+## 10.16) Restart Startup Gap — Hydrate R04 Paper Positions from H05 (2026-05-12)
+
+### Discovery context
+
+The next restart after v22 confirmed that the D31 duplicate-entry guard was live: launcher logs shifted from `Strategy signal approved for dispatch` / `Market order dispatched` to `Strategy signal blocked — open position already active`. However, the same restart still added two new SPY `iron_condor` SELL fills before the block lines began. That meant the remaining defect was not the D31 gate itself, but a startup window before R04 had any open-position snapshot for D31 to consult.
+
+### Evidence
+
+- Latest restart markers:
+  - `Paper trading started - Session: PAPER_20260512_115222`
+  - immediately preceded by `Loaded 0 active positions` from R04.
+- The same startup window still wrote two new SPY `iron_condor` SELL trades at `2026-05-12T15:52:49+00:00`, increasing the persisted paper position from `-249` to `-251`.
+- After those two fills, the same launcher log began emitting repeated `Strategy signal blocked — open position already active: symbol=SPY strategy=iron_condor` lines from D31, confirming the guard worked once R04 had nonzero position state.
+- R12 attaches H05 after `LiveEngine.initialize()` completes. R04 `_load_current_positions()` therefore runs before H05 is available and, in paper mode, starts from an empty broker position snapshot.
+- `SpyderR04_LiveEngine.set_session_db()` previously only assigned `self._session_db`; it did not hydrate `active_positions` from persisted open positions.
+
+### Root cause
+
+The duplicate-entry safety path still had a restart-only blind spot. In paper mode, R04 initialized with zero broker positions, then began trading before its in-memory `active_positions` map was repopulated from persisted H05 paper positions. D31 therefore had no open-position truth to consult during the first startup moments after each restart.
+
+### Fix applied
+
+File:
+
+- `Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py`
+  - extended `set_session_db()` so that, in paper mode only, when `active_positions` is still empty and H05 reports open positions, R04 hydrates its in-memory `active_positions` map from `TradingSessionDB.get_open_positions()` immediately,
+  - logs `Hydrated N active positions from session DB for paper mode` when that startup recovery occurs,
+  - leaves non-paper mode and already-populated in-memory position state unchanged.
+
+File:
+
+- `Spyder/SpyderT_Testing/SpyderT116_RSeries.py`
+  - added a focused regression that seeds a temporary H05 paper DB with an open `paper:SPY` position, attaches it via `set_session_db()`, and asserts R04 immediately exposes that position in `active_positions`.
+
+### Focused validation
+
+- `pytest -o addopts='' -q Spyder/SpyderT_Testing/SpyderT116_RSeries.py -k PositionPersistence` -> **3 passed, 34 deselected**.
+
+### Operational interpretation
+
+- Your current running Spyder session already proves the D31 duplicate-entry guard is active, but it still includes the two startup fills that slipped in before this new R04 hydration fix existed.
+- After one more restart, R04 should begin paper trading with the persisted SPY paper position already loaded into `active_positions`, so D31 can block duplicate entries from the first eligible signal cycle rather than only after the next fill.
+- This change is still paper-scope safety hardening; it does not flatten or reconcile historical paper carryover by itself.
+
+## 10.17) Restart Verification — Active Paper Position Restored and Duplicate Loop Closed (2026-05-12)
+
+### Discovery context
+
+After shipping the v23 R04 startup hydration change, Spyder was restarted again to verify the actual runtime behavior rather than only the unit-test path. The dashboard now visibly shows the carried SPY paper position in Orders & Positions, while the system log and launcher log both indicate that D31 is seeing the open position immediately and refusing new duplicate entries.
+
+### Evidence
+
+- Latest restart markers:
+  - `Starting Thread-Safe Market Data Worker...` at `2026-05-12 17:03:58`
+  - `Loaded 0 active positions` from R04 at `2026-05-12 17:03:59`
+  - `Hydrated 1 active positions from session DB for paper mode` at `2026-05-12 17:03:59`
+  - `Paper trading started - Session: PAPER_20260512_120359` immediately after hydration.
+- Subsequent launcher log lines show repeated `Strategy signal blocked — open position already active: symbol=SPY strategy=iron_condor` instead of `Strategy signal approved for dispatch` / `Market order dispatched`.
+- The paper DB remains stable:
+  - `positions` still shows one open row for `paper:SPY`, quantity `-251`, strategy `iron_condor`.
+  - `trades` still tops out at `2026-05-12T15:52:49.046354+00:00`, the earlier pre-v23 startup leak point.
+  - There are `0` trade rows after that timestamp.
+- The dashboard now shows that same paper SPY position as an active trade row, which matches the persisted H05 state and D31's duplicate-entry block behavior.
+
+### Operational interpretation
+
+- The active trade you now see in the UI is expected and is the correct truthful state: Spyder restored the existing paper position instead of hiding it behind the old empty-state path.
+- The duplicate-order loop is no longer active in the current restarted session. D31 is seeing the open `iron_condor` position and blocking fresh entries rather than dispatching more orders.
+- The current residual issue is not duplicate re-entry; it is only the existing carried paper exposure itself. Any next decision about flattening or resetting that paper position is operational, not a missing wiring fix.
+
+## 10.18) Paper Flatten Blind Spot and Clean-Slate Reset Verification (2026-05-12)
+
+### Discovery context
+
+After the duplicate-entry loop was closed and the carried paper SPY position was restored truthfully on restart, the next operator request was to flatten or reset that carried paper exposure for a clean validation run. Inspection of the runtime flatten path exposed a second independent gap: the paper-side emergency/flatten controls were not actually capable of flattening the carried paper position end-to-end.
+
+### Root cause
+
+Three separate issues combined to make paper flatten unreliable:
+
+1. `SessionSupervisor._flatten_positions()` and `_flatten_at_risk_short_options()` enumerated inventory only via `broker.get_positions()`.
+2. In paper mode, `PaperBroker.get_positions()` returns an empty list because position truth lives in B03/H05 rather than in the broker shim itself.
+3. `PaperBroker.close_position()` defaulted to a one-lot close shape and inferred a generic side from symbol type instead of the actual signed held quantity. For a carried paper row like `SPY qty=-251`, that is insufficient to submit the correct full flatten order.
+
+An adjacent UI gap also existed: G05 `emergency_close()` changed dashboard state and disconnected the worker, but it did not call `_stop_unified_session_supervisor(flatten=True)`, so the runtime flatten path was never invoked from the main operator emergency button.
+
+### Code changes
+
+- R12 now resolves flatten inventory from the broker first, then falls back to paper-local inventory from `PositionTracker` and `LiveEngine` when broker positions are empty in paper mode.
+- R12 now propagates signed paper quantity through the flatten close call so paper closes can preserve both direction and full size.
+- R15 `PaperBroker.close_position()` / `close_position_verified()` now accept the signed held quantity and submit the correct side and absolute quantity for the actual position being flattened.
+- G05 `emergency_close()` now calls `_stop_unified_session_supervisor(flatten=True)` and stops the live P/L poll before disconnecting the worker/UI.
+
+### Validation
+
+- Focused regression suite passed: `13 passed, 69 deselected` across:
+  - `Spyder/SpyderT_Testing/test_r12_flatten_request_guard.py`
+  - `Spyder/SpyderT_Testing/SpyderT208_G05_SessionSupervisorReuse.py`
+  - `Spyder/SpyderT_Testing/SpyderT129_ProtocolCompliance.py`
+- New coverage verifies:
+  - paper flatten fallback uses `PositionTracker` inventory when broker positions are empty,
+  - signed paper quantity is propagated through flatten requests,
+  - PaperBroker submits full-size `buy` / `sell_to_close` closes when given signed held quantity,
+  - G05 emergency close now routes through supervisor flatten.
+
+### Clean-slate reset performed
+
+Because the running Spyder instance had been started before the flatten fix was loaded, the immediate operator request was completed as an operational reset:
+
+- The active Spyder process was stopped.
+- The carried paper state was backed up to `12-Archive/paper-session-reset-20260512T161734Z/`.
+- The active persisted paper carryover files were cleared:
+  - `data/spyder_paper.db`
+  - `~/.spyder/position_tracker_state.json`
+- Spyder was relaunched on the fresh state.
+
+### Post-reset verification
+
+- Relaunch created a fresh `data/spyder_paper.db`.
+- Verification query results on the recreated paper DB:
+  - `open_positions = 0`
+  - `total_trades = 0`
+- `~/.spyder/position_tracker_state.json` is absent after the reset.
+- Result: the next paper validation run starts from a true clean slate, with no carried paper position restored from the previous session.
+
+## 10.19) Paper Account Snapshot Gap During Active Paper Trading (2026-05-12)
+
+### Discovery context
+
+The first fresh paper session after the clean-slate reset surfaced one more runtime-truth gap. The session started successfully, the dashboard showed `PAPER ACTIVE`, R04 logged `Paper trading started`, and the session immediately recorded a real local paper fill/position. However, G18 also emitted:
+
+`Paper balance unavailable: local SpyderBox snapshot missing (sandbox fallback disabled).`
+
+That warning was no longer startup noise. In this run there was already live local paper activity, so the missing snapshot was real. A direct sqlite check on `data/spyder_paper.db` confirmed the mismatch:
+
+- `account_snapshots = 0`
+- `open_positions = 1`
+- `trades = 1`
+
+This explained the UI state: orders/positions were truthful, but the SpyderBox balance panel still rendered blanks because no local paper account snapshot existed for G18 to emit.
+
+### Root cause
+
+The current paper runtime path writes trade truth and position truth, but not account-snapshot truth:
+
+- G18 is intentionally fail-closed for paper balances. It will emit a paper balance only from:
+  - the SpyderBox local state file, or
+  - the latest H05 `account_snapshots` row.
+- The active R12/R04 paper path already persisted:
+  - confirmed fills into H05 `trades`, and
+  - net paper positions into H05 `positions`.
+- But it never wrote H05 `account_snapshots` rows.
+- The only existing writer for paper account snapshots was the legacy R08 paper Qt worker, which is not the runtime path used by the current paper session.
+
+So G18's warning was correct: once a paper session was active, the local paper account snapshot should have existed, but no component in the active path created it.
+
+### Code changes
+
+- R04 now extracts a minimal `(cash, equity, buying_power)` snapshot from the attached broker balance surface.
+- `LiveEngine.start_trading()` now seeds a local paper account snapshot when all of the following are true:
+  - mode is `paper`,
+  - H05 is attached,
+  - no prior paper account snapshot exists.
+- The new seed path accepts both common broker payload shapes:
+  - `{"balances": ...}`
+  - `{"account": ...}`
+- Existing paper snapshots are preserved. Restarting into a carried paper session no longer overwrites a previously persisted snapshot with a fresh default balance.
+
+### Validation
+
+- Runtime evidence before the fix showed the exact mismatch: `0` account snapshots with `1` open position and `1` trade.
+- Focused R04 regression validation passed `4 passed, 35 deselected` in `SpyderT116_RSeries.py`.
+- New coverage verifies:
+  - `start_trading()` seeds a missing paper account snapshot,
+  - an existing paper account snapshot is preserved,
+  - existing position-persistence and H05 hydration behavior still hold.
+
+### Operational note
+
+This fix loads on the next Spyder restart / next paper-session start. The already-running GUI session that produced the warning will not retroactively gain the seeded snapshot until it is restarted with the updated R04 code.
+
+## 10.20) Live Restart Verification of Paper Account Truth and A01-to-G05 Autostart UI State (2026-05-12)
+
+### Live restart verification
+
+After restarting Spyder with the v26 R04 snapshot-seeding fix in place, the paper account snapshot path behaved correctly in the live application:
+
+- H05 now contains `1` `account_snapshots` row.
+- Latest snapshot values are:
+  - `cash = 100000.0`
+  - `equity = 100000.0`
+  - `buying_power = 100000.0`
+- The carried paper position is still present and truthful:
+  - `symbol = SPY`
+  - `quantity = -1`
+  - `strategy = iron_condor`
+- The paper `trades` table still contains `1` trade row.
+
+The restarted dashboard matches that DB state: the SpyderBox panel now shows `$100,000.00` settled cash and buying power instead of blanks, while the carried paper SPY position remains visible in the positions strip.
+
+### Residual log review
+
+The restart log also showed:
+
+`Position divergence for SPY: local=-1.0 broker=0.0 (tol=0.01)`
+
+In the current paper architecture this is expected warning noise, not a new blocker:
+
+- local paper position truth lives in B03/H05/R04,
+- `PaperBroker.get_positions()` still returns an empty broker inventory by design,
+- so B03 reconciliation sees local paper inventory against a zero broker-side snapshot and logs divergence.
+
+This warning does not prevent D31 from seeing the carried paper position, and it does not reopen the duplicate-entry issue.
+
+### New issue uncovered by the same restart
+
+Although the paper account panel was now truthful, the top action pill still showed `START TRADING` in the dashboard screenshot even though:
+
+- A01 had already autostarted the paper `SessionSupervisor`,
+- R04 had already logged `Paper trading started`, and
+- the carried paper position and D31 activity were both live.
+
+That meant the backend session state was correct, but the top G05 action state was still stale.
+
+### Root cause
+
+- A01 injects the shared `SessionSupervisor` into G05 before the window is shown so G05 reuses the existing backend session.
+- G05 already knows how to display `PAPER ACTIVE`, but only along the manual start-success path.
+- When A01 autostart completes in the background, no callback promoted the dashboard into the same active visual state.
+
+So the session was truly active, but the top action pill remained on the inactive label.
+
+### Code changes
+
+- G05 now has a dedicated helper that adopts an already-running injected `SessionSupervisor` into the same active UI state used by the manual start path.
+- A01 now calls that helper after deferred `SessionSupervisor` autostart completes successfully on the GUI thread.
+- The helper updates:
+  - `trading_active`,
+  - `connection_info.trading_active`,
+  - the top action pill text/style,
+  - the same startup system-log lines used by the manual start path,
+  - paper positions refresh / live P&L polling as appropriate.
+
+### Validation
+
+- Focused regression validation passed `5 passed, 5 deselected` across:
+  - `SpyderT208_G05_SessionSupervisorReuse.py`
+  - `SpyderT200_A01_ShutdownOrder.py`
+- New coverage verifies:
+  - G05 adopts a running injected paper `SessionSupervisor` into active UI state,
+  - A01 invokes that UI-adoption hook after autostart success,
+  - existing injected-session reuse and emergency-close behavior remain intact.
+
+### Operational note
+
+The paper account snapshot fix is already live-verified in the current restarted app. The top action-pill correction is code-complete and test-verified, but it still needs one more Spyder restart to be visible in the real dashboard.
+
+## 10.21) Final Live Restart Verification of A01-to-G05 Autostart UI Truth (2026-05-12)
+
+### Live verification
+
+After one more Spyder restart with the v27 A01-to-G05 autostart UI-state fix loaded, the dashboard now reaches the correct fully truthful startup state:
+
+- the top action pill shows `PAPER ACTIVE`,
+- the system log shows:
+  - `🚀 PAPER trading started — market data confirmed live`
+  - `TRADING ACTIVE [PAPER] - Unified session started`
+- the SpyderBox paper account panel still shows the seeded `$100,000.00` balances,
+- the carried `SPY qty=-1` `iron_condor` paper position remains visible.
+
+This closes the last UI-only mismatch between the A01-autostarted backend session and the G05 dashboard state.
+
+### D31 steady-state verification
+
+The same live run also confirms the duplicate-entry protections are behaving exactly as intended for the carried paper position:
+
+- D31 telemetry reported:
+  - `seen = 37`
+  - `approved = 0`
+  - `dispatched = 0`
+  - `top_drop = pre_dispatch:duplicate_open_position x36`
+- the dashboard ENTRY pill shows `BLOCKED`, and
+- the autonomous activity panel surfaces `D31 ENTRY -> BLOCKED (pre_dispatch:duplicate_open_position)`.
+
+That is the correct execution-truth state while a carried paper SPY `iron_condor` remains open. Spyder is not silently failing to trade; it is intentionally suppressing duplicate entries for the already-open position.
+
+### Final status
+
+At this point the previously open runtime-truth gaps have all been closed and re-verified in the live application:
+
+- paper positions survive restart truthfully,
+- duplicate paper re-entry is blocked,
+- paper balance state is persisted and rendered truthfully,
+- A01 autostart and G05 action-pill state now agree.
+
+The only remaining reason new paper entries are not dispatching in this session is operational: the carried paper position is still open. If a clean-slate paper session is desired, that position must be flattened or the paper state reset again. Otherwise, the current blocked-entry behavior is the correct safe state.
+
+## 10.22) Clean-Slate Restart Exposed a Pre-Fill Duplicate-Dispatch Race (2026-05-12)
+
+### What changed after the reset
+
+After the carried paper state was cleared and Spyder was relaunched on a true clean slate, the previously documented open-position gate was no longer sufficient by itself. The new paper session started from `0` open positions, but D31 still approved the same `SPY` entry twice before the runtime position truth updated.
+
+Observed live evidence from that restart:
+
+- D31 logged two consecutive approvals for the same signal:
+  - `17:57:30.874 Strategy signal approved for dispatch`
+  - `17:57:31.026 Strategy signal approved for dispatch`
+- the PaperBroker accepted two orders:
+  - `PAPER-000001`
+  - `PAPER-000002`
+- the PositionTracker then recorded two fills:
+  - `net=-1`
+  - `net=-2`
+- only after those fills did D31 resume logging:
+  - `Strategy signal blocked — open position already active: symbol=SPY strategy=iron_condor`
+
+SQLite verification after the failed restart confirmed the bad persisted state:
+
+- `positions`: `SPY | -2 | iron_condor | OPEN`
+- `trades`: `2`
+- `account_snapshots`: `1`
+
+### Root cause
+
+The existing D31 duplicate-entry guard only consulted the LiveEngine's already-filled `active_positions` state. That worked once a carried position existed, but it left a short pre-fill gap on a clean slate:
+
+1. first signal passed pre-risk and duplicate-open-position checks,
+2. D31 handed dispatch to the async executor,
+3. a second identical signal arrived before `POSITION_UPDATED` reflected the first order,
+4. D31 approved and dispatched the second signal as well.
+
+In other words, D31 had an open-position guard but no in-flight entry reservation spanning the time between approval and fill.
+
+### Code fix
+
+D31 now closes that gap locally in the owning abstraction:
+
+- before async dispatch, D31 reserves a pending `symbol + strategy` entry slot,
+- later signals treat that reservation as the same `duplicate_open_position` block reason during the pre-fill window,
+- reservations are released when:
+  - `POSITION_UPDATED` arrives,
+  - `ORDER_FILLED` / `ORDER_CANCELLED` / `ORDER_EXPIRED` / `ORDER_REJECTED` arrive,
+  - dispatch is rejected locally or raises an exception,
+- reservations also expire on a bounded TTL fallback so a missing terminal event cannot block entries forever.
+
+This preserves the existing open-position guard while extending it to the exact race window that the clean-slate restart exposed.
+
+### Validation
+
+Focused regression validation passed `23/23` across:
+
+- `SpyderT141_D31_EntryTrustGate.py`
+- `SpyderT193_D31_DispatchResultHardening.py`
+
+New coverage specifically verifies:
+
+- a second identical signal is blocked while the first entry is still only in-flight,
+- the pending-entry reservation clears when `POSITION_UPDATED` lands,
+- the existing dispatch-result hardening behavior remains intact.
+
+### Operational cleanup
+
+Because the failing clean-slate restart had already persisted the duplicate paper position, that state was backed up and cleared again after the D31 fix shipped:
+
+- backup directory: `12-Archive/paper-session-reset-20260512T170841Z`
+- live paper DB: removed
+- tracker state: removed
+
+At the end of this repair pass there is no remaining live `data/spyder_paper.db` carrying the bad `SPY qty=-2` state. The next Spyder launch will load the D31 fix on a clean paper slate.

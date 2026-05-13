@@ -4,14 +4,14 @@
 
 1. **NEVER commit to main branch** - Always use feature branches
 2. **NEVER hardcode credentials** - Use .env file for all sensitive data
-3. **NEVER execute live trades without explicit confirmation** - Default to sandbox mode
-4. **ALWAYS test Tradier API changes in sandbox mode first**
+3. **NEVER execute live trades without explicit confirmation** - Default to SpyderBox paper mode with live Tradier data
+4. **ALWAYS test Tradier API changes in paper mode first**
 5. **ALWAYS verify API connectivity before executing trades**
 
 ## 🎯 Project Context
 
 You are working on **Spyder**, a sophisticated algorithmic trading system that:
-- Connects to Tradier API for live and sandbox trading
+- Connects to Tradier API through live/production endpoints only
 - Processes real-time market data via Databento (OPRA) and Tradier
 - Manages risk and positions with real financial implications
 - Uses a modular architecture with 24+ specialized components
@@ -58,7 +58,7 @@ You are working on **Spyder**, a sophisticated algorithmic trading system that:
 
 ## 📋 Before Starting Any Task
 
-1. **Check current mode**: Verify if system is in SANDBOX or LIVE mode
+1. **Check current mode**: Verify if system is in PAPER or LIVE mode
 2. **Verify API connectivity**: Use SpyderB40_TradierClient to check connection status
 3. **Review recent logs**: Check logs/ directory for any recent errors
 4. **Understand the module**: Each SpyderX module has specific responsibilities - respect boundaries
@@ -75,7 +75,7 @@ You are working on **Spyder**, a sophisticated algorithmic trading system that:
 - Broker: Tradier API (REST) — no local gateway required
 - Market Data: Databento (OPRA.PILLAR) for real-time options data
 - Fallback: Tradier quotes API for testing and redundancy
-- Modes: Sandbox (paper trading) / Production (live trading)
+- Modes: Paper (SpyderBox local paper ledger with live Tradier data) / Live (real trading)
 
 **GUI & Visualization**
 - Framework: PySide6 with qt6-wayland

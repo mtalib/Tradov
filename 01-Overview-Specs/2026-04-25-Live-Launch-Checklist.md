@@ -11,7 +11,7 @@ It is intentionally conservative. A later stage may only begin when all items an
 ## Current Status
 
 - Paper trading: go
-- Live-sandbox: go
+- SpyderBox paper with live Tradier data: go
 - Small supervised live: conditional go
 - Unattended autonomous live: no-go
 
@@ -111,7 +111,7 @@ Exit criteria:
 | Area | Ready Now | Ready With Supervision | Not Ready Yet |
 |---|---|---|---|
 | Paper trading with current controls | Yes |  |  |
-| Live-sandbox trading | Yes |  |  |
+| SpyderBox paper with live Tradier data | Yes |  |  |
 | Tiny-size live trading |  | Yes |  |
 | Fully autonomous unattended live trading |  |  | Yes |
 | Go/No-Go operational gate in dashboard | Yes |  |  |
