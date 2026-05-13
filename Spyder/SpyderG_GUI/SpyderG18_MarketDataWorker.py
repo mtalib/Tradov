@@ -756,6 +756,11 @@ class ThreadSafeMarketDataWorker(QObject):
             "tick": tick,
         }
 
+        for key in ("bid", "ask", "volume"):
+            value = tick.get(key)
+            if value is not None:
+                event_payload[key] = value
+
         try:
             event_manager.emit(
                 market_data_event_type,

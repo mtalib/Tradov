@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -156,6 +157,50 @@ def test_fetch_balance_only_has_no_tradier_fallback_when_local_missing(
     worker.ThreadSafeMarketDataWorker._fetch_balance_only(_WorkerStub())
 
     assert emitted == []
+
+
+def test_market_data_bridge_payload_keeps_top_level_quote_fields() -> None:
+    """Synthetic MARKET_DATA events must preserve legacy top-level quote fields."""
+    pytest.importorskip("PySide6")
+    from Spyder.SpyderG_GUI import SpyderG18_MarketDataWorker as worker
+
+    emitted: list[tuple[object, dict, str]] = []
+
+    class _EventManagerStub:
+        def emit(self, event_type: object, payload: dict, *, source: str) -> None:
+            emitted.append((event_type, payload, source))
+
+    class _WorkerStub:
+        logger = MagicMock()
+        _last_spy_market_data_key = None
+
+        def _resolve_market_event_bridge(self):
+            return _EventManagerStub(), "MARKET_DATA"
+
+    worker.ThreadSafeMarketDataWorker._emit_spy_market_data_event(
+        _WorkerStub(),
+        {
+            "last": 527.25,
+            "change": 1.5,
+            "change_pct": 0.29,
+            "timestamp_ms": 1715700000000,
+        },
+        {
+            "bid": "527.2",
+            "ask": "527.3",
+            "volume": "123456",
+        },
+    )
+
+    assert len(emitted) == 1
+    _, payload, source = emitted[0]
+    assert source == "_WorkerStub"
+    assert payload["tick"]["bid"] == pytest.approx(527.2)
+    assert payload["tick"]["ask"] == pytest.approx(527.3)
+    assert payload["tick"]["volume"] == pytest.approx(123456.0)
+    assert payload["bid"] == pytest.approx(527.2)
+    assert payload["ask"] == pytest.approx(527.3)
+    assert payload["volume"] == pytest.approx(123456.0)
 
 
 def test_deprecated_symbols_are_not_part_of_market_overview() -> None:
