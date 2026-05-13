@@ -48,9 +48,12 @@ from datetime import datetime, timedelta, timezone, time as dt_time  # noqa: E40
 from dataclasses import dataclass, field  # noqa: E402
 from enum import Enum  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
-from typing import Any  # noqa: E402
+from typing import Any, TYPE_CHECKING  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+
+if TYPE_CHECKING:
+    from Spyder.SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager
 
 try:
     from Spyder.SpyderZ_Communication.SpyderZ02_MessageProtocol import (
@@ -137,96 +140,48 @@ try:
                 return False
             return callable(getattr(cls, "generate_signal", None))
 
+    _OPTIONAL_STRATEGY_CACHE: dict[tuple[str, str], Any] = {}
+    _OPTIONAL_STRATEGY_IMPORTS: dict[str, tuple[str, str]] = {
+        "IronCondor": ("Spyder.SpyderD_Strategies.SpyderD02_IronCondor", "IronCondorStrategy"),
+        "CreditSpread": ("Spyder.SpyderD_Strategies.SpyderD03_CreditSpread", "CreditSpreadStrategy"),
+        "ZeroDTE": ("Spyder.SpyderD_Strategies.SpyderD04_ZeroDTE", "ZeroDTEStrategy"),
+        "Straddle": ("Spyder.SpyderD_Strategies.SpyderD05_Straddle", "StraddleStrategy"),
+        "BullPutSpread": ("Spyder.SpyderD_Strategies.SpyderD06_BullPutSpread", "BullPutSpreadStrategy"),
+        "BearCallSpread": ("Spyder.SpyderD_Strategies.SpyderD07_BearCallSpread", "BearCallSpreadStrategy"),
+        "BullCallSpread": ("Spyder.SpyderD_Strategies.SpyderD35_BullCallSpread", "BullCallSpreadStrategy"),
+        "BearPutSpread": ("Spyder.SpyderD_Strategies.SpyderD36_BearPutSpread", "BearPutSpreadStrategy"),
+        "OpeningRangeBreakout": ("Spyder.SpyderD_Strategies.SpyderD08_OpeningRangeBreakout", "OpeningRangeBreakoutStrategy"),
+        "GreeksBased": ("Spyder.SpyderD_Strategies.SpyderD09_GreeksBasedStrategy", "GreeksBasedStrategy"),
+        "SpecializedZeroDTE": ("Spyder.SpyderD_Strategies.SpyderD11_SpecializedZeroDTE", "SpecializedZeroDTEStrategy"),
+        "IronButterfly": ("Spyder.SpyderD_Strategies.SpyderD10_IronButterfly", "IronButterflyStrategy"),
+        "CalendarSpread": ("Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread", "CalendarSpreadStrategy"),
+        "StraddleStrangle": ("Spyder.SpyderD_Strategies.SpyderD15_StraddleStrangle", "StraddleStrangleStrategy"),
+        "RatioSpreads": ("Spyder.SpyderD_Strategies.SpyderD16_RatioSpreads", "RatioSpreadsStrategy"),
+        "DiagonalSpread": ("Spyder.SpyderD_Strategies.SpyderD17_DiagonalSpread", "DiagonalSpreadStrategy"),
+        "JadeLizard": ("Spyder.SpyderD_Strategies.SpyderD19_JadeLizard", "JadeLizardStrategy"),
+        "VerticalSpreadOptimizer": ("Spyder.SpyderD_Strategies.SpyderD20_VerticalSpreadOptimizer", "VerticalSpreadOptimizer"),
+        "DoubleCalendar": ("Spyder.SpyderD_Strategies.SpyderD21_DoubleCalendar", "DoubleCalendarStrategy"),
+        "AdaptiveVolatility": ("Spyder.SpyderD_Strategies.SpyderD22_AdaptiveVolatility", "AdaptiveVolatilityStrategy"),
+        "GammaScalper": ("Spyder.SpyderD_Strategies.SpyderD26_GammaScalper", "GammaScalperStrategy"),
+        "RSIMeanReversion": ("Spyder.SpyderD_Strategies.SpyderD12_RSIMeanReversion", "RSIMeanReversionStrategy"),
+        "MACrossover": ("Spyder.SpyderD_Strategies.SpyderD13_MACrossover", "MACrossoverStrategy"),
+        "RenaissanceMeanReversion": ("Spyder.SpyderD_Strategies.SpyderD33_RenaissanceMeanReversion", "RenaissanceMeanReversionStrategy"),
+        "PivotMeanReversion": ("Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion", "PivotMeanReversionStrategy"),
+    }
+
     def _optional_strategy(import_path: str, symbol: str) -> Any:
+        cache_key = (import_path, symbol)
+        if cache_key in _OPTIONAL_STRATEGY_CACHE:
+            return _OPTIONAL_STRATEGY_CACHE[cache_key]
         try:
             module = __import__(import_path, fromlist=[symbol])
-            return getattr(module, symbol)
+            value = getattr(module, symbol)
+            _OPTIONAL_STRATEGY_CACHE[cache_key] = value
+            return value
         except Exception as err:
             logging.warning("D31 optional strategy unavailable: %s (%s)", symbol, err)
+            _OPTIONAL_STRATEGY_CACHE[cache_key] = None
             return None
-
-    IronCondorStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD02_IronCondor", "IronCondorStrategy"
-    )
-    CreditSpreadStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD03_CreditSpread", "CreditSpreadStrategy"
-    )
-    ZeroDTEStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD04_ZeroDTE", "ZeroDTEStrategy"
-    )
-    StraddleStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD05_Straddle", "StraddleStrategy"
-    )
-    BullPutSpreadStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD06_BullPutSpread", "BullPutSpreadStrategy"
-    )
-    BearCallSpreadStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD07_BearCallSpread", "BearCallSpreadStrategy"
-    )
-    BullCallSpreadStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD35_BullCallSpread", "BullCallSpreadStrategy"
-    )
-    BearPutSpreadStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD36_BearPutSpread", "BearPutSpreadStrategy"
-    )
-    OpeningRangeBreakoutStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD08_OpeningRangeBreakout", "OpeningRangeBreakoutStrategy"
-    )
-    GreeksBasedStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD09_GreeksBasedStrategy", "GreeksBasedStrategy"
-    )
-    SpecializedZeroDTEStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD11_SpecializedZeroDTE", "SpecializedZeroDTEStrategy"
-    )
-    # Phase 3: strategies referenced in regime weights but previously unregistered
-    IronButterflyStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD10_IronButterfly", "IronButterflyStrategy"
-    )
-    CalendarSpreadStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread", "CalendarSpreadStrategy"
-    )
-    StraddleStrangleStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD15_StraddleStrangle", "StraddleStrangleStrategy"
-    )
-    RatioSpreadsStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD16_RatioSpreads", "RatioSpreadsStrategy"
-    )
-    DiagonalSpreadStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD17_DiagonalSpread", "DiagonalSpreadStrategy"
-    )
-    JadeLizardStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD19_JadeLizard", "JadeLizardStrategy"
-    )
-    VerticalSpreadOptimizer = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD20_VerticalSpreadOptimizer", "VerticalSpreadOptimizer"
-    )
-    DoubleCalendarStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD21_DoubleCalendar", "DoubleCalendarStrategy"
-    )
-    AdaptiveVolatilityStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD22_AdaptiveVolatility", "AdaptiveVolatilityStrategy"
-    )
-    GammaScalperStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD26_GammaScalper", "GammaScalperStrategy"
-    )
-    RSIMeanReversionStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD12_RSIMeanReversion", "RSIMeanReversionStrategy"
-    )
-    MACrossoverStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD13_MACrossover", "MACrossoverStrategy"
-    )
-    RenaissanceMeanReversionStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD33_RenaissanceMeanReversion", "RenaissanceMeanReversionStrategy"  # noqa: E501
-    )
-    PivotMeanReversionStrategy = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion", "PivotMeanReversionStrategy"
-    )
-    EvolvedCreditSpreadCore = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD18_EvolvedCreditSpread", "EvolvedCreditSpreadStrategy"
-    )
-    VIXHedgingCore = _optional_strategy(
-        "Spyder.SpyderD_Strategies.SpyderD28_VIXHedging", "VIXHedgingStrategy"
-    )
 
     class EvolvedCreditSpreadAdapter(BaseStrategy):
         """Adapter to expose D18 strategy through the BaseStrategy contract."""
@@ -239,7 +194,11 @@ try:
                 config=config,
                 strategy_type="evolved_credit_spread",
             )
-            self._core = EvolvedCreditSpreadCore(config=config or {}) if EvolvedCreditSpreadCore else None
+            evolved_credit_spread_core = _optional_strategy(
+                "Spyder.SpyderD_Strategies.SpyderD18_EvolvedCreditSpread",
+                "EvolvedCreditSpreadStrategy",
+            )
+            self._core = evolved_credit_spread_core(config=config or {}) if evolved_credit_spread_core else None
 
         @staticmethod
         def _extract_series(data: pd.DataFrame, candidates: list[str]) -> list[float]:
@@ -379,7 +338,11 @@ try:
                 config=config,
                 strategy_type="vix_hedging",
             )
-            self._core = VIXHedgingCore() if VIXHedgingCore else None
+            vix_hedging_core = _optional_strategy(
+                "Spyder.SpyderD_Strategies.SpyderD28_VIXHedging",
+                "VIXHedgingStrategy",
+            )
+            self._core = vix_hedging_core() if vix_hedging_core else None
 
         @staticmethod
         def _extract_last(data: pd.DataFrame, candidates: list[str], default: float) -> float:
@@ -510,12 +473,6 @@ try:
         get_event_manager,
     )
 
-    # Connectivity integration
-    from Spyder.SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager, ConnectivityState  # noqa: E501
-
-    # Prometheus rejection telemetry
-    from Spyder.SpyderB_Broker.SpyderB15_PrometheusMetrics import record_risk_rejection as _record_risk_rejection  # noqa: E501
-
     SPYDER_MODULES_AVAILABLE = True
 except ImportError as e:
     logging.critical(
@@ -535,7 +492,6 @@ except ImportError as e:
     SpyderErrorHandler = None  # type: ignore[assignment]
     TradingCalendar = None  # type: ignore[assignment]
     BaseStrategy = object  # type: ignore[assignment,misc]
-    IntegratedConnectivityManager = None  # type: ignore[assignment]
     EventManager = None  # type: ignore[assignment]
     Event = None  # type: ignore[assignment]
     EventType = None  # type: ignore[assignment]
@@ -548,12 +504,6 @@ except ImportError as e:
         INACTIVE = "inactive"
         PAUSED = "paused"
         ERROR = "error"
-
-    class ConnectivityState(Enum):
-        OPTIMAL = "optimal"
-        GOOD = "good"
-        DEGRADED = "degraded"
-        FAILED = "failed"
 
 # ==============================================================================
 # CONSTANTS AND CONFIGURATION
@@ -572,6 +522,7 @@ DISPATCH_STATE_RECENCY_S = 120.0
 DEFAULT_BASE_CAPITAL = 100000  # $100K base allocation
 REBALANCE_FREQUENCY_MINUTES = 30  # Rebalance every 30 minutes
 STRATEGY_HEALTH_CHECK_INTERVAL = 60  # Check health every minute
+INITIAL_STRATEGY_ACTIVATION_DEFER_SECONDS = 0.5
 
 # Performance thresholds
 MIN_SHARPE_RATIO = 0.5  # Minimum Sharpe for active strategies
@@ -642,6 +593,19 @@ def _count_drop(stage: str, reason: str) -> None:
         except Exception:
             pass
 
+
+def _record_risk_rejection_metric(strategy: str, rejection_reason: str) -> None:
+    """Emit broker-layer rejection telemetry without importing broker surfaces at startup."""
+    try:
+        from Spyder.SpyderB_Broker.SpyderB15_PrometheusMetrics import record_risk_rejection
+    except ImportError:
+        return
+
+    try:
+        record_risk_rejection(strategy=strategy, rejection_reason=rejection_reason)
+    except Exception:
+        pass
+
 # ==============================================================================
 # ENUMS
 # ==============================================================================
@@ -664,6 +628,43 @@ class MarketRegime(Enum):
     CRISIS = "crisis"
     RECOVERY = "recovery"
     EVENT_TRANSITION = "event_transition"
+
+
+_D31_REGIME_POLICY_KEYS = {
+    "bull_trend",
+    "bear_trend",
+    "range_calm",
+    "high_vol_mean_reversion",
+    "crisis_turbulent",
+    "event_transition",
+}
+
+_D31_REGIME_POLICY_ALIASES = {
+    "bull": "bull_trend",
+    "strong_bull": "bull_trend",
+    "bear": "bear_trend",
+    "strong_bear": "bear_trend",
+    "neutral": "range_calm",
+    "bull_low_vol": "bull_trend",
+    "bull_high_vol": "high_vol_mean_reversion",
+    "bear_low_vol": "bear_trend",
+    "bear_high_vol": "crisis_turbulent",
+    "sideways_low_vol": "range_calm",
+    "sideways_high_vol": "high_vol_mean_reversion",
+    "crisis": "crisis_turbulent",
+    "recovery": "event_transition",
+    "low_volatility": "bull_trend",
+    "unknown": "crisis_turbulent",
+}
+
+_D31_EXECUTION_GATE_LABELS = {
+    "bull_trend": "BULL TREND",
+    "bear_trend": "BEAR TREND",
+    "range_calm": "RANGE CALM",
+    "high_vol_mean_reversion": "HIGH VOL",
+    "crisis_turbulent": "CRISIS",
+    "event_transition": "EVENT",
+}
 
 class AllocationMethod(Enum):
     """Portfolio allocation methods"""
@@ -775,7 +776,7 @@ class StrategyOrchestrator:
                  base_capital: float = DEFAULT_BASE_CAPITAL,
                  orchestration_mode: OrchestrationMode = OrchestrationMode.BALANCED,
                  allocation_method: AllocationMethod = AllocationMethod.PERFORMANCE_BASED,
-                 connectivity_manager: IntegratedConnectivityManager | None = None,
+                 connectivity_manager: Any | None = None,
                  event_manager: EventManager | None = None,
                  regime_engine: Any | None = None):
         """
@@ -875,13 +876,14 @@ class StrategyOrchestrator:
         # Portfolio state
         self.active_strategies: dict[str, BaseStrategy] = {}
         self.strategy_allocations: dict[str, StrategyAllocation] = {}
-        self.available_strategies: dict[str, type] = {}
+        self.available_strategies: dict[str, Any] = {}
         self.paused_strategies: set[str] = set()
         # B3 (v15): lock protecting active_strategies and paused_strategies.
         # Both the orchestration thread and external callers (add/remove/pause/resume)
         # mutate these sets; without a lock the dicts can be corrupted under
         # concurrent access.
         self._strategies_lock = threading.RLock()
+        self._strategy_configuration_lock = threading.Lock()
 
         # Market analysis
         self.market_regime = MarketRegimeData(
@@ -921,6 +923,10 @@ class StrategyOrchestrator:
         self.orchestration_thread = None
         self.monitoring_thread = None
         self.shutdown_event = threading.Event()
+        self._initial_strategy_activation_pending = False
+        self._initial_strategy_activation_ready_at = 0.0
+        self._initial_strategy_activation_running = False
+        self._initial_strategy_activation_lock = threading.Lock()
 
         # Live engine reference for order dispatch (set via set_live_engine)
         self._live_engine = None
@@ -934,6 +940,8 @@ class StrategyOrchestrator:
         # so D31 can apply trust-policy gating without widening startup failures.
         self._entry_filter_gate: Any | None = None
         self._metrics_orchestrator: Any | None = None
+        self._live_options_metrics_snapshot: dict[str, float | None] = {}
+        self._live_options_metrics_loaded_monotonic: float = 0.0
         self._regime_policy: dict[str, Any] | None = None
         self._session_window_policy: dict[str, Any] = self._load_session_window_policy()
         self._pin_risk_window_state: str = "inactive"
@@ -960,6 +968,15 @@ class StrategyOrchestrator:
             os.getenv("SPYDER_D31_SIGNAL_FLOW_LOG_INTERVAL_S", "300")
         )
         self._signal_flow_last_log_monotonic: float = time.monotonic()
+        try:
+            self._pending_entry_reservation_ttl_s: float = max(
+                5.0,
+                float(os.getenv("SPYDER_D31_PENDING_ENTRY_RESERVATION_TTL_S", "90")),
+            )
+        except (TypeError, ValueError):
+            self._pending_entry_reservation_ttl_s = 90.0
+        self._pending_entry_reservations: dict[tuple[str, str], float] = {}
+        self._pending_entry_reservations_lock = threading.Lock()
         self._signal_drop_audit_enabled: bool = str(
             os.getenv("SPYDER_D31_SIGNAL_DROP_AUDIT", "1")
         ).strip().lower() not in {"0", "false", "no", "off"}
@@ -972,6 +989,8 @@ class StrategyOrchestrator:
         self._audit_run_mode: str = "unknown"
         self._audit_source_context: str = "unknown"
         self._audit_session_id: str = f"d31-{uuid.uuid4().hex[:12]}"
+        self._paper_midwalk_bypass_marker_emitted: bool = False
+        self._last_selector_outcome_audit_fingerprint: tuple[Any, ...] | None = None
 
         # v9 §10.4: state powering G05 DISPATCH pill. All timestamps are
         # time.monotonic() so they are immune to wall-clock jumps. Lock-free:
@@ -1135,6 +1154,80 @@ class StrategyOrchestrator:
         self._last_disk_reseed_monotonic = now_mono
         self._seed_cache_from_disk()
 
+    def _load_live_options_metrics_snapshot(self) -> dict[str, float | None]:
+        """Read ATM_IV/IVR from live_data.json with a short hot-path cache."""
+        now = time.monotonic()
+        if (now - self._live_options_metrics_loaded_monotonic) < 5.0:
+            return dict(self._live_options_metrics_snapshot)
+
+        snapshot: dict[str, float | None] = {"iv": None, "iv_rank": None}
+        try:
+            from pathlib import Path as _Path
+            import json as _json
+
+            def _extract_options_metrics(_payload: Any) -> None:
+                if not isinstance(_payload, dict):
+                    return
+                _atm_iv_entry = _payload.get("ATM_IV")
+                _ivr_entry = _payload.get("IVR")
+
+                if snapshot["iv"] is None and isinstance(_atm_iv_entry, dict):
+                    _atm_iv_last = self._coerce_float(_atm_iv_entry.get("last"))
+                    if _atm_iv_last is not None:
+                        snapshot["iv"] = _atm_iv_last / 100.0 if _atm_iv_last > 1.0 else _atm_iv_last
+
+                if snapshot["iv_rank"] is None and isinstance(_ivr_entry, dict):
+                    _ivr_last = self._coerce_float(_ivr_entry.get("last"))
+                    if _ivr_last is not None:
+                        snapshot["iv_rank"] = _ivr_last
+
+            _data_dir = _Path.home() / "Projects" / "Spyder" / "market_data"
+            for _file_name, _nested_key in (("live_data.json", None), ("dashboard_snapshot.json", "data")):
+                _file = _data_dir / _file_name
+                if not _file.exists():
+                    continue
+                with open(_file, encoding="utf-8") as _f:
+                    _payload = _json.load(_f)
+                if _nested_key and isinstance(_payload, dict):
+                    _payload = _payload.get(_nested_key)
+                _extract_options_metrics(_payload)
+                if snapshot["iv"] is not None and snapshot["iv_rank"] is not None:
+                    break
+        except Exception:
+            snapshot = {"iv": None, "iv_rank": None}
+
+        self._live_options_metrics_snapshot = snapshot
+        self._live_options_metrics_loaded_monotonic = now
+        return dict(snapshot)
+
+    def _enrich_market_df_with_options_metrics(self, market_df: Any) -> Any:
+        """Add ATM IV / IVR hints for options strategies without widening startup wiring."""
+        if market_df is None or not hasattr(market_df, "columns"):
+            return market_df
+
+        options_snapshot = self._load_live_options_metrics_snapshot()
+        iv_value = self._coerce_float(options_snapshot.get("iv"))
+        iv_rank_value = self._coerce_float(options_snapshot.get("iv_rank"))
+
+        if "iv" not in market_df.columns or market_df["iv"].dropna().empty:
+            if iv_value is not None:
+                market_df["iv"] = iv_value
+            else:
+                _cache = self.market_data_cache if isinstance(self.market_data_cache, dict) else {}
+                _vix_bucket = _cache.get("VIX")
+                if isinstance(_vix_bucket, deque) and _vix_bucket:
+                    try:
+                        _vix_val = _vix_bucket[-1].get("close") or _vix_bucket[-1].get("price")
+                        if _vix_val is not None:
+                            market_df["iv"] = float(_vix_val) / 100.0
+                    except Exception:
+                        pass
+
+        if iv_rank_value is not None and ("iv_rank" not in market_df.columns or market_df["iv_rank"].dropna().empty):
+            market_df["iv_rank"] = iv_rank_value
+
+        return market_df
+
     def _record_signal_drop(
         self,
         stage: str,
@@ -1175,6 +1268,40 @@ class StrategyOrchestrator:
         if isinstance(signal, dict):
             return signal.get(key, default)
         return getattr(signal, key, default)
+
+    @staticmethod
+    def _extract_pivot_block_reason(detail: str | None) -> str | None:
+        """Extract ``pivot_block_reason`` from F09 detail text when present."""
+        if not detail:
+            return None
+
+        marker = "pivot_block_reason="
+        detail_text = str(detail)
+        start = detail_text.find(marker)
+        if start < 0:
+            return None
+
+        start += len(marker)
+        end = detail_text.find(";", start)
+        if end < 0:
+            end = len(detail_text)
+
+        reason = detail_text[start:end].strip()
+        return reason or None
+
+    def _resolve_selector_feature_flag_for_audit(self, payload: dict[str, Any]) -> str | None:
+        """Resolve the feature flag that influenced the current strategy choice."""
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        candidates = [
+            payload.get("selector_feature_flag"),
+            metadata.get("selector_feature_flag"),
+            self._last_selector_feature_flag,
+        ]
+        for candidate in candidates:
+            text = str(candidate).strip()
+            if text and text != "None":
+                return text
+        return None
 
     def _extract_pivot_signal_payload(
         self,
@@ -1221,6 +1348,48 @@ class StrategyOrchestrator:
             "score": payload.get("score"),
             "nearest_level_name": payload.get("nearest_level_name") or payload.get("nearest_level"),
             "atr_distance": payload.get("atr_distance"),
+        }
+
+    def _build_signal_audit_record(
+        self,
+        *,
+        event: str,
+        stage: str,
+        reason: str,
+        detail: str | None,
+        signal: Any | None,
+    ) -> dict[str, Any]:
+        """Build the structured D31 decision-audit record."""
+        payload = signal if isinstance(signal, dict) else {}
+        pivot_payload = self._extract_pivot_signal_payload(payload) if payload else None
+        strategy_id = self._signal_value(payload, "strategy_id") or self._signal_value(payload, "strategy_name")
+        detail_text = detail or ""
+
+        return {
+            "ts_utc": datetime.now(timezone.utc).isoformat(),
+            "component": "D31",
+            "event": event,
+            "run_mode": self._audit_run_mode,
+            "source_context": self._audit_source_context,
+            "session_id": self._audit_session_id,
+            "stage": stage,
+            "reason": reason,
+            "detail": detail_text,
+            "symbol": self._signal_value(payload, "symbol", ""),
+            "strategy_id": strategy_id or "",
+            "action": self._signal_value(payload, "action", self._signal_value(payload, "side", "")),
+            "quantity": self._signal_value(payload, "quantity", 0),
+            "signal_id": self._signal_value(payload, "signal_id", self._signal_value(payload, "id", "")),
+            "regime": self._signal_value(payload, "regime", ""),
+            "selector_feature_flag": self._resolve_selector_feature_flag_for_audit(payload),
+            "pivot_block_reason": self._extract_pivot_block_reason(detail_text),
+            "pivot": {
+                "fired": pivot_payload.get("fired") if isinstance(pivot_payload, dict) else None,
+                "direction": pivot_payload.get("direction") if isinstance(pivot_payload, dict) else None,
+                "score": pivot_payload.get("score") if isinstance(pivot_payload, dict) else None,
+                "nearest_level_name": pivot_payload.get("nearest_level_name") if isinstance(pivot_payload, dict) else None,
+                "atr_distance": pivot_payload.get("atr_distance") if isinstance(pivot_payload, dict) else None,
+            },
         }
 
     @staticmethod
@@ -1280,7 +1449,12 @@ class StrategyOrchestrator:
 
         return os.path.join(base_dir, f"{day_key}.jsonl")
 
-    def emit_decision_audit_marker(self, event: str, detail: str = "") -> None:
+    def emit_decision_audit_marker(
+        self,
+        event: str,
+        detail: str = "",
+        extra_fields: dict[str, Any] | None = None,
+    ) -> None:
         """Append a non-signal marker to decision logs for session boundaries."""
         if not self._signal_drop_audit_enabled:
             return
@@ -1297,6 +1471,8 @@ class StrategyOrchestrator:
                 "source_context": self._audit_source_context,
                 "session_id": self._audit_session_id,
             }
+            if isinstance(extra_fields, dict):
+                record.update(extra_fields)
             with open(file_path, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, ensure_ascii=True) + "\n")
         except Exception as exc:
@@ -1373,35 +1549,13 @@ class StrategyOrchestrator:
             now_utc = datetime.now(timezone.utc)
             file_path = self._resolve_signal_audit_file_path(now_utc)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-            payload = signal if isinstance(signal, dict) else {}
-            pivot_payload = self._extract_pivot_signal_payload(payload) if payload else None
-            strategy_id = self._signal_value(payload, "strategy_id") or self._signal_value(payload, "strategy_name")
-
-            record = {
-                "ts_utc": now_utc.isoformat(),
-                "component": "D31",
-                "event": "signal_dropped",
-                "run_mode": self._audit_run_mode,
-                "source_context": self._audit_source_context,
-                "session_id": self._audit_session_id,
-                "stage": stage,
-                "reason": reason,
-                "detail": detail or "",
-                "symbol": self._signal_value(payload, "symbol", ""),
-                "strategy_id": strategy_id or "",
-                "action": self._signal_value(payload, "action", self._signal_value(payload, "side", "")),
-                "quantity": self._signal_value(payload, "quantity", 0),
-                "signal_id": self._signal_value(payload, "signal_id", self._signal_value(payload, "id", "")),
-                "regime": self._signal_value(payload, "regime", ""),
-                "pivot": {
-                    "fired": pivot_payload.get("fired") if isinstance(pivot_payload, dict) else None,
-                    "direction": pivot_payload.get("direction") if isinstance(pivot_payload, dict) else None,
-                    "score": pivot_payload.get("score") if isinstance(pivot_payload, dict) else None,
-                    "nearest_level_name": pivot_payload.get("nearest_level_name") if isinstance(pivot_payload, dict) else None,
-                    "atr_distance": pivot_payload.get("atr_distance") if isinstance(pivot_payload, dict) else None,
-                },
-            }
+            record = self._build_signal_audit_record(
+                event="signal_dropped",
+                stage=stage,
+                reason=reason,
+                detail=detail,
+                signal=signal,
+            )
 
             with open(file_path, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, ensure_ascii=True) + "\n")
@@ -1412,12 +1566,17 @@ class StrategyOrchestrator:
         self,
         outcome: str,
         signal: Any | None = None,
+        detail: str | None = None,
     ) -> None:
         """Track order-routing outcomes for approved signals."""
         if outcome in self._signal_flow_counts:
             self._signal_flow_counts[outcome] += 1
         if outcome in {"dispatch_submitted", "dispatch_rejected"}:
-            self._persist_signal_dispatch_outcome_audit(outcome, signal=signal)
+            self._persist_signal_dispatch_outcome_audit(
+                outcome,
+                signal=signal,
+                detail=detail,
+            )
         # v9 §10.4: stamp last successful dispatch for DISPATCH pill FLOWING state.
         if outcome == "dispatch_submitted":
             self._last_dispatch_ok_ts = time.monotonic()
@@ -1431,6 +1590,7 @@ class StrategyOrchestrator:
         self,
         outcome: str,
         signal: Any | None,
+        detail: str | None = None,
     ) -> None:
         """Append dispatch outcome records to the daily decision JSONL file."""
         if not self._signal_drop_audit_enabled:
@@ -1440,45 +1600,67 @@ class StrategyOrchestrator:
             now_utc = datetime.now(timezone.utc)
             file_path = self._resolve_signal_audit_file_path(now_utc)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-            payload = signal if isinstance(signal, dict) else {}
-            pivot_payload = self._extract_pivot_signal_payload(payload) if payload else None
-            strategy_id = self._signal_value(payload, "strategy_id") or self._signal_value(payload, "strategy_name")
-
-            record = {
-                "ts_utc": now_utc.isoformat(),
-                "component": "D31",
-                "event": outcome,
-                "run_mode": self._audit_run_mode,
-                "source_context": self._audit_source_context,
-                "session_id": self._audit_session_id,
-                "stage": "dispatch",
-                "reason": outcome,
-                "detail": "",
-                "symbol": self._signal_value(payload, "symbol", ""),
-                "strategy_id": strategy_id or "",
-                "action": self._signal_value(payload, "action", self._signal_value(payload, "side", "")),
-                "quantity": self._signal_value(payload, "quantity", 0),
-                "signal_id": self._signal_value(payload, "signal_id", self._signal_value(payload, "id", "")),
-                "regime": self._signal_value(payload, "regime", ""),
-                "pivot": {
-                    "fired": pivot_payload.get("fired") if isinstance(pivot_payload, dict) else None,
-                    "direction": pivot_payload.get("direction") if isinstance(pivot_payload, dict) else None,
-                    "score": pivot_payload.get("score") if isinstance(pivot_payload, dict) else None,
-                    "nearest_level_name": pivot_payload.get("nearest_level_name") if isinstance(pivot_payload, dict) else None,
-                    "atr_distance": pivot_payload.get("atr_distance") if isinstance(pivot_payload, dict) else None,
-                },
-            }
+            record = self._build_signal_audit_record(
+                event=outcome,
+                stage="dispatch",
+                reason=outcome,
+                detail=str(detail or ""),
+                signal=signal,
+            )
 
             with open(file_path, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, ensure_ascii=True) + "\n")
         except Exception as exc:
             self.logger.debug("D31: failed to persist dispatch outcome audit: %s", exc)
 
+    def _record_selector_outcome_audit(
+        self,
+        strategy_name: str | None,
+        selector_reason: str,
+    ) -> None:
+        """Persist a deduplicated selector outcome marker for launcher-backed runs."""
+        pivot_payload = self._get_cached_pivot_signal_for_selector() or {}
+        regime_value = getattr(self.market_regime.current_regime, "value", "")
+        strategy_label = strategy_name or ""
+        feature_flag = self._last_selector_feature_flag or ""
+
+        fingerprint = (
+            strategy_label,
+            selector_reason,
+            feature_flag,
+            regime_value,
+            pivot_payload.get("fired"),
+            pivot_payload.get("direction"),
+            pivot_payload.get("nearest_level_name"),
+            pivot_payload.get("score"),
+        )
+        if fingerprint == self._last_selector_outcome_audit_fingerprint:
+            return
+
+        self._last_selector_outcome_audit_fingerprint = fingerprint
+        self.emit_decision_audit_marker(
+            "selector_outcome",
+            detail=f"strategy={strategy_label or 'none'}; reason={selector_reason}",
+            extra_fields={
+                "strategy_name": strategy_name,
+                "selector_reason": selector_reason,
+                "selector_feature_flag": self._last_selector_feature_flag,
+                "regime": regime_value,
+                "pivot": {
+                    "fired": pivot_payload.get("fired"),
+                    "direction": pivot_payload.get("direction"),
+                    "score": pivot_payload.get("score"),
+                    "nearest_level_name": pivot_payload.get("nearest_level_name"),
+                    "atr_distance": pivot_payload.get("atr_distance"),
+                },
+            },
+        )
+
     def _record_signal_dispatch_outcome_safe(
         self,
         outcome: str,
         signal: Any | None = None,
+        detail: str | None = None,
     ) -> None:
         """Record dispatch outcomes without failing when patched call signatures differ.
 
@@ -1487,9 +1669,67 @@ class StrategyOrchestrator:
         ``TypeError`` and incorrectly surface as a dispatch exception.
         """
         try:
-            self._record_signal_dispatch_outcome(outcome, signal=signal)
+            self._record_signal_dispatch_outcome(
+                outcome,
+                signal=signal,
+                detail=detail,
+            )
         except TypeError:
-            self._record_signal_dispatch_outcome(outcome)
+            try:
+                self._record_signal_dispatch_outcome(outcome, signal=signal)
+            except TypeError:
+                self._record_signal_dispatch_outcome(outcome)
+
+    @staticmethod
+    def _normalize_regime_policy_key(
+        raw_regime: str,
+        regimes: dict[str, Any] | None = None,
+    ) -> str:
+        """Map raw regime names onto the D31 regime-policy key space."""
+        normalized = str(raw_regime or "").strip().lower()
+        if not normalized:
+            return ""
+        if normalized in _D31_REGIME_POLICY_KEYS:
+            return normalized
+        if isinstance(regimes, dict) and normalized in regimes:
+            return normalized
+        return _D31_REGIME_POLICY_ALIASES.get(normalized, "")
+
+    @staticmethod
+    def _execution_stance_for_regime(raw_regime: str) -> str:
+        """Collapse D31's 8-state regime into the dashboard's 3 stance labels."""
+        normalized = str(raw_regime or "").strip().lower()
+        if normalized in {
+            MarketRegime.BULL_LOW_VOL.value,
+            MarketRegime.BULL_HIGH_VOL.value,
+            MarketRegime.RECOVERY.value,
+        }:
+            return "BULLISH"
+        if normalized in {
+            MarketRegime.CRISIS.value,
+            MarketRegime.EVENT_TRANSITION.value,
+        }:
+            return "CRISIS"
+        return "CHOPPY"
+
+    @staticmethod
+    def _execution_gate_label_for_policy_key(policy_key: str) -> str:
+        """Convert D31 regime-policy keys into compact dashboard labels."""
+        return _D31_EXECUTION_GATE_LABELS.get(str(policy_key or "").strip().lower(), "")
+
+    def get_execution_pill_state(self) -> dict[str, Any]:
+        """Return D31-owned posture labels for the G05 STANCE and GATE pills."""
+        current_regime = getattr(getattr(self, "market_regime", None), "current_regime", None)
+        raw_regime = str(getattr(current_regime, "value", "") or "").strip().lower()
+        policy = self._get_regime_policy()
+        regimes = policy.get("regimes", {}) if isinstance(policy, dict) else {}
+        gate_key = self._normalize_regime_policy_key(raw_regime, regimes if isinstance(regimes, dict) else None)
+        return {
+            "regime": raw_regime,
+            "stance": self._execution_stance_for_regime(raw_regime),
+            "gate": self._execution_gate_label_for_policy_key(gate_key),
+            "gate_key": gate_key,
+        }
 
     def get_dispatch_state(self) -> dict[str, Any]:
         """Return current dispatch state for the G05 DISPATCH pill (v9 §10.4).
@@ -1579,9 +1819,14 @@ class StrategyOrchestrator:
     # PUBLIC INTERFACE - ORCHESTRATION CONTROL
     # ==========================================================================
 
-    def start_orchestration(self) -> bool:
+    def start_orchestration(self, defer_initial_strategy_activation: bool = False) -> bool:
         """
         Start strategy orchestration.
+
+        Args:
+            defer_initial_strategy_activation: When True, defer the first
+                regime-driven strategy activation onto the orchestration loop
+                instead of blocking startup synchronously.
 
         Returns:
             bool: True if started successfully
@@ -1619,7 +1864,11 @@ class StrategyOrchestrator:
             # Validate connectivity if available
             if self.connectivity_manager:
                 connectivity_report = self.connectivity_manager.get_connectivity_report()
-                if connectivity_report.overall_state == ConnectivityState.FAILED:
+                overall_state = getattr(connectivity_report, "overall_state", None)
+                overall_state_value = str(
+                    getattr(overall_state, "value", overall_state)
+                ).strip().lower()
+                if overall_state_value == "failed":
                     self.logger.error("❌ Cannot start orchestration - connectivity failed")
                     return False
 
@@ -1632,10 +1881,23 @@ class StrategyOrchestrator:
             # (Without this, all strategies stay STRATEGY_INACTIVE and silently
             # discard every MARKET_DATA event — no signals, no trades.)
             self.orchestration_active = True
+            with self._initial_strategy_activation_lock:
+                self._initial_strategy_activation_pending = defer_initial_strategy_activation
+                self._initial_strategy_activation_running = False
+                self._initial_strategy_activation_ready_at = (
+                    time.monotonic() + INITIAL_STRATEGY_ACTIVATION_DEFER_SECONDS
+                    if defer_initial_strategy_activation else 0.0
+                )
 
             # Load optimal strategy configuration for current regime
-            self._configure_strategies_for_regime()
             self.shutdown_event.clear()
+
+            if defer_initial_strategy_activation:
+                self.logger.info(
+                    "⏳ Deferring initial strategy activation to orchestration loop"
+                )
+            else:
+                self._configure_strategies_for_regime()
 
             self.orchestration_thread = threading.Thread(target=self._orchestration_loop, daemon=True)  # noqa: E501
             self.orchestration_thread.start()
@@ -1644,7 +1906,8 @@ class StrategyOrchestrator:
             self.monitoring_thread.start()
 
             # Initial portfolio allocation
-            self._perform_initial_allocation()
+            if not defer_initial_strategy_activation:
+                self._perform_initial_allocation()
 
             self.logger.debug("✅ Strategy orchestration started successfully")
             return True
@@ -1832,9 +2095,42 @@ class StrategyOrchestrator:
             )
 
             # Add to active strategies AND allocation map under the same lock (B3/v15 + C1/v18).
+            late_registration_error: ValueError | None = None
             with self._strategies_lock:
-                self.active_strategies[strategy_id] = strategy
-                self.strategy_allocations[strategy_id] = _new_alloc
+                current_active = len(self.active_strategies)
+                if current_active >= self.max_concurrent_strategies:
+                    late_registration_error = ValueError(
+                        f"Concurrent strategy limit reached: {current_active}/{self.max_concurrent_strategies}"
+                    )
+                else:
+                    active_bucket_counts = self._get_active_horizon_bucket_counts_locked()
+                    if active_bucket_counts.get(horizon_bucket, 0) >= 1:
+                        late_registration_error = ValueError(
+                            "Horizon-bucket already occupied: "
+                            f"{horizon_bucket}"
+                        )
+                    else:
+                        active_buckets = set(active_bucket_counts)
+                        would_add_new_bucket = horizon_bucket not in active_buckets
+                        if (
+                            would_add_new_bucket
+                            and len(active_buckets) >= self.max_active_horizon_buckets
+                        ):
+                            late_registration_error = ValueError(
+                                "Horizon-bucket limit reached: "
+                                f"{sorted(active_buckets)} (max={self.max_active_horizon_buckets})"
+                            )
+                        else:
+                            self.active_strategies[strategy_id] = strategy
+                            self.strategy_allocations[strategy_id] = _new_alloc
+
+            if late_registration_error is not None:
+                if self.orchestration_active:
+                    try:
+                        strategy.stop()
+                    except Exception:
+                        pass
+                raise late_registration_error
 
             # Notify ExitMonitor so it can attribute positions to this strategy.
             # The ExitMonitor is owned by SessionSupervisor and may not exist in
@@ -2108,8 +2404,16 @@ class StrategyOrchestrator:
         """Main orchestration loop"""
         while self.orchestration_active and not self.shutdown_event.is_set():
             try:
+                if self._initial_strategy_activation_pending:
+                    wait_seconds = self._initial_strategy_activation_ready_at - time.monotonic()
+                    if wait_seconds > 0:
+                        self.shutdown_event.wait(min(wait_seconds, 0.05))
+                        continue
+
                 # Update market regime
                 self._update_market_regime()
+
+                self._run_initial_strategy_activation_if_pending()
 
                 # Check if rebalancing is needed
                 if self._should_rebalance():
@@ -2131,6 +2435,26 @@ class StrategyOrchestrator:
             except Exception as e:
                 self.logger.error("Error in orchestration loop: %s", e, exc_info=True)
                 self.shutdown_event.wait(60)  # Wait 1 minute on error
+
+    def _run_initial_strategy_activation_if_pending(self) -> None:
+        """Perform deferred first strategy activation once after startup."""
+        with self._initial_strategy_activation_lock:
+            if (
+                not self._initial_strategy_activation_pending
+                or self._initial_strategy_activation_running
+            ):
+                return
+            self._initial_strategy_activation_running = True
+
+        try:
+            self._configure_strategies_for_regime()
+            self._perform_initial_allocation()
+            with self._initial_strategy_activation_lock:
+                self._initial_strategy_activation_pending = False
+                self._initial_strategy_activation_ready_at = 0.0
+        finally:
+            with self._initial_strategy_activation_lock:
+                self._initial_strategy_activation_running = False
 
     def _monitoring_loop(self):
         """Strategy health monitoring loop"""
@@ -3040,6 +3364,7 @@ class StrategyOrchestrator:
 
     def _select_strategy_name_for_regime(self) -> tuple[str | None, str]:
         """Resolve the current lean strategy via D30, with deterministic fallback."""
+        self._last_selector_feature_flag = None
         selector = self._get_d30_selector()
         consensus = self._build_d30_consensus()
 
@@ -3066,6 +3391,7 @@ class StrategyOrchestrator:
 
         if self.lean_mode:
             strategy_name, selector_reason = self._select_strategy_name_for_regime()
+            self._record_selector_outcome_audit(strategy_name, selector_reason)
             if not strategy_name:
                 return {}
 
@@ -3159,67 +3485,74 @@ class StrategyOrchestrator:
         is not already active.  Allocation fractions come from the regime weight
         map (normalised to sum ≤ 1.0).
         """
-        try:
-            self.logger.debug(
-                "📋 Configuring strategies for regime: %s",
-                self.market_regime.current_regime.value,
-            )
-
-            if not self.available_strategies:
-                self.logger.warning(
-                    "No strategy classes registered — cannot configure strategies"
+        with self._strategy_configuration_lock:
+            try:
+                self.logger.debug(
+                    "📋 Configuring strategies for regime: %s",
+                    self.market_regime.current_regime.value,
                 )
-                return
 
-            regime_weights = self._get_regime_strategy_weights()
-            if not regime_weights:
-                if self.lean_mode:
-                    self.logger.info("Lean regime has no active strategies; skipping registration")
-                    return
-                # Fallback: equal-weight up to 3 registered strategies
-                names = list(self.available_strategies.keys())[:3]
-                weight = round(1.0 / max(len(names), 1), 4)
-                regime_weights = {n: weight for n in names}
-
-            # Only instantiate strategies not already active (by type name)
-            # C1 (v18): snapshot under lock before set-comp to avoid iteration race.
-            with self._strategies_lock:
-                active_types = {
-                    alloc.strategy_type
-                    for alloc in self.strategy_allocations.values()
-                }
-
-            total_w = sum(
-                w for n, w in regime_weights.items()
-                if n in self.available_strategies and n not in active_types
-            )
-
-            for strategy_name, weight in regime_weights.items():
-                if strategy_name not in self.available_strategies:
-                    continue
-                if strategy_name in active_types:
-                    continue
-
-                allocation = (weight / total_w) * 0.9 if total_w > 0 else 0.1  # cap at 90 % total
-                strategy_class = self.available_strategies[strategy_name]
-                config: dict[str, Any] = {
-                    "symbol": "SPY",
-                    "allocated_capital": self.base_capital * allocation,
-                }
-                try:
-                    self.add_strategy(strategy_class, config, initial_allocation=allocation)
-                    self.logger.debug(
-                        "  ✅ %s registered with %.1f%% allocation", strategy_name, allocation * 100
-                    )
-                except Exception as exc:
+                if not self.available_strategies:
                     self.logger.warning(
-                        "  ⚠️  Could not add strategy %s: %s", strategy_name, exc
+                        "No strategy classes registered — cannot configure strategies"
                     )
+                    return
 
-        except Exception as e:
-            self.logger.error(
-                "Error configuring strategies for regime: %s", e, exc_info=True
-            )
+                regime_weights = self._get_regime_strategy_weights()
+                if not regime_weights:
+                    if self.lean_mode:
+                        self.logger.info("Lean regime has no active strategies; skipping registration")
+                        return
+                    # Fallback: equal-weight up to 3 registered strategies
+                    names = list(self.available_strategies.keys())[:3]
+                    weight = round(1.0 / max(len(names), 1), 4)
+                    regime_weights = {n: weight for n in names}
+
+                # Only instantiate strategies not already active (by type name)
+                # C1 (v18): snapshot under lock before set-comp to avoid iteration race.
+                with self._strategies_lock:
+                    active_types = {
+                        alloc.strategy_type
+                        for alloc in self.strategy_allocations.values()
+                    }
+
+                total_w = sum(
+                    w for n, w in regime_weights.items()
+                    if n in self.available_strategies and n not in active_types
+                )
+
+                for strategy_name, weight in regime_weights.items():
+                    if strategy_name not in self.available_strategies:
+                        continue
+                    if strategy_name in active_types:
+                        continue
+
+                    allocation = (weight / total_w) * 0.9 if total_w > 0 else 0.1  # cap at 90 % total
+                    strategy_class = self._resolve_registered_strategy_class(strategy_name)
+                    if strategy_class is None:
+                        self.logger.warning(
+                            "  ⚠️  Strategy class unavailable at activation time: %s",
+                            strategy_name,
+                        )
+                        continue
+                    config: dict[str, Any] = {
+                        "symbol": "SPY",
+                        "allocated_capital": self.base_capital * allocation,
+                    }
+                    try:
+                        self.add_strategy(strategy_class, config, initial_allocation=allocation)
+                        self.logger.debug(
+                            "  ✅ %s registered with %.1f%% allocation", strategy_name, allocation * 100
+                        )
+                    except Exception as exc:
+                        self.logger.warning(
+                            "  ⚠️  Could not add strategy %s: %s", strategy_name, exc
+                        )
+
+            except Exception as e:
+                self.logger.error(
+                    "Error configuring strategies for regime: %s", e, exc_info=True
+                )
 
     def _perform_initial_allocation(self) -> None:
         """Set initial capital allocations for all currently active strategies."""
@@ -3319,6 +3652,13 @@ class StrategyOrchestrator:
             for strategy_name, weight in regime_weights.items():
                 if weight > 0 and strategy_name not in existing_types:
                     if strategy_name in self.available_strategies:
+                        strategy_class = self._resolve_registered_strategy_class(strategy_name)
+                        if strategy_class is None:
+                            self.logger.warning(
+                                "Adaptive add skipped unavailable strategy %s",
+                                strategy_name,
+                            )
+                            continue
                         allocation = weight / max(sum(regime_weights.values()), 1.0)
                         config: dict[str, Any] = {
                             "symbol": "SPY",
@@ -3326,7 +3666,7 @@ class StrategyOrchestrator:
                         }
                         try:
                             self.add_strategy(
-                                self.available_strategies[strategy_name],
+                                strategy_class,
                                 config,
                                 initial_allocation=allocation,
                             )
@@ -3393,9 +3733,14 @@ class StrategyOrchestrator:
                     pass
 
             if breached:
-                self.logger.warning(
-                    "🛑 Daily risk limit breached — pausing all strategies"
-                )
+                if getattr(risk_manager, "_data_stale", False):
+                    self.logger.warning(
+                        "🛑 Market data stale — pausing all strategies"
+                    )
+                else:
+                    self.logger.warning(
+                        "🛑 Daily risk limit breached — pausing all strategies"
+                    )
                 for strategy_id, strategy in list(self.active_strategies.items()):
                     if strategy_id not in self.paused_strategies:
                         try:
@@ -3449,51 +3794,57 @@ class StrategyOrchestrator:
         except Exception as e:
             self.logger.error("Error generating final report: %s", e, exc_info=True)
 
+    def _resolve_registered_strategy_class(self, strategy_name: str) -> type | None:
+        """Resolve a registered strategy name to a concrete class on first use."""
+        strategy_entry = self.available_strategies.get(strategy_name)
+        if strategy_entry is None:
+            return None
+
+        if inspect.isclass(strategy_entry):
+            return strategy_entry
+
+        if isinstance(strategy_entry, tuple) and len(strategy_entry) == 2:
+            import_path, symbol = strategy_entry
+            strategy_class = _optional_strategy(import_path, symbol)
+            if _is_strategy_class(strategy_class):
+                self.available_strategies[strategy_name] = strategy_class
+                return strategy_class
+            self.available_strategies.pop(strategy_name, None)
+            return None
+
+        return None
+
     def _initialize_strategy_registry(self) -> None:
         """Initialize available strategy registry"""
         if SPYDER_MODULES_AVAILABLE:
-            candidate_strategies = {
-                'IronCondor': IronCondorStrategy,
-                'CreditSpread': CreditSpreadStrategy,
-                'ZeroDTE': ZeroDTEStrategy,
-                'Straddle': StraddleStrategy,
-                'BullPutSpread': BullPutSpreadStrategy,
-                'BearCallSpread': BearCallSpreadStrategy,
-                'BullCallSpread': BullCallSpreadStrategy,
-                'BearPutSpread': BearPutSpreadStrategy,
-                'OpeningRangeBreakout': OpeningRangeBreakoutStrategy,
-                'GreeksBased': GreeksBasedStrategy,
-                'SpecializedZeroDTE': SpecializedZeroDTEStrategy,
-                # Phase 3: strategies referenced in regime weights but previously unregistered
-                'IronButterfly': IronButterflyStrategy,
-                'CalendarSpread': CalendarSpreadStrategy,
-                'StraddleStrangle': StraddleStrangleStrategy,
-                'RatioSpreads': RatioSpreadsStrategy,
-                'DiagonalSpread': DiagonalSpreadStrategy,
-                'JadeLizard': JadeLizardStrategy,
-                'VerticalSpreadOptimizer': VerticalSpreadOptimizer,
-                'DoubleCalendar': DoubleCalendarStrategy,
-                'AdaptiveVolatility': AdaptiveVolatilityStrategy,
-                'GammaScalper': GammaScalperStrategy,
-                'RSIMeanReversion': RSIMeanReversionStrategy,
-                'MACrossover': MACrossoverStrategy,
-                'RenaissanceMeanReversion': RenaissanceMeanReversionStrategy,
-                'PivotMeanReversion': PivotMeanReversionStrategy,
-                'EvolvedCreditSpread': EvolvedCreditSpreadAdapter,
-                'VIXHedging': VIXHedgingAdapter,
-            }
+            candidate_strategies: dict[str, Any] = {}
+            candidate_strategy_names = list(_OPTIONAL_STRATEGY_IMPORTS)
+            candidate_strategy_names.extend([
+                'EvolvedCreditSpread',
+                'VIXHedging',
+            ])
 
             if self.lean_mode:
-                candidate_strategies = {
-                    name: cls
-                    for name, cls in candidate_strategies.items()
+                candidate_strategy_names = [
+                    name
+                    for name in candidate_strategy_names
                     if name in self.lean_strategy_allowlist
-                }
+                ]
+
+            for strategy_name in candidate_strategy_names:
+                if strategy_name == 'EvolvedCreditSpread':
+                    candidate_strategies[strategy_name] = EvolvedCreditSpreadAdapter
+                    continue
+                if strategy_name == 'VIXHedging':
+                    candidate_strategies[strategy_name] = VIXHedgingAdapter
+                    continue
+
+                candidate_strategies[strategy_name] = _OPTIONAL_STRATEGY_IMPORTS[strategy_name]
 
             self.available_strategies = {
                 name: cls
                 for name, cls in candidate_strategies.items()
-                if _is_strategy_class(cls)
+                if isinstance(cls, tuple) or _is_strategy_class(cls)
             }
         else:
             self.available_strategies = {}
@@ -3525,12 +3876,17 @@ class StrategyOrchestrator:
                 self.event_manager.subscribe(EventType.RISK, self._on_risk_event)
                 self.event_manager.subscribe(EventType.STRATEGY_SIGNAL, self._on_strategy_signal)
                 self.event_manager.subscribe(EventType.RISK_VIOLATION, self._on_risk_alert)
+                self.event_manager.subscribe(EventType.POSITION_UPDATED, self._on_position_updated)
                 # P1-1: Pause signal emission when the engine is halted or data
                 # becomes stale — strategies must not fire into a silenced engine.
                 self.event_manager.subscribe(EventType.KILL_SWITCH, self._on_kill_switch)
                 self.event_manager.subscribe(EventType.DATA_STALE, self._on_data_stale)
                 # B5: Subscribe to DATA_FRESH so a data-stale pause auto-recovers.
                 self.event_manager.subscribe(EventType.DATA_FRESH, self._on_data_fresh)
+                self.event_manager.subscribe(EventType.ORDER_FILLED, self._on_terminal_order_event)
+                self.event_manager.subscribe(EventType.ORDER_CANCELLED, self._on_terminal_order_event)
+                self.event_manager.subscribe(EventType.ORDER_EXPIRED, self._on_terminal_order_event)
+                self.event_manager.subscribe(EventType.ORDER_REJECTED, self._on_terminal_order_event)
                 # Update the subscriptions-active gauge for observability (I-4).
                 if _PROM_SUBSCRIPTIONS_ACTIVE is not None:
                     try:
@@ -3868,9 +4224,9 @@ class StrategyOrchestrator:
     def _is_live_mode_for_agent_handoff_policy(self) -> bool:
         """Resolve live/paper mode specifically for handoff policy enforcement."""
         candidates = (
-            os.environ.get("TRADING_MODE"),
-            os.environ.get("SPYDER_TRADING_MODE"),
             self._audit_run_mode,
+            os.environ.get("SPYDER_TRADING_MODE"),
+            os.environ.get("TRADING_MODE"),
         )
         for value in candidates:
             if value is None:
@@ -4198,11 +4554,16 @@ class StrategyOrchestrator:
             _non_tradeable = {MarketRegime.CRISIS, MarketRegime.EVENT_TRANSITION}
             if _cur_regime not in _non_tradeable:
                 try:
-                    self._configure_strategies_for_regime()
-                    self.logger.info(
-                        "D31 warm-up: bootstrapped strategies for regime %s",
-                        _cur_regime.value,
-                    )
+                    before_count = len(self.active_strategies)
+                    if self._initial_strategy_activation_pending:
+                        self._run_initial_strategy_activation_if_pending()
+                    else:
+                        self._configure_strategies_for_regime()
+                    if len(self.active_strategies) > before_count:
+                        self.logger.info(
+                            "D31 warm-up: bootstrapped strategies for regime %s",
+                            _cur_regime.value,
+                        )
                 except Exception as _cfg_exc:
                     self.logger.debug(
                         "D31 warm-up strategy configure failed: %s", _cfg_exc
@@ -4235,22 +4596,13 @@ class StrategyOrchestrator:
                     _bucket = _cache.get(_sym) if _sym else None
                     if isinstance(_bucket, deque) and len(_bucket) > 1:
                         market_df = pd.DataFrame(list(_bucket))
-                        # Add VIX/100 as 'iv' proxy so options strategies (IronCondor, etc.)
-                        # can evaluate IV-based conditions.  VIX is already cached by the
-                        # regime classifier; map it fractionally (e.g. VIX 20 → iv 0.20).
-                        if "iv" not in market_df.columns:
-                            _vix_bucket = _cache.get("VIX")
-                            if isinstance(_vix_bucket, deque) and _vix_bucket:
-                                try:
-                                    _vix_val = _vix_bucket[-1].get("close") or _vix_bucket[-1].get("price")
-                                    if _vix_val is not None:
-                                        market_df["iv"] = float(_vix_val) / 100.0
-                                except Exception:
-                                    pass
+                        market_df = self._enrich_market_df_with_options_metrics(market_df)
                     else:
                         market_df = pd.DataFrame([row])
+                        market_df = self._enrich_market_df_with_options_metrics(market_df)
                 else:
                     market_df = pd.DataFrame([data])
+                    market_df = self._enrich_market_df_with_options_metrics(market_df)
         except Exception:
             pass
 
@@ -4285,6 +4637,35 @@ class StrategyOrchestrator:
             self.market_data_cache["event_clock_state"] = state_payload
         except Exception as exc:
             self.logger.debug("D31: failed to ingest event_clock_state: %s", exc)
+
+    def _on_position_updated(self, event: Event) -> None:
+        """Release in-flight entry reservations once position truth advances."""
+        data = getattr(event, "data", None) or {}
+        if not isinstance(data, dict):
+            return
+
+        symbol = str(data.get("symbol") or "")
+        if symbol:
+            self._clear_pending_entry_reservations_for_symbol(symbol)
+            underlying_symbol = self._extract_option_underlying(symbol)
+            if underlying_symbol and underlying_symbol != symbol:
+                self._clear_pending_entry_reservations_for_symbol(underlying_symbol)
+
+    def _on_terminal_order_event(self, event: Event) -> None:
+        """Release in-flight entry reservations when an order reaches terminal state."""
+        data = getattr(event, "data", None) or {}
+        if not isinstance(data, dict):
+            return
+
+        symbol = str(data.get("symbol") or "")
+        raw = data.get("raw") if isinstance(data.get("raw"), dict) else {}
+        if not symbol and raw:
+            symbol = str(raw.get("symbol") or "")
+        if symbol:
+            self._clear_pending_entry_reservations_for_symbol(symbol)
+            underlying_symbol = self._extract_option_underlying(symbol)
+            if underlying_symbol and underlying_symbol != symbol:
+                self._clear_pending_entry_reservations_for_symbol(underlying_symbol)
 
     def _on_strategy_signal(self, event: Event):
         """Handle strategy signal events.
@@ -4468,11 +4849,7 @@ class StrategyOrchestrator:
                 pivot_context,
                 signal,
             )
-            if _record_risk_rejection is not None:
-                try:
-                    _record_risk_rejection(strategy=strategy_id, rejection_reason=reason)
-                except Exception:
-                    pass
+            _record_risk_rejection_metric(strategy=strategy_id, rejection_reason=reason)
             try:
                 risk_alert_type = (
                     getattr(EventType, "RISK_ALERT", None)
@@ -4491,6 +4868,41 @@ class StrategyOrchestrator:
                 signal=signal,
                 detail=getattr(result, "message", "") or reason,
             )
+
+        if approved and isinstance(signal, dict):
+            strategy_id = signal.get("strategy_id", signal.get("strategy_name", ""))
+            side = signal.get("action", signal.get("side", "buy"))
+            symbol = str(signal.get("symbol") or "")
+            if self._has_duplicate_open_position(symbol, strategy_id, side):
+                self.logger.warning(
+                    "Strategy signal blocked — existing or in-flight entry already active: symbol=%s strategy=%s | %s",
+                    symbol,
+                    strategy_id,
+                    pivot_context,
+                )
+                self._record_signal_drop(
+                    "pre_dispatch",
+                    "duplicate_open_position",
+                    signal=signal,
+                    detail=f"symbol={symbol};strategy={strategy_id}",
+                )
+                self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+                return
+            if self._is_entry_action(side) and not self._reserve_pending_entry(symbol, strategy_id):
+                self.logger.warning(
+                    "Strategy signal blocked — existing or in-flight entry already active: symbol=%s strategy=%s | %s",
+                    symbol,
+                    strategy_id,
+                    pivot_context,
+                )
+                self._record_signal_drop(
+                    "pre_dispatch",
+                    "duplicate_open_position",
+                    signal=signal,
+                    detail=f"symbol={symbol};strategy={strategy_id}",
+                )
+                self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+                return
 
         if approved:
             self._signal_flow_counts["approved"] += 1
@@ -4589,6 +5001,23 @@ class StrategyOrchestrator:
 
         return {token for token in tokens if token}
 
+    def _entry_gate_fail_closed(self) -> bool:
+        """Resolve whether missing/unhealthy entry-gate context must block signals."""
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+            cfg = get_config_manager()
+            configured = cfg.get(
+                "autonomous_readiness.fail_closed_if_entry_gate_unavailable",
+                None,
+            )
+            if configured is not None:
+                return bool(configured)
+        except Exception:
+            pass
+
+        return self._is_live_mode()
+
     def _passes_entry_trust_gate(self, signal: Any) -> tuple[bool, str]:
         """Apply F09 structural trust filters and regime policy gate."""
         if not isinstance(signal, dict):
@@ -4596,6 +5025,8 @@ class StrategyOrchestrator:
 
         entry_gate = self._get_entry_filter_gate()
         if entry_gate is None:
+            if self._entry_gate_fail_closed():
+                return False, "entry_gate_unavailable"
             return True, ""
 
         signal_market_conditions = signal.get("market_conditions")
@@ -4613,6 +5044,8 @@ class StrategyOrchestrator:
                     market_conditions = metrics_conditions
 
         if not market_conditions:
+            if self._entry_gate_fail_closed():
+                return False, "market_conditions_unavailable"
             return True, ""
 
         metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
@@ -4653,7 +5086,9 @@ class StrategyOrchestrator:
                 checks.extend(entry_gate._check_vix_term_structure_filter())
                 checks.extend(entry_gate._check_short_term_vol_stress_filter(params))
         except Exception as exc:
-            self.logger.debug("D31: entry trust gate failed open: %s", exc, exc_info=True)
+            self.logger.debug("D31: entry trust gate evaluation failed: %s", exc, exc_info=True)
+            if self._entry_gate_fail_closed():
+                return False, "entry_gate_evaluation_failed"
             return True, ""
 
         failures = []
@@ -4796,7 +5231,20 @@ class StrategyOrchestrator:
 
     def _is_live_mode(self) -> bool:
         """Return True when runtime is configured for live trading."""
-        return str(os.environ.get("TRADING_MODE", "paper")).strip().lower() == "live"
+        candidates = (
+            self._audit_run_mode,
+            os.environ.get("SPYDER_TRADING_MODE"),
+            os.environ.get("TRADING_MODE"),
+        )
+        for value in candidates:
+            if value is None:
+                continue
+            text = str(value).strip().lower()
+            if text in {"live", "production", "prod"}:
+                return True
+            if text in {"paper", "sandbox", "sim", "simulation", "development", "dev", "test", "testing"}:
+                return False
+        return False
 
     def _has_valid_broker_cutoff(self) -> bool:
         """Check whether broker cutoff is present and parseable."""
@@ -4908,9 +5356,54 @@ class StrategyOrchestrator:
         except Exception:
             return None
 
-    def _get_spy_last_price(self) -> float | None:
-        """Read latest SPY last-price from cached market data buckets."""
-        bucket = self.market_data_cache.get("SPY") if isinstance(self.market_data_cache, dict) else None
+    @staticmethod
+    def _coerce_datetime(value: Any) -> datetime | None:
+        """Parse datetime-like values from common ISO formats."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_option_underlying(option_symbol: Any) -> str:
+        """Return the OCC underlying symbol, or the plain symbol when non-option."""
+        text = str(option_symbol or "").strip().upper()
+        if not text:
+            return ""
+        match = re.match(r"^([A-Z]{1,6})\d{6}[CP]\d{8}$", text)
+        if match:
+            return match.group(1)
+        return text
+
+    @staticmethod
+    def _parse_occ_option_symbol(option_symbol: Any) -> dict[str, Any]:
+        """Parse OCC option symbol details when available."""
+        text = str(option_symbol or "").strip().upper()
+        match = re.match(r"^([A-Z]{1,6})(\d{6})([CP])(\d{8})$", text)
+        if not match:
+            return {}
+        try:
+            expiry = datetime.strptime(match.group(2), "%y%m%d").date().isoformat()
+        except Exception:
+            expiry = ""
+        return {
+            "underlying": match.group(1),
+            "expiration": expiry,
+            "option_type": "call" if match.group(3) == "C" else "put",
+            "option_type_letter": match.group(3),
+            "strike": int(match.group(4)) / 1000.0,
+        }
+
+    def _get_cached_last_price(self, symbol: str) -> float | None:
+        """Read the latest cached price for a symbol from market_data_cache."""
+        bucket = self.market_data_cache.get(symbol) if isinstance(self.market_data_cache, dict) else None
         if isinstance(bucket, deque) and bucket:
             last_tick = bucket[-1]
             if isinstance(last_tick, dict):
@@ -4919,6 +5412,407 @@ class StrategyOrchestrator:
                     if value is not None and value > 0:
                         return value
         return None
+
+    def _get_spy_last_price(self) -> float | None:
+        """Read latest SPY last-price from cached market data buckets."""
+        return self._get_cached_last_price("SPY")
+
+    def _build_market_df_for_symbol(
+        self,
+        symbol: str,
+        fallback_price: float | None = None,
+    ) -> pd.DataFrame | None:
+        """Build a compact market DataFrame from the cached symbol bucket."""
+        rows: list[dict[str, Any]] = []
+        cache = self.market_data_cache if isinstance(self.market_data_cache, dict) else {}
+        bucket = cache.get(symbol)
+        if isinstance(bucket, deque) and bucket:
+            for tick in list(bucket)[-60:]:
+                if not isinstance(tick, dict):
+                    continue
+                row = dict(tick)
+                close_price = self._coerce_float(
+                    row.get("close")
+                    or row.get("last")
+                    or row.get("price")
+                    or fallback_price
+                )
+                if close_price is None or close_price <= 0:
+                    continue
+                row.setdefault("symbol", symbol)
+                row.setdefault("open", close_price)
+                row.setdefault("high", close_price)
+                row.setdefault("low", close_price)
+                row["close"] = close_price
+                rows.append(row)
+
+        if not rows:
+            if fallback_price is None or fallback_price <= 0:
+                return None
+            rows = [
+                {
+                    "symbol": symbol,
+                    "open": fallback_price,
+                    "high": fallback_price,
+                    "low": fallback_price,
+                    "close": fallback_price,
+                    "last": fallback_price,
+                }
+                for _ in range(20)
+            ]
+        elif len(rows) < 20:
+            seed_row = dict(rows[0])
+            rows = [dict(seed_row) for _ in range(20 - len(rows))] + rows
+
+        market_df = pd.DataFrame(rows)
+        return self._enrich_market_df_with_options_metrics(market_df)
+
+    def _extract_iron_condor_setup_payload(self, signal: dict[str, Any]) -> dict[str, Any]:
+        """Extract explicit iron-condor strikes/expiry hints when present."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        setup = metadata.get("setup") if isinstance(metadata.get("setup"), dict) else {}
+        strikes_source = None
+        if isinstance(setup.get("strikes"), dict):
+            strikes_source = setup.get("strikes")
+        elif isinstance(metadata.get("optimal_strikes"), dict):
+            strikes_source = metadata.get("optimal_strikes")
+
+        normalized_strikes: dict[str, float] = {}
+        if isinstance(strikes_source, dict):
+            key_map = {
+                "put_long": ("put_long", "long_put", "long_put_strike"),
+                "put_short": ("put_short", "short_put", "short_put_strike"),
+                "call_short": ("call_short", "short_call", "short_call_strike"),
+                "call_long": ("call_long", "long_call", "long_call_strike"),
+            }
+            for normalized_key, candidates in key_map.items():
+                for candidate in candidates:
+                    value = self._coerce_float(strikes_source.get(candidate))
+                    if value is not None:
+                        normalized_strikes[normalized_key] = float(value)
+                        break
+
+        expiration_value = (
+            setup.get("expiration_time")
+            or signal.get("expiration")
+            or signal.get("expiration_date")
+            or metadata.get("expiration")
+            or metadata.get("expiration_date")
+        )
+        expiration_dt = self._coerce_datetime(expiration_value)
+
+        dte_value = None
+        for key in ("dte", "days_to_expiry", "days_to_expiration"):
+            dte_value = self._coerce_float(signal.get(key))
+            if dte_value is None:
+                dte_value = self._coerce_float(metadata.get(key))
+            if dte_value is None:
+                dte_value = self._coerce_float(setup.get(key))
+            if dte_value is not None:
+                break
+        if dte_value is None and expiration_dt is not None:
+            now_et = _d31_now_et()
+            try:
+                dte_value = float((expiration_dt.date() - now_et.date()).days)
+            except Exception:
+                dte_value = None
+
+        target_credit = (
+            self._coerce_float(setup.get("credit_received"))
+            or self._coerce_float(setup.get("credit"))
+            or self._coerce_float(metadata.get("expected_credit"))
+            or self._coerce_float(signal.get("price"))
+            or self._coerce_float(signal.get("entry_price"))
+        )
+
+        return {
+            "strikes": normalized_strikes,
+            "expiration": expiration_dt,
+            "dte": int(dte_value) if dte_value is not None else None,
+            "target_credit": target_credit,
+        }
+
+    def _build_multileg_market_analysis(
+        self,
+        signal: dict[str, Any],
+        symbol: str,
+    ) -> Any | None:
+        """Build D32-style market analysis from cached market data."""
+        fallback_price = (
+            self._coerce_float(signal.get("price"))
+            or self._coerce_float(signal.get("entry_price"))
+            or self._get_cached_last_price(symbol)
+            or self._get_spy_last_price()
+        )
+        market_df = self._build_market_df_for_symbol(symbol, fallback_price)
+        if market_df is None or market_df.empty:
+            return None
+
+        try:
+            from Spyder.SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import MultiLegMarketAnalyzer
+        except Exception as exc:
+            self.logger.warning("Paper iron condor routing unavailable: %s", exc)
+            return None
+
+        analyzer = MultiLegMarketAnalyzer({})
+        return analyzer.analyze_environment(market_df)
+
+    def _build_paper_iron_condor_structure(
+        self,
+        signal: dict[str, Any],
+        symbol: str,
+    ) -> Any | None:
+        """Construct an iron-condor structure for paper execution."""
+        market_analysis = self._build_multileg_market_analysis(signal, symbol)
+        if market_analysis is None:
+            return None
+
+        try:
+            from Spyder.SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
+                MultiLegStrategyConstructor,
+                MultiLegStrategyType,
+                MultiLegStructure,
+                OptionLeg,
+            )
+        except Exception as exc:
+            self.logger.warning("Paper iron condor construction unavailable: %s", exc)
+            return None
+
+        setup_payload = self._extract_iron_condor_setup_payload(signal)
+        constructor = MultiLegStrategyConstructor({})
+        strikes = setup_payload.get("strikes") if isinstance(setup_payload.get("strikes"), dict) else {}
+        if len(strikes) == 4:
+            expiration_dt = setup_payload.get("expiration")
+            if not isinstance(expiration_dt, datetime):
+                now_et = _d31_now_et()
+                dte_fallback = setup_payload.get("dte")
+                if dte_fallback is None:
+                    dte_fallback = 0 if self._is_zero_dte_signal(signal, now_et) else 30
+                expiration_dt = datetime.combine(
+                    now_et.date() + timedelta(days=max(int(dte_fallback), 0)),
+                    datetime.min.time(),
+                    tzinfo=timezone.utc,
+                )
+
+            dte_value = setup_payload.get("dte")
+            if dte_value is None:
+                dte_value = max((expiration_dt.date() - _d31_now_et().date()).days, 0)
+            pricing_dte = max(int(dte_value), 1)
+
+            legs = [
+                OptionLeg("put", float(strikes["put_long"]), 1, expiration_dt),
+                OptionLeg("put", float(strikes["put_short"]), -1, expiration_dt),
+                OptionLeg("call", float(strikes["call_short"]), -1, expiration_dt),
+                OptionLeg("call", float(strikes["call_long"]), 1, expiration_dt),
+            ]
+            constructor._estimate_legs_pricing_and_greeks(
+                legs,
+                float(market_analysis.underlying_price),
+                float(market_analysis.implied_volatility),
+                pricing_dte,
+            )
+
+            target_credit = self._coerce_float(setup_payload.get("target_credit"))
+            estimated_credit = constructor._calculate_net_credit(legs)
+            if target_credit is not None and target_credit > 0 and estimated_credit > 0:
+                scale = target_credit / estimated_credit
+                for leg in legs:
+                    leg.price *= scale
+
+            net_credit = constructor._calculate_net_credit(legs)
+            wing_width = max(
+                float(strikes["put_short"]) - float(strikes["put_long"]),
+                float(strikes["call_long"]) - float(strikes["call_short"]),
+            )
+            breakeven_lower = float(strikes["put_short"]) - net_credit
+            breakeven_upper = float(strikes["call_short"]) + net_credit
+            probability_profit = constructor._estimate_probability_profit(
+                float(market_analysis.underlying_price),
+                [breakeven_lower, breakeven_upper],
+                float(market_analysis.expected_move),
+            )
+            net_delta = sum(leg.delta * leg.quantity for leg in legs)
+            net_gamma = sum(leg.gamma * leg.quantity for leg in legs)
+            net_theta = sum(leg.theta * leg.quantity for leg in legs)
+            net_vega = sum(leg.vega * leg.quantity for leg in legs)
+            return MultiLegStructure(
+                strategy_type=MultiLegStrategyType.IRON_CONDOR,
+                legs=legs,
+                net_credit=net_credit,
+                max_profit=net_credit,
+                max_loss=max(wing_width - net_credit, 0.0),
+                breakeven_points=[breakeven_lower, breakeven_upper],
+                probability_profit=probability_profit,
+                net_delta=net_delta,
+                net_gamma=net_gamma,
+                net_theta=net_theta,
+                net_vega=net_vega,
+                wing_width=wing_width,
+                body_width=float(strikes["call_short"]) - float(strikes["put_short"]),
+                risk_reward_ratio=(max(wing_width - net_credit, 0.0) / net_credit) if net_credit > 0 else 0.0,
+            )
+
+        now_et = _d31_now_et()
+        fallback_dte = setup_payload.get("dte")
+        if fallback_dte is None:
+            fallback_dte = 0 if self._is_zero_dte_signal(signal, now_et) else 30
+        return constructor.construct_strategy(
+            MultiLegStrategyType.IRON_CONDOR,
+            market_analysis,
+            days_to_expiration=max(int(fallback_dte), 1),
+        )
+
+    def _build_paper_iron_condor_leg_orders(
+        self,
+        signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+    ) -> list[dict[str, Any]]:
+        """Decompose an iron-condor structure into explicit option-leg orders."""
+        structure = self._build_paper_iron_condor_structure(signal, symbol)
+        if structure is None or not getattr(structure, "legs", None):
+            return []
+
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+        except Exception as exc:
+            self.logger.warning("Option symbol formatting unavailable: %s", exc)
+            return []
+
+        leg_roles = ["long_put", "short_put", "short_call", "long_call"]
+        orders: list[dict[str, Any]] = []
+        for index, leg in enumerate(list(structure.legs)[:4]):
+            expiry = leg.expiration.date() if isinstance(leg.expiration, datetime) else _d31_now_et().date()
+            option_type_letter = "C" if str(leg.option_type).lower() == "call" else "P"
+            option_symbol = DateTimeUtils.format_option_symbol(
+                symbol,
+                expiry,
+                option_type_letter,
+                float(leg.strike),
+            )
+            side = "buy_to_open" if int(leg.quantity) > 0 else "sell_to_open"
+            contracts = max(abs(int(leg.quantity)) * max(int(quantity), 1), 1)
+            limit_price = round(max(float(getattr(leg, "price", 0.0) or 0.01), 0.01), 2)
+            option_details = self._parse_occ_option_symbol(option_symbol)
+            orders.append(
+                {
+                    "symbol": option_symbol,
+                    "side": side,
+                    "quantity": contracts,
+                    "order_type": "limit",
+                    "price": limit_price,
+                    "strategy_id": strategy_id,
+                    "multileg_leg_execution": True,
+                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_strategy": str(strategy_id or "iron_condor"),
+                    "leg_role": leg_roles[index] if index < len(leg_roles) else f"leg_{index + 1}",
+                    "expiration": option_details.get("expiration"),
+                    "strike": option_details.get("strike"),
+                    "option_type": option_details.get("option_type"),
+                }
+            )
+        return orders
+
+    def _dispatch_paper_iron_condor(
+        self,
+        signal: Any,
+        raw_signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+        pivot_context: str,
+    ) -> None:
+        """Dispatch a paper iron condor as four explicit option-leg orders."""
+        if self._live_engine is None:
+            self._clear_pending_entry_reservation(symbol, strategy_id)
+            self.logger.warning(
+                "Paper iron condor dropped — no live engine wired: symbol=%s | %s",
+                symbol,
+                pivot_context,
+            )
+            self._record_signal_drop(
+                "dispatch",
+                "no_live_engine_for_paper_iron_condor",
+                signal=signal,
+            )
+            self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+            return
+
+        leg_orders = self._build_paper_iron_condor_leg_orders(
+            raw_signal,
+            symbol,
+            quantity,
+            strategy_id,
+        )
+        if len(leg_orders) != 4:
+            self._clear_pending_entry_reservation(symbol, strategy_id)
+            detail = "paper iron condor routing could not derive four explicit option legs"
+            self.logger.warning(
+                "Paper iron condor rejected — %s: symbol=%s strategy=%s | %s",
+                detail,
+                symbol,
+                strategy_id,
+                pivot_context,
+            )
+            self._record_signal_drop(
+                "dispatch",
+                "paper_iron_condor_structure_missing",
+                signal=signal,
+                detail=detail,
+            )
+            self._record_signal_dispatch_outcome_safe(
+                "dispatch_rejected",
+                signal=signal,
+                detail=detail,
+            )
+            return
+
+        accepted_order_ids: list[str] = []
+        for leg_order in leg_orders:
+            result = self._live_engine.execute_order(leg_order)
+            status = result.get("status", "unknown") if isinstance(result, dict) else str(result)
+            if status in {"rejected", "error", "timeout"}:
+                for accepted_order_id in accepted_order_ids:
+                    try:
+                        self._live_engine.cancel_order(accepted_order_id)
+                    except Exception:
+                        pass
+                self._clear_pending_entry_reservation(symbol, strategy_id)
+                reason = result.get("reason", "") if isinstance(result, dict) else ""
+                detail = f"leg={leg_order.get('leg_role')};status={status};reason={reason or status}"
+                self.logger.warning(
+                    "Paper iron condor leg rejected: %s symbol=%s strategy=%s | %s",
+                    detail,
+                    symbol,
+                    strategy_id,
+                    pivot_context,
+                )
+                self._record_signal_drop(
+                    "dispatch",
+                    "paper_iron_condor_leg_rejected",
+                    signal=signal,
+                    detail=detail,
+                )
+                self._record_signal_dispatch_outcome_safe(
+                    "dispatch_rejected",
+                    signal=signal,
+                    detail=detail,
+                )
+                return
+
+            order_id = result.get("order_id") if isinstance(result, dict) else None
+            if order_id:
+                accepted_order_ids.append(str(order_id))
+
+        self.logger.info(
+            "Paper iron condor dispatched as four option legs: symbol=%s strategy=%s qty=%d | %s",
+            symbol,
+            strategy_id,
+            quantity,
+            pivot_context,
+        )
+        self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
 
     def _count_at_risk_short_options(self, now_et: datetime) -> int:
         """Best-effort count of unresolved short 0DTE options near the money."""
@@ -5079,25 +5973,7 @@ class StrategyOrchestrator:
         if not raw_regime:
             return True, ""
 
-        regime_aliases = {
-            "bull": "bull_trend",
-            "strong_bull": "bull_trend",
-            "bear": "bear_trend",
-            "strong_bear": "bear_trend",
-            "neutral": "range_calm",
-            "bull_low_vol": "bull_trend",
-            "bull_high_vol": "high_vol_mean_reversion",
-            "bear_low_vol": "bear_trend",
-            "bear_high_vol": "crisis_turbulent",
-            "sideways_low_vol": "range_calm",
-            "sideways_high_vol": "high_vol_mean_reversion",
-            "crisis": "crisis_turbulent",
-            "recovery": "event_transition",
-            # Gap fixes: previously unmapped — fail-safe to nearest policy key
-            "low_volatility": "bull_trend",  # L09 ML path; D30 maps to BULL bucket
-            "unknown": "crisis_turbulent",   # data-unavailable state; hard-block for safety
-        }
-        regime_key = raw_regime if raw_regime in regimes else regime_aliases.get(raw_regime, "")
+        regime_key = self._normalize_regime_policy_key(raw_regime, regimes)
         regime_cfg = regimes.get(regime_key, {}) if regime_key else {}
         if not isinstance(regime_cfg, dict) or not regime_cfg:
             return True, ""
@@ -5163,6 +6039,13 @@ class StrategyOrchestrator:
             "LiveEngine wired to StrategyOrchestrator for approved-signal dispatch"
         )
 
+    def set_regime_engine(self, engine: Any) -> None:
+        """Attach or replace the optional L09 regime engine after startup."""
+        self._l09_engine = engine
+        self._last_l09_confidence = 0.0
+        self._last_l09_consensus = None
+        self.logger.info("UnifiedRegimeEngine attached to StrategyOrchestrator")
+
     def set_order_manager(self, manager: Any) -> None:
         """Wire an OrderManager so approved signals use mid-price walk execution.
 
@@ -5210,6 +6093,156 @@ class StrategyOrchestrator:
             "RiskManager wired to StrategyOrchestrator for signal pre-validation"
         )
 
+    @staticmethod
+    def _is_entry_action(action: Any) -> bool:
+        """Return True when a signal action represents opening exposure."""
+        normalized = str(action or "").strip().lower()
+        return normalized in {
+            "buy",
+            "sell",
+            "buy_to_open",
+            "sell_to_open",
+            "open",
+            "enter",
+            "enter_long",
+            "enter_short",
+        }
+
+    def _pending_entry_reservation_key(
+        self,
+        symbol: Any,
+        strategy_id: Any,
+    ) -> tuple[str, str] | None:
+        """Normalize the key used to block duplicate in-flight entries."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return None
+        normalized_strategy = str(strategy_id or "").strip().lower()
+        return (normalized_symbol, normalized_strategy)
+
+    def _has_pending_entry_reservation(self, symbol: Any, strategy_id: Any) -> bool:
+        """Return True when the same entry is already reserved for dispatch/fill."""
+        key = self._pending_entry_reservation_key(symbol, strategy_id)
+        if key is None:
+            return False
+
+        now_monotonic = time.monotonic()
+        with self._pending_entry_reservations_lock:
+            expires_at = self._pending_entry_reservations.get(key)
+            if expires_at is None:
+                return False
+            if expires_at <= now_monotonic:
+                self._pending_entry_reservations.pop(key, None)
+                return False
+            return True
+
+    def _reserve_pending_entry(self, symbol: Any, strategy_id: Any) -> bool:
+        """Reserve a same-symbol entry slot until fill or terminal cleanup lands."""
+        key = self._pending_entry_reservation_key(symbol, strategy_id)
+        if key is None:
+            return False
+
+        now_monotonic = time.monotonic()
+        expires_at = now_monotonic + self._pending_entry_reservation_ttl_s
+        with self._pending_entry_reservations_lock:
+            existing_expiry = self._pending_entry_reservations.get(key)
+            if existing_expiry is not None and existing_expiry > now_monotonic:
+                return False
+            self._pending_entry_reservations[key] = expires_at
+            return True
+
+    def _clear_pending_entry_reservation(self, symbol: Any, strategy_id: Any) -> None:
+        """Clear a single in-flight entry reservation."""
+        key = self._pending_entry_reservation_key(symbol, strategy_id)
+        if key is None:
+            return
+
+        with self._pending_entry_reservations_lock:
+            self._pending_entry_reservations.pop(key, None)
+
+    def _clear_pending_entry_reservations_for_symbol(self, symbol: Any) -> None:
+        """Clear all in-flight reservations for a symbol once truth advances."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return
+
+        with self._pending_entry_reservations_lock:
+            keys_to_drop = [
+                key for key in self._pending_entry_reservations
+                if key[0] == normalized_symbol
+            ]
+            for key in keys_to_drop:
+                self._pending_entry_reservations.pop(key, None)
+
+    def _has_duplicate_open_position(
+        self,
+        symbol: str,
+        strategy_id: Any,
+        side: Any,
+        include_pending: bool = True,
+    ) -> bool:
+        """Return True when the live engine already holds the same open entry."""
+        if not self._is_entry_action(side):
+            return False
+
+        if include_pending and self._has_pending_entry_reservation(symbol, strategy_id):
+            return True
+
+        if self._live_engine is None:
+            return False
+
+        try:
+            if hasattr(self._live_engine, "get_active_positions_snapshot"):
+                active_positions = self._live_engine.get_active_positions_snapshot()
+            else:
+                active_positions = getattr(self._live_engine, "active_positions", {})
+        except Exception:
+            return False
+
+        if not isinstance(active_positions, dict):
+            return False
+
+        current_strategy = str(strategy_id or "").strip().lower()
+
+        lookup_symbols = [str(symbol or "").strip()]
+        underlying_symbol = self._extract_option_underlying(symbol)
+        if underlying_symbol and underlying_symbol not in lookup_symbols:
+            lookup_symbols.append(underlying_symbol)
+
+        def _matches(existing_position: dict[str, Any], existing_symbol: str) -> bool:
+            try:
+                existing_qty = int(existing_position.get("quantity") or 0)
+            except (TypeError, ValueError):
+                existing_qty = 0
+            if existing_qty == 0:
+                return False
+
+            existing_strategy = str(existing_position.get("strategy") or "").strip().lower()
+            if current_strategy and existing_strategy and existing_strategy != current_strategy:
+                return False
+
+            existing_underlying = self._extract_option_underlying(
+                existing_position.get("underlying_symbol")
+                or existing_position.get("symbol")
+                or existing_symbol
+            )
+            return existing_symbol in lookup_symbols or existing_underlying in lookup_symbols
+
+        for lookup_symbol in lookup_symbols:
+            existing = active_positions.get(lookup_symbol)
+            if isinstance(existing, dict) and _matches(existing, lookup_symbol):
+                self._clear_pending_entry_reservations_for_symbol(symbol)
+                return True
+
+        for existing_symbol, existing_position in active_positions.items():
+            if not isinstance(existing_position, dict):
+                continue
+            if _matches(existing_position, str(existing_symbol)):
+                self._clear_pending_entry_reservations_for_symbol(symbol)
+                return True
+
+        return False
+
     def _dispatch_approved_signal(self, signal: Any) -> None:
         """Convert a risk-approved strategy signal to an order and submit it.
 
@@ -5233,6 +6266,14 @@ class StrategyOrchestrator:
             signal: Signal dict (or object with ``to_dict()``) from the strategy.
         """
         if self._live_engine is None and self._order_manager is None:
+            self._clear_pending_entry_reservation(
+                self._signal_value(signal, "symbol", ""),
+                self._signal_value(
+                    signal,
+                    "strategy_id",
+                    self._signal_value(signal, "strategy_name", ""),
+                ),
+            )
             pivot_context = self._format_pivot_log_context(
                 self._extract_pivot_signal_payload(signal)
             )
@@ -5253,19 +6294,34 @@ class StrategyOrchestrator:
             else:
                 raw = signal
 
+            raw_signal_payload: dict[str, Any] = {}
+            if isinstance(raw, dict):
+                raw_signal_payload = raw
+            elif hasattr(raw, "to_dict"):
+                try:
+                    candidate_payload = raw.to_dict()
+                except Exception:
+                    candidate_payload = None
+                if isinstance(candidate_payload, dict):
+                    raw_signal_payload = candidate_payload
+
             pivot_context = self._format_pivot_log_context(
-                self._extract_pivot_signal_payload(raw if isinstance(raw, dict) else signal)
+                self._extract_pivot_signal_payload(raw_signal_payload or signal)
             )
 
             def _get(key: str, default: Any = None) -> Any:
+                if raw_signal_payload:
+                    return raw_signal_payload.get(key, default)
                 if isinstance(raw, dict):
                     return raw.get(key, default)
                 return getattr(raw, key, default)
 
             symbol = _get("symbol", "")
             quantity = int(_get("quantity", 0))
+            strategy_id = _get("strategy_id", _get("strategy_name", ""))
 
             if not symbol or not quantity:
+                self._clear_pending_entry_reservation(symbol, strategy_id)
                 self.logger.warning(
                     "Cannot dispatch approved signal — missing symbol or quantity: %s | %s",
                     pivot_context,
@@ -5275,13 +6331,59 @@ class StrategyOrchestrator:
                 return
 
             side = str(_get("action", _get("side", "buy"))).lower()
-            strategy_id = _get("strategy_id", _get("strategy_name", ""))
             bid = float(_get("bid", 0.0) or 0.0)
             ask = float(_get("ask", 0.0) or 0.0)
             option_symbol = str(_get("option_symbol", "") or "")
+            is_paper_run = str(self._audit_run_mode or "").strip().lower() == "paper"
+
+            if self._has_duplicate_open_position(symbol, strategy_id, side, include_pending=False):
+                self.logger.warning(
+                    "Duplicate entry blocked — open position already active: symbol=%s strategy=%s | %s",
+                    symbol,
+                    strategy_id,
+                    pivot_context,
+                )
+                self._record_signal_drop(
+                    "dispatch",
+                    "duplicate_open_position",
+                    signal=signal,
+                    detail=f"symbol={symbol};strategy={strategy_id}",
+                )
+                self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+                return
+
+            normalized_strategy_id = str(strategy_id or "").strip().lower().replace("-", "_")
+            if is_paper_run and "iron_condor" in normalized_strategy_id:
+                self._dispatch_paper_iron_condor(
+                    signal=signal,
+                    raw_signal=raw_signal_payload,
+                    symbol=str(symbol),
+                    quantity=quantity,
+                    strategy_id=strategy_id,
+                    pivot_context=pivot_context,
+                )
+                return
+
+            if bid > 0.0 and ask > 0.0 and self._order_manager is not None and is_paper_run:
+                self.logger.info(
+                    "Paper mode: bypassing mid-price walk and using engine execution path "
+                    "(symbol=%s qty=%d) | %s",
+                    symbol,
+                    quantity,
+                    pivot_context,
+                )
+                if not self._paper_midwalk_bypass_marker_emitted:
+                    self.emit_decision_audit_marker(
+                        "paper_midwalk_bypassed",
+                        detail=(
+                            "Paper mode disables OrderManager mid-walk; "
+                            "dispatch falls back to engine/PaperBroker path"
+                        ),
+                    )
+                    self._paper_midwalk_bypass_marker_emitted = True
 
             # ── Path 1: mid-price walk ────────────────────────────────────────
-            if bid > 0.0 and ask > 0.0 and self._order_manager is not None:
+            if bid > 0.0 and ask > 0.0 and self._order_manager is not None and not is_paper_run:
                 walk_result = self._order_manager.submit_limit_with_walk(
                     symbol=symbol,
                     side=side,
@@ -5313,6 +6415,7 @@ class StrategyOrchestrator:
                     )
                     self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
                 else:
+                    self._clear_pending_entry_reservation(symbol, strategy_id)
                     self.logger.warning(
                         "MidWalk did not fill: symbol=%s reason=%s error=%s | %s",
                         symbol,
@@ -5320,11 +6423,19 @@ class StrategyOrchestrator:
                         walk_error_code,
                         pivot_context,
                     )
-                    self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+                    detail = str(walk_message or "")
+                    if walk_error_code:
+                        detail = f"{detail} (error={walk_error_code})" if detail else f"error={walk_error_code}"
+                    self._record_signal_dispatch_outcome_safe(
+                        "dispatch_rejected",
+                        signal=signal,
+                        detail=detail,
+                    )
                 return  # Mid-price path handled — do not send a market order
 
             # ── Path 2: market order via live engine ─────────────────────────
             if self._live_engine is None:
+                self._clear_pending_entry_reservation(symbol, strategy_id)
                 self.logger.warning(
                     "No live engine and no bid/ask quote — signal dropped: symbol=%s | %s",
                     symbol,
@@ -5346,6 +6457,7 @@ class StrategyOrchestrator:
 
             status = result.get("status", "unknown") if isinstance(result, dict) else str(result)
             if status in ("rejected", "error"):
+                self._clear_pending_entry_reservation(symbol, strategy_id)
                 reason = result.get("reason", "") if isinstance(result, dict) else ""
                 self.logger.warning(
                     "Market order rejected by live engine: symbol=%s reason=%s | %s",
@@ -5353,7 +6465,11 @@ class StrategyOrchestrator:
                     reason,
                     pivot_context,
                 )
-                self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+                self._record_signal_dispatch_outcome_safe(
+                    "dispatch_rejected",
+                    signal=signal,
+                    detail=reason or status,
+                )
             else:
                 self.logger.info(
                     "Market order dispatched: symbol=%s qty=%d status=%s | %s",
@@ -5365,6 +6481,14 @@ class StrategyOrchestrator:
                 self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
 
         except Exception as exc:
+            self._clear_pending_entry_reservation(
+                self._signal_value(signal, "symbol", ""),
+                self._signal_value(
+                    signal,
+                    "strategy_id",
+                    self._signal_value(signal, "strategy_name", ""),
+                ),
+            )
             self.logger.error(
                 "Error dispatching approved signal: %s", exc, exc_info=True
             )
@@ -6166,7 +7290,7 @@ class StrategyOrchestratorDashboard(_DASHBOARD_BASE):
 def create_strategy_orchestrator(base_capital: float = DEFAULT_BASE_CAPITAL,
                                 orchestration_mode: OrchestrationMode = OrchestrationMode.BALANCED,
                                 allocation_method: AllocationMethod = AllocationMethod.PERFORMANCE_BASED,  # noqa: E501
-                                connectivity_manager: IntegratedConnectivityManager | None = None) -> StrategyOrchestrator:  # noqa: E501
+                                connectivity_manager: Any | None = None) -> StrategyOrchestrator:  # noqa: E501
     """Factory function to create strategy orchestrator"""
     return StrategyOrchestrator(base_capital, orchestration_mode, allocation_method, connectivity_manager)  # noqa: E501
 

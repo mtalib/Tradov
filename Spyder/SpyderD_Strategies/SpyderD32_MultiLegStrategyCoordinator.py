@@ -381,7 +381,7 @@ class MultiLegMarketAnalyzer:
 
             # IV metrics
             iv_rank = self._calculate_iv_rank(market_data, implied_vol)
-            iv_percentile = self._calculate_iv_percentile(market_data, implied_vol)
+            iv_percentile = iv_rank
             volatility_skew = self._calculate_volatility_skew()
             term_structure_slope = self._calculate_term_structure_slope()
 
@@ -473,9 +473,34 @@ class MultiLegMarketAnalyzer:
         except Exception:
             return 0.20
 
+    def _extract_live_iv_rank_hint(self, market_data: pd.DataFrame) -> float | None:
+        """Return a normalized live IV-rank hint when the market frame already has one."""
+        for column_name in ('iv_rank', 'IVR'):
+            if column_name not in market_data:
+                continue
+
+            iv_rank_series = pd.to_numeric(market_data[column_name], errors='coerce').dropna()
+            if iv_rank_series.empty:
+                continue
+
+            iv_rank_hint = float(iv_rank_series.iloc[-1])
+            if np.isnan(iv_rank_hint) or iv_rank_hint < 0.0:
+                continue
+
+            if iv_rank_hint > 1.0:
+                iv_rank_hint /= 100.0
+
+            return float(np.clip(iv_rank_hint, 0.0, 1.0))
+
+        return None
+
     def _calculate_iv_rank(self, market_data: pd.DataFrame, current_iv: float) -> float:
         """Calculate IV rank over lookback period"""
         try:
+            live_iv_rank_hint = self._extract_live_iv_rank_hint(market_data)
+            if live_iv_rank_hint is not None:
+                return live_iv_rank_hint
+
             self.logger.warning(
                 "IV rank is estimated from realized volatility proxy — not live implied "
                 "volatility. This lags true IV rank by days/weeks. Consider integrating "
