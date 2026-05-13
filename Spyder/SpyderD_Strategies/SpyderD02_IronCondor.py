@@ -236,6 +236,7 @@ class IronCondorStrategy(BaseStrategy):
         self.current_analysis: IronCondorAnalysis | None = None
         self.active_setups: list[IronCondorSetup] = []
         self.strategy_state = IronCondorState.ANALYZING
+        self._last_no_signal_reason_key = ""
 
         # Performance tracking
         self.performance_metrics = {
@@ -252,6 +253,66 @@ class IronCondorStrategy(BaseStrategy):
 
         self.logger.info("🎯 IronCondorStrategy initialized with D32 integration")
 
+    @staticmethod
+    def _format_diagnostic_float(value: Any) -> str:
+        """Format optional numeric diagnostics for structured no-entry logs."""
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return "n/a"
+        if np.isnan(numeric):
+            return "n/a"
+        return f"{numeric:.4f}"
+
+    def _build_no_signal_blockers(self, analysis: IronCondorAnalysis) -> list[str]:
+        """Summarize why the current market state did not yield an Iron Condor entry."""
+        blockers = list(analysis.risk_warnings or [])
+
+        def _add(token: str) -> None:
+            if token and token not in blockers:
+                blockers.append(token)
+
+        iv_analysis = analysis.iv_analysis or {}
+        expected_move_analysis = analysis.expected_move_analysis or {}
+        trend_analysis = analysis.trend_analysis or {}
+
+        if not iv_analysis.get("iv_data_available", False):
+            _add("iv_data_unavailable")
+        elif not iv_analysis.get("iv_suitable_for_ic", False):
+            _add("iv_rank_out_of_range")
+
+        if not expected_move_analysis.get("expected_move_suitable_for_ic", False):
+            _add("expected_move_out_of_range")
+
+        if not trend_analysis.get("trend_suitable_for_ic", False):
+            _add("trend_not_range_bound")
+
+        if float(analysis.confidence_score or 0.0) <= 0.0:
+            _add("confidence_zero")
+
+        return blockers
+
+    def _log_no_signal_blockers(self, analysis: IronCondorAnalysis, blockers: list[str]) -> None:
+        """Emit a deduplicated summary when Iron Condor declines to enter."""
+        reason_key = "|".join(blockers)
+        if reason_key == self._last_no_signal_reason_key:
+            return
+
+        self._last_no_signal_reason_key = reason_key
+        iv_analysis = analysis.iv_analysis or {}
+        expected_move_analysis = analysis.expected_move_analysis or {}
+        trend_analysis = analysis.trend_analysis or {}
+
+        self.logger.info(
+            "IronCondor no entry: blockers=%s iv_available=%s iv_rank=%s expected_move_pct=%s range_bound=%s confidence=%.2f",
+            ",".join(blockers),
+            bool(iv_analysis.get("iv_data_available", False)),
+            self._format_diagnostic_float(iv_analysis.get("iv_rank")),
+            self._format_diagnostic_float(expected_move_analysis.get("expected_move_percent")),
+            bool(trend_analysis.get("is_range_bound", False)),
+            float(analysis.confidence_score or 0.0),
+        )
+
     def generate_signals(self, market_data: pd.DataFrame) -> list[Any]:
         """Generate Iron Condor entry signals from current market data.
 
@@ -263,6 +324,11 @@ class IronCondorStrategy(BaseStrategy):
         try:
             analysis = self.analyze_iron_condor_opportunity(market_data)
             if not analysis.market_suitable or analysis.confidence_score <= 0.0:
+                blockers = self._build_no_signal_blockers(analysis)
+                analysis.risk_warnings = blockers
+                self.current_analysis = analysis
+                if blockers:
+                    self._log_no_signal_blockers(analysis, blockers)
                 return []
 
             score = analysis.confidence_score
@@ -299,6 +365,7 @@ class IronCondorStrategy(BaseStrategy):
                     "risk_warnings":       analysis.risk_warnings,
                 },
             )
+            self._last_no_signal_reason_key = ""
             return [signal]
         except Exception as exc:
             self.logger.error("generate_signals failed: %s", exc, exc_info=True)
@@ -449,7 +516,32 @@ class IronCondorStrategy(BaseStrategy):
                 return _no_iv
 
             iv_history = iv_col.tail(252)
-            iv_rank = float((current_iv > iv_history).sum() / len(iv_history) * 100)
+            iv_rank_col = market_data.get('iv_rank') if isinstance(market_data, pd.DataFrame) else None
+            iv_rank_hint = None
+            if iv_rank_col is not None and hasattr(iv_rank_col, 'dropna'):
+                iv_rank_series = iv_rank_col.dropna()
+                if not iv_rank_series.empty:
+                    try:
+                        iv_rank_hint = float(iv_rank_series.iloc[-1])
+                    except (TypeError, ValueError):
+                        iv_rank_hint = None
+
+            if iv_rank_hint is not None and not np.isnan(iv_rank_hint):
+                if 0.0 <= iv_rank_hint <= 1.0:
+                    iv_rank_hint *= 100.0
+                iv_rank = iv_rank_hint
+            else:
+                iv_history_non_null = iv_history.dropna()
+                if iv_history_non_null.empty:
+                    iv_rank = 50.0
+                elif iv_history_non_null.nunique() <= 1:
+                    # D31 may inject one live ATM-IV snapshot across every row in the
+                    # rolling market frame. That flat series is not real IV history;
+                    # treating it as history collapses rank to 0. Use a neutral rank
+                    # until S07 provides a true IVR hint.
+                    iv_rank = 50.0
+                else:
+                    iv_rank = float((current_iv > iv_history_non_null).sum() / len(iv_history_non_null) * 100)
 
             return {
                 'current_iv': current_iv,
