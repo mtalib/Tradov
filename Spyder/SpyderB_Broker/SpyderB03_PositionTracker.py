@@ -386,7 +386,14 @@ class PositionTracker:
             self.logger.warning("record_fill: incomplete fill data — %s", fill)
             return
 
-        signed_qty = qty if side in ("buy", "long") else -qty
+        normalized_side = side.replace("-", "_")
+        is_buy = normalized_side.startswith("buy") or normalized_side in {
+            "long",
+            "cover",
+            "bto",
+            "btc",
+        }
+        signed_qty = qty if is_buy else -qty
 
         with self._position_lock:
             if symbol in self.positions:
