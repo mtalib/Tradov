@@ -478,6 +478,46 @@ class TestB03PositionTracker:
         assert isinstance(pt._pnl_callbacks, list)
         assert isinstance(pt._risk_callbacks, list)
 
+    def test_record_fill_buy_side_variants_keep_positive_quantity(self):
+        client = MagicMock()
+        pt = _b03.PositionTracker(client)
+        pt.save_state = MagicMock()
+
+        pt.record_fill(
+            {
+                "symbol": "SPY260515C00580000",
+                "side": "buy_to_open",
+                "quantity": 1,
+                "fill_price": 1.23,
+            }
+        )
+
+        assert pt.positions["SPY260515C00580000"]["quantity"] == 1
+
+    def test_record_fill_buy_to_close_offsets_short_position(self):
+        client = MagicMock()
+        pt = _b03.PositionTracker(client)
+        pt.save_state = MagicMock()
+
+        pt.record_fill(
+            {
+                "symbol": "SPY260515P00570000",
+                "side": "sell_to_open",
+                "quantity": 2,
+                "fill_price": 2.34,
+            }
+        )
+        pt.record_fill(
+            {
+                "symbol": "SPY260515P00570000",
+                "side": "buy_to_close",
+                "quantity": 1,
+                "fill_price": 1.11,
+            }
+        )
+
+        assert pt.positions["SPY260515P00570000"]["quantity"] == -1
+
 
 # ===========================================================================
 # B04 — AccountManager
