@@ -1065,7 +1065,7 @@ class SpyderTradingDashboard(QMainWindow):
             return
 
         try:
-            setattr(worker, "_quiet_startup", False)
+            worker._quiet_startup = False
         except RuntimeError:
             return
 
@@ -1325,6 +1325,10 @@ class SpyderTradingDashboard(QMainWindow):
 
     def _queue_paper_session_start(self, *, show_failure_dialog: bool = True) -> None:
         """Delay paper session startup until the launch-time loading window completes."""
+        if getattr(self, "_shutdown_in_progress", False):
+            self._cancel_start_button_loading_transition()
+            return
+
         if self.trading_mode != TradingMode.PAPER:
             return
 
@@ -1348,6 +1352,10 @@ class SpyderTradingDashboard(QMainWindow):
     def _finalize_queued_paper_session_start(self) -> None:
         """Start the paper session once the loading-live-data window completes."""
         if not getattr(self, "_paper_session_start_pending", False):
+            return
+
+        if getattr(self, "_shutdown_in_progress", False):
+            self._cancel_start_button_loading_transition()
             return
 
         self._paper_session_start_pending = False
@@ -1385,6 +1393,10 @@ class SpyderTradingDashboard(QMainWindow):
     def _complete_start_button_loading_transition(self, generation: int) -> None:
         """Switch the loading button into the steady active state after the delay."""
         if generation != getattr(self, "_start_button_loading_generation", 0):
+            return
+
+        if getattr(self, "_shutdown_in_progress", False):
+            self._cancel_start_button_loading_transition()
             return
 
         self._start_button_loading_timer_active = False
@@ -4638,6 +4650,10 @@ class SpyderTradingDashboard(QMainWindow):
         REQUIRED_PHRASE = str(required_phrase)
         dlg = QDialog(self)
         dlg.setModal(True)
+        dlg.setWindowTitle(str(dialog_title))
+
+        layout = QVBoxLayout(dlg)
+        header = QLabel(str(header_text))
         header.setStyleSheet(
             f"color: {COLORS['negative']}; font-size: 15px; font-weight: bold;"
         )
@@ -6373,9 +6389,7 @@ class SpyderTradingDashboard(QMainWindow):
                 # Colour: green <25 (low vol = good for sellers), amber 25-50, orange 50-75, red >75
                 if iv_rank >= 75:
                     col = COLORS["negative"]
-                elif iv_rank >= 50:
-                    col = COLORS.get("warning", COLORS["text"])
-                elif iv_rank >= 25:
+                elif iv_rank >= 50 or iv_rank >= 25:
                     col = COLORS.get("warning", COLORS["text"])
                 else:
                     col = COLORS["positive"]
@@ -7455,20 +7469,31 @@ class SpyderTradingDashboard(QMainWindow):
             # Wire S07 output → custom metric widgets in the Market Overview panel
             self._metrics_orchestrator.metrics_updated.connect(self._on_custom_metrics_updated)
             self._metrics_orchestrator.stress_level_changed.connect(self._on_market_stress_changed)
-            self._hydrate_metrics_orchestrator_snapshot()
-            self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")  # noqa: E501
-            self.add_system_log("AUTONOMOUS METRICS ACTIVE - DIX/SWAN stress monitor online")
+            self._custom_metrics_live_announced = True
+            if self._hydrate_metrics_orchestrator_snapshot():
+                self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")  # noqa: E501
+                self.add_system_log("AUTONOMOUS METRICS ACTIVE - DIX/SWAN stress monitor online")
+            else:
+                self._custom_metrics_live_announced = False
+                self.add_system_log("⏳ Custom metrics orchestrator started — awaiting first live snapshot")
         except Exception as e:
             self.logger.error("Failed to start metrics orchestrator: %s", e, exc_info=True)
             self.add_system_log(f"⚠️ Metrics orchestrator unavailable: {e}")
 
-    def _hydrate_metrics_orchestrator_snapshot(self) -> None:
+    def _hydrate_metrics_orchestrator_snapshot(self) -> bool:
         """Backfill Market Overview rows from S07 cached metrics after late connection."""
         orchestrator = getattr(self, "_metrics_orchestrator", None)
         if orchestrator is None:
-            return
+            return False
 
         try:
+            has_snapshot = getattr(orchestrator, "has_published_metrics_snapshot", None)
+            if callable(has_snapshot):
+                if not has_snapshot():
+                    return False
+            elif not bool(getattr(orchestrator, "_has_published_metrics", False)):
+                return False
+
             metrics_lock = getattr(orchestrator, "_metrics_lock", None)
             if metrics_lock is None:
                 snapshot = dict(getattr(orchestrator, "current_metrics", {}) or {})
@@ -7478,11 +7503,13 @@ class SpyderTradingDashboard(QMainWindow):
 
             formatter = getattr(orchestrator, "_format_metrics", None)
             if not snapshot or not callable(formatter):
-                return
+                return False
 
             self._on_custom_metrics_updated(formatter(snapshot))
+            return True
         except Exception as exc:
             self.logger.debug("Custom metrics snapshot hydrate skipped: %s", exc)
+            return False
 
     def _on_market_stress_changed(self, stress_level: str) -> None:
         """Surface market stress-regime transitions in Autonomous AI Activity."""
@@ -7504,6 +7531,11 @@ class SpyderTradingDashboard(QMainWindow):
         self._last_custom_metrics_payload = (
             dict(metrics) if isinstance(metrics, dict) else {}
         )
+
+        if not getattr(self, "_custom_metrics_live_announced", False):
+            self._custom_metrics_live_announced = True
+            self.add_system_log("✅ Custom metrics orchestrator started (DIX + Black Swan schedulers active)")  # noqa: E501
+            self.add_system_log("AUTONOMOUS METRICS ACTIVE - DIX/SWAN stress monitor online")
 
         for s07_key, (widget_key, scale) in self._S07_METRIC_ROUTING.items():
             entry = metrics.get(s07_key)
@@ -9824,6 +9856,7 @@ class SpyderTradingDashboard(QMainWindow):
         """Enhanced close event handler with real data cleanup and heartbeat monitoring"""
         try:
             self._shutdown_in_progress = True
+            self._cancel_start_button_loading_transition()
 
             # Stop real data timer if active
             if hasattr(self, "_real_data_timer") and self._real_data_timer:

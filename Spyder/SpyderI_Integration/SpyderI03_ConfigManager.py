@@ -26,7 +26,7 @@ import json
 import threading
 import time
 import copy
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
@@ -149,8 +149,8 @@ class ConfigMetadata:
     scope: ConfigScope
     format: ConfigFormat
     file_path: Path | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     version: int = 1
     checksum: str | None = None
     encrypted: bool = False
@@ -179,7 +179,7 @@ class ConfigSubscription:
     callback: Callable[[dict[str, Any]], None]
     key_patterns: list[str] | None = None
     immediate_notify: bool = True
-    subscribed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    subscribed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 @dataclass
 class ConfigValidationRule:
@@ -260,6 +260,10 @@ class ConfigManager:
         self.sync_lock = threading.RLock()
         self.is_syncing = False
         self.sync_thread: threading.Thread | None = None
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_event = threading.Event()
+        self._shutdown_registered = False
+        self._shutdown_complete = False
 
         # Encryption
         self.encryption_manager = EncryptionManager()
@@ -284,6 +288,7 @@ class ConfigManager:
         self._load_existing_configs()
         self._start_file_watching()
         self._start_sync_thread()
+        self._register_shutdown_cleanup()
 
         # Register with integration hub
         if HUB_AVAILABLE:
@@ -352,7 +357,7 @@ class ConfigManager:
 
                 # Record change
                 change = ConfigChange(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     config_name=name,
                     event_type=ConfigEvent.CREATED,
                     new_value=config_data,
@@ -414,7 +419,7 @@ class ConfigManager:
 
                 # Record change
                 change = ConfigChange(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     config_name=name,
                     event_type=ConfigEvent.DELETED,
                     old_value=old_config,
@@ -545,7 +550,7 @@ class ConfigManager:
 
                 # Update metadata
                 if name in self.metadata:
-                    self.metadata[name].updated_at = datetime.now(timezone.utc)
+                    self.metadata[name].updated_at = datetime.now(UTC)
                     self.metadata[name].version += 1
                     self.metadata[name].checksum = self._calculate_checksum(config)
 
@@ -556,7 +561,7 @@ class ConfigManager:
 
                 # Record change
                 change = ConfigChange(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     config_name=name,
                     event_type=ConfigEvent.UPDATED,
                     old_value=old_value,
@@ -701,13 +706,13 @@ class ConfigManager:
             self.configs[name] = new_config
 
             # Update metadata
-            metadata.updated_at = datetime.now(timezone.utc)
+            metadata.updated_at = datetime.now(UTC)
             metadata.version += 1
             metadata.checksum = self._calculate_checksum(new_config)
 
             # Record change
             change = ConfigChange(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 config_name=name,
                 event_type=ConfigEvent.RELOADED,
                 old_value=old_config,
@@ -735,7 +740,7 @@ class ConfigManager:
         """
         try:
             return {
-                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'timestamp': datetime.now(UTC).isoformat(),
                 'environment': self.environment,
                 'total_configs': len(self.configs),
                 'encrypted_configs': len(self.encrypted_configs),
@@ -749,7 +754,7 @@ class ConfigManager:
                 },
                 'recent_changes': len([
                     change for change in self.change_history
-                    if change.timestamp > datetime.now(timezone.utc) - timedelta(hours=1)
+                    if change.timestamp > datetime.now(UTC) - timedelta(hours=1)
                 ]),
                 'performance_metrics': self.performance_metrics.copy(),
                 'sync_status': {
@@ -891,6 +896,9 @@ class ConfigManager:
     def _start_sync_thread(self) -> None:
         """Start synchronization thread"""
         try:
+            if self._shutdown_event.is_set():
+                return
+
             if self.sync_thread and self.sync_thread.is_alive():
                 return
 
@@ -900,11 +908,25 @@ class ConfigManager:
         except Exception as e:
             self.error_handler.handle_error(e, "_start_sync_thread")
 
+    def _register_shutdown_cleanup(self) -> None:
+        """Register instance shutdown with the process-wide shutdown coordinator."""
+        if self._shutdown_registered:
+            return
+
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU44_ShutdownCoordinator import get_shutdown_coordinator
+
+            get_shutdown_coordinator().register_cleanup(self.shutdown)
+            self._shutdown_registered = True
+        except Exception as e:
+            self.logger.debug("ConfigManager shutdown coordinator unavailable: %s", e)
+
     def _sync_loop(self) -> None:
         """Main synchronization loop"""
-        while True:
+        while not self._shutdown_event.is_set():
             try:
-                time.sleep(CONFIG_SYNC_INTERVAL)  # thread-safe: time.sleep() intentional
+                if self._shutdown_event.wait(CONFIG_SYNC_INTERVAL):
+                    break
 
                 if self.pending_changes:
                     self._process_pending_changes()
@@ -919,7 +941,8 @@ class ConfigManager:
 
             except Exception as e:
                 self.error_handler.handle_error(e, "_sync_loop")
-                time.sleep(10)  # thread-safe: time.sleep() intentional
+                if self._shutdown_event.wait(10):
+                    break
 
     def _process_pending_changes(self) -> None:
         """Process pending configuration changes"""
@@ -1089,7 +1112,7 @@ class ConfigManager:
                     notification_data = {
                         'config_name': config_name,
                         'event_type': event_type.value,
-                        'timestamp': datetime.now(timezone.utc).isoformat(),
+                        'timestamp': datetime.now(UTC).isoformat(),
                         'config_data': config_data,
                         'key_path': key_path
                     }
@@ -1134,7 +1157,7 @@ class ConfigManager:
                 backup_id=backup_id,
                 config_name=config_name,
                 backup_path=backup_path,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 metadata=self.metadata[config_name],
                 size_bytes=backup_path.stat().st_size
             )
@@ -1152,7 +1175,7 @@ class ConfigManager:
     def _cleanup_old_backups(self) -> None:
         """Clean up old configuration backups"""
         try:
-            cutoff_time = datetime.now(timezone.utc) - timedelta(days=30)  # Keep 30 days
+            cutoff_time = datetime.now(UTC) - timedelta(days=30)  # Keep 30 days
 
             for _config_name, backup_list in self.backups.items():
                 # Remove old backups
@@ -1169,11 +1192,25 @@ class ConfigManager:
 
     def shutdown(self) -> None:
         """Shutdown configuration manager"""
+        with self._shutdown_lock:
+            if self._shutdown_complete:
+                return
+
+            self._shutdown_complete = True
+            self._shutdown_event.set()
+
         try:
             # Stop file watching
             if self.file_observer:
                 self.file_observer.stop()
-                self.file_observer.join()
+                self.file_observer.join(timeout=2.0)
+
+            if (
+                self.sync_thread
+                and self.sync_thread.is_alive()
+                and self.sync_thread is not threading.current_thread()
+            ):
+                self.sync_thread.join(timeout=2.0)
 
             # Save any pending changes
             if self.pending_changes:

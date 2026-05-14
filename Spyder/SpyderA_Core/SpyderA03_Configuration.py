@@ -30,7 +30,7 @@ import re
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -137,7 +137,7 @@ class ConfigValue:
     key: str
     value: Any
     source: ConfigSource
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     encrypted: bool = False
     schema_validated: bool = False
     description: str | None = None
@@ -839,6 +839,31 @@ class ConfigManager:
                 self.logger.error("Error getting config value %s: %s", key, e)
                 return default
 
+    def get_config(self, key: str, default: Any = None) -> Any:
+        """Compatibility wrapper for callers that still expect get_config()."""
+        return self.get(key, default)
+
+    def is_feature_enabled(self, key: str) -> bool:
+        """Compatibility wrapper for F-series feature-flag checks."""
+        candidates = (
+            f"features.{key}",
+            f"feature_flags.{key}",
+            key,
+        )
+
+        for candidate in candidates:
+            value = self.get(candidate, None)
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return bool(value)
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+        return False
+
     def get_all(self) -> dict[str, Any]:
         """Get all configuration values (with sensitive data masked)"""
         with self._lock:
@@ -895,7 +920,7 @@ class ConfigManager:
 
                 # Record change
                 change = ConfigChange(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     key=key,
                     old_value=old_value if not is_sensitive else "***MASKED***",
                     new_value=value if not is_sensitive else "***MASKED***",
@@ -964,7 +989,7 @@ class ConfigManager:
 
                     # Record change
                     change = ConfigChange(
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         key=key,
                         old_value=old_value,
                         new_value=None,
@@ -1568,7 +1593,7 @@ class ConfigManager:
 
         if not ok and normalized_mode != "live":
             self._set_nested_value(effective, "automation.enabled", False)
-            warnings.append("paper/sandbox mode: blocking errors present, automation disabled")
+            warnings.append("paper mode: blocking errors present, automation disabled")
             ok = True
 
         return {
@@ -1761,12 +1786,12 @@ class ConfigManager:
             backup_dir.mkdir(exist_ok=True)
 
             # Create backup filename with timestamp
-            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             backup_file = backup_dir / f"config_backup_{timestamp}.json"
 
             # Save configuration
             backup_data = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "environment": self.environment,
                 "config": self.get_all(),  # This masks sensitive data
                 "sources": {k: v.source.name for k, v in self.config_sources.items()},

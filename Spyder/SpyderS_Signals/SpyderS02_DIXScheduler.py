@@ -27,7 +27,7 @@ import logging
 import os
 import time as time_module
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 
 # ==============================================================================
@@ -35,6 +35,7 @@ from enum import Enum
 # ==============================================================================
 import pytz
 import requests
+from apscheduler.schedulers.base import SchedulerNotRunningError
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -306,15 +307,22 @@ class SpyderDIXScheduler:
     # ==========================================================================
     # PUBLIC METHODS - SCHEDULER CONTROL
     # ==========================================================================
-    def start(self) -> None:
-        """Start the scheduler."""
+    def start(self, run_initial_calculation: bool = True) -> None:
+        """Start the scheduler.
+
+        Args:
+            run_initial_calculation: When True, run an immediate DIX calculation
+                after the APScheduler worker starts. Disable this for startup
+                paths that must stay non-blocking during application shutdown.
+        """
         try:
             self.scheduler.start()
             self.logger.debug("DIX Scheduler started")
 
             # Run initial calculation
-            self.logger.debug("Running initial DIX calculation...")
-            self.run_scheduled_calculation()
+            if run_initial_calculation:
+                self.logger.debug("Running initial DIX calculation...")
+                self.run_scheduled_calculation()
 
         except Exception as e:
             self.logger.error("Failed to start scheduler: %s", e)
@@ -325,6 +333,9 @@ class SpyderDIXScheduler:
         try:
             self.scheduler.shutdown(wait=True)
             self.logger.info("DIX Scheduler stopped")
+
+        except SchedulerNotRunningError:
+            self.logger.debug("DIX Scheduler stop skipped; scheduler not running")
 
         except Exception as e:
             self.logger.error("Error stopping scheduler: %s", e)
@@ -337,7 +348,7 @@ class SpyderDIXScheduler:
             CalculationResult or None if failed
         """
         self.status = SchedulerStatus.RUNNING
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             self.logger.debug("Starting scheduled DIX calculation at %s", start_time)
@@ -397,7 +408,7 @@ class SpyderDIXScheduler:
             Dictionary with latest DIX data or None
         """
         if self.latest_result:
-            age = datetime.now(timezone.utc) - self.latest_result.timestamp
+            age = datetime.now(UTC) - self.latest_result.timestamp
 
             # Return cached if less than 24 hours old
             if age.total_seconds() < 86400:
@@ -495,10 +506,10 @@ class SpyderDIXScheduler:
         expected_date = self._get_expected_finra_date()
         url = f"https://cdn.finra.org/equity/regsho/daily/CNMSshvol{expected_date}.txt"
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         max_wait = timedelta(minutes=max_wait_minutes)
 
-        while datetime.now(timezone.utc) - start_time < max_wait:
+        while datetime.now(UTC) - start_time < max_wait:
             try:
                 response = requests.head(url, timeout=HEALTH_CHECK_TIMEOUT)
                 if response.status_code == 200:
@@ -572,13 +583,13 @@ class SpyderDIXScheduler:
 
         # Create result object
         calculation_result = CalculationResult(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             dix_value=results["dix"],
             dix_percentage=dix_pct,
             sentiment=sentiment,
             status=SchedulerStatus.COMPLETED,
             error_message=None,
-            execution_time=(datetime.now(timezone.utc) - start_time).total_seconds(),
+            execution_time=(datetime.now(UTC) - start_time).total_seconds(),
         )
 
         # Update latest result
@@ -745,7 +756,7 @@ Market Outlook:
 DIX CALCULATION ERROR
 ====================
 
-Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
+Time: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}
 Error: {error_message}
 
 The scheduled DIX calculation failed. Please check the system logs.
@@ -757,7 +768,7 @@ Last successful calculation:
             body += f"""
 Date: {self.latest_result.timestamp.strftime('%Y-%m-%d %H:%M:%S')}
 DIX: {self.latest_result.dix_percentage:.2f}%
-Age: {(datetime.now(timezone.utc) - self.latest_result.timestamp).total_seconds() / 3600:.1f} hours
+Age: {(datetime.now(UTC) - self.latest_result.timestamp).total_seconds() / 3600:.1f} hours
 """
         else:
             body += "No previous calculation available"
@@ -875,7 +886,7 @@ Today's Trading Bias:
         """Check if constituents should be updated."""
 
         # Update on Sundays or if never updated
-        return datetime.now(timezone.utc).weekday() == 6
+        return datetime.now(UTC).weekday() == 6
 
     # ==========================================================================
     # LIFECYCLE METHODS

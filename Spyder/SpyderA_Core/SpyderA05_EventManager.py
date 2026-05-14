@@ -33,7 +33,7 @@ import traceback
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -218,7 +218,7 @@ class Event:
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     event_type: EventType = EventType.SYSTEM
     data: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     priority: EventPriority = EventPriority.NORMAL
     source: str | None = None
     correlation_id: str | None = None
@@ -233,12 +233,7 @@ class Event:
     def __post_init__(self):
         # Normalize event_type to this module's EventType even when callers pass
         # enum members from another loaded copy of the module.
-        if isinstance(self.event_type, str):
-            try:
-                self.event_type = EventType(str(self.event_type).lower())
-            except Exception:
-                self.event_type = EventType.SYSTEM
-        elif not isinstance(self.event_type, Enum):
+        if isinstance(self.event_type, str) or not isinstance(self.event_type, Enum):
             try:
                 self.event_type = EventType(str(self.event_type).lower())
             except Exception:
@@ -278,7 +273,7 @@ class Event:
             event_id=data.get('event_id', str(uuid.uuid4())),
             event_type=EventType(data.get('event_type', 'system')),
             data=data.get('data', {}),
-            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(timezone.utc),  # noqa: E501
+            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(UTC),  # noqa: E501
             priority=EventPriority[data.get('priority', 'NORMAL')],
             source=data.get('source'),
             correlation_id=data.get('correlation_id'),
@@ -529,6 +524,8 @@ class EventManager:
                     )
                 """)
 
+                self._migrate_event_log_schema(conn)
+
                 conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_timestamp
                     ON event_log(timestamp)
@@ -543,6 +540,16 @@ class EventManager:
 
         except Exception as e:
             self.logger.error("Database initialization error: %s", e)
+
+    def _migrate_event_log_schema(self, conn: sqlite3.Connection) -> None:
+        """Bring legacy event_log tables up to the current insert contract."""
+        existing_columns = {
+            str(row[1]).strip().lower()
+            for row in conn.execute("PRAGMA table_info(event_log)")
+        }
+        if existing_columns and "metadata" not in existing_columns:
+            conn.execute("ALTER TABLE event_log ADD COLUMN metadata TEXT")
+            self.logger.info("Event database migrated: added event_log.metadata column")
 
     # ==========================================================================
     # LIFECYCLE MANAGEMENT
@@ -599,7 +606,7 @@ class EventManager:
                 EventType.SYSTEM_START,
                 {
                     'component': 'EventManager',
-                    'timestamp': datetime.now(timezone.utc)
+                    'timestamp': datetime.now(UTC)
                 }
             )
 
@@ -610,31 +617,40 @@ class EventManager:
             self.error_handler.handle_error(e, "event_manager_start")
             return False
 
-    def stop(self, timeout: float = 5.0) -> bool:
+    def stop(self, timeout: float = 5.0, quiet: bool = False) -> bool:
         """
         Stop the event manager.
 
         Args:
             timeout: Maximum time to wait for shutdown
+            quiet: When True, suppress shutdown logging and skip emitting the
+                shutdown event. Used by atexit cleanup after logging streams may
+                already be closing.
 
         Returns:
             bool: True if stopped successfully
         """
         try:
+            def _log(level: str, message: str, *args: Any) -> None:
+                if quiet:
+                    return
+                getattr(self.logger, level)(message, *args)
+
             if not self.is_running:
-                self.logger.warning("EventManager not running")
+                _log("warning", "EventManager not running")
                 return True
 
-            self.logger.info("Stopping EventManager...")
+            _log("info", "Stopping EventManager...")
 
-            # Emit shutdown event
-            self.emit(
-                EventType.SHUTDOWN,
-                {
-                    'component': 'EventManager',
-                    'timestamp': datetime.now(timezone.utc)
-                }
-            )
+            if not quiet:
+                # Emit shutdown event
+                self.emit(
+                    EventType.SHUTDOWN,
+                    {
+                        'component': 'EventManager',
+                        'timestamp': datetime.now(UTC)
+                    }
+                )
 
             # Signal shutdown
             self._shutdown_event.set()
@@ -655,7 +671,8 @@ class EventManager:
                         # task_done called too many times; stop draining safely
                         break
                 if dropped:
-                    self.logger.info(
+                    _log(
+                        "info",
                         "A10: dropped %s unprocessed %s events during shutdown",
                         dropped,
                         name,
@@ -681,23 +698,26 @@ class EventManager:
 
             try:
                 if not _bounded_join(self.event_queue):
-                    self.logger.warning(
+                    _log(
+                        "warning",
                         "A10: event_queue drain timed out; %s tasks left unfinished",
                         getattr(self.event_queue, "unfinished_tasks", "?"),
                     )
                 if not _bounded_join(self.priority_queue):
-                    self.logger.warning(
+                    _log(
+                        "warning",
                         "A10: priority_queue drain timed out; %s tasks left unfinished",
                         getattr(self.priority_queue, "unfinished_tasks", "?"),
                     )
                 if self.persist_events and not _bounded_join(self._persist_queue):
-                    self.logger.warning(
+                    _log(
+                        "warning",
                         "A10: persist_queue drain timed out; %s tasks left unfinished",
                         getattr(self._persist_queue, "unfinished_tasks", "?"),
                     )
             except (RuntimeError, AttributeError) as e:
                 # Queue join may fail if queue already closed or in invalid state
-                self.logger.warning("Error waiting for queues during shutdown: %s", e)
+                _log("warning", "Error waiting for queues during shutdown: %s", e)
 
             # Stop worker threads
             for thread in self.worker_threads:
@@ -719,13 +739,14 @@ class EventManager:
                 self.executor.shutdown(wait=True)
 
             self.is_running = False
-            self.logger.info("EventManager stopped successfully")
+            _log("info", "EventManager stopped successfully")
 
             return True
 
         except Exception as e:
-            self.logger.error("Error stopping EventManager: %s", e)
-            self.error_handler.handle_error(e, "event_manager_stop")
+            _log("error", "Error stopping EventManager: %s", e)
+            if not quiet:
+                self.error_handler.handle_error(e, "event_manager_stop")
             return False
 
     def shutdown(self):
@@ -827,7 +848,7 @@ class EventManager:
             handler.execution_count += 1
             handler.consecutive_errors = 0  # reset on success
             handler.total_execution_time += time.time() - start_time
-            handler.last_execution = datetime.now(timezone.utc)
+            handler.last_execution = datetime.now(UTC)
 
             with self._metrics_lock:
                 self.metrics.handlers_executed += 1
@@ -846,7 +867,7 @@ class EventManager:
                 "error": str(e),
                 "traceback": tb,
                 "consecutive": handler.consecutive_errors,
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             }
             with self._handler_errors_lock:
                 self._handler_errors.append(error_record)
@@ -1136,7 +1157,7 @@ class EventManager:
                 return False
 
             # Check TTL
-            if event.ttl and (datetime.now(timezone.utc) - event.timestamp).total_seconds() > event.ttl:
+            if event.ttl and (datetime.now(UTC) - event.timestamp).total_seconds() > event.ttl:
                 with self._metrics_lock:
                     self.metrics.events_expired += 1
                 return False
@@ -1356,7 +1377,7 @@ def _event_manager_atexit_cleanup() -> None:
         inst = _event_manager_instance
     if inst is not None and getattr(inst, "is_running", False):
         try:
-            inst.stop()
+            inst.stop(quiet=True)
         except Exception:
             pass
 
