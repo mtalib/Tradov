@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -35,7 +34,7 @@ Module Description:
 # ==============================================================================
 import logging  # noqa: F401
 import os  # noqa: F401
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -86,7 +85,9 @@ def _get_client_for_env(
 
     Args:
         existing_client: Already-constructed client, or None.
-        use_live:        True → LIVE environment, False → SANDBOX.
+        use_live:        True → LIVE environment, False → retained for
+                         backwards compatibility but still resolves to LIVE
+                         under current policy.
 
     Returns:
         A TradierClient instance, or None when Tradier is unavailable or env
@@ -96,7 +97,7 @@ def _get_client_for_env(
         return None
     if existing_client is not None:
         return existing_client
-    env = TradingEnvironment.LIVE if use_live else TradingEnvironment.SANDBOX
+    env = TradingEnvironment.LIVE
     try:
         return create_tradier_client_from_env(environment=env)
     except Exception as exc:
@@ -118,14 +119,15 @@ class DashboardOrderManager:
         client:   An already-constructed TradierClient, or None.  When None
                   the manager will attempt lazy creation from env vars on the
                   first call that needs a client.
-        use_live: Whether to target the LIVE (True) or SANDBOX (False)
-                  environment when creating a client lazily.
+        use_live: Whether to target the LIVE endpoint when creating a client
+                  lazily. False is retained for backwards compatibility but
+                  still resolves to LIVE under current policy.
     """
 
     def __init__(
         self,
         client: "TradierClient | None" = None,
-        use_live: bool = False,
+        use_live: bool = True,
     ) -> None:
         self._client = client
         self._use_live = use_live
@@ -139,7 +141,7 @@ class DashboardOrderManager:
         self._client = client
 
     def set_live(self, use_live: bool) -> None:
-        """Switch between SANDBOX and LIVE for lazy client creation."""
+        """Set lazy client policy; sandbox selection is disabled."""
         self._use_live = use_live
 
     def _client_or_none(self) -> "TradierClient | None":
@@ -296,8 +298,8 @@ class DashboardOrderManager:
         if OptionLeg is None or build_option_symbol is None:
             raise RuntimeError("TradierClient module is unavailable")
 
-        current_year = datetime.now(timezone.utc).year
-        current_month = datetime.now(timezone.utc).month
+        current_year = datetime.now(UTC).year
+        current_month = datetime.now(UTC).month
         option_legs: list = []
 
         for leg_dict in legs_data:

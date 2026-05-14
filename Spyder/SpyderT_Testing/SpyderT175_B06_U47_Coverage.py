@@ -98,10 +98,21 @@ def test_b06_get_client_for_env_paths(monkeypatch):
     monkeypatch.setattr(b06, "TRADIER_AVAILABLE", False)
     assert b06._get_client_for_env(None, use_live=False) is None
 
+    captured = {}
+
     monkeypatch.setattr(b06, "TRADIER_AVAILABLE", True)
-    monkeypatch.setattr(b06, "create_tradier_client_from_env", lambda environment: "client")
+    monkeypatch.setattr(
+        b06,
+        "create_tradier_client_from_env",
+        lambda environment: captured.setdefault("environment", environment) or "client",
+    )
     monkeypatch.setattr(b06, "TradingEnvironment", SimpleNamespace(LIVE="live", SANDBOX="sandbox"))
-    assert b06._get_client_for_env(None, use_live=True) == "client"
+    assert b06._get_client_for_env(None, use_live=False) == "live"
+    assert captured["environment"] == "live"
+
+    captured.clear()
+    assert b06._get_client_for_env(None, use_live=True) == "live"
+    assert captured["environment"] == "live"
 
     monkeypatch.setattr(
         b06,
@@ -109,6 +120,11 @@ def test_b06_get_client_for_env_paths(monkeypatch):
         lambda environment: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     assert b06._get_client_for_env(None, use_live=True) is None
+
+
+def test_b06_defaults_to_live_lazy_client_policy():
+    mgr = b06.DashboardOrderManager()
+    assert mgr._use_live is True
 
 
 def test_b06_fetch_pending_orders_filters_statuses():
