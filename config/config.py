@@ -74,16 +74,6 @@ TRADIER_CONFIG = {
     "api_key": os.environ.get("TRADIER_API_KEY", ""),
     "account_id": os.environ.get("TRADIER_ACCOUNT_ID", ""),
 
-    # Legacy sandbox credentials retained for compatibility with older callers.
-    "sandbox_api_key": (
-        os.environ.get("TRADIER_SANDBOX_API_KEY")
-        or os.environ.get("TRADIER_API_KEY", "")
-    ),
-    "sandbox_account_id": (
-        os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID")
-        or os.environ.get("TRADIER_ACCOUNT_ID", "")
-    ),
-
     # Live / production credentials (api.tradier.com)
     "live_api_key": (
         os.environ.get("TRADIER_LIVE_API_KEY")
@@ -96,8 +86,6 @@ TRADIER_CONFIG = {
 
     # Environment URLs
     "live_url": os.environ.get("TRADIER_LIVE_URL", "https://api.tradier.com/v1"),
-    # Retained for compatibility; live-only policy rejects sandbox routing.
-    "sandbox_url": os.environ.get("TRADIER_SANDBOX_URL", "https://sandbox.tradier.com/v1"),
 
     # Connection Settings
     "timeout": 30,
@@ -288,7 +276,7 @@ def get_active_config():
     mode = str(os.environ.get("TRADING_MODE", "paper")).strip().lower()
 
     if mode not in _LIVE_ONLY_TRADING_MODES:
-        raise ValueError(
+        raise ConfigurationError(
             f"TRADING_MODE='{mode}' is invalid; must be 'paper' or 'live'. "
             f"{_TRADIER_ENVIRONMENT_ERROR}"
         )
@@ -297,14 +285,14 @@ def get_active_config():
     if mode == "live" and REQUIRE_LIVE_CONFIRMATION:
         live_confirmed = os.environ.get("LIVE_TRADING_CONFIRMED", "false").lower() == "true"
         if not live_confirmed:
-            raise ValueError(
+            raise ConfigurationError(
                 "LIVE TRADING BLOCKED: Set LIVE_TRADING_CONFIRMED=true in .env "
                 "after verifying you want to trade with real money."
             )
 
     tradier_env = str(os.environ.get("TRADIER_ENVIRONMENT", TRADIER_ENVIRONMENT)).strip().lower()
     if tradier_env not in _LIVE_ONLY_TRADIER_ENVS:
-        raise ValueError(
+        raise ConfigurationError(
             f"TRADIER_ENVIRONMENT='{tradier_env}' is invalid; must be 'live' or "
             f"'production'. {_TRADIER_ENVIRONMENT_ERROR}"
         )
@@ -316,12 +304,12 @@ def get_active_config():
         )
     ).strip().lower()
     if market_data_env not in _LIVE_ONLY_TRADIER_ENVS:
-        raise ValueError(
+        raise ConfigurationError(
             "TRADIER_MARKET_DATA_ENVIRONMENT must be 'live' or 'production'. "
             f"Got '{market_data_env}'. {_TRADIER_ENVIRONMENT_ERROR}"
         )
     if _is_truthy_env(os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA")):
-        raise ValueError(
+        raise ConfigurationError(
             "SPYDER_ALLOW_SANDBOX_MARKET_DATA is not permitted. "
             f"{_TRADIER_ENVIRONMENT_ERROR}"
         )

@@ -63,6 +63,7 @@ with patch("dotenv.load_dotenv"):
 
 # Pull key names into module scope for brevity
 ConfigurationError = _cfg_mod.ConfigurationError
+get_active_config = _cfg_mod.get_active_config
 validate_startup_config = _cfg_mod.validate_startup_config
 validate_config = _cfg_mod.validate_config
 
@@ -357,6 +358,26 @@ class TestValidateConfigBackwardCompat(unittest.TestCase):
         with _patched_module(env):
             ok, msg = validate_config()
         self.assertIsInstance(msg, str)
+
+    def test_returns_false_when_sandbox_env_requested(self):
+        env = {**_VALID_PAPER_ENV, "TRADIER_ENVIRONMENT": "sandbox"}
+        with _patched_module(env):
+            ok, msg = validate_config()
+        self.assertFalse(ok)
+        self.assertIn("TRADIER_ENVIRONMENT='sandbox'", msg)
+
+
+class TestGetActiveConfigPolicy(unittest.TestCase):
+    def test_rejects_sandbox_env_with_configuration_error(self):
+        env = {**_VALID_PAPER_ENV, "TRADIER_ENVIRONMENT": "sandbox"}
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            get_active_config()
+        self.assertIn("TRADIER_ENVIRONMENT='sandbox'", str(ctx.exception))
+
+    def test_tradier_config_omits_sandbox_compat_fields(self):
+        self.assertNotIn("sandbox_api_key", _cfg_mod.TRADIER_CONFIG)
+        self.assertNotIn("sandbox_account_id", _cfg_mod.TRADIER_CONFIG)
+        self.assertNotIn("sandbox_url", _cfg_mod.TRADIER_CONFIG)
 
 
 class TestA03StartupValidatorIntegration(unittest.TestCase):
