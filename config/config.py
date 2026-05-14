@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -29,7 +28,20 @@ Change Log:
 # ==============================================================================
 import logging
 import os
-from pathlib import Path
+
+
+_LIVE_ONLY_TRADING_MODES = {"paper", "live"}
+_LIVE_ONLY_TRADIER_ENVS = {"live", "production"}
+_TRUTHY_ENV_TOKENS = {"1", "true", "yes", "on"}
+_TRADIER_ENVIRONMENT_ERROR = (
+    "Spyder runs Tradier in live-only mode; paper trading uses the internal "
+    "SpyderBox ledger, not Tradier sandbox."
+)
+
+
+def _is_truthy_env(raw_value: str | None) -> bool:
+    """Return ``True`` when an env-var string is an enabled/true token."""
+    return str(raw_value or "").strip().lower() in _TRUTHY_ENV_TOKENS
 
 # ==============================================================================
 # EXCEPTIONS
@@ -62,7 +74,7 @@ TRADIER_CONFIG = {
     "api_key": os.environ.get("TRADIER_API_KEY", ""),
     "account_id": os.environ.get("TRADIER_ACCOUNT_ID", ""),
 
-    # Sandbox / paper-trading credentials (sandbox.tradier.com)
+    # Legacy sandbox credentials retained for compatibility with older callers.
     "sandbox_api_key": (
         os.environ.get("TRADIER_SANDBOX_API_KEY")
         or os.environ.get("TRADIER_API_KEY", "")
@@ -84,6 +96,7 @@ TRADIER_CONFIG = {
 
     # Environment URLs
     "live_url": os.environ.get("TRADIER_LIVE_URL", "https://api.tradier.com/v1"),
+    # Retained for compatibility; live-only policy rejects sandbox routing.
     "sandbox_url": os.environ.get("TRADIER_SANDBOX_URL", "https://sandbox.tradier.com/v1"),
 
     # Connection Settings
@@ -98,7 +111,7 @@ TRADIER_CONFIG = {
 # ==============================================================================
 # TRADING MODE CONFIGURATION
 # ==============================================================================
-TRADING_MODE = os.environ.get("TRADING_MODE", "sandbox")  # sandbox, paper, live
+TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # paper, live
 
 # Explicit live trading confirmation (SAFETY FEATURE)
 REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").lower() == "true"
@@ -108,19 +121,15 @@ DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "tradier")  # tradier
 ACTIVE_DATA_PROVIDER = os.environ.get("ACTIVE_DATA_PROVIDER", DATA_PROVIDER)  # overrides DATA_PROVIDER
 EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
 
-# Tradier API environment — controls which Tradier endpoint is used for BOTH
-# market-data quotes and order routing.  Decoupled from TRADING_MODE so that
-# paper mode can consume real production quotes while still simulating fills.
-#
-#   "live"    → api.tradier.com    (real-time quotes, live order execution)
-#   "sandbox" → sandbox.tradier.com (simulated fills, delayed/fake data)
-#
-# Default: "live" for TRADING_MODE=paper|live, "sandbox" for TRADING_MODE=sandbox.
-# Override example:  TRADING_MODE=paper TRADIER_ENVIRONMENT=live
-#   → paper trading with real Tradier market data.
+# Tradier API environment — always live/production. Paper mode uses live
+# market data while keeping fills inside the local SpyderBox paper ledger.
 _trading_mode_norm = str(TRADING_MODE).strip().lower()
-_tradier_env_default = "sandbox" if _trading_mode_norm == "sandbox" else "live"
+_tradier_env_default = "live"
 TRADIER_ENVIRONMENT = os.environ.get("TRADIER_ENVIRONMENT", _tradier_env_default)
+TRADIER_MARKET_DATA_ENVIRONMENT = os.environ.get(
+    "TRADIER_MARKET_DATA_ENVIRONMENT",
+    TRADIER_ENVIRONMENT,
+)
 
 # ==============================================================================
 # TRADING CONFIGURATION
@@ -276,7 +285,13 @@ SCHEDULER_CONFIG = {
 # ==============================================================================
 def get_active_config():
     """Get configuration for active trading mode"""
-    mode = os.environ.get("TRADING_MODE", "sandbox")
+    mode = str(os.environ.get("TRADING_MODE", "paper")).strip().lower()
+
+    if mode not in _LIVE_ONLY_TRADING_MODES:
+        raise ValueError(
+            f"TRADING_MODE='{mode}' is invalid; must be 'paper' or 'live'. "
+            f"{_TRADIER_ENVIRONMENT_ERROR}"
+        )
 
     # Safety check for live trading
     if mode == "live" and REQUIRE_LIVE_CONFIRMATION:
@@ -287,14 +302,31 @@ def get_active_config():
                 "after verifying you want to trade with real money."
             )
 
-    # Determine Tradier URL from TRADIER_ENVIRONMENT, not from TRADING_MODE.
-    # This lets paper mode use real Tradier data (TRADIER_ENVIRONMENT=live) while
-    # still routing orders through simulated execution.
-    tradier_env = os.environ.get("TRADIER_ENVIRONMENT", TRADIER_ENVIRONMENT)
-    if tradier_env == "live":
-        tradier_url = TRADIER_CONFIG["live_url"]
-    else:
-        tradier_url = TRADIER_CONFIG["sandbox_url"]
+    tradier_env = str(os.environ.get("TRADIER_ENVIRONMENT", TRADIER_ENVIRONMENT)).strip().lower()
+    if tradier_env not in _LIVE_ONLY_TRADIER_ENVS:
+        raise ValueError(
+            f"TRADIER_ENVIRONMENT='{tradier_env}' is invalid; must be 'live' or "
+            f"'production'. {_TRADIER_ENVIRONMENT_ERROR}"
+        )
+
+    market_data_env = str(
+        os.environ.get(
+            "TRADIER_MARKET_DATA_ENVIRONMENT",
+            TRADIER_MARKET_DATA_ENVIRONMENT,
+        )
+    ).strip().lower()
+    if market_data_env not in _LIVE_ONLY_TRADIER_ENVS:
+        raise ValueError(
+            "TRADIER_MARKET_DATA_ENVIRONMENT must be 'live' or 'production'. "
+            f"Got '{market_data_env}'. {_TRADIER_ENVIRONMENT_ERROR}"
+        )
+    if _is_truthy_env(os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA")):
+        raise ValueError(
+            "SPYDER_ALLOW_SANDBOX_MARKET_DATA is not permitted. "
+            f"{_TRADIER_ENVIRONMENT_ERROR}"
+        )
+
+    tradier_url = TRADIER_CONFIG["live_url"]
 
     return {
         "mode": mode,
@@ -319,9 +351,38 @@ def validate_config():
         errors.append("TRADIER_ACCOUNT_ID not set in .env")
 
     # Check trading mode
-    mode = os.environ.get("TRADING_MODE", "")
-    if mode not in ["sandbox", "paper", "live"]:
-        errors.append(f"Invalid TRADING_MODE: {mode}. Must be 'sandbox', 'paper', or 'live'")
+    mode = str(os.environ.get("TRADING_MODE", "")).strip().lower()
+    if mode not in _LIVE_ONLY_TRADING_MODES:
+        errors.append(
+            f"Invalid TRADING_MODE: {mode}. Must be 'paper' or 'live'. "
+            f"{_TRADIER_ENVIRONMENT_ERROR}"
+        )
+
+    tradier_env = str(os.environ.get("TRADIER_ENVIRONMENT", TRADIER_ENVIRONMENT)).strip().lower()
+    if tradier_env not in _LIVE_ONLY_TRADIER_ENVS:
+        errors.append(
+            f"TRADIER_ENVIRONMENT='{tradier_env}' is invalid. Must be 'live' or "
+            f"'production'. {_TRADIER_ENVIRONMENT_ERROR}"
+        )
+
+    market_data_env = str(
+        os.environ.get(
+            "TRADIER_MARKET_DATA_ENVIRONMENT",
+            TRADIER_MARKET_DATA_ENVIRONMENT,
+        )
+    ).strip().lower()
+    if market_data_env not in _LIVE_ONLY_TRADIER_ENVS:
+        errors.append(
+            "TRADIER_MARKET_DATA_ENVIRONMENT="
+            f"'{market_data_env}' is invalid. Must be 'live' or 'production'. "
+            f"{_TRADIER_ENVIRONMENT_ERROR}"
+        )
+
+    if _is_truthy_env(os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA")):
+        errors.append(
+            "SPYDER_ALLOW_SANDBOX_MARKET_DATA must be unset or false. "
+            f"{_TRADIER_ENVIRONMENT_ERROR}"
+        )
 
     if errors:
         return False, "\n".join(["Configuration errors:"] + [f"  - {e}" for e in errors])
@@ -340,9 +401,9 @@ def validate_startup_config() -> None:
     Required variables (always):
         - ``TRADIER_API_KEY``       — broker authentication
         - ``TRADIER_ACCOUNT_ID``    — account to trade in
-        - ``TRADING_MODE``          — must be ``sandbox``, ``paper``, or ``live``
-        - ``TRADIER_ENVIRONMENT``   — ``live`` or ``sandbox`` (Tradier API endpoint;
-                                       independent of TRADING_MODE)
+        - ``TRADING_MODE``          — must be ``paper`` or ``live``
+        - ``TRADIER_ENVIRONMENT``   — ``live`` or ``production``
+        - ``TRADIER_MARKET_DATA_ENVIRONMENT`` — ``live`` or ``production``
     Required variables (live mode only):
         - ``LIVE_TRADING_CONFIRMED=true`` — explicit opt-in to real-money trading
 
@@ -359,10 +420,37 @@ def validate_startup_config() -> None:
         problems.append("TRADIER_ACCOUNT_ID is not set")
 
     # --- Trading mode --------------------------------------------------------
-    mode = os.environ.get("TRADING_MODE", "")
-    if mode not in ("sandbox", "paper", "live"):
+    mode = str(os.environ.get("TRADING_MODE", "")).strip().lower()
+    if mode not in _LIVE_ONLY_TRADING_MODES:
         problems.append(
-            f"TRADING_MODE='{mode}' is invalid; must be 'sandbox', 'paper', or 'live'"
+            f"TRADING_MODE='{mode}' is invalid; must be 'paper' or 'live'. "
+            f"{_TRADIER_ENVIRONMENT_ERROR}"
+        )
+
+    broker_env = str(os.environ.get("TRADIER_ENVIRONMENT", TRADIER_ENVIRONMENT)).strip().lower()
+    if broker_env not in _LIVE_ONLY_TRADIER_ENVS:
+        problems.append(
+            f"TRADIER_ENVIRONMENT='{broker_env}' is invalid; must be 'live' or "
+            f"'production'. {_TRADIER_ENVIRONMENT_ERROR}"
+        )
+
+    market_data_env = str(
+        os.environ.get(
+            "TRADIER_MARKET_DATA_ENVIRONMENT",
+            TRADIER_MARKET_DATA_ENVIRONMENT,
+        )
+    ).strip().lower()
+    if market_data_env not in _LIVE_ONLY_TRADIER_ENVS:
+        problems.append(
+            "TRADIER_MARKET_DATA_ENVIRONMENT="
+            f"'{market_data_env}' is invalid; must be 'live' or 'production'. "
+            f"{_TRADIER_ENVIRONMENT_ERROR}"
+        )
+
+    if _is_truthy_env(os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA")):
+        problems.append(
+            "SPYDER_ALLOW_SANDBOX_MARKET_DATA must be unset or false. "
+            f"{_TRADIER_ENVIRONMENT_ERROR}"
         )
 
     # --- Live-trading safety gate --------------------------------------------

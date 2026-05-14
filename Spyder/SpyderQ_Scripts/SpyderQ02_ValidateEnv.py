@@ -102,10 +102,10 @@ def validate_trading_mode():
     trading_mode = os.environ.get("TRADING_MODE", "").lower()
     if not trading_mode:
         errors.append("TRADING_MODE not set")
-    elif trading_mode not in ["sandbox", "paper", "live"]:
-        errors.append(f"Invalid TRADING_MODE: '{trading_mode}' (must be 'sandbox', 'paper', or 'live')")
-    elif trading_mode in ("sandbox", "paper"):
-        print_success(f"Trading Mode: {trading_mode} (SAFE — no real money)")
+    elif trading_mode not in ["paper", "live"]:
+        errors.append(f"Invalid TRADING_MODE: '{trading_mode}' (must be 'paper' or 'live')")
+    elif trading_mode == "paper":
+        print_success("Trading Mode: paper (SAFE — local simulated fills)")
     else:
         print_warning(f"Trading Mode: {trading_mode} (LIVE — REAL MONEY)")
 
@@ -166,21 +166,17 @@ def validate_tradier_config():
         print_success(f"TRADIER_ACCOUNT_ID: {account_id} (configured)")
 
     # Environment
-    tradier_env_raw = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").strip().lower()
+    tradier_env_raw = os.environ.get("TRADIER_ENVIRONMENT", "live").strip().lower()
     if tradier_env_raw in ("live", "production"):
         tradier_env = "live"
-    elif tradier_env_raw == "sandbox":
-        tradier_env = "sandbox"
     else:
         tradier_env = "invalid"
 
     if tradier_env == "invalid":
         errors.append(
             f"TRADIER_ENVIRONMENT='{tradier_env_raw}' is invalid; "
-            "must be 'sandbox', 'live', or 'production'"
+            "must be 'live' or 'production' (sandbox disabled by policy)"
         )
-    elif tradier_env == "sandbox":
-        print_success("TRADIER_ENVIRONMENT: sandbox (safe — connects to https://sandbox.tradier.com)")
     else:
         trading_mode = os.environ.get("TRADING_MODE", "").strip().lower()
         if trading_mode == "paper":
@@ -189,11 +185,33 @@ def validate_tradier_config():
             )
         else:
             print_warning("TRADIER_ENVIRONMENT: live (LIVE endpoint — real-money capable)")
-            if trading_mode == "sandbox":
-                warnings.append(
-                    "TRADIER_ENVIRONMENT=live but TRADING_MODE='sandbox' — "
-                    "set TRADING_MODE=paper/live or switch TRADIER_ENVIRONMENT to sandbox"
-                )
+
+    market_data_env_raw = (
+        os.environ.get("TRADIER_MARKET_DATA_ENVIRONMENT", tradier_env_raw or "live")
+        .strip()
+        .lower()
+    )
+    if market_data_env_raw not in ("live", "production"):
+        errors.append(
+            f"TRADIER_MARKET_DATA_ENVIRONMENT='{market_data_env_raw}' is invalid; "
+            "must be 'live' or 'production' (sandbox disabled by policy)"
+        )
+        print_error(
+            "TRADIER_MARKET_DATA_ENVIRONMENT must remain live/production "
+            "(sandbox disabled by policy)"
+        )
+    else:
+        print_success("TRADIER_MARKET_DATA_ENVIRONMENT: live")
+
+    allow_sandbox_market_data = str(
+        os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA", "false")
+    ).strip().lower()
+    if allow_sandbox_market_data in {"1", "true", "yes", "on"}:
+        errors.append(
+            "SPYDER_ALLOW_SANDBOX_MARKET_DATA must be unset/false "
+            "(sandbox market-data override is disabled by policy)"
+        )
+        print_error("SPYDER_ALLOW_SANDBOX_MARKET_DATA is not permitted by policy")
 
     return errors, warnings
 
@@ -311,7 +329,10 @@ def main():
     if is_valid:
         print(f"{Colors.BOLD}Next Steps:{Colors.END}")
         print("  1. Obtain Tradier API key: https://developer.tradier.com")
-        print("  2. Set TRADING_MODE=paper and TRADIER_ENVIRONMENT=live for paper trading with live quotes")
+        print(
+            "  2. Set TRADING_MODE=paper with TRADIER_ENVIRONMENT=live and "
+            "TRADIER_MARKET_DATA_ENVIRONMENT=live"
+        )
         print("  4. Test configuration:")
         print("     $ python config/config.py")
         print("  5. Run tests:")

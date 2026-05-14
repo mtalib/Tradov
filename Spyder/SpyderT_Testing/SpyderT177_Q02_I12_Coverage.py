@@ -33,6 +33,11 @@ def test_q02_validate_trading_mode_branches(monkeypatch, capsys):
     assert warnings == []
     assert "SAFE" in capsys.readouterr().out
 
+    monkeypatch.setenv("TRADING_MODE", "sandbox")
+    errors, warnings = q02.validate_trading_mode()
+    assert errors == ["Invalid TRADING_MODE: 'sandbox' (must be 'paper' or 'live')"]
+    assert warnings == []
+
     monkeypatch.setenv("TRADING_MODE", "live")
     monkeypatch.setenv("LIVE_TRADING_CONFIRMED", "false")
     monkeypatch.setenv("REQUIRE_LIVE_CONFIRMATION", "true")
@@ -58,18 +63,40 @@ def test_q02_validate_tradier_config_paths(monkeypatch, capsys):
     monkeypatch.setenv("TRADIER_API_KEY", "your_tradier_api_key_here")
     monkeypatch.setenv("TRADIER_ACCOUNT_ID", "acct-1")
     monkeypatch.setenv("TRADIER_ENVIRONMENT", "production")
+    monkeypatch.setenv("TRADIER_MARKET_DATA_ENVIRONMENT", "live")
     monkeypatch.setenv("TRADING_MODE", "paper")
     errors, warnings = q02.validate_tradier_config()
     assert "TRADIER_API_KEY is still the placeholder value" in errors
     assert warnings == []
     assert "paper mode" in capsys.readouterr().out
 
-    monkeypatch.setenv("TRADING_MODE", "sandbox")
+    monkeypatch.setenv("TRADIER_ENVIRONMENT", "sandbox")
     errors, warnings = q02.validate_tradier_config()
     assert "TRADIER_API_KEY is still the placeholder value" in errors
-    assert warnings == [
-        "TRADIER_ENVIRONMENT=live but TRADING_MODE='sandbox' — set TRADING_MODE=paper/live or switch TRADIER_ENVIRONMENT to sandbox"
-    ]
+    assert any(
+        "TRADIER_ENVIRONMENT='sandbox' is invalid" in error
+        for error in errors
+    )
+    assert warnings == []
+
+    monkeypatch.setenv("TRADIER_ENVIRONMENT", "live")
+    monkeypatch.setenv("TRADIER_MARKET_DATA_ENVIRONMENT", "sandbox")
+    errors, warnings = q02.validate_tradier_config()
+    assert "TRADIER_API_KEY is still the placeholder value" in errors
+    assert any(
+        "TRADIER_MARKET_DATA_ENVIRONMENT='sandbox' is invalid" in error
+        for error in errors
+    )
+    assert warnings == []
+
+    monkeypatch.setenv("TRADIER_MARKET_DATA_ENVIRONMENT", "live")
+    monkeypatch.setenv("SPYDER_ALLOW_SANDBOX_MARKET_DATA", "true")
+    errors, warnings = q02.validate_tradier_config()
+    assert any(
+        "SPYDER_ALLOW_SANDBOX_MARKET_DATA must be unset/false" in error
+        for error in errors
+    )
+    assert warnings == []
 
 
 def test_q02_main_exit_codes(monkeypatch, capsys):

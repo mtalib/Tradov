@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 def _allow_sandbox_market_data() -> bool:
-    """Return True only when sandbox market-data routing is explicitly enabled."""
+    """Return True when an env-var token represents an enabled/true value."""
     raw = str(os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA", "false")).strip().lower()
     return raw in {"1", "true", "yes", "on"}
 
@@ -159,63 +159,44 @@ class DataProviderRouter:
             TradingEnvironment,
         )
 
-        # Market-data routing defaults to LIVE for both paper and live sessions.
-        # Sandbox market data is available only via explicit opt-out.
+        # Market-data routing is live-only by policy.
         market_data_env = (
             os.environ.get("TRADIER_MARKET_DATA_ENVIRONMENT")
             or os.environ.get("TRADIER_ENVIRONMENT")
             or "live"
         ).strip().lower()
 
-        allow_sandbox = _allow_sandbox_market_data()
-        is_live_env = market_data_env in {"live", "production"}
+        if _allow_sandbox_market_data():
+            raise ValueError(
+                "SPYDER_ALLOW_SANDBOX_MARKET_DATA=true is not permitted "
+                "(live-only market-data policy)."
+            )
 
-        if not is_live_env and not allow_sandbox:
-            logger.warning(
-                "DataProviderRouter forcing LIVE market-data endpoint "
-                "(TRADIER_MARKET_DATA_ENVIRONMENT=%s ignored).",
-                market_data_env or "<empty>",
+        if market_data_env not in {"live", "production"}:
+            raise ValueError(
+                "Live-only market-data policy violation: "
+                f"TRADIER_MARKET_DATA_ENVIRONMENT={market_data_env or '<empty>'}. "
+                "Use 'live' (or 'production')."
             )
-            is_live_env = True
 
-        environment = TradingEnvironment.LIVE if is_live_env else TradingEnvironment.SANDBOX
-
-        if environment == TradingEnvironment.SANDBOX:
-            api_key = (
-                self._api_key
-                or os.environ.get("TRADIER_SANDBOX_API_KEY")
-                or os.environ.get("TRADIER_API_KEY", "")
-            )
-            account_id = (
-                os.environ.get("TRADIER_SANDBOX_ACCOUNT_ID")
-                or os.environ.get("TRADIER_ACCOUNT_ID", "")
-            )
-        else:
-            api_key = (
-                self._api_key
-                or os.environ.get("TRADIER_LIVE_API_KEY")
-                or os.environ.get("TRADIER_API_KEY", "")
-            )
-            account_id = (
-                os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
-                or os.environ.get("TRADIER_ACCOUNT_ID", "")
-            )
+        environment = TradingEnvironment.LIVE
+        api_key = (
+            self._api_key
+            or os.environ.get("TRADIER_LIVE_API_KEY")
+            or os.environ.get("TRADIER_API_KEY", "")
+        )
+        account_id = (
+            os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
+            or os.environ.get("TRADIER_ACCOUNT_ID", "")
+        )
 
         if not api_key:
-            key_hint = (
-                "TRADIER_LIVE_API_KEY (or TRADIER_API_KEY)"
-                if environment == TradingEnvironment.LIVE
-                else "TRADIER_SANDBOX_API_KEY (or TRADIER_API_KEY)"
-            )
+            key_hint = "TRADIER_LIVE_API_KEY (or TRADIER_API_KEY)"
             raise ValueError(
                 f"Tradier API key not set. Add {key_hint} to your .env file."
             )
         if not account_id:
-            account_hint = (
-                "TRADIER_LIVE_ACCOUNT_ID (or TRADIER_ACCOUNT_ID)"
-                if environment == TradingEnvironment.LIVE
-                else "TRADIER_SANDBOX_ACCOUNT_ID (or TRADIER_ACCOUNT_ID)"
-            )
+            account_hint = "TRADIER_LIVE_ACCOUNT_ID (or TRADIER_ACCOUNT_ID)"
             raise ValueError(
                 f"Tradier account ID not set. Add {account_hint} to your .env file."
             )

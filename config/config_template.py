@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -30,8 +29,7 @@ __all__ = ["TRADIER_CONFIG", "TRADING_CONFIG"]
 TRADIER_CONFIG = {
     "api_key": os.environ.get("TRADIER_API_KEY", ""),
     "account_id": os.environ.get("TRADIER_ACCOUNT_ID", ""),
-    "environment": os.environ.get("TRADIER_ENVIRONMENT", "sandbox"),  # sandbox | production
-    "sandbox_url": "https://sandbox.tradier.com/v1",
+    "environment": os.environ.get("TRADIER_ENVIRONMENT", "live"),  # live | production
     "live_url": "https://api.tradier.com/v1",
     "timeout": 30,
     "max_retries": 3,
