@@ -20,7 +20,8 @@ Module Description:
         - validate_startup_config() — individual missing vars
         - validate_startup_config() — multi-error aggregation
         - validate_startup_config() — live-mode gate
-        - validate_startup_config() — success paths (sandbox / paper / live)
+        - validate_startup_config() — success paths (paper / live)
+        - validate_startup_config() — live-only Tradier env policy
         - validate_config() backward-compat (still returns bool, str)
         - SpyderA03_Configuration HAS_STARTUP_VALIDATOR flag is importable
         - ConfigManager._validate_configuration() propagates ConfigurationError
@@ -70,12 +71,13 @@ validate_config = _cfg_mod.validate_config
 # HELPERS
 # ==============================================================================
 
-# Minimal "all-good" env state for sandbox mode
-_VALID_SANDBOX_ENV = {
+# Minimal "all-good" env state for paper mode
+_VALID_PAPER_ENV = {
     "TRADIER_API_KEY": "test-key-abc",
     "TRADIER_ACCOUNT_ID": "123456",
-    "TRADING_MODE": "sandbox",
-    "TRADIER_ENVIRONMENT": "sandbox",
+    "TRADING_MODE": "paper",
+    "TRADIER_ENVIRONMENT": "live",
+    "TRADIER_MARKET_DATA_ENVIRONMENT": "live",
     "DATA_PROVIDER": "tradier",
     "LIVE_TRADING_CONFIRMED": "false",
 }
@@ -132,19 +134,25 @@ class TestConfigurationErrorClass(unittest.TestCase):
 class TestValidateStartupConfigSuccess(unittest.TestCase):
     """validate_startup_config() must NOT raise when all vars are present."""
 
-    def test_sandbox_mode_all_vars_present(self):
-        with _patched_module(_VALID_SANDBOX_ENV):
-            # Should complete without raising
-            validate_startup_config()
-
     def test_paper_mode_all_vars_present(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": "paper"}
-        with _patched_module(env):
+        with _patched_module(_VALID_PAPER_ENV):
+            # Should complete without raising
             validate_startup_config()
 
     def test_live_mode_with_confirmation(self):
         env = {
-            **_VALID_SANDBOX_ENV,
+            **_VALID_PAPER_ENV,
+            "TRADING_MODE": "live",
+            "LIVE_TRADING_CONFIRMED": "true",
+        }
+        with _patched_module(env):
+            validate_startup_config()
+
+    def test_live_mode_with_production_alias_passes(self):
+        env = {
+            **_VALID_PAPER_ENV,
+            "TRADIER_ENVIRONMENT": "production",
+            "TRADIER_MARKET_DATA_ENVIRONMENT": "production",
             "TRADING_MODE": "live",
             "LIVE_TRADING_CONFIRMED": "true",
         }
@@ -156,12 +164,12 @@ class TestValidateStartupConfigMissingTradierApiKey(unittest.TestCase):
     """Missing TRADIER_API_KEY must appear in the error."""
 
     def test_raises_configuration_error(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADIER_API_KEY": ""}
+        env = {**_VALID_PAPER_ENV, "TRADIER_API_KEY": ""}
         with _patched_module(env), self.assertRaises(ConfigurationError):
             validate_startup_config()
 
     def test_error_mentions_tradier_api_key(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADIER_API_KEY": ""}
+        env = {**_VALID_PAPER_ENV, "TRADIER_API_KEY": ""}
         with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
             validate_startup_config()
         self.assertIn("TRADIER_API_KEY", str(ctx.exception))
@@ -171,12 +179,12 @@ class TestValidateStartupConfigMissingTradierAccountId(unittest.TestCase):
     """Missing TRADIER_ACCOUNT_ID must appear in the error."""
 
     def test_raises_configuration_error(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADIER_ACCOUNT_ID": ""}
+        env = {**_VALID_PAPER_ENV, "TRADIER_ACCOUNT_ID": ""}
         with _patched_module(env), self.assertRaises(ConfigurationError):
             validate_startup_config()
 
     def test_error_mentions_tradier_account_id(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADIER_ACCOUNT_ID": ""}
+        env = {**_VALID_PAPER_ENV, "TRADIER_ACCOUNT_ID": ""}
         with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
             validate_startup_config()
         self.assertIn("TRADIER_ACCOUNT_ID", str(ctx.exception))
@@ -186,38 +194,62 @@ class TestValidateStartupConfigInvalidMode(unittest.TestCase):
     """Invalid TRADING_MODE must be rejected."""
 
     def test_empty_mode_raises(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": ""}
+        env = {**_VALID_PAPER_ENV, "TRADING_MODE": ""}
         with _patched_module(env), self.assertRaises(ConfigurationError):
             validate_startup_config()
 
     def test_typo_mode_raises(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": "Live"}  # wrong case
+        env = {**_VALID_PAPER_ENV, "TRADING_MODE": "Live"}  # wrong case
         with _patched_module(env), self.assertRaises(ConfigurationError):
             validate_startup_config()
 
     def test_unknown_mode_error_mentions_value(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": "production"}
+        env = {**_VALID_PAPER_ENV, "TRADING_MODE": "sandbox"}
         with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
             validate_startup_config()
-        self.assertIn("production", str(ctx.exception))
+        self.assertIn("sandbox", str(ctx.exception))
 
     def test_valid_modes_accepted(self):
-        for mode in ("sandbox", "paper"):
-            env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": mode}
+        for mode in ("paper", "live"):
+            env = {**_VALID_PAPER_ENV, "TRADING_MODE": mode}
+            if mode == "live":
+                env["LIVE_TRADING_CONFIRMED"] = "true"
             with _patched_module(env):
                 validate_startup_config()  # must not raise
+
+
+class TestValidateStartupConfigTradierEnvironment(unittest.TestCase):
+    """Sandbox-like Tradier env settings must be rejected everywhere."""
+
+    def test_sandbox_broker_env_raises(self):
+        env = {**_VALID_PAPER_ENV, "TRADIER_ENVIRONMENT": "sandbox"}
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
+        self.assertIn("TRADIER_ENVIRONMENT='sandbox'", str(ctx.exception))
+
+    def test_paper_market_data_env_raises(self):
+        env = {**_VALID_PAPER_ENV, "TRADIER_MARKET_DATA_ENVIRONMENT": "paper"}
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
+        self.assertIn("TRADIER_MARKET_DATA_ENVIRONMENT='paper'", str(ctx.exception))
+
+    def test_sandbox_override_flag_raises(self):
+        env = {**_VALID_PAPER_ENV, "SPYDER_ALLOW_SANDBOX_MARKET_DATA": "true"}
+        with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
+            validate_startup_config()
+        self.assertIn("SPYDER_ALLOW_SANDBOX_MARKET_DATA", str(ctx.exception))
 
 
 class TestValidateStartupConfigDataProvider(unittest.TestCase):
     """DATA_PROVIDER configuration is accepted (no validation enforced)."""
 
     def test_polygon_alias_is_accepted(self):
-        env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "polygon"}
+        env = {**_VALID_PAPER_ENV, "DATA_PROVIDER": "polygon"}
         with _patched_module(env):
             validate_startup_config()
 
     def test_tradier_provider_accepted(self):
-        env = {**_VALID_SANDBOX_ENV, "DATA_PROVIDER": "tradier"}
+        env = {**_VALID_PAPER_ENV, "DATA_PROVIDER": "tradier"}
         with _patched_module(env):
             validate_startup_config()
 
@@ -227,7 +259,7 @@ class TestValidateStartupConfigLiveModeGate(unittest.TestCase):
 
     def test_live_without_confirmation_raises(self):
         env = {
-            **_VALID_SANDBOX_ENV,
+            **_VALID_PAPER_ENV,
             "TRADING_MODE": "live",
             "LIVE_TRADING_CONFIRMED": "false",
         }
@@ -236,7 +268,7 @@ class TestValidateStartupConfigLiveModeGate(unittest.TestCase):
         self.assertIn("LIVE_TRADING_CONFIRMED", str(ctx.exception))
 
     def test_live_without_confirmation_key_raises(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": "live"}
+        env = {**_VALID_PAPER_ENV, "TRADING_MODE": "live"}
         # Remove LIVE_TRADING_CONFIRMED entirely
         env.pop("LIVE_TRADING_CONFIRMED", None)
         with _patched_module(env), patch.dict(os.environ, {}, clear=False):
@@ -246,15 +278,15 @@ class TestValidateStartupConfigLiveModeGate(unittest.TestCase):
 
     def test_live_with_confirmation_passes(self):
         env = {
-            **_VALID_SANDBOX_ENV,
+            **_VALID_PAPER_ENV,
             "TRADING_MODE": "live",
             "LIVE_TRADING_CONFIRMED": "true",
         }
         with _patched_module(env):
             validate_startup_config()  # must not raise
 
-    def test_sandbox_does_not_require_live_confirmation(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADING_MODE": "sandbox", "LIVE_TRADING_CONFIRMED": "false"}
+    def test_paper_does_not_require_live_confirmation(self):
+        env = {**_VALID_PAPER_ENV, "TRADING_MODE": "paper", "LIVE_TRADING_CONFIRMED": "false"}
         with _patched_module(env):
             validate_startup_config()  # must not raise
 
@@ -267,7 +299,7 @@ class TestValidateStartupConfigMultipleErrors(unittest.TestCase):
 
     def test_two_missing_vars_both_reported(self):
         env = {
-            **_VALID_SANDBOX_ENV,
+            **_VALID_PAPER_ENV,
             "TRADIER_API_KEY": "",
             "TRADIER_ACCOUNT_ID": "",
         }
@@ -279,7 +311,7 @@ class TestValidateStartupConfigMultipleErrors(unittest.TestCase):
 
     def test_error_message_mentions_problem_count(self):
         env = {
-            **_VALID_SANDBOX_ENV,
+            **_VALID_PAPER_ENV,
             "TRADIER_API_KEY": "",
             "TRADIER_ACCOUNT_ID": "",
         }
@@ -290,7 +322,7 @@ class TestValidateStartupConfigMultipleErrors(unittest.TestCase):
         self.assertIn("2", msg)
 
     def test_error_references_dot_env(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADIER_API_KEY": ""}
+        env = {**_VALID_PAPER_ENV, "TRADIER_API_KEY": ""}
         with _patched_module(env), self.assertRaises(ConfigurationError) as ctx:
             validate_startup_config()
         self.assertIn(".env", str(ctx.exception))
@@ -303,25 +335,25 @@ class TestValidateConfigBackwardCompat(unittest.TestCase):
     """
 
     def test_returns_tuple(self):
-        with _patched_module(_VALID_SANDBOX_ENV):
+        with _patched_module(_VALID_PAPER_ENV):
             result = validate_config()
         self.assertIsInstance(result, tuple)
         self.assertEqual(len(result), 2)
 
     def test_returns_true_on_valid_config(self):
-        with _patched_module(_VALID_SANDBOX_ENV):
+        with _patched_module(_VALID_PAPER_ENV):
             ok, msg = validate_config()
         self.assertTrue(ok)
 
     def test_returns_false_when_tradier_key_missing(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADIER_API_KEY": ""}
+        env = {**_VALID_PAPER_ENV, "TRADIER_API_KEY": ""}
         with _patched_module(env):
             ok, msg = validate_config()
         self.assertFalse(ok)
         self.assertIn("TRADIER_API_KEY", msg)
 
     def test_error_message_is_string(self):
-        env = {**_VALID_SANDBOX_ENV, "TRADIER_ACCOUNT_ID": ""}
+        env = {**_VALID_PAPER_ENV, "TRADIER_ACCOUNT_ID": ""}
         with _patched_module(env):
             ok, msg = validate_config()
         self.assertIsInstance(msg, str)
@@ -757,9 +789,8 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
             sys.modules,
             {"Spyder.SpyderA_Core.SpyderA03_Configuration": fake_cfg_module},
             clear=False,
-        ):
-            with patch.dict(os.environ, {"TRADING_MODE": "paper"}, clear=False):
-                state = dashboard._collect_startup_readiness_state()
+        ), patch.dict(os.environ, {"TRADING_MODE": "paper"}, clear=False):
+            state = dashboard._collect_startup_readiness_state()
 
         self.assertEqual(state["mode"], "paper")
 
