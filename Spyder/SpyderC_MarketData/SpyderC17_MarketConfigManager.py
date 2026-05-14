@@ -29,7 +29,7 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -168,7 +168,7 @@ class ConfigChange:
     old_value: Any
     new_value: Any
     change_type: ConfigChangeType
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -252,7 +252,6 @@ class MarketConfigManager:
         self.defaults["connections"] = {
             "tradier": {
                 "base_url": "https://api.tradier.com/v1",
-                "sandbox_url": "https://sandbox.tradier.com/v1",
                 "timeout": 30,
             }
         }
@@ -845,7 +844,7 @@ class MarketConfigManager:
     # ==========================================================================
     def _generate_version(self) -> str:
         """Generate version string"""
-        return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        return datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
     def _create_version(self, category: str):
         """Create new version entry"""
@@ -854,7 +853,7 @@ class MarketConfigManager:
 
         version = ConfigVersion(
             version=self._generate_version(),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             checksum=checksum,
             changes=[f"Updated {category} configuration"],
         )
