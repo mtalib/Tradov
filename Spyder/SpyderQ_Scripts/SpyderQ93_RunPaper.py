@@ -52,7 +52,7 @@ Options:
 Environment Variables (loaded from .env):
     TRADIER_API_KEY         Tradier bearer token
     TRADIER_ACCOUNT_ID      Tradier account number
-    TRADIER_ENVIRONMENT     "live" | "sandbox" | "production"
+    TRADIER_ENVIRONMENT     "live" | "production"
                             (policy default: live for paper/live modes)
     PAPER_STARTING_EQUITY   Fallback equity when broker unavailable (default: 100000)
     PAPER_SNAPSHOT_DIR      Directory for JSON snapshot files
@@ -455,9 +455,9 @@ def main() -> int:
     # P1-8: Safety gate — refuse to run if env is misconfigured to target live
     import os as _os
     _trading_mode = _os.environ.get("TRADING_MODE", "paper").lower()
-    if _trading_mode not in ("paper", "sandbox"):
+    if _trading_mode != "paper":
         sys.exit(
-            f"[ERROR] SpyderQ93_RunPaper requires TRADING_MODE=paper or sandbox, "
+            f"[ERROR] SpyderQ93_RunPaper requires TRADING_MODE=paper, "
             f"got '{_trading_mode}'.  Refusing to start to prevent accidental live trading."
         )
 
