@@ -26,79 +26,48 @@ Modules Overview:
 """
 
 import logging
+from importlib import import_module
 
 # Version information
 __version__ = "1.0.1"
 __author__ = "Mohamed Talib"
 __email__ = "mtalib@spyder-trading.com"
 
-# Z00 — Protocol contracts (B↔Z boundary)
-try:
-    from .SpyderZ00_BrokerProtocol import (
-        NormalizedOrderRequest,
-        NormalizedOrderResult,
-        BrokerClientProtocol,
-        OrderRouterProtocol,
-    )
-    Z00_AVAILABLE = True
-except ImportError as e:
-    logging.info("Warning: Could not import SpyderZ00_BrokerProtocol: %s", e)
-    Z00_AVAILABLE = False
+_logger = logging.getLogger(__name__)
 
-# Module imports — ZMQ required; guard individually so partial availability is
-# reported correctly and __all__ only advertises successfully imported submodules.
-_Z_MODULES_AVAILABLE: list[str] = []
+_LAZY_EXPORTS = {
+    "NormalizedOrderRequest": ("SpyderZ00_BrokerProtocol", "NormalizedOrderRequest"),
+    "NormalizedOrderResult": ("SpyderZ00_BrokerProtocol", "NormalizedOrderResult"),
+    "BrokerClientProtocol": ("SpyderZ00_BrokerProtocol", "BrokerClientProtocol"),
+    "OrderRouterProtocol": ("SpyderZ00_BrokerProtocol", "OrderRouterProtocol"),
+    "SpyderZ01_ZeroMQIntegration": ("SpyderZ01_ZeroMQIntegration", None),
+    "SpyderZ02_MessageProtocol": ("SpyderZ02_MessageProtocol", None),
+    "SpyderZ03_TradingCoordinator": ("SpyderZ03_TradingCoordinator", None),
+    "SpyderZ04_VolatilityEngine": ("SpyderZ04_VolatilityEngine", None),
+    "SpyderZ05_OrderRouter": ("SpyderZ05_OrderRouter", None),
+    "SpyderZ06_AutoHedger": ("SpyderZ06_AutoHedger", None),
+    "SpyderZ07_MultiProcessManager": ("SpyderZ07_MultiProcessManager", None),
+}
 
-try:
-    from . import SpyderZ01_ZeroMQIntegration
-    _Z_MODULES_AVAILABLE.append("SpyderZ01_ZeroMQIntegration")
-except ImportError as e:
-    logging.info("Warning: SpyderZ01_ZeroMQIntegration not available: %s", e)
+__all__ = list(_LAZY_EXPORTS)
 
-try:
-    from . import SpyderZ02_MessageProtocol
-    _Z_MODULES_AVAILABLE.append("SpyderZ02_MessageProtocol")
-except ImportError as e:
-    logging.info("Warning: SpyderZ02_MessageProtocol not available: %s", e)
 
-try:
-    from . import SpyderZ03_TradingCoordinator
-    _Z_MODULES_AVAILABLE.append("SpyderZ03_TradingCoordinator")
-except ImportError as e:
-    logging.info("Warning: SpyderZ03_TradingCoordinator not available: %s", e)
+def __getattr__(name: str):
+    module_attr = _LAZY_EXPORTS.get(name)
+    if module_attr is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-try:
-    from . import SpyderZ04_VolatilityEngine
-    _Z_MODULES_AVAILABLE.append("SpyderZ04_VolatilityEngine")
-except ImportError as e:
-    logging.info("Warning: SpyderZ04_VolatilityEngine not available: %s", e)
+    module_name, attr_name = module_attr
+    try:
+        module = import_module(f".{module_name}", __name__)
+    except ImportError as exc:
+        _logger.debug("Optional module %s not available for %s: %s", module_name, name, exc)
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
 
-try:
-    from . import SpyderZ05_OrderRouter
-    _Z_MODULES_AVAILABLE.append("SpyderZ05_OrderRouter")
-except ImportError as e:
-    logging.info("Warning: SpyderZ05_OrderRouter not available: %s", e)
+    value = module if attr_name is None else getattr(module, attr_name)
+    globals()[name] = value
+    return value
 
-try:
-    from . import SpyderZ06_AutoHedger
-    _Z_MODULES_AVAILABLE.append("SpyderZ06_AutoHedger")
-except ImportError as e:
-    logging.info("Warning: SpyderZ06_AutoHedger not available: %s", e)
 
-try:
-    from . import SpyderZ07_MultiProcessManager
-    _Z_MODULES_AVAILABLE.append("SpyderZ07_MultiProcessManager")
-except ImportError as e:
-    logging.info("Warning: SpyderZ07_MultiProcessManager not available: %s", e)
-
-# Package exports
-__all__ = [
-    # Z00 — Protocol contracts (always available)
-    "NormalizedOrderRequest",
-    "NormalizedOrderResult",
-    "BrokerClientProtocol",
-    "OrderRouterProtocol",
-]
-
-# Only advertise submodules that were successfully imported
-__all__.extend(_Z_MODULES_AVAILABLE)
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
