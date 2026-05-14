@@ -84,6 +84,8 @@ class ExitMonitor:
             ``check_exit(position: _PositionView) -> ExitDecision | None``.
         event_manager: Shared EventManager.  If ``None``, the singleton is
             used.
+        portfolio_manager_provider: Optional callable used to lazily resolve a
+            PortfolioManager after startup if one was not available initially.
         sweep_interval_s: Seconds between sweeps.  Default 1.0.
     """
 
@@ -92,11 +94,13 @@ class ExitMonitor:
         portfolio_manager: Any,
         strategy_map: dict[str, Any] | None = None,
         event_manager: Any = None,
+        portfolio_manager_provider: Callable[[], Any | None] | None = None,
         sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S,
     ) -> None:
         self.portfolio_manager = portfolio_manager
         self.strategy_map: dict[str, Any] = strategy_map or {}
         self.em = event_manager or get_event_manager()
+        self._portfolio_manager_provider = portfolio_manager_provider
         self.sweep_interval_s = sweep_interval_s
 
         self.logger = SpyderLogger.get_logger(__name__)
@@ -170,6 +174,18 @@ class ExitMonitor:
 
     def _sweep_once(self) -> None:
         """Single sweep pass — called from the background thread."""
+        if self.portfolio_manager is None and self._portfolio_manager_provider is not None:
+            try:
+                portfolio_manager = self._portfolio_manager_provider()
+            except Exception as exc:
+                self.logger.warning("ExitMonitor: could not resolve PortfolioManager lazily: %s", exc)
+                return
+
+            if portfolio_manager is None:
+                return
+
+            self.portfolio_manager = portfolio_manager
+
         try:
             positions: dict[str, Any] = getattr(
                 self.portfolio_manager, "portfolio_positions", {}
@@ -320,6 +336,7 @@ def create_exit_monitor(
     portfolio_manager: Any,
     strategy_map: dict[str, Any] | None = None,
     event_manager: Any = None,
+    portfolio_manager_provider: Callable[[], Any | None] | None = None,
     sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S,
 ) -> ExitMonitor:
     """Factory function for :class:`ExitMonitor`.
@@ -328,6 +345,8 @@ def create_exit_monitor(
         portfolio_manager: P01 PortfolioManager or compatible object.
         strategy_map: Optional pre-populated strategy map.
         event_manager: Shared EventManager (uses singleton if omitted).
+        portfolio_manager_provider: Optional callable used to lazily resolve a
+            PortfolioManager after startup.
         sweep_interval_s: Seconds between position sweeps.
 
     Returns:
@@ -337,6 +356,7 @@ def create_exit_monitor(
         portfolio_manager=portfolio_manager,
         strategy_map=strategy_map,
         event_manager=event_manager,
+        portfolio_manager_provider=portfolio_manager_provider,
         sweep_interval_s=sweep_interval_s,
     )
     SpyderLogger.get_logger(__name__).info(
