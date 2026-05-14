@@ -112,6 +112,7 @@ class TestTargetedShortOptionFlatten:
             "SPY_20260504C00520000",
             urgency="IMMEDIATE",
             reason="broker_cutoff_protection",
+            position_quantity=-1,
         )
 
 
@@ -163,6 +164,7 @@ class TestFlattenRequestEventBusIntegration:
                 "SPY_20260504C00520000",
                 urgency="IMMEDIATE",
                 reason="broker_cutoff_protection",
+                position_quantity=-1,
             )
         finally:
             if supervisor._flatten_request_handler_id:
