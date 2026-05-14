@@ -164,6 +164,7 @@ class TelegramBot:
 
         # API session with retries
         self.session = self._create_session()
+        self.command_session = self._create_session(retry_total=0)
 
         # Message queue and worker
         self.message_queue = Queue(maxsize=QUEUE_MAX_SIZE)
@@ -171,6 +172,21 @@ class TelegramBot:
         self.command_thread = None
         self.summary_thread = None
         self.running = False
+        self._stop_event = threading.Event()
+        self._command_poll_timeout_seconds: int = max(
+            1,
+            int(os.environ.get("TELEGRAM_COMMAND_POLL_TIMEOUT_S", "5") or "5"),
+        )
+        self._command_poll_request_timeout_seconds: int = max(
+            self._command_poll_timeout_seconds + 1,
+            int(
+                os.environ.get(
+                    "TELEGRAM_COMMAND_POLL_REQUEST_TIMEOUT_S",
+                    str(self._command_poll_timeout_seconds + 1),
+                )
+                or str(self._command_poll_timeout_seconds + 1)
+            ),
+        )
         self._update_offset: int | None = None
         self._allowed_user_ids = self._load_allowed_user_ids()
         self._pending_confirms: dict[int, dict[str, Any]] = {}
@@ -287,6 +303,11 @@ class TelegramBot:
             return
 
         self.running = True
+        stop_event = getattr(self, "_stop_event", None)
+        if stop_event is None:
+            stop_event = threading.Event()
+            self._stop_event = stop_event
+        stop_event.clear()
         self.worker_thread = threading.Thread(
             target=self._worker_loop,
             name=WORKER_THREAD_NAME,
@@ -344,17 +365,28 @@ class TelegramBot:
         self.send_system_message("� Spyder Autonomous Trader Stopped", priority=MessagePriority.HIGH)
 
         self.running = False
+        stop_event = getattr(self, "_stop_event", None)
+        if stop_event is not None:
+            stop_event.set()
 
-        # Wait for worker to finish
-        if self.worker_thread:
-            self.worker_thread.join(timeout=5)
-        if self.command_thread:
-            self.command_thread.join(timeout=5)
-        if self.summary_thread:
-            self.summary_thread.join(timeout=5)
+        # Close HTTP sessions before joining so long-polling requests unblock.
+        if getattr(self, "session", None) is not None:
+            self.session.close()
+        command_session = getattr(self, "command_session", None)
+        if command_session is not None and command_session is not self.session:
+            command_session.close()
 
-        # Close session
-        self.session.close()
+        shutdown_budget_s = float(os.getenv("SPYDER_TELEGRAM_STOP_TIMEOUT_S", "2.5"))
+        deadline = time.monotonic() + max(0.1, shutdown_budget_s)
+
+        for thread_name in ("worker_thread", "command_thread", "summary_thread"):
+            thread = getattr(self, thread_name, None)
+            if thread is None:
+                continue
+            remaining = max(0.0, deadline - time.monotonic())
+            if remaining <= 0.0:
+                break
+            thread.join(timeout=remaining)
 
         self.logger.info("Telegram bot stopped")
 
@@ -1096,12 +1128,17 @@ class TelegramBot:
 
     def _summary_loop(self) -> None:
         """Periodic loop for intraday heartbeat and end-of-day P/L summaries."""
-        while self.running:
+        stop_event = getattr(self, "_stop_event", None)
+        while self.running and not (stop_event is not None and stop_event.is_set()):
             try:
                 self._run_periodic_pl_notifications_once()
             except Exception as exc:
                 self.logger.error("Telegram periodic P/L loop error: %s", exc)
-            time.sleep(self._pl_loop_sleep_seconds)
+            if stop_event is not None:
+                if stop_event.wait(self._pl_loop_sleep_seconds):
+                    break
+            else:
+                time.sleep(self._pl_loop_sleep_seconds)
 
     def _run_periodic_pl_notifications_once(self, now_et: datetime | None = None) -> None:
         """Single periodic reporting tick (test-friendly, no internal sleeping)."""
@@ -1665,11 +1702,28 @@ class TelegramBot:
 
     def _command_poll_loop(self) -> None:
         """Long-poll Telegram for text commands from authorized operators."""
+        stop_event = getattr(self, "_stop_event", None)
+        session = getattr(self, "command_session", None) or self.session
+        poll_timeout = max(
+            1,
+            int(getattr(self, "_command_poll_timeout_seconds", 5) or 5),
+        )
+        request_timeout = max(
+            poll_timeout + 1,
+            int(
+                getattr(
+                    self,
+                    "_command_poll_request_timeout_seconds",
+                    poll_timeout + 1,
+                )
+                or (poll_timeout + 1)
+            ),
+        )
         updates_url = TELEGRAM_API_URL.format(token=self.bot_token, method="getUpdates")
 
         # Advance offset to ignore stale backlog when bot starts.
         try:
-            init_resp = self.session.get(
+            init_resp = session.get(
                 updates_url,
                 params={"limit": 1, "timeout": 0},
                 timeout=CONNECTION_TIMEOUT,
@@ -1681,16 +1735,24 @@ class TelegramBot:
         except Exception as exc:
             self.logger.debug("Telegram command poll init offset failed: %s", exc)
 
-        while self.running:
+        while self.running and not (stop_event is not None and stop_event.is_set()):
             try:
                 params = {
                     "offset": self._update_offset,
-                    "timeout": 20,
+                    "timeout": poll_timeout,
                     "allowed_updates": ["message"],
                 }
-                resp = self.session.get(updates_url, params=params, timeout=25)
+                resp = session.get(
+                    updates_url,
+                    params=params,
+                    timeout=request_timeout,
+                )
                 if not resp.ok:
-                    time.sleep(1)
+                    if stop_event is not None:
+                        if stop_event.wait(1):
+                            break
+                    else:
+                        time.sleep(1)
                     continue
 
                 for update in resp.json().get("result", []):
@@ -1699,7 +1761,11 @@ class TelegramBot:
 
             except Exception as exc:
                 self.logger.error("Telegram command poll error: %s", exc)
-                time.sleep(1)
+                if stop_event is not None:
+                    if stop_event.wait(1):
+                        break
+                else:
+                    time.sleep(1)
 
     def _handle_inbound_update(self, update: dict[str, Any]) -> None:
         """Handle a single Telegram update payload."""
@@ -2265,12 +2331,22 @@ class TelegramBot:
     # ==========================================================================
     # HELPER METHODS
     # ==========================================================================
-    def _create_session(self) -> requests.Session:
-        """Create HTTP session with retry logic"""
+    def _create_session(self, retry_total: int | None = None) -> requests.Session:
+        """Create HTTP session with an optional retry budget override."""
+        if retry_total is None:
+            retry_total = MAX_RETRIES
+        return self._build_session(int(retry_total))
+
+    def _build_session(self, retry_total: int) -> requests.Session:
+        """Create HTTP session with configurable retry budget."""
         session = requests.Session()
 
         retry = Retry(
-            total=MAX_RETRIES,
+            total=retry_total,
+            connect=retry_total,
+            read=retry_total,
+            redirect=retry_total,
+            status=retry_total,
             backoff_factor=RETRY_DELAY,
             status_forcelist=[429, 500, 502, 503, 504]
         )

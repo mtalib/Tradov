@@ -33,6 +33,9 @@ def _make_bot() -> TelegramBot:
     """Create a minimal TelegramBot instance without running __init__."""
     bot = TelegramBot.__new__(TelegramBot)
     bot.default_chat_id = "chat-1"
+    bot._stop_event = threading.Event()
+    bot._command_poll_timeout_seconds = 5
+    bot._command_poll_request_timeout_seconds = 6
     bot._allowed_user_ids = {111, 222}
     bot._pending_confirms = {}
     bot._resume_dual_approval = True
@@ -114,6 +117,123 @@ class TestDualApprovalResume:
         assert kwargs["approved_by"] == [111, 222]
         assert kwargs["correlation_id"] == "corr-xyz"
         assert bot._resume_pending is None
+
+
+class TestTelegramStopBehavior:
+    """Shutdown of TelegramBot should not wait on avoidable long-poll delays."""
+
+    def test_create_session_accepts_retry_override(self):
+        bot = _make_bot()
+        bot._build_session = MagicMock(return_value="session")
+
+        session = TelegramBot._create_session(bot, retry_total=0)
+
+        assert session == "session"
+        bot._build_session.assert_called_once_with(0)
+
+    def test_stop_closes_sessions_before_waiting_for_threads(self, monkeypatch):
+        bot = _make_bot()
+        bot.running = True
+        bot.send_system_message = MagicMock(return_value=True)
+
+        call_order: list[str] = []
+
+        class _Thread:
+            def __init__(self, label: str):
+                self.label = label
+
+            def join(self, timeout=None):
+                call_order.append(f"join:{self.label}:{timeout is not None}")
+
+        bot.worker_thread = _Thread("worker")
+        bot.command_thread = _Thread("command")
+        bot.summary_thread = _Thread("summary")
+        bot.session = SimpleNamespace(close=lambda: call_order.append("close_session"))
+        bot.command_session = SimpleNamespace(
+            close=lambda: call_order.append("close_command_session")
+        )
+        monkeypatch.setenv("SPYDER_TELEGRAM_STOP_TIMEOUT_S", "1.5")
+
+        bot.stop()
+
+        assert bot._stop_event.is_set() is True
+        assert call_order[:2] == ["close_session", "close_command_session"]
+        assert call_order[2:] == [
+            "join:worker:True",
+            "join:command:True",
+            "join:summary:True",
+        ]
+
+    def test_summary_loop_exits_without_work_when_stop_already_requested(self):
+        bot = _make_bot()
+        bot.running = True
+        bot._stop_event.set()
+        bot._run_periodic_pl_notifications_once = MagicMock()
+
+        bot._summary_loop()
+
+        bot._run_periodic_pl_notifications_once.assert_not_called()
+
+    def test_command_poll_loop_uses_bounded_poll_session_timeouts(self):
+        bot = _make_bot()
+        bot.running = True
+        bot.bot_token = "token"
+
+        handled_updates: list[dict[str, object]] = []
+
+        def _handle_update(update: dict[str, object]) -> None:
+            handled_updates.append(update)
+            bot.running = False
+            bot._stop_event.set()
+
+        bot._handle_inbound_update = _handle_update
+
+        class _Response:
+            def __init__(self, ok=True, result=None):
+                self.ok = ok
+                self._result = result or []
+
+            def json(self):
+                return {"result": self._result}
+
+        session_calls: list[tuple[dict[str, object], int | float | None]] = []
+
+        class _Session:
+            def get(self, _url, params=None, timeout=None):
+                session_calls.append((dict(params or {}), timeout))
+                if params and params.get("timeout") == 0:
+                    return _Response(result=[{"update_id": 10}])
+                return _Response(
+                    result=[
+                        {
+                            "update_id": 11,
+                            "message": {
+                                "text": "/status",
+                                "from": {"id": 111, "username": "op1"},
+                                "chat": {"id": "chat-1"},
+                            },
+                        }
+                    ]
+                )
+
+        bot.session = MagicMock()
+        bot.command_session = _Session()
+
+        bot._command_poll_loop()
+
+        assert bot.session.get.called is False
+        assert session_calls == [
+            ({"limit": 1, "timeout": 0}, tgmod.CONNECTION_TIMEOUT),
+            (
+                {
+                    "offset": 11,
+                    "timeout": 5,
+                    "allowed_updates": ["message"],
+                },
+                6,
+            ),
+        ]
+        assert len(handled_updates) == 1
 
 
 class TestCorrelationIdPropagation:
