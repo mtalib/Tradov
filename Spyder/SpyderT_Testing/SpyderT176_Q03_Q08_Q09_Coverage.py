@@ -110,6 +110,18 @@ def test_q03_live_mode_and_invalid_numeric_values(monkeypatch):
     assert "EMERGENCY_OVERRIDE_PASSWORD" in warning_keys
 
 
+def test_q03_rejects_sandbox_trading_mode(monkeypatch):
+    monkeypatch.setenv("TRADING_MODE", "sandbox")
+
+    validator = q03.ConfigurationValidator()
+    validator._validate_trading_mode()
+
+    assert [r.key for r in validator.errors] == ["TRADING_MODE"]
+    assert validator.errors[0].message == "Invalid value: 'sandbox'"
+    assert validator.errors[0].suggestion == "Must be 'paper' or 'live'"
+    assert validator.info == []
+
+
 def test_q03_main_without_env_file(monkeypatch):
     script_path = Path(q03.__file__)
     monkeypatch.setattr(q03.Path, "exists", lambda self: False if self == Path(q03.project_root) / ".env" else Path.exists(self))

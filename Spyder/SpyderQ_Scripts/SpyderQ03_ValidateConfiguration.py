@@ -110,14 +110,14 @@ class ConfigurationValidator:
                 "TRADING_MODE",
                 ValidationLevel.ERROR,
                 "Not set",
-                "Set TRADING_MODE=sandbox in .env file"
+                "Set TRADING_MODE=paper in .env file"
             ))
-        elif mode not in ["sandbox", "paper", "live"]:
+        elif mode not in ["paper", "live"]:
             self.add_result(ValidationResult(
                 "TRADING_MODE",
                 ValidationLevel.ERROR,
                 f"Invalid value: '{mode}'",
-                "Must be 'sandbox', 'paper', or 'live'"
+                "Must be 'paper' or 'live'"
             ))
         elif mode == "live":
             # Extra checks for live trading
