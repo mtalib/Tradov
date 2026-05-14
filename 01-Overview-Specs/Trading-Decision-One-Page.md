@@ -1,8 +1,8 @@
 # Spyder Trading Decision - One Page Visual
 
-Last Updated: 2026-04-28
-Scope: Current branch behavior (fix/audit-v14-all)
-Detailed Walkthrough: [Trading Decision Workflow](../03-Documentation/TRADING_DECISION_WORKFLOW.md)
+Last Updated: 2026-05-10
+Scope: Current workflow snapshot (v19)
+Detailed Walkthrough: [Trading Decision Workflow](./2026-05-10-TRADING_DECISION_WORKFLOW-FULL-v19.md)
 
 ## At a Glance
 
@@ -10,6 +10,7 @@ Detailed Walkthrough: [Trading Decision Workflow](../03-Documentation/TRADING_DE
 - Trade-level approval owner: E01 RiskManager (validate_signal).
 - Execution routing owner: D31 dispatch into B02/B40 (or LiveEngine fallback).
 - Agent role: X/Y agents are advisory and coordination-heavy; Y03 can veto via risk topics.
+- PCA-Proxy / PCA-IV role: S07/S14 custom-metric observability only; they are not hard regime triggers or execution gates in the current workflow.
 
 ## Decision Pipeline (Visual)
 
@@ -18,7 +19,7 @@ flowchart LR
     subgraph S1[State Formation]
         A1[SPY + Options Quotes/Chain\nB40 TradierClient]
         A2[VIX + Regime Inputs\nC10 + L09]
-        A3[Custom Metrics / Trust Inputs\nS07 + F09 checks]
+        A3[Custom Metrics / Trust Context\nS07 metrics + PCA observability + F09 checks]
     end
 
     subgraph S2[Portfolio Decision]
@@ -63,10 +64,10 @@ D31 StrategyOrchestrator decides active strategy set and allocation.
 Regime classification -> regime-to-strategy mapping -> trust gate -> E01 risk validation -> execution route selection.
 
 3. How many strategies can run simultaneously:
-- Hard orchestration cap in D31: MAX_CONCURRENT_STRATEGIES = 8 (override: SPYDER_MAX_CONCURRENT_STRATEGIES).
-- Hard horizon-bucket cap in D31: MAX_ACTIVE_HORIZON_BUCKETS = 3 (override: SPYDER_MAX_ACTIVE_HORIZON_BUCKETS).
+- Hard orchestration cap in D31: MAX_CONCURRENT_STRATEGIES = 2 (override: SPYDER_MAX_CONCURRENT_STRATEGIES).
+- Hard horizon-bucket cap in D31: MAX_ACTIVE_HORIZON_BUCKETS = 2 (override: SPYDER_MAX_ACTIVE_HORIZON_BUCKETS).
 - Engine registration cap in A02 (default): max_strategies = 20.
-- Practical active count is still constrained further by regime map, capital, E01 risk gates, and runtime circuit-breakers.
+- Practical active count is at most 2 at once: one long-term/swing strategy and one intraday/0DTE strategy, still constrained further by regime map, capital, E01 risk gates, and runtime circuit-breakers.
 
 ## Current Branch Data-Provider Reality
 

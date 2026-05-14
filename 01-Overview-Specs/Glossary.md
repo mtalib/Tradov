@@ -69,7 +69,7 @@ SpyderProject/Glossary.md (Complete)
 - **Bearer Token**: Authentication method for Tradier API requests
 - **Databento**: Institutional-grade market data provider (OPRA feed)
 - **OPRA.PILLAR**: Options Price Reporting Authority data via Databento
-- **Sandbox Mode**: Simulated trading with virtual money (Tradier sandbox)
+- **Paper Mode**: Simulated trading with the SpyderBox local paper ledger while using live Tradier data
 - **Account ID**: Unique identifier for Tradier trading account
 - **Symbol**: Ticker symbol (e.g., SPY for S&P 500 ETF)
 - **Tick Size**: Minimum price increment for an instrument

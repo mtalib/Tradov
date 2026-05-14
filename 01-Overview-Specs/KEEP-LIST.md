@@ -1,6 +1,6 @@
 # 01-Overview-Specs Keep List (Canonical)
 
-Last Updated: 2026-05-09
+Last Updated: 2026-05-10
 Purpose: Define the canonical documents to keep in this folder and reduce drift and duplication.
 
 ## Naming Convention
@@ -27,7 +27,7 @@ Use two document classes:
 
 ### Active Dated Specs and Reports
 
-- `2026-05-08-TRADING_DECISION_WORKFLOW-FULL-v16.md`
+- `2026-05-10-TRADING_DECISION_WORKFLOW-FULL-v19.md`
 - `2026-05-08-Anthropic-Repo-Adoption-Implementation-Plan.md`
 - `2026-05-05-Market-Data.md`
 - `2026-05-04-Telegram-Incident-Response-Runbook.md`
@@ -39,6 +39,8 @@ Use two document classes:
 
 ### Historical but Retained (Context)
 
+- `2026-05-10-TRADING_DECISION_WORKFLOW-FULL-v18.md`
+- `2026-05-09-TRADING_DECISION_WORKFLOW-FULL-v17.md`
 - `2026-05-05-24x5-Autonomous-Operations-Board-Memo.md`
 - `2026-05-05-24x5-Autonomous-Operations-End-to-End-Completion-Report.md`
 - `2026-05-05-24x5-Autonomous-Operations-Executive-Completion-Brief.md`
@@ -53,5 +55,5 @@ When content is superseded, move it to `12-Archive/` using a dated batch folder.
 
 ## Notes
 
-- The full trading decision workflow source of truth in this folder is `2026-05-08-TRADING_DECISION_WORKFLOW-FULL-v16.md`.
-- Keep one full workflow source in this folder at a time; older full versions should be moved to `12-Archive/`.
+- The full trading decision workflow source of truth in this folder is `2026-05-10-TRADING_DECISION_WORKFLOW-FULL-v19.md`.
+- Keep one full workflow source of truth in this folder at a time; older full versions should be treated as historical context and moved to `12-Archive/` during the next pruning pass.
