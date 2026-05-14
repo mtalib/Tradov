@@ -25,6 +25,7 @@ Change Log:
 import concurrent.futures
 import json
 import queue
+import re
 import threading
 import uuid
 from collections import deque
@@ -262,6 +263,7 @@ class LiveEngine:
         # B4 (v15): handle the reconciler's recovery event so the orphan flag is
         # cleared when the broker subsequently reports a terminal status.
         self._event_manager.subscribe(EventType.ORDER_UN_ORPHANED, self._on_order_un_orphaned)
+        self._event_manager.subscribe(EventType.POSITION_UPDATED, self._on_position_updated)
 
         # State management
         self.state = ExecutionState.INITIALIZED
@@ -1586,6 +1588,23 @@ class LiveEngine:
         # Options typically have format: SPY240315C00450000
         return len(symbol) > 10 and any(c in symbol for c in ['C', 'P'])
 
+    @staticmethod
+    def _parse_occ_option_symbol(symbol: str) -> dict[str, Any]:
+        """Parse an OCC option symbol into underlying, expiration, strike, and type."""
+        match = re.match(r"^([A-Z]{1,6})(\d{6})([CP])(\d{8})$", str(symbol or "").strip().upper())
+        if not match:
+            return {}
+        try:
+            expiration = datetime.strptime(match.group(2), "%y%m%d").date().isoformat()
+        except ValueError:
+            expiration = ""
+        return {
+            "underlying": match.group(1),
+            "expiration": expiration,
+            "strike": int(match.group(4)) / 1000.0,
+            "option_type": "call" if match.group(3) == "C" else "put",
+        }
+
     def _mode_name(self) -> str:
         """Return the normalized runtime trading mode name."""
         mode = getattr(self, "mode", None)
@@ -1737,6 +1756,121 @@ class LiveEngine:
                     getattr(event, "event_type", "unknown"),
                 )
 
+    def _normalize_reconciler_fill(self, fill: dict[str, Any]) -> dict[str, Any]:
+        """Normalize FillReconciler payloads for persistence and position tracking."""
+        normalized = dict(fill or {})
+        raw_fill = normalized.get("raw") if isinstance(normalized.get("raw"), dict) else {}
+        order_id = str(normalized.get("order_id") or "")
+
+        pending_order: dict[str, Any] = {}
+        pending_result: dict[str, Any] = {}
+        if order_id:
+            with self._pending_orders_lock:
+                pending_entry = self.pending_orders.get(order_id) or {}
+            if isinstance(pending_entry.get("order"), dict):
+                pending_order = pending_entry["order"]
+            if isinstance(pending_entry.get("result"), dict):
+                pending_result = pending_entry["result"]
+
+        symbol = (
+            normalized.get("symbol")
+            or raw_fill.get("symbol")
+            or pending_order.get("symbol")
+            or pending_result.get("symbol")
+            or ""
+        )
+        side = str(
+            normalized.get("side")
+            or raw_fill.get("side")
+            or pending_order.get("side")
+            or pending_result.get("side")
+            or "buy"
+        ).lower()
+        quantity = int(
+            normalized.get("quantity")
+            or normalized.get("exec_quantity")
+            or raw_fill.get("quantity")
+            or raw_fill.get("exec_quantity")
+            or pending_order.get("quantity")
+            or pending_order.get("qty")
+            or pending_result.get("quantity")
+            or pending_result.get("qty")
+            or 0
+        )
+        fill_price = float(
+            normalized.get("fill_price")
+            or normalized.get("avg_fill_price")
+            or raw_fill.get("avg_fill_price")
+            or raw_fill.get("price")
+            or pending_result.get("fill_price")
+            or pending_result.get("avg_fill_price")
+            or pending_result.get("price")
+            or pending_order.get("price")
+            or pending_order.get("limit_price")
+            or 0.0
+        )
+        strategy = str(
+            normalized.get("strategy")
+            or pending_order.get("strategy")
+            or pending_order.get("strategy_name")
+            or pending_order.get("strategy_id")
+            or ""
+        )
+        option_details = self._parse_occ_option_symbol(symbol) if self._is_option_symbol(str(symbol)) else {}
+        expiration = (
+            normalized.get("expiration")
+            or raw_fill.get("expiration")
+            or pending_order.get("expiration")
+            or pending_result.get("expiration")
+            or option_details.get("expiration")
+            or ""
+        )
+        strike_value = (
+            normalized.get("strike")
+            or raw_fill.get("strike")
+            or pending_order.get("strike")
+            or pending_result.get("strike")
+            or option_details.get("strike")
+        )
+        try:
+            strike = float(strike_value) if strike_value not in (None, "") else None
+        except (TypeError, ValueError):
+            strike = None
+        option_type = str(
+            normalized.get("option_type")
+            or raw_fill.get("option_type")
+            or pending_order.get("option_type")
+            or pending_result.get("option_type")
+            or option_details.get("option_type")
+            or ""
+        ).lower()
+        underlying_symbol = str(
+            normalized.get("underlying_symbol")
+            or raw_fill.get("underlying_symbol")
+            or pending_order.get("multileg_parent_symbol")
+            or pending_order.get("underlying_symbol")
+            or option_details.get("underlying")
+            or symbol
+        )
+
+        normalized.update(
+            {
+                "symbol": str(symbol),
+                "side": side,
+                "quantity": quantity,
+                "fill_price": fill_price,
+                "avg_fill_price": fill_price,
+                "timestamp": normalized.get("timestamp") or raw_fill.get("transaction_date"),
+                "tradier_order_id": normalized.get("tradier_order_id") or raw_fill.get("id") or "",
+                "strategy": strategy,
+                "expiration": str(expiration or ""),
+                "strike": strike,
+                "option_type": option_type,
+                "underlying_symbol": underlying_symbol,
+            }
+        )
+        return normalized
+
     def _on_reconciler_fill(self, event) -> None:
         """Update engine metrics when FillReconciler confirms a fill."""
         if getattr(event, "source", None) != "FillReconciler":
@@ -1744,7 +1878,8 @@ class LiveEngine:
         # A16 (v14): a fill changes positions on the broker side; drop the
         # cache so the next monitor tick fetches fresh data.
         self._invalidate_positions_cache()
-        order_id = (event.data or {}).get("order_id")
+        fill = self._normalize_reconciler_fill(event.data or {})
+        order_id = fill.get("order_id")
         if order_id:
             with self._pending_orders_lock:  # B4: thread-safe lookup
                 hit = order_id in self.pending_orders
@@ -1756,14 +1891,13 @@ class LiveEngine:
         # Forward fill data to PositionTracker (S-06).
         if self._position_tracker is not None:
             try:
-                self._position_tracker.record_fill(event.data or {})
+                self._position_tracker.record_fill(fill)
             except Exception as exc:
                 self.logger.error("PositionTracker.record_fill error: %s", exc)
 
         # Persist fill to live DB (H05) for parity with paper DB.
         if self._session_db is not None:
             try:
-                fill = event.data or {}
                 self._session_db.record_trade(
                     symbol=str(fill.get("symbol", "")),
                     trade_type=str(fill.get("side", "fill")).upper(),
@@ -1771,7 +1905,15 @@ class LiveEngine:
                     quantity=int(fill.get("quantity", fill.get("qty", 0))),
                     price=float(fill.get("avg_fill_price", fill.get("price", 0.0))),
                     commission=float(fill.get("commission", 0.0)),
+                    strategy=str(fill.get("strategy", "")),
                     order_id=str(order_id) if order_id else None,
+                    expiration=str(fill.get("expiration", "") or "") or None,
+                    strike=(
+                        float(fill.get("strike"))
+                        if fill.get("strike") not in (None, "")
+                        else None
+                    ),
+                    option_type=str(fill.get("option_type", "") or "") or None,
                     notes="live fill via FillReconciler",
                 )
             except Exception as _db_err:
@@ -1793,6 +1935,133 @@ class LiveEngine:
             hit = order_id in self.pending_orders
         if hit:
             self.metrics.successful_executions += 1
+
+    def _on_position_updated(self, event) -> None:
+        """Persist PositionTracker net positions to the session database."""
+        if getattr(event, "source", None) != "PositionTracker":
+            return
+
+        data = getattr(event, "data", None) or {}
+        symbol = str(data.get("symbol") or "")
+        if not symbol:
+            return
+
+        try:
+            quantity = int(data.get("quantity"))
+        except (TypeError, ValueError):
+            return
+
+        position_snapshot = data.get("position") if isinstance(data.get("position"), dict) else {}
+        order_id = str(data.get("order_id") or "")
+        pending_order: dict[str, Any] = {}
+
+        try:
+            fill_price = float(data.get("fill_price") or 0.0)
+        except (TypeError, ValueError):
+            fill_price = 0.0
+
+        with self._active_positions_lock:
+            existing_position = self.active_positions.get(symbol) or {}
+
+        existing_strategy = str(existing_position.get("strategy") or "")
+        existing_opened_at = existing_position.get("opened_at")
+        try:
+            existing_entry_price = float(existing_position.get("entry_price") or 0.0)
+        except (TypeError, ValueError):
+            existing_entry_price = 0.0
+
+        strategy = ""
+        if order_id:
+            with self._pending_orders_lock:
+                pending_entry = self.pending_orders.get(order_id) or {}
+            pending_order = pending_entry.get("order") if isinstance(pending_entry.get("order"), dict) else {}
+            strategy = str(
+                pending_order.get("strategy")
+                or pending_order.get("strategy_name")
+                or pending_order.get("strategy_id")
+                or ""
+            )
+        if not strategy:
+            strategy = str(position_snapshot.get("strategy") or existing_strategy or "")
+
+        try:
+            entry_price = float(position_snapshot.get("average_fill_price") or 0.0)
+        except (TypeError, ValueError):
+            entry_price = 0.0
+        if entry_price <= 0.0:
+            entry_price = existing_entry_price if existing_entry_price > 0.0 else fill_price
+
+        opened_at = existing_opened_at or datetime.now(_ET)
+        current_price = fill_price if fill_price > 0.0 else None
+        status = "OPEN" if quantity != 0 else "CLOSED"
+        closed_at = datetime.now(_ET) if quantity == 0 else None
+        option_details = self._parse_occ_option_symbol(symbol) if self._is_option_symbol(symbol) else {}
+        expiration = str(
+            position_snapshot.get("expiration")
+            or pending_order.get("expiration")
+            or option_details.get("expiration")
+            or ""
+        )
+        strike_value = (
+            position_snapshot.get("strike")
+            or pending_order.get("strike")
+            or option_details.get("strike")
+        )
+        try:
+            strike = float(strike_value) if strike_value not in (None, "") else None
+        except (TypeError, ValueError):
+            strike = None
+        option_type = str(
+            position_snapshot.get("option_type")
+            or pending_order.get("option_type")
+            or option_details.get("option_type")
+            or ""
+        ).lower()
+        underlying_symbol = str(
+            position_snapshot.get("underlying_symbol")
+            or pending_order.get("multileg_parent_symbol")
+            or option_details.get("underlying")
+            or symbol
+        )
+
+        with self._active_positions_lock:
+            if quantity == 0:
+                self.active_positions.pop(symbol, None)
+            else:
+                self.active_positions[symbol] = {
+                    "symbol": symbol,
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "current_price": current_price or entry_price,
+                    "strategy": strategy,
+                    "opened_at": opened_at,
+                    "order_id": order_id,
+                    "underlying_symbol": underlying_symbol,
+                    "expiration": expiration or None,
+                    "strike": strike,
+                    "option_type": option_type or None,
+                }
+
+        if self._session_db is None:
+            return
+
+        try:
+            self._session_db.upsert_position(
+                position_id=f"{self.mode.value}:{symbol}",
+                symbol=symbol,
+                strategy=strategy,
+                quantity=quantity,
+                entry_price=entry_price,
+                current_price=current_price,
+                status=status,
+                opened_at=opened_at,
+                closed_at=closed_at,
+                expiration=expiration or None,
+                strike=strike,
+                option_type=option_type or None,
+            )
+        except Exception as exc:
+            self.logger.warning("Session DB position upsert failed: %s", exc)
 
     def _on_order_orphaned(self, event) -> None:
         """N3: Escalate and persist orphaned orders after reconciler poll failures."""

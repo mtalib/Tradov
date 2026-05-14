@@ -25,11 +25,14 @@ Change Log:
 import json
 import threading
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock, Event as ThreadEvent
 
-_DEFAULT_STATE_PATH = Path.home() / ".spyder" / "position_tracker_state.json"
+
+def _default_state_path() -> Path:
+    """Resolve the persisted state path at runtime so tests can sandbox HOME."""
+    return Path.home() / ".spyder" / "position_tracker_state.json"
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -79,7 +82,7 @@ class PositionTracker:
         # Backward-compatible aliases used throughout this module.
         self.lock = self._position_lock
         self.positions: dict[str, object] = {}
-        self._state_path: Path = _DEFAULT_STATE_PATH
+        self._state_path: Path = _default_state_path()
 
     # ==========================================================================
     # THREAD MANAGEMENT
@@ -172,7 +175,7 @@ class PositionTracker:
         target = Path(path) if path is not None else self._state_path
         try:
             snapshot = {
-                "saved_at": datetime.now(timezone.utc).isoformat(),
+                "saved_at": datetime.now(UTC).isoformat(),
                 "positions": self.get_positions(),
             }
             target.parent.mkdir(parents=True, exist_ok=True)
