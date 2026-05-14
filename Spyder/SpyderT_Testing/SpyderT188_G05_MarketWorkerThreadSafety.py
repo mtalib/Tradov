@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from Spyder.SpyderG_GUI import SpyderG05_TradingDashboard as g05
+from Spyder.SpyderG_GUI.SpyderG18_MarketDataWorker import ThreadSafeMarketDataWorker
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
@@ -52,3 +53,25 @@ def test_invoke_market_worker_slot_calls_directly_without_running_thread(monkeyp
 
     assert dash._invoke_market_worker_slot("pause_periodic_updates") is True
     direct_slot.assert_called_once_with()
+
+
+def test_market_worker_pause_periodic_updates_stops_update_timer() -> None:
+    worker = ThreadSafeMarketDataWorker.__new__(ThreadSafeMarketDataWorker)
+    worker.update_timer = MagicMock()
+
+    ThreadSafeMarketDataWorker.pause_periodic_updates(worker)
+
+    worker.update_timer.stop.assert_called_once_with()
+
+
+def test_market_worker_fetch_slots_respect_shutdown_requested() -> None:
+    worker = ThreadSafeMarketDataWorker.__new__(ThreadSafeMarketDataWorker)
+    worker._shutdown_requested = True
+    worker._fetch_live_data_from_tradier = MagicMock()
+    worker._fetch_quotes_fast = MagicMock()
+
+    ThreadSafeMarketDataWorker.run_full_fetch(worker)
+    ThreadSafeMarketDataWorker.run_fast_fetch(worker)
+
+    worker._fetch_live_data_from_tradier.assert_not_called()
+    worker._fetch_quotes_fast.assert_not_called()
