@@ -611,7 +611,6 @@ class CustomMetricsOrchestrator(QObject):
 
             if self._shutdown_requested:
                 return
-
             if self.swan_scheduler is not None:
                 try:
                     self.swan_scheduler.start(daemon=True)

@@ -15,66 +15,59 @@ Package Description:
     for automated trading decisions.
 """
 import logging
+from importlib import import_module
 
 __version__ = "1.0.1"
 __author__ = "Mohamed Talib"
 __email__ = "mohamed.talib@spyder.ai"
 
-__all__ = []
+_LAZY_EXPORTS = {
+    "DIXCalculator": ("SpyderS01_DIXCalculator", "DIXCalculator"),
+    "SpyderDIXScheduler": ("SpyderS02_DIXScheduler", "SpyderDIXScheduler"),
+    "BlackSwanIndicator": ("SpyderS03_BlackSwanIndicator", "BlackSwanIndicator"),
+    "BlackSwanScheduler": ("SpyderS04_BlackSwanScheduler", "BlackSwanScheduler"),
+    "SpyderS06_SKEWCalculator": (
+        "SpyderS06_SKEWCalculator",
+        "SpyderS06_SKEWCalculator",
+    ),
+    "CustomMetricsOrchestrator": (
+        "SpyderS07_CustomMetricsOrchestrator",
+        "CustomMetricsOrchestrator",
+    ),
+    "GEXDEXCalculator": ("SpyderS05_GEXDEXCalculator", "GEXDEXCalculator"),
+    "ShortSqueezeDetector": (
+        "SpyderS08_ShortSqueezeDetector",
+        "ShortSqueezeDetector",
+    ),
+    "PCASignalEngine": ("SpyderS14_PCASignals", "PCASignalEngine"),
+    "get_pca_signal_engine": ("SpyderS14_PCASignals", "get_pca_signal_engine"),
+}
 
-# S01 — DIX Calculator
-try:
-    from .SpyderS01_DIXCalculator import DIXCalculator
-    __all__.extend(["DIXCalculator"])
-except ImportError as e:
-    logging.info("Warning: SpyderS01_DIXCalculator not available: %s", e)
+__all__: list[str] = []
+__all__.extend(_LAZY_EXPORTS)
 
-# S02 — DIX Scheduler
-try:
-    from .SpyderS02_DIXScheduler import SpyderDIXScheduler
-    __all__.extend(["SpyderDIXScheduler"])
-except ImportError as e:
-    logging.info("Warning: SpyderS02_DIXScheduler not available: %s", e)
 
-# S03 — Black Swan Indicator
-try:
-    from .SpyderS03_BlackSwanIndicator import BlackSwanIndicator
-    __all__.extend(["BlackSwanIndicator"])
-except ImportError as e:
-    logging.info("Warning: SpyderS03_BlackSwanIndicator not available: %s", e)
+def __getattr__(name: str):
+    """Lazily resolve signal exports on first access."""
+    module_attr = _LAZY_EXPORTS.get(name)
+    if module_attr is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-# S04 — Black Swan Scheduler
-try:
-    from .SpyderS04_BlackSwanScheduler import BlackSwanScheduler
-    __all__.extend(["BlackSwanScheduler"])
-except ImportError as e:
-    logging.info("Warning: SpyderS04_BlackSwanScheduler not available: %s", e)
+    module_name, attribute_name = module_attr
+    try:
+        module = import_module(f".{module_name}", __name__)
+        value = getattr(module, attribute_name)
+    except Exception as exc:
+        logging.info("Warning: %s not available: %s", module_name, exc)
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
 
-# S06 — SKEW Calculator
-try:
-    from .SpyderS06_SKEWCalculator import SpyderS06_SKEWCalculator
-    __all__.extend(["SpyderS06_SKEWCalculator"])
-except ImportError as e:
-    logging.info("Warning: SpyderS06_SKEWCalculator not available: %s", e)
+    globals()[name] = value
+    return value
 
-# S07 — Custom Metrics Orchestrator
-try:
-    from .SpyderS07_CustomMetricsOrchestrator import CustomMetricsOrchestrator
-    __all__.extend(["CustomMetricsOrchestrator"])
-except ImportError as e:
-    logging.info("Warning: SpyderS07_CustomMetricsOrchestrator not available: %s", e)
 
-try:
-    from .SpyderS05_GEXDEXCalculator import GEXDEXCalculator
-    __all__.extend(["GEXDEXCalculator"])
-except ImportError as e:
-    logging.info("Warning: SpyderS05_GEXDEXCalculator not available: %s", e)
-
-try:
-    from .SpyderS08_ShortSqueezeDetector import ShortSqueezeDetector
-    __all__.extend(["ShortSqueezeDetector"])
-except ImportError as e:
-    logging.info("Warning: SpyderS08_ShortSqueezeDetector not available: %s", e)
+def __dir__() -> list[str]:
+    """Expose lazy signal exports for tooling and interactive inspection."""
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
 
 
 # Package configuration

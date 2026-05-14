@@ -135,6 +135,8 @@ SYMBOL_DESCRIPTIONS = {
     "DEX": "Delta Exposure - Directional hedging flow",
     "OGL": "Zero Gamma Level - Key support/resistance",
     "DIX": "Dark Index - Dark pool buying percentage",
+    "PCA-PROXY": "PCA Proxy - Sector ETF eigenfactor signal. Positive means sector moves align with the dominant common factor; negative means they lean against it.",
+    "PCA-IV": "PCA IV Surface Factor - SPY volatility-surface eigenfactor. Positive means stress expansion; negative means compression and normalization.",
     "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
     "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",  # noqa: E501
 }
@@ -875,8 +877,8 @@ class TrafficLightButton(QPushButton):
         super().__init__(parent)
         self.label = label
         self.status = "green"
-        self.setFixedHeight(24)
-        self.setMinimumWidth(120)
+        self.setFixedHeight(20)
+        self.setMinimumWidth(124)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
             """
@@ -884,9 +886,10 @@ class TrafficLightButton(QPushButton):
                 background-color: transparent;
                 border: none;
                 text-align: left;
-                padding-left: 25px;
+                padding: 0px 0px 0px 20px;
                 color: #ffffff;
                 font-size: 11px;
+                font-weight: normal;
             }
             QPushButton:hover {
                 background-color: #2a2a2a;
@@ -940,7 +943,7 @@ class SignalMonitorPanel(QWidget):
 
     def __init__(self, parent=None, *args, **kwargs):
         super().__init__(parent)
-        self.setFixedHeight(165)
+        self.setFixedHeight(154)
         self.setMinimumWidth(280)
         self.setStyleSheet(
             f"""
@@ -953,8 +956,9 @@ class SignalMonitorPanel(QWidget):
         )
 
         layout = QGridLayout()
-        layout.setContentsMargins(15, 10, 15, 10)
-        layout.setSpacing(3)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setHorizontalSpacing(6)
+        layout.setVerticalSpacing(0)
 
         self.vix_button = TrafficLightButton("VIX MONITOR")
         self.ai_button = TrafficLightButton("AI DECISION")
@@ -1492,13 +1496,17 @@ class MarketSymbolWidget(QWidget):
             last = data.get("last", 0.0)
             change = data.get("change", 0.0)
             change_pct = data.get("change_pct", 0.0)
+            status = data.get("status")
+            phase = data.get("phase")
         else:
             last = data.last
             change = data.change
             change_pct = data.change_pct
+            status = getattr(data, "status", None)
+            phase = getattr(data, "phase", None)
 
-        if self.symbol in ["GEX", "DEX", "OGL", "DIX", "SWAN", "NAAIM", "AABULL"]:
-            self._update_custom_indicator(last, change, change_pct)
+        if self.symbol in ["GEX", "DEX", "OGL", "DIX", "PCA-PROXY", "PCA-IV", "SWAN", "NAAIM", "AABULL"]:
+            self._update_custom_indicator(last, change, change_pct, status=status, phase=phase)
         else:
             self._update_standard_symbol(last, change, change_pct)
 
@@ -1667,9 +1675,10 @@ class MarketSymbolWidget(QWidget):
             return f"{sign}{value / 1_000:.0f}K"
         return f"{sign}{value:.2f}"
 
-    def _update_custom_indicator(self, last, change, change_pct):
+    def _update_custom_indicator(self, last, change, change_pct, status=None, phase=None):
         color = COLORS["neutral"]
         change_text: str | None = None  # None → use default f"{sign}{change:.2f}"
+        self.price_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 11px;")
         if self.symbol == "GEX":
             value_b = last / 1_000_000_000
             self.price_label.setText(f"{value_b:.1f}B")
@@ -1691,6 +1700,42 @@ class MarketSymbolWidget(QWidget):
                 color = COLORS["negative"]
             else:
                 color = COLORS["neutral"]
+        elif self.symbol == "PCA-PROXY":
+            self.symbol_label.setText("PCA-Proxy")
+            self.price_label.setText(f"{last:+.2f}")
+            if last > 0.35:
+                color = COLORS["positive"]
+            elif last < -0.35:
+                color = COLORS["negative"]
+            else:
+                color = COLORS["neutral"]
+            self.setToolTip(self._build_pca_proxy_tooltip(last, change))
+        elif self.symbol == "PCA-IV":
+            self.symbol_label.setText("PCA-IV")
+            normalized_status = str(status or "").lower()
+            normalized_phase = str(phase or "").lower()
+            if normalized_status == "live":
+                self.price_label.setText(f"{last:+.2f}")
+                if last > 0.35:
+                    color = COLORS["negative"]
+                elif last < -0.35:
+                    color = COLORS["positive"]
+                else:
+                    color = COLORS["neutral"]
+                self.price_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+                self.setToolTip(self._build_pca_iv_tooltip(last, change, normalized_status, normalized_phase))
+            else:
+                label = "SEED" if normalized_phase == "history-seeding" else "PEND"
+                if normalized_status == "fallback":
+                    label = "HOLD"
+                self.price_label.setText(label)
+                self.price_label.setStyleSheet(f"color: {COLORS['warning']}; font-size: 11px;")
+                self.change_label.setText("—")
+                self.change_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
+                self.pct_label.setText("")
+                self.pct_label.setStyleSheet("font-size: 11px;")
+                self.setToolTip(self._build_pca_iv_tooltip(last, change, normalized_status, normalized_phase))
+                return
         elif self.symbol == "SWAN":
             self.price_label.setText(f"{last:.2f}")
             if last < 1.9:
@@ -1726,6 +1771,82 @@ class MarketSymbolWidget(QWidget):
         self.change_label.setStyleSheet(f"color: {color}; font-size: 11px;")
         self.pct_label.setText(f"{pct_sign}{change_pct:.2f}%")
         self.pct_label.setStyleSheet(f"color: {color}; font-size: 11px;")
+
+    @staticmethod
+    def _build_pca_proxy_tooltip(last: float, change: float) -> str:
+        """Return a concise hover explanation for the PCA-Proxy row."""
+        if last >= 0.75:
+            regime = "Positive impulse"
+            reading = "broad sector leadership is lining up with the dominant factor"
+        elif last <= -0.75:
+            regime = "Negative impulse"
+            reading = "broad sector leadership is leaning against the dominant factor"
+        elif last >= 0.35:
+            regime = "Mild positive"
+            reading = "sector breadth is leaning with the common factor"
+        elif last <= -0.35:
+            regime = "Mild negative"
+            reading = "sector breadth is leaning against the common factor"
+        else:
+            regime = "Balanced"
+            reading = "sector leadership is mixed rather than strongly one-sided"
+
+        return (
+            "PCA-Proxy\n"
+            f"Value: {last:+.2f} ({regime})\n"
+            f"Change: {change:+.2f}\n"
+            "Positive = sector moves align with the dominant common factor.\n"
+            "Negative = sector moves push against that factor.\n"
+            f"Current read: {reading}.\n"
+            "Click for decomposition, recent history, and regime note."
+        )
+
+    @staticmethod
+    def _build_pca_iv_tooltip(last: float, change: float, status: str, phase: str) -> str:
+        """Return a concise hover explanation for the PCA-IV row."""
+        if status != "live":
+            label = "SEED" if phase == "history-seeding" else "PEND"
+            if status == "fallback":
+                label = "HOLD"
+            state_note = {
+                "SEED": "surface history is still accumulating before the live factor fully stabilizes",
+                "HOLD": "the live factor is temporarily unavailable, so the last cycle fell back to hold state",
+                "PEND": "the PCA-IV factor is staged but not live yet",
+            }.get(label, "the PCA-IV factor is staged but not live yet")
+            return (
+                "PCA-IV\n"
+                f"State: {label}\n"
+                "Positive live values = IV stress expansion.\n"
+                "Negative live values = IV compression / normalization.\n"
+                f"Current read: {state_note}.\n"
+                "Click for seed progress, storage status, and factor details."
+            )
+
+        if last >= 0.75:
+            regime = "Stress expansion"
+            reading = "the surface is aligned with higher-volatility conditions"
+        elif last <= -0.75:
+            regime = "Compression"
+            reading = "the surface is aligned with lower-volatility compression and normalization"
+        elif last >= 0.35:
+            regime = "Mild stress"
+            reading = "the surface is leaning toward expansion"
+        elif last <= -0.35:
+            regime = "Mild compression"
+            reading = "the surface is leaning toward normalization"
+        else:
+            regime = "Balanced"
+            reading = "the surface factor is active but not strongly directional"
+
+        return (
+            "PCA-IV\n"
+            f"Value: {last:+.2f} ({regime})\n"
+            f"Change: {change:+.2f}\n"
+            "Positive = IV stress expansion.\n"
+            "Negative = IV compression / normalization.\n"
+            f"Current read: {reading}.\n"
+            "Click for factor loadings, recent history, and seed status."
+        )
 
 
 class GreekBar(QWidget):
