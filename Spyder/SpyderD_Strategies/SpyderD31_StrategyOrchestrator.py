@@ -48,12 +48,9 @@ from datetime import datetime, timedelta, timezone, time as dt_time  # noqa: E40
 from dataclasses import dataclass, field  # noqa: E402
 from enum import Enum  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
-from typing import Any, TYPE_CHECKING  # noqa: E402
+from typing import Any  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-
-if TYPE_CHECKING:
-    from Spyder.SpyderB_Broker.SpyderB20_IntegratedConnectivityManager import IntegratedConnectivityManager
 
 try:
     from Spyder.SpyderZ_Communication.SpyderZ02_MessageProtocol import (
