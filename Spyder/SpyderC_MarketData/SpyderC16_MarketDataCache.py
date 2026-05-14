@@ -234,6 +234,7 @@ class MarketDataCache:
 
         # Cleanup thread
         self._cleanup_thread: threading.Thread | None = None
+        self._cleanup_event = threading.Event()
         self._running = False
 
         self.logger.debug("Market Data Cache initialized")
@@ -305,6 +306,7 @@ class MarketDataCache:
     def start(self):
         """Start the cache system"""
         self._running = True
+        self._cleanup_event.clear()
 
         # Start cleanup thread
         self._cleanup_thread = threading.Thread(
@@ -322,6 +324,7 @@ class MarketDataCache:
     def stop(self):
         """Stop the cache system"""
         self._running = False
+        self._cleanup_event.set()
 
         # Wait for cleanup thread
         if self._cleanup_thread:
@@ -711,7 +714,8 @@ class MarketDataCache:
                 self.logger.error("Cleanup error: %s", e, exc_info=True)
 
             # Wait for next cleanup
-            time.sleep(self.config['memory']['cleanup_interval'])  # thread-safe: time.sleep() intentional  # noqa: E501
+            if self._cleanup_event.wait(self.config['memory']['cleanup_interval']):
+                break
 
     def _cleanup_expired(self):
         """Compatibility no-op: H03 handles expiration cleanup."""

@@ -92,3 +92,18 @@ def test_c16_invalidate_removes_l1_entry(tmp_path):
     assert cache.get("SPY") is None
 
     cache.stop()
+
+
+def test_c16_stop_interrupts_cleanup_wait(tmp_path):
+    config = _build_config(str(tmp_path / "cache.db"))
+    config["memory"]["cleanup_interval"] = 30
+
+    cache = MarketDataCache(config=config)
+    cache.start()
+
+    cleanup_thread = cache._cleanup_thread
+    assert cleanup_thread is not None
+
+    cache.stop()
+
+    assert cleanup_thread.is_alive() is False
