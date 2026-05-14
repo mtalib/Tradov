@@ -305,7 +305,7 @@ def run_session(
             replay_report = strategy_runner.flush_deferred_sandbox_replay()
             if replay_report:
                 _logger.info(
-                    "Deferred sandbox replay report: processed=%s sent=%s failed=%s pending=%s path=%s",
+                    "Deferred replay report: processed=%s sent=%s failed=%s pending=%s path=%s",
                     replay_report.get("processed", 0),
                     replay_report.get("sent", 0),
                     replay_report.get("failed", 0),

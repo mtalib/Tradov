@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -57,7 +56,7 @@ import os
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -286,7 +285,7 @@ class StrategyAdapter:
 
     @staticmethod
     def _leg_with_greeks(
-        runner: "PaperStrategyRunner",
+        runner: PaperStrategyRunner,
         opt: Any,
         side: str,
         strike: float,
@@ -310,7 +309,7 @@ class StrategyAdapter:
     def evaluate_entry(
         self,
         ctx: MarketContext,
-        runner: "PaperStrategyRunner",
+        runner: PaperStrategyRunner,
     ) -> ProposedPosition | None:  # pragma: no cover
         # A15 (v14): Safe no-op default — see within_entry_window above.
         import logging
@@ -361,7 +360,7 @@ class BullPutAdapter(StrategyAdapter):
     def evaluate_entry(
         self,
         ctx: MarketContext,
-        runner: "PaperStrategyRunner",
+        runner: PaperStrategyRunner,
     ) -> ProposedPosition | None:
         target_expiry = runner.pick_expiration(
             ctx.now.date(), BP_TARGET_DTE_MIN, BP_TARGET_DTE_MAX,
@@ -432,7 +431,7 @@ class ZeroDTEAdapter(StrategyAdapter):
     def evaluate_entry(
         self,
         ctx: MarketContext,
-        runner: "PaperStrategyRunner",
+        runner: PaperStrategyRunner,
     ) -> ProposedPosition | None:
         today_iso = ctx.now.date().isoformat()
         if today_iso not in runner.get_expirations():
@@ -548,7 +547,7 @@ class PaperStrategyRunner:
         self._starting_equity = float(starting_equity)
         if sandbox_replayer is not None:
             logger.warning(
-                "PaperStrategyRunner: deferred sandbox replay service ignored by live-only policy"
+                "PaperStrategyRunner: deferred replay service ignored by live-only policy"
             )
         self._sandbox_replayer = None
 
@@ -700,7 +699,7 @@ class PaperStrategyRunner:
         closed = 0
         for pos in list(self._positions):
             if pos.is_open:
-                self._close_position(pos, reason=reason, now=datetime.now(timezone.utc))
+                self._close_position(pos, reason=reason, now=datetime.now(UTC))
                 closed += 1
         return closed
 
@@ -718,7 +717,7 @@ class PaperStrategyRunner:
         }
 
     def flush_deferred_sandbox_replay(self, max_records: int = 50) -> dict[str, Any] | None:
-        """Deferred sandbox replay is disabled under live-only policy."""
+        """Deferred replay is disabled under live-only policy."""
         _ = max_records
         return None
 
@@ -1116,7 +1115,7 @@ class PaperStrategyRunner:
                     contracts=pos.contracts,
                 )
             except Exception as exc:
-                logger.warning("Deferred sandbox replay enqueue failed for %s: %s", pos.position_id, exc)
+                logger.warning("Deferred replay enqueue failed for %s: %s", pos.position_id, exc)
 
         logger.info(
             "CLOSE %s (%s) %s: realized=$%.2f [reason=%s, credit=$%.2f debit=$%.2f]",

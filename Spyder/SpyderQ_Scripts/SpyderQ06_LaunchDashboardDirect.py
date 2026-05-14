@@ -333,7 +333,7 @@ class MarketDataWidget(QWidget):
 
 💡 Troubleshooting:
    - Ensure TRADIER_API_KEY is set in your .env file
-   - Check TRADIER_ENVIRONMENT (sandbox or production)
+    - Check TRADIER_ENVIRONMENT (live or production)
         """)
 
         layout.addWidget(self.data_display)
@@ -405,7 +405,7 @@ class SPYDERDirectDashboard(QMainWindow):
         self.config_label = QLabel("""
         Broker: Tradier REST API
         Market Data: Tradier primary / Massive fallback
-        Environment: sandbox / production (via .env)
+        Environment: live / production (via .env)
         Mode: Direct Connection
         """)
         self.config_label.setStyleSheet(
