@@ -62,6 +62,28 @@ try:
 except ImportError as e:
     logging.debug("Optional module SpyderC01_DataFeed not fully available: %s", e)
 
+try:
+    from . import SpyderC01_DataFeed as _spyder_c01_datafeed
+
+    for _name in (
+        "DataFeedManager",
+        "DataFeed",
+        "get_data_feed_manager",
+        "MarketTick",
+        "DataFeedConfig",
+        "DataFeedStatus",
+        "DataSource",
+        "MarketDataProvider",
+        "create_provider",
+        "SYMBOL_GROUPS",
+    ):
+        if _name not in globals() and hasattr(_spyder_c01_datafeed, _name):
+            globals()[_name] = getattr(_spyder_c01_datafeed, _name)
+            if _name not in __all__:
+                __all__.append(_name)
+except ImportError as e:
+    logging.debug("Optional C01 export backfill unavailable: %s", e)
+
 # Historical Data module
 try:
     from .SpyderC02_HistoricalData import HistoricalDataManager

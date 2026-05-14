@@ -391,7 +391,7 @@ class DataFeedManager:
         self._last_quote_poll_monotonic: float = 0.0
         self._quote_poll_interval_s: float = max(
             1.0,
-            float(os.environ.get("SPYDER_FEED_QUOTE_POLL_INTERVAL_S", "5.0")),
+            float(os.environ.get("SPYDER_FEED_QUOTE_POLL_INTERVAL_S", "1.0")),
         )
         self._quote_client_failed: bool = False
 
@@ -485,6 +485,23 @@ class DataFeedManager:
             # Connect provider
             provider_ok = self._provider.connect()
 
+            if not provider_ok or not self._provider.is_connected:
+                quote_client = self._ensure_quote_client()
+                if quote_client is None:
+                    self.logger.error(
+                        "Data feed startup failed: provider=%s disconnected and Tradier "
+                        "quote fallback unavailable",
+                        self._provider.__class__.__name__,
+                    )
+                    self.is_running = False
+                    self.status = DataFeedStatus.ERROR
+                    return False
+
+                self.logger.info(
+                    "Data feed using Tradier REST quote fallback (%s)",
+                    self._provider.__class__.__name__,
+                )
+
             # Start cache
             if self.market_cache:
                 self.market_cache.start()
@@ -505,10 +522,9 @@ class DataFeedManager:
             _coord.register_cleanup(self.stop)
             self._monitor_thread.start()
 
-            # Allow connection to settle
-            time.sleep(2)  # thread-safe: time.sleep() intentional
-
             if provider_ok and self._provider.is_connected:
+                # Only pay the settle delay when a live provider actually connected.
+                time.sleep(2)  # thread-safe: time.sleep() intentional
                 self.status = DataFeedStatus.CONNECTED
             else:
                 self.status = DataFeedStatus.DEGRADED
@@ -529,6 +545,9 @@ class DataFeedManager:
             True on success.
         """
         try:
+            if not self.is_running and self.status == DataFeedStatus.DISCONNECTED:
+                return True
+
             self.is_running = False
             self._stop_event.set()
 
