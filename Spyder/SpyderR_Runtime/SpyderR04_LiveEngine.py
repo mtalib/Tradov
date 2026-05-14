@@ -652,6 +652,46 @@ class LiveEngine:
         """
         self._session_db = db
 
+        if self._mode_name() != "paper" or not hasattr(db, "get_open_positions"):
+            return
+
+        try:
+            open_positions = db.get_open_positions()
+        except Exception as exc:
+            self.logger.warning("Paper position hydration from H05 failed: %s", exc)
+            return
+
+        if not isinstance(open_positions, list):
+            return
+
+        hydrated_positions: dict[str, Any] = {}
+        for position in open_positions:
+            if not isinstance(position, dict):
+                continue
+            symbol = str(position.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            try:
+                quantity = int(position.get("quantity") or 0)
+            except (TypeError, ValueError):
+                quantity = 0
+            if quantity == 0:
+                continue
+            hydrated_positions[symbol] = dict(position)
+
+        if not hydrated_positions:
+            return
+
+        with self._active_positions_lock:
+            if self.active_positions:
+                return
+            self.active_positions.update(hydrated_positions)
+
+        self.logger.info(
+            "Hydrated %s active positions from session DB for paper mode",
+            len(hydrated_positions),
+        )
+
     def update_regime_metrics(self, metrics: dict[str, Any]) -> None:
         """Receive a fresh S07 CustomMetricsOrchestrator snapshot.
 

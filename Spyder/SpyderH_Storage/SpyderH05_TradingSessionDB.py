@@ -377,6 +377,12 @@ class TradingSessionDB:
                          expiration, strike, option_type, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(position_id) DO UPDATE SET
+                        strategy       = excluded.strategy,
+                        quantity       = excluded.quantity,
+                        entry_price    = CASE
+                            WHEN excluded.entry_price > 0 THEN excluded.entry_price
+                            ELSE positions.entry_price
+                        END,
                         current_price  = excluded.current_price,
                         unrealized_pnl = excluded.unrealized_pnl,
                         realized_pnl   = excluded.realized_pnl,

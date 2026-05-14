@@ -28,6 +28,8 @@ Coverage targets:
 
 import unittest
 from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock
 
 
@@ -313,6 +315,73 @@ class TestR04PauseResume(unittest.TestCase):
         engine, _, _ = _make_live_engine()
         engine.state = ExecutionState.TRADING
         self.assertFalse(engine.resume_trading())
+
+
+class TestR04PositionHydration(unittest.TestCase):
+    """Paper-mode engines should hydrate active positions from H05 when attached."""
+
+    def test_set_session_db_hydrates_paper_active_positions_from_h05(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            db.upsert_position(
+                position_id="paper:SPY",
+                symbol="SPY",
+                strategy="iron_condor",
+                quantity=-7,
+                entry_price=733.10,
+                current_price=733.20,
+                status="OPEN",
+            )
+
+            engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+
+            self.assertEqual(engine.active_positions, {})
+
+            engine.set_session_db(db)
+
+            self.assertEqual(engine.active_positions["SPY"]["quantity"], -7)
+            self.assertEqual(engine.active_positions["SPY"]["strategy"], "iron_condor")
+
+
+class TestH05PositionPersistence(unittest.TestCase):
+    """TradingSessionDB position upserts should track the latest net quantity."""
+
+    def test_upsert_position_updates_quantity_and_entry_price(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "positions.db")
+            db.upsert_position(
+                position_id="paper:SPY",
+                symbol="SPY",
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=733.50,
+                current_price=733.50,
+                status="OPEN",
+            )
+            db.upsert_position(
+                position_id="paper:SPY",
+                symbol="SPY",
+                strategy="iron_condor",
+                quantity=-4,
+                entry_price=733.10,
+                current_price=733.25,
+                status="OPEN",
+            )
+
+            rows = db.get_open_positions()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["symbol"], "SPY")
+        self.assertEqual(rows[0]["strategy"], "iron_condor")
+        self.assertEqual(rows[0]["quantity"], -4)
+        self.assertEqual(rows[0]["entry_price"], 733.10)
+        self.assertEqual(rows[0]["current_price"], 733.25)
 
 
 class TestR04GetExecutionStatus(unittest.TestCase):
