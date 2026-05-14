@@ -21,6 +21,9 @@ class TestSecretsManagerNormalise(unittest.TestCase):
     def setUp(self):
         self.sm = SecretsManager()
 
+    def test_live_only_api_omits_sandbox_token_accessor(self):
+        self.assertFalse(hasattr(SecretsManager, "tradier_sandbox_token"))
+
     def test_get_returns_none_for_unknown_key(self):
         result = self.sm.get("DEFINITELY_NOT_A_REAL_SECRET_XYZ_99")
         self.assertIsNone(result)

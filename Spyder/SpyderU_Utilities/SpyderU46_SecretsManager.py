@@ -335,10 +335,6 @@ class SecretsManager:
         return self.get("TRADIER_API_TOKEN")
 
     @property
-    def tradier_sandbox_token(self) -> str | None:
-        return self.get("TRADIER_SANDBOX_TOKEN")
-
-    @property
     def telegram_bot_token(self) -> str | None:
         return self.get("TELEGRAM_BOT_TOKEN")
 
