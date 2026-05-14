@@ -7,8 +7,9 @@ import json
 import os
 import sys
 import types
+import importlib
 import importlib.util as _ilu
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -82,6 +83,15 @@ _ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+try:
+    _real_s02 = importlib.import_module(
+        "Spyder.SpyderS_Signals.SpyderS02_DIXScheduler"
+    )
+except Exception:
+    _real_s02 = None
+else:
+    sys.modules["SpyderS_Signals.SpyderS02_DIXScheduler"] = _real_s02
+
 _S14_PATH = os.path.join(_ROOT, "Spyder", "SpyderS_Signals", "SpyderS14_PCASignals.py")
 _s14_spec = _ilu.spec_from_file_location("_s14_pca_signals_module", _S14_PATH)
 _s14_mod = _ilu.module_from_spec(_s14_spec)  # type: ignore[arg-type]
@@ -116,7 +126,7 @@ def _synthetic_prices() -> pd.DataFrame:
 
 
 def _seed_iv_surface_history(engine: PCASignalEngine, rows: int = 48) -> None:
-    start = datetime(2026, 4, 1, 14, 30, tzinfo=timezone.utc)
+    start = datetime(2026, 4, 1, 14, 30, tzinfo=UTC)
     for idx in range(rows):
         theta = idx / 6.0
         level = 0.19 + 0.025 * np.sin(theta)
@@ -143,7 +153,7 @@ def _seed_iv_surface_history(engine: PCASignalEngine, rows: int = 48) -> None:
 
 
 def _write_scalar_iv_history(path, rows: int = 90) -> None:
-    start = datetime(2025, 12, 1, tzinfo=timezone.utc)
+    start = datetime(2025, 12, 1, tzinfo=UTC)
     payload = []
     for idx in range(rows):
         theta = idx / 8.0
@@ -275,7 +285,7 @@ def test_pca_iv_bootstraps_from_scalar_iv_history(tmp_path) -> None:
 
 def test_s07_pca_metric_update_and_formatting() -> None:
     orch = CustomMetricsOrchestrator(config={"auto_start": False})
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     orch.pca_signal_engine = MagicMock()
     orch.pca_signal_engine.get_proxy_snapshot.return_value = PCAMetricSnapshot(
         signal_value=1.25,
@@ -325,7 +335,7 @@ def test_s07_pca_metric_update_and_formatting() -> None:
 
 def test_s07_formats_live_pca_iv_metric() -> None:
     orch = CustomMetricsOrchestrator(config={"auto_start": False})
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     orch.pca_signal_engine = MagicMock()
     orch.pca_signal_engine.get_proxy_snapshot.return_value = PCAMetricSnapshot(
         signal_value=0.50,

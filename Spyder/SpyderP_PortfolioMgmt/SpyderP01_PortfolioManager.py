@@ -25,7 +25,7 @@ Change Log:
 import time
 import threading
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, asdict
 from collections import defaultdict, deque
@@ -280,7 +280,7 @@ class PortfolioManager:
         # Portfolio state
         self.portfolio_state = PortfolioState.INITIALIZING
         self.portfolio_id = str(uuid.uuid4())
-        self.created_at = datetime.now(timezone.utc)
+        self.created_at = datetime.now(UTC)
 
         # Strategy management
         self.strategy_allocations: dict[str, StrategyAllocation] = {}
@@ -307,7 +307,7 @@ class PortfolioManager:
         self.gamma_calculator = GammaExposureCalculator()
 
         # Rebalancing
-        self.last_rebalance = datetime.now(timezone.utc)
+        self.last_rebalance = datetime.now(UTC)
         self.rebalance_history: deque = deque(maxlen=100)
         self.pending_rebalances: list[RebalanceEvent] = []
 
@@ -387,7 +387,7 @@ class PortfolioManager:
                 max_drawdown=0.0,
                 volatility=0.0,
                 correlation_to_portfolio=0.0,
-                last_rebalance=datetime.now(timezone.utc)
+                last_rebalance=datetime.now(UTC)
             )
 
             # Store allocation
@@ -599,7 +599,7 @@ class PortfolioManager:
             # Create rebalance event
             rebalance_event = RebalanceEvent(
                 rebalance_id=str(uuid.uuid4()),
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 reason=reason,
                 old_allocations={sid: alloc.current_allocation
                                for sid, alloc in self.strategy_allocations.items()},
@@ -618,7 +618,7 @@ class PortfolioManager:
 
             # Store in history
             self.rebalance_history.append(rebalance_event)
-            self.last_rebalance = datetime.now(timezone.utc)
+            self.last_rebalance = datetime.now(UTC)
 
             # Update state
             self.portfolio_state = PortfolioState.ACTIVE if success else PortfolioState.EMERGENCY
@@ -676,7 +676,7 @@ class PortfolioManager:
             es_95 = returns_array[returns_array <= np.percentile(returns_array, 5)].mean() * total_value if len(returns_array) > 10 else 0.0  # noqa: E501
 
             metrics = PortfolioMetrics(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 total_value=total_value,
                 cash_balance=cash_balance,
                 invested_capital=total_positions_value,
@@ -712,7 +712,7 @@ class PortfolioManager:
             self.error_handler.handle_error(e, "get_portfolio_metrics")
             # Return default metrics on error
             return PortfolioMetrics(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 total_value=self.current_capital,
                 cash_balance=self.current_capital,
                 invested_capital=0.0,
@@ -799,7 +799,7 @@ class PortfolioManager:
             }
 
             return {
-                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'timestamp': datetime.now(UTC).isoformat(),
                 'portfolio_id': self.portfolio_id,
                 'state': self.portfolio_state.value,
                 'total_value': f"${metrics.total_value:,.0f}",
@@ -911,7 +911,7 @@ class PortfolioManager:
         while self.is_managing:
             try:
                 # Check if scheduled rebalance is due
-                time_since_rebalance = datetime.now(timezone.utc) - self.last_rebalance
+                time_since_rebalance = datetime.now(UTC) - self.last_rebalance
                 if time_since_rebalance.total_seconds() >= DEFAULT_REBALANCE_FREQUENCY:
                     self.rebalance_portfolio(RebalanceReason.SCHEDULED)
 
@@ -1047,7 +1047,7 @@ class PortfolioManager:
 
                         # Store in history
                         self.strategy_performance[strategy_id].append({
-                            'timestamp': datetime.now(timezone.utc),
+                            'timestamp': datetime.now(UTC),
                             'return': perf.get('daily_return', 0.0),
                             'value': perf.get('total_value', allocation.allocated_capital)
                         })
@@ -1104,7 +1104,7 @@ class PortfolioManager:
         try:
             rebalance_event = RebalanceEvent(
                 rebalance_id=str(uuid.uuid4()),
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 reason=reason,
                 old_allocations={sid: alloc.current_allocation
                                for sid, alloc in self.strategy_allocations.items()},
@@ -1134,7 +1134,7 @@ class PortfolioManager:
 
                 if success:
                     self.rebalance_history.append(rebalance_event)
-                    self.last_rebalance = datetime.now(timezone.utc)
+                    self.last_rebalance = datetime.now(UTC)
                 else:
                     self.logger.error("Rebalance failed: %s", rebalance_event.rebalance_id)
 
@@ -1161,7 +1161,7 @@ class PortfolioManager:
                     allocation.target_allocation = rebalance_event.new_allocations[strategy_id]
                     allocation.allocated_capital += capital_change
                     allocation.available_capital += capital_change
-                    allocation.last_rebalance = datetime.now(timezone.utc)
+                    allocation.last_rebalance = datetime.now(UTC)
 
                     # Notify strategy of capital change
                     if strategy_id in self.strategy_instances:
@@ -1606,7 +1606,7 @@ class PortfolioManager:
             current_value = self.portfolio_metrics_history[-1].total_value
 
             # Find start of current month
-            current_date = datetime.now(timezone.utc)
+            current_date = datetime.now(UTC)
             month_start = current_date.replace(day=1)
 
             # Find closest metric to month start
@@ -1631,7 +1631,7 @@ class PortfolioManager:
             current_value = self.portfolio_metrics_history[-1].total_value
 
             # Find start of current year
-            current_date = datetime.now(timezone.utc)
+            current_date = datetime.now(UTC)
             year_start = current_date.replace(month=1, day=1)
 
             # Find closest metric to year start
@@ -1798,7 +1798,7 @@ class PortfolioManager:
                     hedge_instruments=[{'type': 'SPY_shares', 'quantity': int(hedge_delta)}],
                     cost_basis=abs(hedge_delta) * 450,  # Assume SPY at $450
                     effectiveness=0.95,
-                    created_at=datetime.now(timezone.utc)
+                    created_at=datetime.now(UTC)
                 )
 
                 self.hedge_positions[hedge.hedge_id] = hedge
@@ -1825,8 +1825,8 @@ class PortfolioManager:
                     hedge_instruments=[{'type': 'VIX_calls', 'quantity': 10}],
                     cost_basis=self.current_capital * 0.01,  # 1% cost
                     effectiveness=0.8,
-                    created_at=datetime.now(timezone.utc),
-                    expires_at=datetime.now(timezone.utc) + timedelta(days=30)
+                    created_at=datetime.now(UTC),
+                    expires_at=datetime.now(UTC) + timedelta(days=30)
                 )
 
                 self.hedge_positions[hedge.hedge_id] = hedge

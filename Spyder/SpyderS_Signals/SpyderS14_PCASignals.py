@@ -27,7 +27,7 @@ import json
 import math
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any
 
@@ -150,7 +150,7 @@ class PCASignalEngine:
 
     def get_proxy_snapshot(self) -> PCAMetricSnapshot:
         """Return the current PCA-PROXY snapshot, cached by calendar day."""
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(UTC).date().isoformat()
         if self._proxy_cache is not None and self._proxy_cache_date == today:
             return self._proxy_cache
 
@@ -182,7 +182,7 @@ class PCASignalEngine:
                     dispersion_score=0.0,
                     universe_size=0,
                     confidence=0.0,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     source="fallback",
                     placeholder=True,
                     status="fallback",
@@ -200,7 +200,7 @@ class PCASignalEngine:
 
     def get_iv_placeholder_snapshot(self) -> PCAMetricSnapshot:
         """Return the placeholder PCA-IV snapshot."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         storage_status = self.get_iv_surface_storage_status()
         stored_snapshots = int(storage_status.get("stored_snapshots", 0) or 0)
         phase = str(storage_status.get("phase") or "placeholder")
@@ -385,7 +385,7 @@ class PCASignalEngine:
 
     def _build_proxy_snapshot(self) -> PCAMetricSnapshot:
         """Compute the rolling sector-proxy PCA signal."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         try:
             prices, source = self._load_price_matrix(SECTOR_PROXY_SYMBOLS)
             returns = np.log(prices).diff().dropna(how="any")
@@ -513,7 +513,7 @@ class PCASignalEngine:
             self.logger.debug("PCA proxy Tradier client unavailable: %s", exc)
             return None
 
-        end_date = datetime.now(timezone.utc).date()
+        end_date = datetime.now(UTC).date()
         start_date = end_date - timedelta(days=CALENDAR_LOOKBACK_DAYS)
         series_by_symbol: dict[str, pd.Series] = {}
 
@@ -722,7 +722,7 @@ class PCASignalEngine:
 
             bootstrap_rows.append(
                 {
-                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                    "recorded_at": datetime.now(UTC).isoformat(),
                     "snapshot_ts": timestamp.to_pydatetime().isoformat(),
                     "underlying": "SPY",
                     "feature_vector_version": "v1",
@@ -828,7 +828,7 @@ class PCASignalEngine:
             feature_term_twist = term_slope_0_7 - term_slope_7_30
 
         return {
-            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "recorded_at": datetime.now(UTC).isoformat(),
             "snapshot_ts": str(snapshot.get("snapshot_ts") or ""),
             "underlying": str(snapshot.get("underlying") or "SPY"),
             "feature_vector_version": "v1",

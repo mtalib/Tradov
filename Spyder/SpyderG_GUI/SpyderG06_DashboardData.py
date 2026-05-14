@@ -20,7 +20,7 @@ Components:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, time as dt_time, timezone
+from datetime import datetime, time as dt_time, UTC
 from enum import Enum
 import pytz
 
@@ -173,7 +173,7 @@ class MarketData:
     last: float
     change: float = 0.0
     change_pct: float = 0.0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     bid: float | None = None
     ask: float | None = None
     volume: int | None = None
@@ -248,7 +248,7 @@ class Order:
     stop_price: float | None = None
     filled_quantity: int = 0
     avg_fill_price: float = 0.0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     filled_timestamp: datetime | None = None
 
     @property
@@ -283,11 +283,11 @@ class ConnectionInfo:
     def update_connection_status(self, connected: bool, mode: str = None):
         """Update connection status"""
         self.ib_connected = connected
-        self.last_update = datetime.now(timezone.utc)
+        self.last_update = datetime.now(UTC)
         if mode:
             self.connection_mode = mode
         if connected:
-            self.last_successful_data = datetime.now(timezone.utc)
+            self.last_successful_data = datetime.now(UTC)
 
 
 @dataclass
@@ -315,7 +315,7 @@ class SignalData:
     signal_name: str
     value: float
     status: str  # BULLISH, BEARISH, NEUTRAL, WARNING
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     description: str | None = None
 
     def get_status_color(self) -> str:
@@ -339,7 +339,7 @@ class EventClockState:
     blackout_pre_minutes: int = 30
     blackout_post_minutes: int = 30
     max_size_multiplier: float = 0.25
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def state_color(self) -> str:
@@ -483,7 +483,7 @@ def get_timestamp() -> str:
     Returns:
         str: Formatted timestamp
     """
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_time() -> str:
@@ -493,7 +493,7 @@ def get_time() -> str:
     Returns:
         str: Formatted time
     """
-    return datetime.now(timezone.utc).strftime("%H:%M:%S")
+    return datetime.now(UTC).strftime("%H:%M:%S")
 
 
 # ==============================================================================
@@ -536,7 +536,7 @@ def generate_simulation_market_data(symbol: str) -> MarketData:
         volume=random.randint(1000000, 10000000),
         high=last + random.uniform(0, 3),
         low=last - random.uniform(0, 3),
-        timestamp=datetime.now(timezone.utc)
+        timestamp=datetime.now(UTC)
     )
 
 
