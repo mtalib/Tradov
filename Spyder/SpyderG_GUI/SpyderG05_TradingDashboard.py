@@ -1065,7 +1065,7 @@ class SpyderTradingDashboard(QMainWindow):
             return
 
         try:
-            setattr(worker, "_quiet_startup", False)
+            worker._quiet_startup = False
         except RuntimeError:
             return
 
@@ -4650,6 +4650,10 @@ class SpyderTradingDashboard(QMainWindow):
         REQUIRED_PHRASE = str(required_phrase)
         dlg = QDialog(self)
         dlg.setModal(True)
+        dlg.setWindowTitle(str(dialog_title))
+
+        layout = QVBoxLayout(dlg)
+        header = QLabel(str(header_text))
         header.setStyleSheet(
             f"color: {COLORS['negative']}; font-size: 15px; font-weight: bold;"
         )
@@ -6385,9 +6389,7 @@ class SpyderTradingDashboard(QMainWindow):
                 # Colour: green <25 (low vol = good for sellers), amber 25-50, orange 50-75, red >75
                 if iv_rank >= 75:
                     col = COLORS["negative"]
-                elif iv_rank >= 50:
-                    col = COLORS.get("warning", COLORS["text"])
-                elif iv_rank >= 25:
+                elif iv_rank >= 50 or iv_rank >= 25:
                     col = COLORS.get("warning", COLORS["text"])
                 else:
                     col = COLORS["positive"]

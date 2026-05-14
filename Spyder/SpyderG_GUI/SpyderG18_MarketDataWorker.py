@@ -37,7 +37,7 @@ import os
 import random
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -486,7 +486,7 @@ def _emit_paper_balance_update(worker: Any) -> bool:
     if local_snapshot is None:
         return False
 
-    setattr(worker, "_paper_balance_snapshot_missing_warned", False)
+    worker._paper_balance_snapshot_missing_warned = False
     equity, option_bp = local_snapshot
     return _emit_balance_update(worker, BALANCE_SOURCE_PAPER, equity, option_bp)
 
@@ -505,9 +505,7 @@ def _paper_snapshot_gap_requires_warning() -> bool:
             return True
         if db.get_open_positions():
             return True
-        if db.get_recent_trades(limit=1):
-            return True
-        return False
+        return bool(db.get_recent_trades(limit=1))
     except Exception:
         # If we cannot inspect local paper state, preserve the warning.
         return True
@@ -524,7 +522,7 @@ def _warn_missing_paper_snapshot(worker: Any) -> None:
         "Paper balance unavailable: local SpyderBox snapshot missing "
         "(sandbox fallback disabled)."
     )
-    setattr(worker, "_paper_balance_snapshot_missing_warned", True)
+    worker._paper_balance_snapshot_missing_warned = True
 
 
 def _emit_live_balance_update(worker: Any) -> bool:
@@ -719,7 +717,7 @@ class ThreadSafeMarketDataWorker(QObject):
             return
 
         timestamp_ms = _coerce_epoch_ms(entry.get("timestamp_ms")) or int(time.time() * 1000)
-        timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+        timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=UTC)
         event_key = (timestamp_ms, round(last, 6))
 
         if getattr(self, "_last_spy_market_data_key", None) == event_key:
@@ -947,7 +945,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     _vol = float(_spy_q_slow.get("volume") or 0.0)
                     _adv = float(_spy_q_slow.get("average_volume") or 0.0)
                     if _vol > 0 and _adv > 0:
-                        _now = datetime.now(timezone.utc)
+                        _now = datetime.now(UTC)
                         _open_dt = _now.replace(hour=9, minute=30, second=0, microsecond=0)
                         _elapsed_min = max((_now - _open_dt).total_seconds() / 60.0, 1.0)
                         _session_frac = min(_elapsed_min / 390.0, 1.0)
@@ -1019,7 +1017,7 @@ class ThreadSafeMarketDataWorker(QObject):
                     # preserved for next-morning startup display.
                     _snapshot_file = self.data_file.parent / "eod_snapshot.json"
                     _snapshot_meta = {
-                        "_eod_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                        "_eod_date": datetime.now(UTC).strftime("%Y-%m-%d"),
                         "_eod_fetched_ts": int(_time.time()),
                     }
                     with open(_snapshot_file, "w") as _sf:
@@ -1238,7 +1236,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 _vol = float(_spy_q_raw.get("volume") or 0.0)
                 _adv = float(_spy_q_raw.get("average_volume") or 0.0)
                 if _vol > 0 and _adv > 0:
-                    _now = datetime.now(timezone.utc)
+                    _now = datetime.now(UTC)
                     _open_dt = _now.replace(hour=9, minute=30, second=0, microsecond=0)
                     _elapsed_min = max((_now - _open_dt).total_seconds() / 60.0, 1.0)
                     _session_frac = min(_elapsed_min / 390.0, 1.0)
@@ -1374,7 +1372,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 import time as _time
                 _now_ms = int(_time.time() * 1000)
                 _snapshot_meta = {
-                    "_eod_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "_eod_date": datetime.now(UTC).strftime("%Y-%m-%d"),
                     "_eod_fetched_ts": int(_time.time()),
                 }
                 self.data_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1467,9 +1465,9 @@ class ThreadSafeMarketDataWorker(QObject):
                     "last": price,
                     "change": 0,
                     "change_pct": 0,
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": datetime.now(UTC),
                 }
-                self.last_data_update[symbol] = datetime.now(timezone.utc)
+                self.last_data_update[symbol] = datetime.now(UTC)
 
     def _check_market_hours(self):
         """Check if market hours status has changed"""
@@ -1590,7 +1588,7 @@ class ThreadSafeMarketDataWorker(QObject):
         if not is_market_hours():
             return
 
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
 
         for symbol, market_info in data.items():
             if symbol not in ["GEX", "DEX", "OGL", "DIX", "SWAN"]:

@@ -26,7 +26,7 @@ def test_market_overview_symbols_match_dashboard_data_constant() -> None:
     """DashboardData must consume canonical market-overview symbols."""
     from Spyder.SpyderG_GUI.SpyderG06_DashboardData import MARKET_SYMBOLS
 
-    assert MARKET_SYMBOLS == get_market_overview_symbols()
+    assert get_market_overview_symbols() == MARKET_SYMBOLS
 
 
 def test_market_overview_symbols_match_trading_dashboard_constant() -> None:
@@ -34,7 +34,7 @@ def test_market_overview_symbols_match_trading_dashboard_constant() -> None:
     pytest.importorskip("PySide6")
     from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import MARKET_SYMBOLS
 
-    assert MARKET_SYMBOLS == get_market_overview_symbols()
+    assert get_market_overview_symbols() == MARKET_SYMBOLS
 
 
 def test_quote_basket_excludes_computed_and_event_only_symbols() -> None:
@@ -234,7 +234,7 @@ def test_backend_symbol_groups_stay_aligned_between_c01_and_catalog() -> None:
     """C01 symbol groups must be derived from the canonical backend view."""
     from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import SYMBOL_GROUPS
 
-    assert SYMBOL_GROUPS == get_backend_symbol_groups()
+    assert get_backend_symbol_groups() == SYMBOL_GROUPS
 
 
 def test_backend_symbol_groups_stay_aligned_between_c17_and_catalog() -> None:

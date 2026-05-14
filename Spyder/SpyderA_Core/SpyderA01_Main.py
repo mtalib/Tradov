@@ -656,7 +656,7 @@ class SpyderApplication:
         self._session_supervisor_autostart_result = None
         self._session_supervisor_autostart_exception = None
         self.session_supervisor = create_session_supervisor(mode=mode)
-        setattr(self.session_supervisor, "_spyder_autostart_in_progress", False)
+        self.session_supervisor._spyder_autostart_in_progress = False
         if self._should_defer_session_supervisor_autostart():
             self._session_supervisor_autostart_pending = True
             self._session_supervisor_autostart_mode = mode
@@ -759,7 +759,7 @@ class SpyderApplication:
 
         supervisor = self.session_supervisor
         if supervisor is not None:
-            setattr(supervisor, "_spyder_autostart_in_progress", False)
+            supervisor._spyder_autostart_in_progress = False
 
         mode = self._session_supervisor_autostart_mode or "paper"
         started = bool(self._session_supervisor_autostart_result)
@@ -879,7 +879,7 @@ class SpyderApplication:
         self._session_supervisor_autostart_active = True
         self._session_supervisor_autostart_result = None
         self._session_supervisor_autostart_exception = None
-        setattr(supervisor, "_spyder_autostart_in_progress", True)
+        supervisor._spyder_autostart_in_progress = True
 
         if QThread is not None and _SessionSupervisorAutostartWorker is not None:
             thread = QThread()
@@ -958,7 +958,7 @@ class SpyderApplication:
                 )
 
             try:
-                setattr(module, "_orchestrator_instance", None)
+                module._orchestrator_instance = None
             except Exception:
                 pass
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -49,7 +48,7 @@ import threading
 import time
 import uuid
 import asyncio
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -102,7 +101,7 @@ class SessionSupervisor:
     def __init__(
         self,
         mode: Literal["paper", "live"],
-        symbols: Optional[List[str]] = None,
+        symbols: list[str] | None = None,
         dry_run: bool = False,
         skip_orphan_sweep: bool = False,
     ) -> None:
@@ -112,14 +111,14 @@ class SessionSupervisor:
         self.session_id: str = ""
         self.dry_run: bool = dry_run
         self.skip_orphan_sweep: bool = skip_orphan_sweep
-        self.symbols: List[str] = symbols or [
+        self.symbols: list[str] = symbols or [
             s.strip()
             for s in os.environ.get("FEED_SYMBOLS", "SPY,SPX,VIX").split(",")
             if s.strip()
         ]
 
         # Ordered list of started components — stopped in reverse on shutdown.
-        self._components: List[Any] = []
+        self._components: list[Any] = []
         self._lock = threading.Lock()
         self._running = False
 
@@ -136,7 +135,7 @@ class SessionSupervisor:
         self.exit_monitor: Any = None
         # O1/O9/A13 (v14): LivenessMonitor — heartbeat + /healthz + deadman.
         self.liveness: Any = None
-        self._flatten_request_handler_id: Optional[str] = None
+        self._flatten_request_handler_id: str | None = None
         self._startup_profile_enabled: bool = self._is_truthy_env(
             os.getenv("SPYDER_SESSION_SUPERVISOR_PROFILE_STARTUP")
         )
@@ -730,7 +729,7 @@ class SessionSupervisor:
                 if hasattr(orchestrator, "set_regime_engine"):
                     orchestrator.set_regime_engine(l09_engine)
                 else:
-                    setattr(orchestrator, "_l09_engine", l09_engine)
+                    orchestrator._l09_engine = l09_engine
 
                 self.logger.info(
                     "✅ L09 UnifiedRegimeEngine attached to StrategyOrchestrator after startup"
@@ -929,7 +928,7 @@ class SessionSupervisor:
     # --------------------------------------------------------------------------
 
     @staticmethod
-    def _is_truthy_env(raw_value: Optional[str]) -> bool:
+    def _is_truthy_env(raw_value: str | None) -> bool:
         """Return ``True`` when an env-var string is an enabled/true token."""
         return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -1086,7 +1085,7 @@ class SessionSupervisor:
                     **close_kwargs,
                 )
 
-        close_position = getattr(broker, "close_position")
+        close_position = broker.close_position
         try:
             return close_position(symbol, **close_kwargs)
         except TypeError:
@@ -1338,7 +1337,7 @@ class _NullBroker:
 
 def create_session_supervisor(
     mode: Literal["paper", "live"],
-    symbols: Optional[List[str]] = None,
+    symbols: list[str] | None = None,
     dry_run: bool = False,
     skip_orphan_sweep: bool = False,
 ) -> SessionSupervisor:

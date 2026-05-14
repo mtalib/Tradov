@@ -33,7 +33,7 @@ import traceback
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -218,7 +218,7 @@ class Event:
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     event_type: EventType = EventType.SYSTEM
     data: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     priority: EventPriority = EventPriority.NORMAL
     source: str | None = None
     correlation_id: str | None = None
@@ -233,12 +233,7 @@ class Event:
     def __post_init__(self):
         # Normalize event_type to this module's EventType even when callers pass
         # enum members from another loaded copy of the module.
-        if isinstance(self.event_type, str):
-            try:
-                self.event_type = EventType(str(self.event_type).lower())
-            except Exception:
-                self.event_type = EventType.SYSTEM
-        elif not isinstance(self.event_type, Enum):
+        if isinstance(self.event_type, str) or not isinstance(self.event_type, Enum):
             try:
                 self.event_type = EventType(str(self.event_type).lower())
             except Exception:
@@ -278,7 +273,7 @@ class Event:
             event_id=data.get('event_id', str(uuid.uuid4())),
             event_type=EventType(data.get('event_type', 'system')),
             data=data.get('data', {}),
-            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(timezone.utc),  # noqa: E501
+            timestamp=datetime.fromisoformat(data['timestamp']) if 'timestamp' in data else datetime.now(UTC),  # noqa: E501
             priority=EventPriority[data.get('priority', 'NORMAL')],
             source=data.get('source'),
             correlation_id=data.get('correlation_id'),
@@ -611,7 +606,7 @@ class EventManager:
                 EventType.SYSTEM_START,
                 {
                     'component': 'EventManager',
-                    'timestamp': datetime.now(timezone.utc)
+                    'timestamp': datetime.now(UTC)
                 }
             )
 
@@ -653,7 +648,7 @@ class EventManager:
                     EventType.SHUTDOWN,
                     {
                         'component': 'EventManager',
-                        'timestamp': datetime.now(timezone.utc)
+                        'timestamp': datetime.now(UTC)
                     }
                 )
 
@@ -853,7 +848,7 @@ class EventManager:
             handler.execution_count += 1
             handler.consecutive_errors = 0  # reset on success
             handler.total_execution_time += time.time() - start_time
-            handler.last_execution = datetime.now(timezone.utc)
+            handler.last_execution = datetime.now(UTC)
 
             with self._metrics_lock:
                 self.metrics.handlers_executed += 1
@@ -872,7 +867,7 @@ class EventManager:
                 "error": str(e),
                 "traceback": tb,
                 "consecutive": handler.consecutive_errors,
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             }
             with self._handler_errors_lock:
                 self._handler_errors.append(error_record)
@@ -1162,7 +1157,7 @@ class EventManager:
                 return False
 
             # Check TTL
-            if event.ttl and (datetime.now(timezone.utc) - event.timestamp).total_seconds() > event.ttl:
+            if event.ttl and (datetime.now(UTC) - event.timestamp).total_seconds() > event.ttl:
                 with self._metrics_lock:
                     self.metrics.events_expired += 1
                 return False

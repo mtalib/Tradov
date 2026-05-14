@@ -515,12 +515,6 @@ def test_a01_offscreen_deferred_paper_autostart_hands_off_running_supervisor(
     paper_db_path = tmp_path / "data" / "spyder_paper_a01_smoke.db"
     paper_db_path.parent.mkdir(parents=True, exist_ok=True)
     paper_db = h05.TradingSessionDB(paper_db_path)
-    expected_quantities = {
-        "SPY260515P00565000": 1,
-        "SPY260515P00570000": -1,
-        "SPY260515C00580000": -1,
-        "SPY260515C00585000": 1,
-    }
     leg_orders = [
         {
             "symbol": "SPY260515P00565000",
@@ -647,9 +641,9 @@ def test_a01_offscreen_deferred_paper_autostart_hands_off_running_supervisor(
             )
 
             session_db = h05.TradingSessionDB(paper_db_path)
-            deadline = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=6)
+            deadline = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=6)
             trades = []
-            while datetime.datetime.now(datetime.timezone.utc) < deadline:
+            while datetime.datetime.now(datetime.UTC) < deadline:
                 trades = list(session_db.get_trades_today() or [])
                 if len(trades) >= 4:
                     break
