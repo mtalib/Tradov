@@ -219,6 +219,17 @@ def test_optional_symbols_include_recent_decision_list_metrics() -> None:
     assert {"NYMO", "$VOLD", "RVOL", "WRS", "PSR", "PMR"}.issubset(optional)
 
 
+def test_c17_custom_metric_defaults_include_pca_signals() -> None:
+    """Canonical custom-metric defaults should expose staged PCA signals."""
+    from Spyder.SpyderC_MarketData.SpyderC17_MarketConfigManager import DEFAULT_SYMBOL_CONFIG
+
+    optional = get_optional_symbols()
+    custom_metrics = DEFAULT_SYMBOL_CONFIG["custom_metrics"]
+
+    assert {"PCA-PROXY", "PCA-IV"}.issubset(optional)
+    assert {"PCA-PROXY", "PCA-IV"}.issubset(custom_metrics)
+
+
 def test_worker_live_data_snapshot_keys_are_explicit() -> None:
     """Base worker-written live_data keys should stay stable and intentional."""
     keys = get_worker_live_data_keys()
