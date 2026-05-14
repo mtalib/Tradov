@@ -25,14 +25,17 @@ import sys
 import time
 import socket
 import json
+import re
 import importlib
 import platform
 import pkg_resources
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
+from zoneinfo import ZoneInfo
 import configparser
 import sqlite3
 
@@ -72,6 +75,19 @@ except ImportError as e:
 LOGS_DIR = Path(SPYDER_HOME) / "logs"
 DATA_DIR = Path(SPYDER_HOME) / "data"
 CONFIG_DIR = Path(SPYDER_HOME) / "config"
+MARKET_DATA_DIR = Path(SPYDER_HOME) / "market_data"
+try:
+    ET_ZONE = ZoneInfo("America/New_York")
+except Exception:
+    ET_ZONE = timezone.utc
+DEFAULT_SESSION_WINDOW = {
+    "primary_start_et": "09:30",
+    "primary_end_et": "16:15",
+    "first_entry_not_before_et": "09:35",
+    "zero_dte_no_new_risk_cutoff_et": "15:45",
+    "broker_cutoff_et": "16:00",
+}
+DEFAULT_MAX_DAILY_TRADES = 100
 
 # Module groups to verify
 MODULE_GROUPS = {
@@ -287,6 +303,533 @@ class DiagnosticsUtilities:
         )
 
         return report
+
+    def collect_trading_health(
+        self,
+        *,
+        run_mode: str | None = None,
+        now_utc: datetime | None = None,
+        recent_event_limit: int = 5,
+        session_window: dict[str, Any] | None = None,
+        max_daily_trades: int | None = None,
+        decision_log_path: Path | None = None,
+        launcher_log_path: Path | None = None,
+        paper_state_path: Path | None = None,
+        dashboard_snapshot_path: Path | None = None,
+        session_db: Any | None = None,
+    ) -> dict[str, Any]:
+        """Collect a one-shot trading workflow health report from persisted artifacts."""
+        report_time_utc = now_utc or datetime.now(timezone.utc)
+        config_payload = self._load_trading_health_config()
+
+        resolved_session_window = dict(DEFAULT_SESSION_WINDOW)
+        resolved_session_window.update(config_payload.get("session_window", {}))
+        if isinstance(session_window, dict):
+            resolved_session_window.update(session_window)
+
+        resolved_run_mode = self._resolve_trading_health_run_mode(
+            requested_run_mode=run_mode,
+            dashboard_snapshot_path=dashboard_snapshot_path,
+        )
+        resolved_recent_event_limit = max(0, int(recent_event_limit))
+        resolved_max_daily_trades = int(
+            max_daily_trades
+            if max_daily_trades is not None
+            else config_payload.get("max_daily_trades", DEFAULT_MAX_DAILY_TRADES)
+        )
+
+        resolved_decision_log_path = (
+            Path(decision_log_path)
+            if decision_log_path is not None
+            else self._resolve_trading_health_decision_log_path(
+                run_mode=resolved_run_mode,
+                now_utc=report_time_utc,
+            )
+        )
+        resolved_launcher_log_path = (
+            Path(launcher_log_path)
+            if launcher_log_path is not None
+            else LOGS_DIR / "launcher" / "spyder-desktop-launch.log"
+        )
+        resolved_paper_state_path = (
+            Path(paper_state_path)
+            if paper_state_path is not None
+            else MARKET_DATA_DIR / "paper_trading_state.json"
+        )
+
+        last_dispatch_result = self._read_last_decision_event(
+            resolved_decision_log_path,
+            {"dispatch_submitted", "dispatch_rejected"},
+        )
+        last_drop_reason = self._read_last_decision_event(
+            resolved_decision_log_path,
+            {"signal_dropped"},
+        )
+        recent_decision_flow = self.collect_recent_decision_flow(
+            run_mode=resolved_run_mode,
+            now_utc=report_time_utc,
+            limit=resolved_recent_event_limit,
+            decision_log_path=resolved_decision_log_path,
+        )
+        engine_state = self._extract_engine_state(
+            run_mode=resolved_run_mode,
+            launcher_log_path=resolved_launcher_log_path,
+        )
+
+        trades_today: list[dict[str, Any]] = []
+        latest_snapshot: dict[str, Any] | None = None
+        resolved_session_db = session_db or self._open_trading_health_session_db(resolved_run_mode)
+        if resolved_session_db is not None:
+            try:
+                trades_today = list(resolved_session_db.get_trades_today() or [])
+            except Exception as exc:
+                self.logger.debug("Trading-health: get_trades_today failed: %s", exc)
+            try:
+                latest_snapshot = resolved_session_db.get_latest_snapshot()
+            except Exception as exc:
+                self.logger.debug("Trading-health: get_latest_snapshot failed: %s", exc)
+
+        paper_state = self._read_json_file(resolved_paper_state_path)
+        latest_trade = trades_today[-1] if trades_today else None
+        paper_state_total_executed = self._coerce_int(
+            paper_state.get("_trades_executed") if isinstance(paper_state, dict) else None
+        )
+        latest_snapshot_total_trades = self._coerce_int(
+            latest_snapshot.get("total_trades") if isinstance(latest_snapshot, dict) else None
+        )
+
+        return {
+            "generated_at_utc": report_time_utc.isoformat(),
+            "generated_at_et": report_time_utc.astimezone(ET_ZONE).isoformat(),
+            "run_mode": resolved_run_mode,
+            "market_window": self._evaluate_session_window(
+                report_time_utc,
+                resolved_session_window,
+            ),
+            "engine_state": engine_state,
+            "daily_trades": {
+                "count": len(trades_today),
+                "max_daily_trades": resolved_max_daily_trades,
+                "limit_reached": len(trades_today) >= resolved_max_daily_trades,
+                "source": "TradingSessionDB.get_trades_today()",
+                "latest_trade_ts_utc": latest_trade.get("timestamp") if isinstance(latest_trade, dict) else None,
+                "account_snapshot_total_trades": latest_snapshot_total_trades,
+                "paper_state_total_executed": paper_state_total_executed,
+                "db_path": str(getattr(resolved_session_db, "db_path", "")) or None,
+            },
+            "last_dispatch_result": self._compact_decision_event(last_dispatch_result),
+            "last_drop_reason": self._compact_decision_event(last_drop_reason),
+            "recent_decision_flow": recent_decision_flow,
+            "artifacts": {
+                "decision_log": str(resolved_decision_log_path) if resolved_decision_log_path else None,
+                "launcher_log": str(resolved_launcher_log_path) if resolved_launcher_log_path else None,
+                "paper_state": str(resolved_paper_state_path) if resolved_paper_state_path else None,
+            },
+        }
+
+    def _load_trading_health_config(self) -> dict[str, Any]:
+        """Load session-window policy and trade-limit config with safe fallbacks."""
+        config_payload = {
+            "session_window": dict(DEFAULT_SESSION_WINDOW),
+            "max_daily_trades": DEFAULT_MAX_DAILY_TRADES,
+        }
+
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import ConfigManager  # noqa: PLC0415
+
+            environment = str(os.environ.get("SPYDER_ENVIRONMENT", "production")).strip() or "production"
+            config_manager = ConfigManager(environment=environment, auto_reload=False)
+            session_window = config_manager.get("autonomous_readiness.session_window", {})
+            if isinstance(session_window, dict):
+                config_payload["session_window"].update(session_window)
+
+            config_payload["max_daily_trades"] = int(
+                config_manager.get("trading.max_daily_trades", DEFAULT_MAX_DAILY_TRADES)
+            )
+        except Exception as exc:
+            self.logger.debug("Trading-health config fallback to defaults: %s", exc)
+
+        return config_payload
+
+    def _resolve_trading_health_run_mode(
+        self,
+        *,
+        requested_run_mode: str | None,
+        dashboard_snapshot_path: Path | None,
+    ) -> str:
+        """Resolve run mode for trading-health, preferring explicit input then dashboard snapshot."""
+        if requested_run_mode in {"paper", "live"}:
+            return str(requested_run_mode)
+
+        snapshot_path = dashboard_snapshot_path or (MARKET_DATA_DIR / "dashboard_snapshot.json")
+        snapshot = self._read_json_file(snapshot_path)
+        if isinstance(snapshot, dict):
+            trading_mode = str(snapshot.get("trading_mode", "")).strip().lower()
+            if trading_mode in {"paper", "live"}:
+                return trading_mode
+
+        return "paper"
+
+    def _resolve_trading_health_decision_log_path(
+        self,
+        *,
+        run_mode: str,
+        now_utc: datetime,
+    ) -> Path | None:
+        """Resolve the current decision log path, falling back to the latest available file."""
+        day_key = now_utc.strftime("%Y-%m-%d")
+        candidate_dirs = [LOGS_DIR / "decisions" / run_mode, LOGS_DIR / "decisions"]
+
+        for directory in candidate_dirs:
+            candidate = directory / f"{day_key}.jsonl"
+            if candidate.exists():
+                return candidate
+
+        latest_match: Path | None = None
+        latest_mtime = -1.0
+        for directory in candidate_dirs:
+            if not directory.exists():
+                continue
+            for entry in directory.glob("*.jsonl"):
+                try:
+                    mtime = entry.stat().st_mtime
+                except OSError:
+                    continue
+                if mtime > latest_mtime:
+                    latest_mtime = mtime
+                    latest_match = entry
+
+        return latest_match
+
+    def collect_recent_decision_flow(
+        self,
+        *,
+        run_mode: str | None = None,
+        now_utc: datetime | None = None,
+        limit: int = 5,
+        decision_log_path: Path | None = None,
+        dashboard_snapshot_path: Path | None = None,
+    ) -> dict[str, Any]:
+        """Collect the most recent D31 dispatch/drop events without full health scanning."""
+        report_time_utc = now_utc or datetime.now(timezone.utc)
+        resolved_run_mode = self._resolve_trading_health_run_mode(
+            requested_run_mode=run_mode,
+            dashboard_snapshot_path=dashboard_snapshot_path,
+        )
+        resolved_limit = max(0, int(limit))
+        resolved_decision_log_path = (
+            Path(decision_log_path)
+            if decision_log_path is not None
+            else self._resolve_trading_health_decision_log_path(
+                run_mode=resolved_run_mode,
+                now_utc=report_time_utc,
+            )
+        )
+
+        return {
+            "limit": resolved_limit,
+            "run_mode": resolved_run_mode,
+            "dispatch": self._read_recent_decision_events(
+                resolved_decision_log_path,
+                {"dispatch_submitted", "dispatch_rejected"},
+                limit=resolved_limit,
+            ),
+            "drops": self._read_recent_decision_events(
+                resolved_decision_log_path,
+                {"signal_dropped"},
+                limit=resolved_limit,
+            ),
+            "decision_log": str(resolved_decision_log_path) if resolved_decision_log_path else None,
+        }
+
+    def _read_last_decision_event(
+        self,
+        decision_log_path: Path | None,
+        event_names: set[str],
+    ) -> dict[str, Any] | None:
+        """Read the last matching decision-audit event from a JSONL file."""
+        if decision_log_path is None or not decision_log_path.exists():
+            return None
+
+        last_match: dict[str, Any] | None = None
+        try:
+            with open(decision_log_path, encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if record.get("event") in event_names:
+                        last_match = record
+        except OSError as exc:
+            self.logger.debug("Trading-health: failed reading %s: %s", decision_log_path, exc)
+
+        return last_match
+
+    def _read_recent_decision_events(
+        self,
+        decision_log_path: Path | None,
+        event_names: set[str],
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Read the most recent matching decision-audit events from a JSONL file."""
+        safe_limit = max(0, int(limit))
+        if safe_limit == 0 or decision_log_path is None or not decision_log_path.exists():
+            return []
+
+        matches: deque[dict[str, Any]] = deque(maxlen=safe_limit)
+        try:
+            with open(decision_log_path, encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if record.get("event") in event_names:
+                        compact = self._compact_decision_event(record)
+                        if compact is not None:
+                            matches.append(compact)
+        except OSError as exc:
+            self.logger.debug(
+                "Trading-health: failed reading recent events from %s: %s",
+                decision_log_path,
+                exc,
+            )
+            return []
+
+        return list(reversed(matches))
+
+    def _compact_decision_event(self, record: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Reduce a decision-audit record to the fields used by diagnostics."""
+        if not isinstance(record, dict):
+            return None
+
+        return {
+            "ts_utc": record.get("ts_utc"),
+            "event": record.get("event"),
+            "stage": record.get("stage"),
+            "reason": record.get("reason"),
+            "detail": record.get("detail"),
+            "symbol": record.get("symbol"),
+            "strategy_id": record.get("strategy_id"),
+            "session_id": record.get("session_id"),
+        }
+
+    def _extract_engine_state(self, run_mode: str, launcher_log_path: Path) -> dict[str, Any]:
+        """Extract the latest observable engine state from the desktop launcher log."""
+        result = {
+            "state": "unknown",
+            "detail": "No engine lifecycle line found",
+            "observed_at": None,
+            "last_rejection_reason": None,
+            "last_rejection_at": None,
+            "log_path": str(launcher_log_path),
+        }
+        if not launcher_log_path.exists():
+            result["state"] = "missing_log"
+            result["detail"] = "Launcher log not found"
+            return result
+
+        mode_label = "Paper" if run_mode == "paper" else "Live"
+        lifecycle_patterns = [
+            (
+                re.compile(rf"{mode_label} trading deferred until market open \((?P<reason>[^)]+)\)"),
+                lambda match: {
+                    "state": "deferred_until_market_open",
+                    "detail": match.group("reason"),
+                },
+            ),
+            (
+                re.compile(rf"{mode_label} trading started - Session: (?P<session>\S+)"),
+                lambda match: {
+                    "state": "trading",
+                    "detail": match.group("session"),
+                    "session_id": match.group("session"),
+                },
+            ),
+            (
+                re.compile(r"Trading not active: (?P<state>[A-Za-z_]+)"),
+                lambda match: {
+                    "state": match.group("state").lower(),
+                    "detail": f"Trading not active: {match.group('state').lower()}",
+                },
+            ),
+            (
+                re.compile(rf"{mode_label} trading stopped"),
+                lambda _match: {
+                    "state": "stopped",
+                    "detail": f"{mode_label.lower()} trading stopped",
+                },
+            ),
+            (
+                re.compile(r"SessionSupervisor autostart disabled in A01"),
+                lambda _match: {
+                    "state": "autostart_disabled",
+                    "detail": "SessionSupervisor autostart disabled in A01",
+                },
+            ),
+        ]
+        rejection_pattern = re.compile(
+            r"Market order rejected by live engine: .* reason=(?P<reason>[^|]+)"
+        )
+
+        try:
+            with open(launcher_log_path, encoding="utf-8", errors="replace") as handle:
+                for raw_line in handle:
+                    parsed = self._parse_log_line(raw_line)
+                    message = str(parsed["message"] or "")
+
+                    rejection_match = rejection_pattern.search(message)
+                    if rejection_match:
+                        result["last_rejection_reason"] = rejection_match.group("reason").strip()
+                        result["last_rejection_at"] = parsed["timestamp"]
+
+                    for pattern, builder in lifecycle_patterns:
+                        match = pattern.search(message)
+                        if match:
+                            result.update(builder(match))
+                            result["observed_at"] = parsed["timestamp"]
+                            break
+        except OSError as exc:
+            self.logger.debug(
+                "Trading-health: failed scanning launcher log %s: %s",
+                launcher_log_path,
+                exc,
+            )
+
+        return result
+
+    def _parse_log_line(self, raw_line: str) -> dict[str, str | None]:
+        """Split a launcher log line into timestamp and message when possible."""
+        text = str(raw_line).strip()
+        match = re.match(
+            r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d+)?) - .* - [A-Z]+ - (?P<message>.*)$",
+            text,
+        )
+        if match:
+            return {
+                "timestamp": match.group("ts"),
+                "message": match.group("message").strip(),
+            }
+        return {"timestamp": None, "message": text}
+
+    def _open_trading_health_session_db(self, run_mode: str) -> Any | None:
+        """Open the H05 trading-session DB for the requested mode."""
+        try:
+            from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB  # noqa: PLC0415
+
+            return TradingSessionDB.for_live() if run_mode == "live" else TradingSessionDB.for_paper()
+        except Exception as exc:
+            self.logger.debug("Trading-health DB unavailable: %s", exc)
+            return None
+
+    def _read_json_file(self, file_path: Path | None) -> dict[str, Any] | None:
+        """Read a JSON file into a dictionary, returning None on failure."""
+        if file_path is None or not Path(file_path).exists():
+            return None
+        try:
+            with open(file_path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            return payload if isinstance(payload, dict) else None
+        except (OSError, json.JSONDecodeError) as exc:
+            self.logger.debug("Trading-health JSON read failed for %s: %s", file_path, exc)
+            return None
+
+    def _evaluate_session_window(
+        self,
+        now_utc: datetime,
+        session_window: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Evaluate the configured trading session window at the current ET time."""
+        now_et = now_utc.astimezone(ET_ZONE)
+        now_time = now_et.time().replace(tzinfo=None)
+
+        start = datetime.strptime(
+            str(session_window.get("primary_start_et", DEFAULT_SESSION_WINDOW["primary_start_et"])),
+            "%H:%M",
+        ).time()
+        end = datetime.strptime(
+            str(session_window.get("primary_end_et", DEFAULT_SESSION_WINDOW["primary_end_et"])),
+            "%H:%M",
+        ).time()
+        first_entry = datetime.strptime(
+            str(
+                session_window.get(
+                    "first_entry_not_before_et",
+                    DEFAULT_SESSION_WINDOW["first_entry_not_before_et"],
+                )
+            ),
+            "%H:%M",
+        ).time()
+        new_risk_cutoff = datetime.strptime(
+            str(
+                session_window.get(
+                    "zero_dte_no_new_risk_cutoff_et",
+                    DEFAULT_SESSION_WINDOW["zero_dte_no_new_risk_cutoff_et"],
+                )
+            ),
+            "%H:%M",
+        ).time()
+        broker_cutoff = datetime.strptime(
+            str(session_window.get("broker_cutoff_et", DEFAULT_SESSION_WINDOW["broker_cutoff_et"])),
+            "%H:%M",
+        ).time()
+
+        weekend_block = now_et.weekday() >= 5
+        within_primary_window = (not weekend_block) and start <= now_time <= end
+        entries_allowed = within_primary_window and first_entry <= now_time < new_risk_cutoff
+        before_broker_cutoff = (not weekend_block) and now_time < broker_cutoff
+
+        if weekend_block:
+            status = "closed"
+            gate_reason = "session_window:weekend_block"
+        elif not within_primary_window:
+            status = "closed"
+            gate_reason = "session_window:outside_primary_window"
+        elif now_time < first_entry:
+            status = "warmup"
+            gate_reason = "session_window:first_entry_not_before"
+        elif now_time >= broker_cutoff:
+            status = "broker_cutoff"
+            gate_reason = "session_window:broker_cutoff"
+        elif now_time >= new_risk_cutoff:
+            status = "no_new_risk"
+            gate_reason = "session_window:zero_dte_no_new_risk_cutoff"
+        else:
+            status = "open"
+            gate_reason = ""
+
+        return {
+            "status": status,
+            "gate_reason": gate_reason,
+            "now_et": now_et.isoformat(),
+            "weekday": now_et.strftime("%A"),
+            "within_primary_window": within_primary_window,
+            "entries_allowed": entries_allowed,
+            "before_broker_cutoff": before_broker_cutoff,
+            "primary_start_et": start.strftime("%H:%M"),
+            "primary_end_et": end.strftime("%H:%M"),
+            "first_entry_not_before_et": first_entry.strftime("%H:%M"),
+            "zero_dte_no_new_risk_cutoff_et": new_risk_cutoff.strftime("%H:%M"),
+            "broker_cutoff_et": broker_cutoff.strftime("%H:%M"),
+        }
+
+    @staticmethod
+    def _coerce_int(value: Any) -> int | None:
+        """Best-effort integer conversion for optional diagnostic fields."""
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     # ==========================================================================
     # SYSTEM DIAGNOSTICS
