@@ -35,6 +35,7 @@ from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
 from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import LiveEngine
 from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
 from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import SessionSupervisor
+from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import authorize_paper_session_start
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
 
@@ -57,7 +58,7 @@ def _build_dashboard_stub(session_db: TradingSessionDB) -> SpyderTradingDashboar
     dash.logger = SpyderLogger.get_logger(__name__)
     dash.trading_mode = TradingMode.PAPER
     dash.positions_table = QTreeWidget()
-    dash.positions_table.setColumnCount(6)
+    dash.positions_table.setColumnCount(8)
     dash.orders_title_label = QLabel("Orders")
     dash._paper_session_db = session_db
     dash._live_session_db = None
@@ -80,6 +81,7 @@ def test_r12_paper_condor_dispatch_persists_and_renders_restored_group(tmp_path,
     monkeypatch.setattr(LiveEngine, "_is_market_open", lambda self: True)
 
     supervisor = SessionSupervisor(mode="paper")
+    authorize_paper_session_start(supervisor)
     expected_quantities = {
         "SPY260515P00565000": 1,
         "SPY260515P00570000": -1,
@@ -185,6 +187,14 @@ def test_r12_paper_condor_dispatch_persists_and_renders_restored_group(tmp_path,
                 for row in positions
             } == expected_quantities
 
+            assert session_db.get_resume_eligible_open_positions() == []
+
+            supervisor.stop(flatten=False)
+
+            session_db = TradingSessionDB(paper_db_path)
+            resumable_positions = list(session_db.get_resume_eligible_open_positions() or [])
+            assert len(resumable_positions) == 4
+
             dash = _build_dashboard_stub(session_db)
             dash._render_paper_spreads_in_tree([], armed_candidate=None)
 
@@ -193,7 +203,7 @@ def test_r12_paper_condor_dispatch_persists_and_renders_restored_group(tmp_path,
             summary_widget = dash.positions_table.itemWidget(summary, 0)
             assert summary_widget is not None
             label_texts = [label.text() for label in summary_widget.findChildren(QLabel)]
-            assert any("STRATEGY RESTORED : IRON CONDOR" in text for text in label_texts)
+            assert any("ACTIVE TRADE CARRIED OVER : IRON CONDOR" in text for text in label_texts)
 
             leg_labels = [
                 dash.positions_table.topLevelItem(index).text(0).strip()
@@ -201,4 +211,5 @@ def test_r12_paper_condor_dispatch_persists_and_renders_restored_group(tmp_path,
             ]
             assert leg_labels == ["Sell Put", "Buy Put", "Sell Call", "Buy Call"]
         finally:
-            supervisor.stop(flatten=False)
+            if getattr(supervisor, "_running", False):
+                supervisor.stop(flatten=False)
