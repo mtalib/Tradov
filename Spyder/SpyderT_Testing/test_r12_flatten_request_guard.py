@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -16,15 +18,24 @@ for _path in (_REPO_ROOT, _PACKAGE_ROOT):
     if _path_str not in sys.path:
         sys.path.insert(0, _path_str)
 
+
+def _is_local_spyder_package(module: object) -> bool:
+    if not hasattr(module, "__path__"):
+        return False
+    package_root = str(_PACKAGE_ROOT)
+    module_file = str(getattr(module, "__file__", "") or "")
+    if module_file.startswith(package_root):
+        return True
+    module_paths = [str(path) for path in getattr(module, "__path__", [])]
+    return any(path.startswith(package_root) for path in module_paths)
+
 _existing_spyder = sys.modules.get("Spyder")
-if _existing_spyder is not None:
-    _spyder_file = getattr(_existing_spyder, "__file__", "") or ""
-    _is_pkg = hasattr(_existing_spyder, "__path__")
-    if (not _is_pkg) or (_spyder_file and not _spyder_file.startswith(str(_PACKAGE_ROOT))):
-        sys.modules.pop("Spyder", None)
+if _existing_spyder is not None and not _is_local_spyder_package(_existing_spyder):
+    sys.modules.pop("Spyder", None)
 
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType
 from Spyder.SpyderA_Core.SpyderA05_EventManager import EventManager
+from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
 from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import SessionSupervisor
 
 
@@ -128,6 +139,47 @@ class TestFlattenSubscriptionCleanup:
 
         supervisor.em.unsubscribe.assert_called_once_with("sub-1")
         assert supervisor._flatten_request_handler_id is None
+
+
+class TestPaperCarryoverManifestSource:
+    def test_manifest_positions_prefer_h05_open_rows_over_stale_engine_snapshot(self):
+        supervisor = SessionSupervisor(mode="paper", dry_run=True, skip_orphan_sweep=True)
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            current_opened = "2026-05-14T14:39:04-04:00"
+            db.upsert_position(
+                position_id="paper:SPY260613C00783500",
+                symbol="SPY260613C00783500",
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=8.5843,
+                current_price=8.5843,
+                status="OPEN",
+                opened_at=datetime.fromisoformat(current_opened),
+                expiration="2026-06-13",
+                strike=783.5,
+                option_type="call",
+            )
+
+            supervisor.engine = MagicMock()
+            supervisor.engine._session_db = db
+            supervisor.engine.get_active_positions_snapshot.return_value = [
+                {
+                    "position_id": "paper:SPY260613C00783500",
+                    "symbol": "SPY260613C00783500",
+                    "strategy": "iron_condor",
+                    "quantity": -1,
+                    "opened_at": "2026-05-14T13:14:08-04:00",
+                }
+            ]
+            supervisor.position_tracker = MagicMock()
+            supervisor.position_tracker.get_positions.return_value = []
+
+            rows = supervisor._get_positions_for_paper_carryover_manifest()
+
+        assert len(rows) == 1
+        assert rows[0]["opened_at"] == current_opened
 
 
 class TestFlattenRequestEventBusIntegration:

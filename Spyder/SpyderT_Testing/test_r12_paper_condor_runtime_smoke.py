@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+pytest.importorskip("PySide6.QtWidgets", reason="PySide6 required for paper carryover GUI smoke")
 
 from PySide6.QtWidgets import QApplication, QLabel, QTreeWidget
 
@@ -22,12 +23,20 @@ for _path in (_REPO_ROOT, _PACKAGE_ROOT):
     if _path_str not in sys.path:
         sys.path.insert(0, _path_str)
 
+
+def _is_local_spyder_package(module: object) -> bool:
+    if not hasattr(module, "__path__"):
+        return False
+    package_root = str(_PACKAGE_ROOT)
+    module_file = str(getattr(module, "__file__", "") or "")
+    if module_file.startswith(package_root):
+        return True
+    module_paths = [str(path) for path in getattr(module, "__path__", [])]
+    return any(path.startswith(package_root) for path in module_paths)
+
 _existing_spyder = sys.modules.get("Spyder")
-if _existing_spyder is not None:
-    _spyder_file = getattr(_existing_spyder, "__file__", "") or ""
-    _is_pkg = hasattr(_existing_spyder, "__path__")
-    if (not _is_pkg) or (_spyder_file and not _spyder_file.startswith(str(_PACKAGE_ROOT))):
-        sys.modules.pop("Spyder", None)
+if _existing_spyder is not None and not _is_local_spyder_package(_existing_spyder):
+    sys.modules.pop("Spyder", None)
 
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import TradingMode
