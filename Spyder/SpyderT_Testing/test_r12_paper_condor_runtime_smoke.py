@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 import time
@@ -34,9 +35,29 @@ def _is_local_spyder_package(module: object) -> bool:
     module_paths = [str(path) for path in getattr(module, "__path__", [])]
     return any(path.startswith(package_root) for path in module_paths)
 
-_existing_spyder = sys.modules.get("Spyder")
-if _existing_spyder is not None and not _is_local_spyder_package(_existing_spyder):
+
+def _ensure_local_spyder_package() -> None:
+    existing_spyder = sys.modules.get("Spyder")
+    if existing_spyder is not None and _is_local_spyder_package(existing_spyder):
+        return
+
     sys.modules.pop("Spyder", None)
+    importlib.invalidate_caches()
+
+    spec = importlib.util.spec_from_file_location(
+        "Spyder",
+        _PACKAGE_ROOT / "__init__.py",
+        submodule_search_locations=[str(_PACKAGE_ROOT)],
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load Spyder package from {_PACKAGE_ROOT}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["Spyder"] = module
+    spec.loader.exec_module(module)
+
+
+_ensure_local_spyder_package()
 
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import TradingMode
