@@ -23,9 +23,10 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
+import inspect
 import logging
 import warnings
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -46,6 +47,62 @@ warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 logger.info("Using device: %s", device)
+
+
+def _secure_torch_load(
+    checkpoint_path: str,
+    *,
+    map_location: Any = None,
+) -> Any:
+    """Load a PyTorch checkpoint with weights-only deserialization."""
+    if "weights_only" not in inspect.signature(torch.load).parameters:
+        raise RuntimeError(
+            "Secure checkpoint loading requires a PyTorch version with weights_only support"
+        )
+
+    load_kwargs: dict[str, Any] = {"weights_only": True}
+    if map_location is not None:
+        load_kwargs["map_location"] = map_location
+
+    return torch.load(checkpoint_path, **load_kwargs)  # nosec B614
+
+
+def _serialize_scaler_state(scaler: RobustScaler) -> dict[str, Any]:
+    """Serialize fitted RobustScaler state using weights-only-safe types."""
+    payload: dict[str, Any] = {}
+
+    for attr_name in ("center_", "scale_"):
+        attr_value = getattr(scaler, attr_name, None)
+        if attr_value is not None:
+            payload[attr_name] = np.asarray(attr_value, dtype=float).tolist()
+
+    for attr_name in ("n_features_in_", "n_samples_seen_"):
+        if hasattr(scaler, attr_name):
+            payload[attr_name] = int(getattr(scaler, attr_name))
+
+    feature_names = getattr(scaler, "feature_names_in_", None)
+    if feature_names is not None:
+        payload["feature_names_in_"] = [str(value) for value in feature_names]
+
+    return payload
+
+
+def _deserialize_scaler_state(payload: dict[str, Any]) -> RobustScaler:
+    """Rebuild a fitted RobustScaler from serialized safe state."""
+    scaler = RobustScaler()
+
+    for attr_name in ("center_", "scale_"):
+        if attr_name in payload:
+            setattr(scaler, attr_name, np.asarray(payload[attr_name], dtype=float))
+
+    for attr_name in ("n_features_in_", "n_samples_seen_"):
+        if attr_name in payload:
+            setattr(scaler, attr_name, int(payload[attr_name]))
+
+    if "feature_names_in_" in payload:
+        scaler.feature_names_in_ = np.asarray(payload["feature_names_in_"], dtype=object)
+
+    return scaler
 
 
 @dataclass
@@ -543,23 +600,39 @@ class SpyderLSTMPricer:
         """Save model checkpoint."""
         checkpoint = {
             "model_state_dict": self.model.state_dict(),
-            "config": self.config,
-            "scaler": self.scaler,
+            "config": asdict(self.config),
+            "scaler_state": _serialize_scaler_state(self.scaler),
             "is_trained": self.is_trained,
             "model_version": self.model_version,
-            "training_history": self.training_history,
+            "training_history": [asdict(metrics) for metrics in self.training_history],
         }
         torch.save(checkpoint, filename)
 
     def _load_checkpoint(self, filename: str):
         """Load model checkpoint."""
-        checkpoint = torch.load(filename, map_location=device)
+        checkpoint = _secure_torch_load(filename, map_location=device)
         self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.config = checkpoint["config"]
-        self.scaler = checkpoint["scaler"]
-        self.is_trained = checkpoint["is_trained"]
-        self.model_version = checkpoint["model_version"]
-        self.training_history = checkpoint["training_history"]
+        config_payload = checkpoint.get("config", {})
+        if not isinstance(config_payload, dict):
+            raise ValueError("Unsupported checkpoint config format")
+        self.config = LSTMConfig(**config_payload)
+
+        scaler_payload = checkpoint.get("scaler_state", {})
+        if not isinstance(scaler_payload, dict):
+            raise ValueError("Unsupported checkpoint scaler format")
+        self.scaler = _deserialize_scaler_state(scaler_payload)
+
+        self.is_trained = bool(checkpoint.get("is_trained", False))
+        self.model_version = str(checkpoint.get("model_version", self.model_version))
+
+        history_payload = checkpoint.get("training_history", [])
+        if not isinstance(history_payload, list):
+            raise ValueError("Unsupported checkpoint training history format")
+        self.training_history = [
+            TrainingMetrics(**item)
+            for item in history_payload
+            if isinstance(item, dict)
+        ]
 
     def analyze_feature_importance(self, validation_data: pd.DataFrame) -> dict[str, float]:
         """

@@ -85,6 +85,7 @@ import os
 import json
 import time
 import threading
+from urllib.parse import urlencode, urlsplit, urlunsplit
 from datetime import datetime, timedelta, UTC
 from typing import Any
 from collections.abc import Callable
@@ -174,6 +175,36 @@ REPORT_RETENTION_DAYS = 30
 # Email settings (defaults)
 DEFAULT_SMTP_SERVER = "smtp.gmail.com"
 DEFAULT_SMTP_PORT = 587
+_ALLOWED_WEBHOOK_SCHEMES = frozenset({"https"})
+_TELEGRAM_API_HOSTS = frozenset({"api.telegram.org"})
+
+
+def _validated_https_url(
+    url: str,
+    *,
+    allowed_hosts: set[str] | None = None,
+) -> str | None:
+    """Return a normalized HTTPS URL when it is safe to open."""
+    normalized_url = str(url or "").strip()
+    if not normalized_url:
+        return None
+
+    parsed = urlsplit(normalized_url)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme not in _ALLOWED_WEBHOOK_SCHEMES or not hostname:
+        return None
+
+    if allowed_hosts is not None and hostname not in allowed_hosts:
+        return None
+
+    return urlunsplit(parsed)
+
+
+def _telegram_bot_api_url(token: str) -> str:
+    """Build the canonical Telegram Bot API endpoint for sendMessage."""
+    return urlunsplit(
+        ("https", "api.telegram.org", f"/bot{token}/sendMessage", "", "")
+    )
 
 # ==============================================================================
 # ENUMS
@@ -833,17 +864,21 @@ Please review market conditions and adjust positions accordingly.
         if not webhook_url:
             self.logger.warning("Slack webhook URL not configured — skipping Slack alert")
             return
+        safe_webhook_url = _validated_https_url(str(webhook_url))
+        if safe_webhook_url is None:
+            self.logger.error("Slack webhook URL is invalid or not HTTPS — skipping Slack alert")
+            return
         try:
             import json as _json
             import urllib.request
             payload = _json.dumps({"text": message}).encode()
             req = urllib.request.Request(
-                webhook_url,
+                safe_webhook_url,
                 data=payload,
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
                 if resp.status == 200:
                     self.logger.info("Slack alert sent via direct webhook")
                 else:
@@ -873,17 +908,22 @@ Please review market conditions and adjust positions accordingly.
         # ── Fallback: direct Bot API call ─────────────────────────────────────
         import os
         import urllib.request
-        import urllib.parse
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if not token or not chat_id:
             self.logger.warning("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — skipping")
             return
         try:
-            params = urllib.parse.urlencode({"chat_id": chat_id, "text": message}).encode()
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            req = urllib.request.Request(url, data=params, method="POST")
-            with urllib.request.urlopen(req, timeout=10):
+            params = urlencode({"chat_id": chat_id, "text": message}).encode()
+            safe_url = _validated_https_url(
+                _telegram_bot_api_url(token),
+                allowed_hosts=_TELEGRAM_API_HOSTS,
+            )
+            if safe_url is None:
+                self.logger.error("Telegram Bot API URL is invalid — skipping")
+                return
+            req = urllib.request.Request(safe_url, data=params, method="POST")
+            with urllib.request.urlopen(req, timeout=10):  # nosec B310
                 self.logger.info("Telegram alert sent via direct Bot API")
         except Exception as e:
             self.logger.error("Failed to send Telegram alert: %s", e)

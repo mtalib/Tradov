@@ -33,6 +33,7 @@ References:
 # ==============================================================================
 import os
 import json
+import inspect
 import warnings
 from typing import Any
 from enum import Enum
@@ -78,6 +79,27 @@ MIN_TRAINING_SAMPLES = 1000
 # MODULE LOGGER
 # ==============================================================================
 logger = SpyderLogger.get_logger(__name__)
+
+
+def _secure_torch_load(
+    model_path: str,
+    *,
+    map_location: Any = None,
+) -> Any:
+    """Load a PyTorch state dict with weights-only deserialization."""
+    if not HAS_TORCH:
+        raise RuntimeError("PyTorch is not available")
+
+    if "weights_only" not in inspect.signature(torch.load).parameters:
+        raise RuntimeError(
+            "Secure model loading requires a PyTorch version with weights_only support"
+        )
+
+    load_kwargs: dict[str, Any] = {"weights_only": True}
+    if map_location is not None:
+        load_kwargs["map_location"] = map_location
+
+    return torch.load(model_path, **load_kwargs)  # nosec B614
 
 
 # ==============================================================================
@@ -1274,7 +1296,9 @@ class MLPredictionEngine:
                         self.direction_model = LSTMModel(input_size=input_size)
                     else:
                         self.direction_model = GRUModel(input_size=input_size)
-                    self.direction_model.load_state_dict(torch.load(pt_path))
+                    self.direction_model.load_state_dict(
+                        _secure_torch_load(pt_path, map_location=self.device)
+                    )
                     self.direction_model.to(self.device)
 
             logger.info("Model loaded from %s", model_path)

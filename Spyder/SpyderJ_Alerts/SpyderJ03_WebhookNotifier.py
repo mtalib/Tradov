@@ -45,6 +45,7 @@ import logging
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -70,6 +71,7 @@ _ENV_DISCORD = "SPYDER_DISCORD_WEBHOOK_URL"
 
 _RETRY_ATTEMPTS = 3
 _RETRY_BASE_DELAY = 1.0   # seconds; doubled on each retry
+_ALLOWED_WEBHOOK_SCHEMES = frozenset({"https"})
 
 # Colour hex codes for severity levels (used by Teams / Discord)
 _COLOURS: dict[str, int] = {
@@ -108,6 +110,27 @@ class WebhookConfig:
     slack_url:   str | None = field(default_factory=lambda: os.getenv(_ENV_SLACK))
     teams_url:   str | None = field(default_factory=lambda: os.getenv(_ENV_TEAMS))
     discord_url: str | None = field(default_factory=lambda: os.getenv(_ENV_DISCORD))
+
+
+def _validated_https_url(
+    url: str,
+    *,
+    allowed_hosts: set[str] | None = None,
+) -> str | None:
+    """Return a normalized HTTPS URL when it is safe to open."""
+    normalized_url = str(url or "").strip()
+    if not normalized_url:
+        return None
+
+    parsed = urllib.parse.urlsplit(normalized_url)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme not in _ALLOWED_WEBHOOK_SCHEMES or not hostname:
+        return None
+
+    if allowed_hosts is not None and hostname not in allowed_hosts:
+        return None
+
+    return urllib.parse.urlunsplit(parsed)
 
 
 # ==============================================================================
@@ -297,17 +320,22 @@ class WebhookNotifier:
 
     def _post(self, url: str, payload: dict[str, Any], platform: str) -> bool:
         """POST JSON payload to *url* with exponential-backoff retry."""
+        safe_url = _validated_https_url(url)
+        if safe_url is None:
+            self._log.error("%s webhook URL is invalid or not HTTPS; skipping send", platform)
+            return False
+
         data = json.dumps(payload).encode("utf-8")
         delay = _RETRY_BASE_DELAY
         for attempt in range(1, _RETRY_ATTEMPTS + 1):
             try:
                 req = urllib.request.Request(
-                    url,
+                    safe_url,
                     data=data,
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
                     if resp.status < 300:
                         self._log.info("%s webhook delivered (attempt %d)", platform, attempt)
                         return True

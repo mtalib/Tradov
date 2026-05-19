@@ -23,6 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from datetime import datetime, timezone
+import inspect
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -52,6 +53,24 @@ from torch.utils.data import DataLoader, TensorDataset  # noqa: E402
 
 
 logger = logging.getLogger(__name__)
+
+
+def _secure_torch_load(
+    model_path: str,
+    *,
+    map_location: Any = None,
+) -> Any:
+    """Load a PyTorch state dict with weights-only deserialization."""
+    if "weights_only" not in inspect.signature(torch.load).parameters:
+        raise RuntimeError(
+            "Secure model loading requires a PyTorch version with weights_only support"
+        )
+
+    load_kwargs: dict[str, Any] = {"weights_only": True}
+    if map_location is not None:
+        load_kwargs["map_location"] = map_location
+
+    return torch.load(model_path, **load_kwargs)  # nosec B614
 
 # ==================================================================================
 # ENUMS AND CONSTANTS
@@ -1151,9 +1170,15 @@ class EnhancedMLEngine:
         """Load models from disk"""
 
         # Load PyTorch models
-        self.models['lstm_price'].load_state_dict(torch.load(f"{path}/lstm_price.pt"))
-        self.models['transformer_vol'].load_state_dict(torch.load(f"{path}/transformer_vol.pt"))
-        self.models['strategy_selector'].load_state_dict(torch.load(f"{path}/strategy_selector.pt"))
+        self.models['lstm_price'].load_state_dict(
+            _secure_torch_load(f"{path}/lstm_price.pt", map_location=self.device)
+        )
+        self.models['transformer_vol'].load_state_dict(
+            _secure_torch_load(f"{path}/transformer_vol.pt", map_location=self.device)
+        )
+        self.models['strategy_selector'].load_state_dict(
+            _secure_torch_load(f"{path}/strategy_selector.pt", map_location=self.device)
+        )
 
         # Load sklearn models
         self.models['price_ensemble'] = joblib.load(f"{path}/price_ensemble.pkl")
