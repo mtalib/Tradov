@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 import time
@@ -11,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+pytest.importorskip("PySide6.QtWidgets", reason="PySide6 required for paper carryover GUI smoke")
 
 from PySide6.QtWidgets import QApplication, QLabel, QTreeWidget
 
@@ -22,12 +24,40 @@ for _path in (_REPO_ROOT, _PACKAGE_ROOT):
     if _path_str not in sys.path:
         sys.path.insert(0, _path_str)
 
-_existing_spyder = sys.modules.get("Spyder")
-if _existing_spyder is not None:
-    _spyder_file = getattr(_existing_spyder, "__file__", "") or ""
-    _is_pkg = hasattr(_existing_spyder, "__path__")
-    if (not _is_pkg) or (_spyder_file and not _spyder_file.startswith(str(_PACKAGE_ROOT))):
-        sys.modules.pop("Spyder", None)
+
+def _is_local_spyder_package(module: object) -> bool:
+    if not hasattr(module, "__path__"):
+        return False
+    package_root = str(_PACKAGE_ROOT)
+    module_file = str(getattr(module, "__file__", "") or "")
+    if module_file.startswith(package_root):
+        return True
+    module_paths = [str(path) for path in getattr(module, "__path__", [])]
+    return any(path.startswith(package_root) for path in module_paths)
+
+
+def _ensure_local_spyder_package() -> None:
+    existing_spyder = sys.modules.get("Spyder")
+    if existing_spyder is not None and _is_local_spyder_package(existing_spyder):
+        return
+
+    sys.modules.pop("Spyder", None)
+    importlib.invalidate_caches()
+
+    spec = importlib.util.spec_from_file_location(
+        "Spyder",
+        _PACKAGE_ROOT / "__init__.py",
+        submodule_search_locations=[str(_PACKAGE_ROOT)],
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load Spyder package from {_PACKAGE_ROOT}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["Spyder"] = module
+    spec.loader.exec_module(module)
+
+
+_ensure_local_spyder_package()
 
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import TradingMode
@@ -35,6 +65,7 @@ from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
 from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import LiveEngine
 from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
 from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import SessionSupervisor
+from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import authorize_paper_session_start
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
 
@@ -57,7 +88,7 @@ def _build_dashboard_stub(session_db: TradingSessionDB) -> SpyderTradingDashboar
     dash.logger = SpyderLogger.get_logger(__name__)
     dash.trading_mode = TradingMode.PAPER
     dash.positions_table = QTreeWidget()
-    dash.positions_table.setColumnCount(6)
+    dash.positions_table.setColumnCount(8)
     dash.orders_title_label = QLabel("Orders")
     dash._paper_session_db = session_db
     dash._live_session_db = None
@@ -80,6 +111,7 @@ def test_r12_paper_condor_dispatch_persists_and_renders_restored_group(tmp_path,
     monkeypatch.setattr(LiveEngine, "_is_market_open", lambda self: True)
 
     supervisor = SessionSupervisor(mode="paper")
+    authorize_paper_session_start(supervisor)
     expected_quantities = {
         "SPY260515P00565000": 1,
         "SPY260515P00570000": -1,
@@ -185,6 +217,14 @@ def test_r12_paper_condor_dispatch_persists_and_renders_restored_group(tmp_path,
                 for row in positions
             } == expected_quantities
 
+            assert session_db.get_resume_eligible_open_positions() == []
+
+            supervisor.stop(flatten=False)
+
+            session_db = TradingSessionDB(paper_db_path)
+            resumable_positions = list(session_db.get_resume_eligible_open_positions() or [])
+            assert len(resumable_positions) == 4
+
             dash = _build_dashboard_stub(session_db)
             dash._render_paper_spreads_in_tree([], armed_candidate=None)
 
@@ -193,7 +233,7 @@ def test_r12_paper_condor_dispatch_persists_and_renders_restored_group(tmp_path,
             summary_widget = dash.positions_table.itemWidget(summary, 0)
             assert summary_widget is not None
             label_texts = [label.text() for label in summary_widget.findChildren(QLabel)]
-            assert any("STRATEGY RESTORED : IRON CONDOR" in text for text in label_texts)
+            assert any("ACTIVE TRADE CARRIED OVER : IRON CONDOR" in text for text in label_texts)
 
             leg_labels = [
                 dash.positions_table.topLevelItem(index).text(0).strip()
@@ -201,4 +241,5 @@ def test_r12_paper_condor_dispatch_persists_and_renders_restored_group(tmp_path,
             ]
             assert leg_labels == ["Sell Put", "Buy Put", "Sell Call", "Buy Call"]
         finally:
-            supervisor.stop(flatten=False)
+            if getattr(supervisor, "_running", False):
+                supervisor.stop(flatten=False)
