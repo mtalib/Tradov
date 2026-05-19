@@ -100,7 +100,7 @@ except ImportError:
 # CONSTANTS
 # ==============================================================================
 # Prometheus configuration
-DEFAULT_HOST = "0.0.0.0"
+DEFAULT_HOST = "127.0.0.1"
 DEFAULT_METRICS_PORT = 9090
 DEFAULT_COLLECTION_INTERVAL = 10.0  # seconds
 DEFAULT_MAX_QUEUE_SIZE = 1000

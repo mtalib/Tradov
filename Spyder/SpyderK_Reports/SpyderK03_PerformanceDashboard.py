@@ -104,6 +104,7 @@ class PerformanceDashboard:
         self.event_manager = get_event_manager()
 
         # Dashboard configuration
+        self.host = self.config.get('host', '127.0.0.1')
         self.port = self.config.get('port', DASHBOARD_PORT)
         self.debug = self.config.get('debug', False)
         self.update_interval = self.config.get('update_interval', UPDATE_INTERVAL)
@@ -859,7 +860,7 @@ class PerformanceDashboard:
 
             # Run Dash app
             self.app.run_server(
-                host='0.0.0.0',
+                host=self.host,
                 port=self.port,
                 debug=self.debug,
                 use_reloader=False

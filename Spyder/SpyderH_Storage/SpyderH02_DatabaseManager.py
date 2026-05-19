@@ -95,6 +95,14 @@ TABLES = {
     "audit_trail": "audit_trail",
     "ml_predictions": "ml_predictions"
 }
+_ALLOWED_TABLE_IDENTIFIERS: frozenset[str] = frozenset(TABLES.values())
+
+
+def _validated_sql_identifier(name: str, *, allowed: frozenset[str]) -> str:
+    """Return a quoted SQL identifier after allowlist validation."""
+    if name not in allowed or not name.isidentifier():
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    return f'"{name}"'
 
 # ==============================================================================
 # ENUMS
@@ -558,7 +566,10 @@ class DatabaseManager:
             old_values = dict(cursor.fetchone()) if cursor.fetchone() else None
 
             # Build update query
-            set_clause = ", ".join([f"{k} = ?" for k in updates])
+            set_clause = ", ".join(
+                f"{_validated_sql_identifier(column, allowed=_ALLOWED_POSITION_COLUMNS)} = ?"
+                for column in updates
+            )
             values = list(updates.values())
             values.append(position_id)
 
@@ -566,7 +577,7 @@ class DatabaseManager:
                     UPDATE positions
                     SET {set_clause}, updated_at = CURRENT_TIMESTAMP
                     WHERE position_id = ?
-                """, values)
+                """, values)  # nosec B608
 
             self.write_count += 1
 
@@ -786,12 +797,14 @@ class DatabaseManager:
             }
 
             # Get row counts for each table
-            _allowed_tables = frozenset(TABLES.values())
             for table_name in TABLES.values():
-                if table_name not in _allowed_tables:
-                    continue
                 try:
-                    cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
+                    safe_table_name = _validated_sql_identifier(
+                        table_name,
+                        allowed=_ALLOWED_TABLE_IDENTIFIERS,
+                    )
+                    query = f"SELECT COUNT(*) as count FROM {safe_table_name}"  # nosec B608
+                    cursor.execute(query)
                     stats['tables'][table_name] = cursor.fetchone()[0]
                 except sqlite3.OperationalError:
                     stats['tables'][table_name] = 0

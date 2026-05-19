@@ -2165,7 +2165,7 @@ class UnifiedRegimeEngine:
 
     def serve_regime_predictions(
         self,
-        host: str = '0.0.0.0',
+        host: str = '127.0.0.1',
         port: int = 8100,
         num_replicas: int = 2,
     ) -> dict[str, Any]:

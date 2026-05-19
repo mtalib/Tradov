@@ -55,6 +55,20 @@ DEFAULT_TIMEOUT = 30.0
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0
 CURRENT_DB_VERSION = "1.0.3"
+_ALLOWED_STAT_TABLES: frozenset[str] = frozenset({
+    "trades",
+    "market_data",
+    "options_positions",
+    "risk_metrics",
+    "alerts",
+})
+
+
+def _validated_sql_identifier(name: str, *, allowed: frozenset[str]) -> str:
+    """Return a quoted SQL identifier after allowlist validation."""
+    if name not in allowed or not name.isidentifier():
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    return f'"{name}"'
 
 # ==============================================================================
 # ENUMS
@@ -909,17 +923,14 @@ class DataAccessLayer:
             # Get table statistics
             if self.is_connected():
                 with self.get_cursor() as cursor:
-                    # Whitelist prevents SQL injection via f-string table name.
-                    _ALLOWED_STAT_TABLES = frozenset([
-                        'trades', 'market_data', 'options_positions',
-                        'risk_metrics', 'alerts',
-                    ])
                     for table in _ALLOWED_STAT_TABLES:
                         try:
-                            # Table name comes from a hardcoded frozenset above —
-                            # safe against injection, but we validate anyway.
-                            assert table.isidentifier(), f"Unsafe table name: {table}"
-                            cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+                            safe_table = _validated_sql_identifier(
+                                table,
+                                allowed=_ALLOWED_STAT_TABLES,
+                            )
+                            query = f"SELECT COUNT(*) as count FROM {safe_table}"  # nosec B608
+                            cursor.execute(query)
                             result = cursor.fetchone()
                             stats[f'{table}_count'] = result['count'] if result else 0
                         except Exception as e:

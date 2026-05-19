@@ -1623,7 +1623,7 @@ class ProductionDeploymentManager:
     def serve_ml_models(
         self,
         model_configs: list[dict[str, Any]],
-        host: str = '0.0.0.0',
+        host: str = '127.0.0.1',
         port: int = 8200,
     ) -> dict[str, Any]:
         """

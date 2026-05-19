@@ -222,7 +222,9 @@ class RealTimeAnalyticsEngine:
 
         # Configuration
         self.config = config or {}
+        self.websocket_host = self.config.get('websocket_host', '127.0.0.1')
         self.websocket_port = self.config.get('websocket_port', 8765)
+        self.http_host = self.config.get('http_host', '127.0.0.1')
         self.http_port = self.config.get('http_port', 8766)
         self.update_interval = self.config.get('update_interval', REALTIME_UPDATE_INTERVAL)
         self.enable_redis = self.config.get('enable_redis', False) and REDIS_AVAILABLE
@@ -442,7 +444,7 @@ class RealTimeAnalyticsEngine:
         try:
             self.websocket_server = await websockets.serve(
                 self._handle_websocket_connection,
-                "0.0.0.0",
+                self.websocket_host,
                 self.websocket_port,
                 max_size=2**20,  # 1MB max message size
                 max_queue=100,
@@ -473,7 +475,7 @@ class RealTimeAnalyticsEngine:
             runner = web.AppRunner(app)
             await runner.setup()
 
-            site = web.TCPSite(runner, '0.0.0.0', self.http_port)
+            site = web.TCPSite(runner, self.http_host, self.http_port)
             await site.start()
 
             self.logger.info("HTTP server started on port %s", self.http_port)

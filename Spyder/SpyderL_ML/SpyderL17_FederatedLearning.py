@@ -1270,7 +1270,7 @@ class FederatedCoordinator:
 
             self.logger.info("Saved global model to %s", model_path)
 
-    def start_server(self, host: str = "0.0.0.0", port: int = DEFAULT_PORT):
+    def start_server(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT):
         """Start the coordinator server"""
         self.logger.info("Starting coordinator server on %s:%s", host, port)
         self.app.run(host=host, port=port, threaded=True)
