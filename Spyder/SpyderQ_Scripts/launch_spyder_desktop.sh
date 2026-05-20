@@ -27,10 +27,13 @@ else
   echo "[$(date -Iseconds)] WARNING: .env not found" >> "$LOG_FILE"
 fi
 
-# Desktop launcher safety defaults:
-# - Enable SessionSupervisor autostart so Telegram /status reflects session state.
+# Desktop launcher defaults:
+# - Paper SessionSupervisor autostart is enabled so the desktop launch resumes
+#   the expected paper automation path by default.
+# - Deferred GUI autostart remains enabled for the dashboard handoff path.
 # - Keep it paper-only unless user explicitly overrides in environment.
 export SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR="${SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR:-1}"
+export SPYDER_A01_ALLOW_GUI_AUTOSTART="${SPYDER_A01_ALLOW_GUI_AUTOSTART:-1}"
 export SPYDER_A01_AUTOSTART_MODE="${SPYDER_A01_AUTOSTART_MODE:-paper}"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then

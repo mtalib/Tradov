@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import threading
-from datetime import datetime, time, timedelta, date, timezone
+from datetime import datetime, time, timedelta, date, UTC
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -142,7 +142,7 @@ class ScheduledTask:
     max_instances: int = 1
     misfire_grace_time: int = 30  # seconds
     coalesce: bool = True
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_run: datetime | None = None
     next_run: datetime | None = None
     run_count: int = 0
@@ -204,7 +204,7 @@ class MarketCalendar:
             "day_before_independence": time(13, 0),
             "day_after_thanksgiving": time(13, 0),
             "christmas_eve": time(13, 0),
-            "new_years_eve": time(13, 0) if datetime.now(timezone.utc).year >= 2025 else time(16, 0)
+            "new_years_eve": time(13, 0) if datetime.now(UTC).year >= 2025 else time(16, 0)
         }
 
         self.logger.info("MarketCalendar initialized")
@@ -373,8 +373,8 @@ class Scheduler:
         self.session_window_config: dict[str, Any] = {
             "primary_start_et": "09:30",
             "primary_end_et": "16:15",
-            "first_entry_not_before_et": "09:35",
-            "zero_dte_no_new_risk_cutoff_et": "15:45",
+            "first_entry_not_before_et": "10:15",
+            "zero_dte_no_new_risk_cutoff_et": "14:30",
             "broker_cutoff_et": "16:00",
             "broker_cutoff_buffer_minutes": 10,
             "pin_risk_monitor_end_et": "17:30",
@@ -458,7 +458,49 @@ class Scheduler:
         self.trading_windows["opening_range"] = TradingWindow(
             name="Opening Range",
             start_time=time(9, 30),
-            end_time=time(10, 0),
+            end_time=time(9, 45),
+            enabled=True
+        )
+
+        self.trading_windows["post_open_fade"] = TradingWindow(
+            name="Post-Open Fade",
+            start_time=time(9, 45),
+            end_time=time(10, 15),
+            enabled=True
+        )
+
+        self.trading_windows["primary_session"] = TradingWindow(
+            name="Primary Session",
+            start_time=time(10, 15),
+            end_time=time(11, 30),
+            enabled=True
+        )
+
+        self.trading_windows["lunch_drift"] = TradingWindow(
+            name="Lunch Drift",
+            start_time=time(11, 30),
+            end_time=time(13, 0),
+            enabled=True
+        )
+
+        self.trading_windows["afternoon_continuation"] = TradingWindow(
+            name="Afternoon Continuation",
+            start_time=time(13, 0),
+            end_time=time(14, 30),
+            enabled=True
+        )
+
+        self.trading_windows["pre_moc"] = TradingWindow(
+            name="Pre-MOC",
+            start_time=time(14, 30),
+            end_time=time(15, 0),
+            enabled=True
+        )
+
+        self.trading_windows["moc_close"] = TradingWindow(
+            name="MOC / Close",
+            start_time=time(15, 0),
+            end_time=time(16, 0),
             enabled=True
         )
 
@@ -1011,7 +1053,7 @@ class Scheduler:
     def _wrap_task_function(self, task: ScheduledTask) -> Callable:
         """Wrap task function with error handling and metrics"""
         def wrapped():
-            start_time = datetime.now(timezone.utc)
+            start_time = datetime.now(UTC)
             execution = TaskExecution(
                 task_id=task.task_id,
                 execution_time=start_time,
@@ -1050,7 +1092,7 @@ class Scheduler:
 
             finally:
                 # Calculate duration
-                end_time = datetime.now(timezone.utc)
+                end_time = datetime.now(UTC)
                 execution.duration_ms = int((end_time - start_time).total_seconds() * 1000)
                 self.metrics['total_execution_time_ms'] += execution.duration_ms
 
@@ -1498,7 +1540,7 @@ class Scheduler:
                 EventType.SYSTEM,
                 {
                     'type': 'daily_cleanup',
-                    'timestamp': datetime.now(timezone.utc)
+                    'timestamp': datetime.now(UTC)
                 }
             )
 
@@ -1636,7 +1678,7 @@ class Scheduler:
                 EventType.SYSTEM,
                 {
                     'type': 'data_update_request',
-                    'timestamp': datetime.now(timezone.utc)
+                    'timestamp': datetime.now(UTC)
                 }
             )
 
@@ -1657,7 +1699,7 @@ class Scheduler:
                 EventType.RISK,
                 {
                     'type': 'periodic_risk_check',
-                    'timestamp': datetime.now(timezone.utc)
+                    'timestamp': datetime.now(UTC)
                 }
             )
 
@@ -1906,7 +1948,7 @@ class Scheduler:
                     VALUES (?, ?, ?, ?, ?)
                 """, (
                     task_id,
-                    datetime.now(timezone.utc),
+                    datetime.now(UTC),
                     status.value,
                     duration_ms,
                     error_message
@@ -1959,7 +2001,7 @@ class Scheduler:
     def _clean_old_task_history(self, days_to_keep: int = 30):
         """Clean old task history records"""
         try:
-            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
+            cutoff_date = datetime.now(UTC) - timedelta(days=days_to_keep)
 
             with sqlite3.connect(self.db_path) as conn:
                 result = conn.execute("""
@@ -1978,7 +2020,7 @@ class Scheduler:
                           days: int = 7) -> dict[str, Any]:
         """Get task execution statistics"""
         try:
-            since_date = datetime.now(timezone.utc) - timedelta(days=days)
+            since_date = datetime.now(UTC) - timedelta(days=days)
 
             with sqlite3.connect(self.db_path) as conn:
                 if task_id:
@@ -2047,7 +2089,7 @@ class Scheduler:
                 EventType.SYSTEM,
                 {
                     'type': 'scheduler_started',
-                    'timestamp': datetime.now(timezone.utc),
+                    'timestamp': datetime.now(UTC),
                     'task_count': len(self.tasks)
                 }
             )
@@ -2082,7 +2124,7 @@ class Scheduler:
                 EventType.SYSTEM,
                 {
                     'type': 'scheduler_stopped',
-                    'timestamp': datetime.now(timezone.utc)
+                    'timestamp': datetime.now(UTC)
                 }
             )
 
@@ -2194,7 +2236,7 @@ class Scheduler:
         """Export schedule to file"""
         try:
             schedule_data = {
-                'export_time': datetime.now(timezone.utc).isoformat(),
+                'export_time': datetime.now(UTC).isoformat(),
                 'scheduler_running': self.scheduler.running,
                 'tasks': []
             }

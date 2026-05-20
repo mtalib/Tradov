@@ -1,0 +1,100 @@
++                                option_type=str(order.get("option_type") or "") or None,
++                                notes="paper fill via LiveEngine",
++                            )
++                        except Exception as _db_err:
++                            self.logger.warning("Paper fill DB record failed: %s", _db_err)
++                    # Fix B3: forward to PositionTracker.
++                    if self._position_tracker is not None and _paper_symbol and _paper_qty:
++                        try:
++                            self._position_tracker.record_fill({
++                                "symbol": _paper_symbol,
++                                "side": _paper_side,
++                                "quantity": _paper_qty,
++                                "fill_price": _paper_price,
++                                "order_id": str(order_id) if order_id else "",
++                            })
++                        except Exception as _pt_err:
++                            self.logger.warning("Paper fill position tracker record failed: %s", _pt_err)
+--- DIFF FOR Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py ---
+diff --git a/Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py b/Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py
+index b387754..c0e2f78 100644
+--- a/Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py
++++ b/Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py
+@@ -278,0 +279,5 @@ class SessionSupervisor:
++        try:
++            self._persist_paper_carryover_manifest(flatten=flatten)
++        except Exception as exc:
++            self.logger.warning("Paper carryover manifest update failed during shutdown: %s", exc)
++
+@@ -409,0 +415 @@ class SessionSupervisor:
++            rth_threshold_s, ooh_threshold_s = self._resolve_freshness_monitor_thresholds()
+@@ -412 +418,3 @@ class SessionSupervisor:
+-                startup_grace_s=30.0,  # suppress DATA_STALE for 30s on startup
++                rth_threshold_s=rth_threshold_s,
++                ooh_threshold_s=ooh_threshold_s,
++                startup_grace_s=0.0,
+@@ -416 +424 @@ class SessionSupervisor:
+-            self.logger.debug("✅ DataFreshnessMonitor started (startup_grace=30s)")
++            self.logger.debug("✅ DataFreshnessMonitor started (startup_grace=0s)")
+@@ -421,0 +430,29 @@ class SessionSupervisor:
++    def _resolve_freshness_monitor_thresholds(self) -> tuple[float, float]:
++        """Resolve provider-aware data freshness thresholds for the session."""
++        try:
++            rth_threshold_s = float(os.environ.get("SPYDER_DATA_FRESHNESS_RTH_THRESHOLD_S", "3.0"))
++        except (TypeError, ValueError):
++            rth_threshold_s = 3.0
++
++        try:
++            ooh_threshold_s = float(os.environ.get("SPYDER_DATA_FRESHNESS_OOH_THRESHOLD_S", "30.0"))
++        except (TypeError, ValueError):
++            ooh_threshold_s = 30.0
++
++        feed_status = str(
++            getattr(getattr(self.feed, "status", None), "value", getattr(self.feed, "status", ""))
++        ).strip().lower()
++        quote_poll_interval_s = getattr(self.feed, "_quote_poll_interval_s", None)
++        try:
++            quote_poll_interval_s = float(quote_poll_interval_s) if quote_poll_interval_s is not None else None
++        except (TypeError, ValueError):
++            quote_poll_interval_s = None
++
++        if feed_status == "degraded" and quote_poll_interval_s is not None and quote_poll_interval_s > 0.0:
++            # REST quote fallback is bursty compared with a true stream. Keep the
++            # stale gate fail-closed, but widen the RTH threshold above the polling
++            # cadence so transient 3-5s quote gaps do not flap the entry gate.
++            rth_threshold_s = max(rth_threshold_s, (quote_poll_interval_s * 5.0) + 1.0)
++
++        return rth_threshold_s, ooh_threshold_s
++
+@@ -476,0 +514,2 @@ class SessionSupervisor:
++                restore_state_on_start=self.mode != "paper",
++                persist_state_on_stop=self.mode != "paper",
+@@ -644,0 +684,6 @@ class SessionSupervisor:
++            if (
++                self.mode == "paper"
++                and not self.dry_run
++                and hasattr(self.orchestrator, "set_startup_regime_engine_pending")
++            ):
++                self.orchestrator.set_startup_regime_engine_pending(True)
+@@ -711,0 +757 @@ class SessionSupervisor:
++            success = False
+@@ -732,0 +779 @@ class SessionSupervisor:
++                success = True
+@@ -742,0 +790,9 @@ class SessionSupervisor:
++                if (
++                    not success
++                    and self.orchestrator is orchestrator
++                    and hasattr(orchestrator, "set_startup_regime_engine_pending")
++                ):
++                    try:
++                        orchestrator.set_startup_regime_engine_pending(False)
++                    except Exception:
++                        pass
+@@ -781,0 +838,31 @@ class SessionSupervisor:
++            def _resolve_authoritative_positions() -> dict[str, Any] | None:
++                if self.mode != "paper" or self.engine is None:
++                    return None
++
++                active_positions = getattr(self.engine, "active_positions", {}) or {}
++                active_positions_lock = getattr(self.engine, "_active_positions_lock", None)
++                if active_positions_lock is not None:

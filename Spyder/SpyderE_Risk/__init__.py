@@ -42,6 +42,7 @@ import logging
 # E00 — Protocol contracts (E↔D boundary)
 try:
     from .SpyderE00_RiskProtocol import (
+        OverlayPretradeVerdict,
         RiskValidationRequest,
         RiskValidationResult,
         RiskManagerProtocol,
@@ -168,6 +169,7 @@ except ImportError:
 # Package exports
 __all__ = [
     # E00 — Protocol contracts
+    "OverlayPretradeVerdict",
     "RiskValidationRequest",
     "RiskValidationResult",
     "RiskManagerProtocol",

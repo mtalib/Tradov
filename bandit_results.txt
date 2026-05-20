@@ -1,0 +1,205 @@
+Run started:2026-05-19 19:46:37.245639+00:00
+
+Test results:
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderA_Core/SpyderA03_Configuration.py:504:24
+503	                "enabled": False,
+504	                "host": "0.0.0.0",
+505	                "port": 8080,
+506	                "auth_required": True,
+507	                "ssl_enabled": False,
+508	                "rate_limit": 100,  # requests per minute
+509	            },
+510	        }
+511	
+512	        # Store defaults with metadata
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderB_Broker/SpyderB15_PrometheusMetrics.py:103:15
+102	# Prometheus configuration
+103	DEFAULT_HOST = "0.0.0.0"
+104	DEFAULT_METRICS_PORT = 9090
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderF_Analysis/SpyderF16_RealTimeAnalytics.py:445:16
+444	                self._handle_websocket_connection,
+445	                "0.0.0.0",
+446	                self.websocket_port,
+447	                max_size=2**20,  # 1MB max message size
+448	                max_queue=100,
+449	                compression=None  # Disable compression for lower latency
+450	            )
+451	
+452	            self.logger.info("WebSocket server started on port %s", self.websocket_port)
+453	
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderF_Analysis/SpyderF16_RealTimeAnalytics.py:476:39
+475	
+476	            site = web.TCPSite(runner, '0.0.0.0', self.http_port)
+477	            await site.start()
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b608_hardcoded_sql_expressions.html
+   Location: Spyder/SpyderH_Storage/SpyderH01_DataAccessLayer.py:922:45
+921	                            assert table.isidentifier(), f"Unsafe table name: {table}"
+922	                            cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+923	                            result = cursor.fetchone()
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b608_hardcoded_sql_expressions.html
+   Location: Spyder/SpyderH_Storage/SpyderH02_DatabaseManager.py:565:31
+564	
+565	            cursor.execute(f"""
+566	                    UPDATE positions
+567	                    SET {set_clause}, updated_at = CURRENT_TIMESTAMP
+568	                    WHERE position_id = ?
+569	                """, values)
+570	
+
+--------------------------------------------------
+>> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector through string-based query construction.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-89 (https://cwe.mitre.org/data/definitions/89.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b608_hardcoded_sql_expressions.html
+   Location: Spyder/SpyderH_Storage/SpyderH02_DatabaseManager.py:794:37
+793	                try:
+794	                    cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
+795	                    stats['tables'][table_name] = cursor.fetchone()[0]
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderK_Reports/SpyderK03_PerformanceDashboard.py:862:21
+861	            self.app.run_server(
+862	                host='0.0.0.0',
+863	                port=self.port,
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderL_ML/SpyderL09_UnifiedRegimeEngine.py:2168:20
+2167	        self,
+2168	        host: str = '0.0.0.0',
+2169	        port: int = 8100,
+2170	        num_replicas: int = 2,
+2171	    ) -> dict[str, Any]:
+2172	        """
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderL_ML/SpyderL17_FederatedLearning.py:1273:39
+1272	
+1273	    def start_server(self, host: str = "0.0.0.0", port: int = DEFAULT_PORT):
+1274	        """Start the coordinator server"""
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderR_Runtime/SpyderR09_ProductionDeploymentManager.py:1626:20
+1625	        model_configs: list[dict[str, Any]],
+1626	        host: str = '0.0.0.0',
+1627	        port: int = 8200,
+1628	    ) -> dict[str, Any]:
+1629	        """
+1630	        Deploy ML models as Ray Serve endpoints for production inference.
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderT_Testing/SpyderT174_LowCoverageBatch.py:221:42
+220	    first = m08.get_health_endpoint(host="127.0.0.1", port=18890)
+221	    second = m08.get_health_endpoint(host="0.0.0.0", port=19999)
+222	
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderT_Testing/SpyderT78_ErrorHandlerTechAnalysisNetworkGapTests.py:1099:47
+1098	        with patch("socket.create_connection", side_effect=OSError("refused")):
+1099	            result = net._test_host_connection("0.0.0.0", 9999, 1)
+1100	            assert result is False
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderT_Testing/SpyderT78_ErrorHandlerTechAnalysisNetworkGapTests.py:1105:47
+1104	        with patch("socket.create_connection", side_effect=TimeoutError("timed out")):
+1105	            result = net._test_host_connection("0.0.0.0", 9999, 1)
+1106	            assert result is False
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderT_Testing/SpyderT78_ErrorHandlerTechAnalysisNetworkGapTests.py:1122:40
+1121	        with patch("socket.create_connection", side_effect=ConnectionRefusedError("refused")):
+1122	            result = net._test_endpoint("0.0.0.0", 9999)
+1123	            assert isinstance(result, ConnectionTest)
+
+--------------------------------------------------
+>> Issue: [B104:hardcoded_bind_all_interfaces] Possible binding to all interfaces.
+   Severity: Medium   Confidence: Medium
+   CWE: CWE-605 (https://cwe.mitre.org/data/definitions/605.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.2/plugins/b104_hardcoded_bind_all_interfaces.html
+   Location: Spyder/SpyderT_Testing/SpyderT78_ErrorHandlerTechAnalysisNetworkGapTests.py:1199:41
+1198	        with patch("socket.create_connection", side_effect=OSError("refused")):
+1199	            result = net.measure_latency("0.0.0.0", count=1)
+1200	            assert result == -1.0
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 383694
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 0
+		Medium: 16
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 16
+		High: 0
+Files skipped (0):

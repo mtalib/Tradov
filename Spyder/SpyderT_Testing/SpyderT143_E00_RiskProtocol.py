@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import (
     BoundarySignalType,
+    OverlayPretradeVerdict,
     RiskManagerProtocol,
     RiskValidationRequest,
     RiskValidationResult,
@@ -82,11 +83,38 @@ class TestRiskValidationResult(unittest.TestCase):
         self.assertIn("DELTA_LIMIT_EXCEEDED", res.violations)
 
 
+class TestOverlayPretradeVerdict(unittest.TestCase):
+    def test_defaults(self):
+        verdict = OverlayPretradeVerdict()
+        self.assertFalse(verdict.allow)
+        self.assertEqual(verdict.reason_code, "")
+        self.assertEqual(verdict.limits_snapshot, {})
+        self.assertEqual(verdict.computed_values, {})
+        self.assertIsInstance(verdict.timestamp, datetime)
+
+    def test_construction(self):
+        verdict = OverlayPretradeVerdict(
+            allow=True,
+            reason_code="admitted",
+            limits_snapshot={"overlay_max_daily_risk_used_fraction": 0.60},
+            computed_values={"daily_risk_used_fraction": 0.25},
+        )
+        self.assertTrue(verdict.allow)
+        self.assertEqual(verdict.reason_code, "admitted")
+        self.assertEqual(
+            verdict.limits_snapshot["overlay_max_daily_risk_used_fraction"],
+            0.60,
+        )
+
+
 class _ConformingRiskManager:
     """Minimal concrete class satisfying RiskManagerProtocol structurally."""
 
     def validate_signal(self, request: RiskValidationRequest) -> RiskValidationResult:
         return RiskValidationResult(approved=True)
+
+    def validate_overlay_slot(self, request: RiskValidationRequest) -> OverlayPretradeVerdict:
+        return OverlayPretradeVerdict(allow=True, reason_code="admitted")
 
     def get_risk_metrics(self) -> dict[str, Any]:
         return {"total_exposure": 0.0, "daily_pnl": 0.0}
@@ -122,6 +150,13 @@ class TestRiskManagerProtocol(unittest.TestCase):
         result = mgr.validate_signal(req)
         self.assertIsInstance(result, RiskValidationResult)
         self.assertTrue(result.approved)
+
+    def test_validate_overlay_slot_returns_verdict(self):
+        mgr = _ConformingRiskManager()
+        req = RiskValidationRequest(symbol="SPY", quantity=1)
+        result = mgr.validate_overlay_slot(req)
+        self.assertIsInstance(result, OverlayPretradeVerdict)
+        self.assertTrue(result.allow)
 
 
 class TestStrategyStateProvider(unittest.TestCase):

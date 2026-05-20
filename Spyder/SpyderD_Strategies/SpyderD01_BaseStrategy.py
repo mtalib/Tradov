@@ -402,7 +402,7 @@ class BaseStrategy(ABC):
         # Subscribe to relevant events
         self._setup_event_subscriptions()
 
-        self.logger.info("Strategy %s initialized with ID %s", name, self.strategy_id)
+        self.logger.debug("Strategy %s initialized with ID %s", name, self.strategy_id)
 
     # ==========================================================================
     # ABSTRACT METHODS (Must be implemented by subclasses)
@@ -481,7 +481,7 @@ class BaseStrategy(ABC):
             self._initialize_strategy()
 
             self.state = STRATEGY_ACTIVE
-            self.logger.info("Strategy %s started successfully", self.name)
+            self.logger.debug("Strategy %s started successfully", self.name)
 
             # Publish status event
             self._publish_status_event("Strategy started")

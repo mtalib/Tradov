@@ -221,3 +221,30 @@ def test_d30_consensus_mapping_enables_bear_put_spread_via_flag(monkeypatch) -> 
 
     assert selection.selected_strategy.value == "bear_put_spread"
     assert selection.selector_feature_flag == "SPYDER_ENABLE_BEAR_PUT_SPREAD"
+
+
+def test_d30_missing_l09_module_still_honors_consensus_regime(monkeypatch) -> None:
+    _, d30 = _refresh_runtime_modules()
+    monkeypatch.setattr(d30, "L09_AVAILABLE", False)
+    monkeypatch.setattr(d30, "L09MarketRegime", None)
+    selector = d30.RegimeGatedSelector()
+
+    bull_selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=SimpleNamespace(value="bull_trending", name="BULL_TRENDING"),
+            confidence=0.90,
+            timestamp=datetime.now(timezone.utc),
+        )
+    )
+    volatile_selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=SimpleNamespace(value="high_volatility", name="HIGH_VOLATILITY"),
+            confidence=0.90,
+            timestamp=datetime.now(timezone.utc),
+        )
+    )
+
+    assert bull_selection.selected_strategy.value == "bull_put_spread"
+    assert bull_selection.reason.startswith("Bull fallback regime")
+    assert volatile_selection.selected_strategy.value == "iron_butterfly"
+    assert volatile_selection.reason.startswith("High-vol fallback regime")

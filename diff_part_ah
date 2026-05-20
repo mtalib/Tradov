@@ -1,0 +1,100 @@
++                    with active_positions_lock:
++                        raw_positions = dict(active_positions)
++                else:
++                    raw_positions = dict(active_positions)
++
++                authoritative_positions: dict[str, Any] = {}
++                for symbol, position in raw_positions.items():
++                    if not isinstance(position, dict):
++                        continue
++                    normalized = dict(position)
++                    strategy_id = str(
++                        normalized.get("strategy_id")
++                        or normalized.get("strategy")
++                        or normalized.get("strategy_name")
++                        or ""
++                    ).strip()
++                    if strategy_id:
++                        normalized["strategy_id"] = strategy_id
++                    if normalized.get("cost_basis") in (None, ""):
++                        normalized["cost_basis"] = normalized.get("entry_price", 0.0)
++                    authoritative_positions[str(symbol)] = normalized
++
++                return authoritative_positions
++
+@@ -799,0 +887,3 @@ class SessionSupervisor:
++                positions_provider=(
++                    _resolve_authoritative_positions if self.mode == "paper" else None
++                ),
+@@ -1060,0 +1151,75 @@ class SessionSupervisor:
++    def _get_positions_for_paper_carryover_manifest(self) -> list[dict[str, Any]]:
++        """Resolve paper positions that were actually active at graceful shutdown."""
++        if self.mode != "paper":
++            return []
++
++        engine = getattr(self, "engine", None)
++        session_db = getattr(engine, "_session_db", None) if engine is not None else None
++        if session_db is not None and hasattr(session_db, "get_open_positions"):
++            try:
++                raw = self._normalize_position_rows(session_db.get_open_positions())
++            except Exception as exc:
++                self.logger.warning(
++                    "_get_positions_for_paper_carryover_manifest session DB lookup failed: %s",
++                    exc,
++                )
++                raw = []
++            if raw:
++                return raw
++
++        if engine is not None and hasattr(engine, "get_active_positions_snapshot"):
++            try:
++                raw = self._normalize_position_rows(engine.get_active_positions_snapshot())
++            except Exception as exc:
++                self.logger.warning(
++                    "_get_positions_for_paper_carryover_manifest engine lookup failed: %s",
++                    exc,
++                )
++                raw = []
++            if raw:
++                return raw
++
++        tracker = getattr(self, "position_tracker", None)
++        if tracker is not None and hasattr(tracker, "get_positions"):
++            try:
++                raw = self._normalize_position_rows(tracker.get_positions())
++            except Exception as exc:
++                self.logger.warning(
++                    "_get_positions_for_paper_carryover_manifest tracker lookup failed: %s",
++                    exc,
++                )
++                raw = []
++            if raw:
++                return raw
++
++        return []
++
++    def _persist_paper_carryover_manifest(self, *, flatten: bool) -> None:
++        """Persist or clear the graceful-shutdown carryover manifest for paper mode."""
++        if self.mode != "paper":
++            return
++
++        engine = getattr(self, "engine", None)
++        session_db = getattr(engine, "_session_db", None) if engine is not None else None
++        if session_db is None:
++            return
++
++        clear_fn = getattr(session_db, "clear_paper_carryover_manifest", None)
++        save_fn = getattr(session_db, "save_paper_carryover_manifest", None)
++
++        if flatten:
++            if callable(clear_fn):
++                clear_fn()
++            return
++
++        positions = self._get_positions_for_paper_carryover_manifest()
++        if not positions:
++            if callable(clear_fn):
++                clear_fn()
++            return
++
++        if callable(save_fn):

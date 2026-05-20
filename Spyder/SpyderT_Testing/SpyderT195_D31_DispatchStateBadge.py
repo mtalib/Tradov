@@ -118,6 +118,48 @@ def test_dispatch_rejected_persisted_to_decision_audit(orc):
     assert latest.get("symbol") == "SPY"
 
 
+def test_duplicate_dispatch_rejected_detail_persisted_for_hydrated_carryover(orc):
+    class _HydratedPositionEngine:
+        def get_active_positions_snapshot(self):
+            return {
+                "SPY": {
+                    "symbol": "SPY",
+                    "strategy": "iron_condor",
+                    "quantity": -1,
+                    "position_source": "session_db_hydration",
+                }
+            }
+
+    orc._live_engine = _HydratedPositionEngine()
+    orc._dispatch_approved_signal(
+        {
+            "strategy_id": "iron_condor",
+            "strategy_type": "iron_condor",
+            "symbol": "SPY",
+            "action": "sell",
+            "quantity": 1,
+        }
+    )
+
+    records = _read_today_audit_records(orc)
+    dropped = [
+        record for record in records
+        if record.get("event") == "signal_dropped"
+        and record.get("stage") == "dispatch"
+        and record.get("reason") == "duplicate_open_position"
+    ]
+    rejected = [record for record in records if record.get("event") == "dispatch_rejected"]
+
+    assert dropped
+    assert rejected
+    assert dropped[-1].get("detail") == (
+        "symbol=SPY;strategy=iron_condor;duplicate_source=persisted_carryover"
+    )
+    assert rejected[-1].get("detail") == (
+        "symbol=SPY;strategy=iron_condor;duplicate_source=persisted_carryover"
+    )
+
+
 # ---------------------------------------------------------------------------
 # BLOCKED — guardrail drops
 # ---------------------------------------------------------------------------

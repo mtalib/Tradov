@@ -440,6 +440,10 @@ def test_a01_resolve_gui_paper_autostart_delay_ms_defers_paper_until_opening_war
         "paper",
         datetime.datetime(2026, 5, 13, 10, 0, tzinfo=a01_main._A01_EASTERN_TZ),
     ) == 250
+    assert a01_main._resolve_gui_paper_autostart_delay_ms(
+        "paper",
+        datetime.datetime(2026, 5, 13, 17, 23, tzinfo=a01_main._A01_EASTERN_TZ),
+    ) == 250
 
 
 def test_a01_finalize_session_supervisor_autostart_adopts_dashboard_ui_state_on_success() -> None:

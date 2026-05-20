@@ -315,6 +315,7 @@ class EndToEndHappyPathTest(unittest.TestCase):
         )
 
         strategy = PivotMeanReversionStrategy.__new__(PivotMeanReversionStrategy)
+        strategy.logger = mock.Mock()
         strategy._trade_lock = threading.Lock()
         strategy._bar_session_bars = lambda: []
 
@@ -337,7 +338,61 @@ class EndToEndHappyPathTest(unittest.TestCase):
         result = strategy.check_exit(position)
 
         self.assertEqual(result, {"action": "close", "reason": "time stop"})
-        state.update_five_min_close.assert_called_once_with(502.25)
+        state.update_last_close.assert_called_once_with(502.25)
+
+    def test_d34_daily_pivots_use_et_trading_date(self) -> None:
+        """D34 daily pivot dates must follow ET, not the host wall clock."""
+        import datetime as dt
+        import unittest.mock as mock
+        from Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion import DailyPivots
+
+        with mock.patch(
+            "Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion._today_et",
+            return_value=dt.date(2030, 1, 15),
+        ):
+            pivots = DailyPivots.from_ohlc(510.0, 500.0, 505.0)
+
+        self.assertEqual(pivots.calc_date, dt.date(2030, 1, 15))
+
+    def test_d34_refresh_daily_pivots_groups_prior_data_by_et_day(self) -> None:
+        """UTC-after-midnight bars must still aggregate into the prior ET session."""
+        import datetime as dt
+        import unittest.mock as mock
+
+        import pandas as pd
+
+        from Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion import (
+            PivotMeanReversionStrategy,
+        )
+
+        strategy = PivotMeanReversionStrategy.__new__(PivotMeanReversionStrategy)
+        strategy.logger = mock.Mock()
+        strategy._daily_pivots = None
+
+        market_data = pd.DataFrame(
+            {
+                "high": [520.0, 510.0, 530.0],
+                "low": [500.0, 495.0, 520.0],
+                "close": [505.0, 508.0, 525.0],
+            },
+            index=pd.DatetimeIndex(
+                [
+                    "2026-05-19T19:55:00Z",
+                    "2026-05-20T00:30:00Z",
+                    "2026-05-20T14:00:00Z",
+                ]
+            ),
+        )
+
+        with mock.patch(
+            "Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion._today_et",
+            return_value=dt.date(2026, 5, 20),
+        ):
+            strategy._refresh_daily_pivots(market_data)
+
+        self.assertIsNotNone(strategy._daily_pivots)
+        self.assertEqual(strategy._daily_pivots.calc_date, dt.date(2026, 5, 20))
+        self.assertAlmostEqual(strategy._daily_pivots.P, (520.0 + 495.0 + 508.0) / 3.0)
 
     def test_data_freshness_monitor_stop_unsubscribes_handlers(self) -> None:
         """E24 stop() must detach event handlers so restarts do not duplicate callbacks."""
@@ -581,6 +636,112 @@ class B2SafeStopSupervisorFlattenTest(unittest.TestCase):
         launcher.log_error = self._log_info
         # _supervisor not set — must not raise
         launcher._safe_stop_supervisor()
+
+
+class B4PaperResetCliTest(unittest.TestCase):
+    """Q14 paper reset should route through H05 and clear local carryover files."""
+
+    def _make_launcher(self, mode: str = "paper"):
+        import types
+        from pathlib import Path
+        from Spyder.SpyderQ_Scripts.SpyderQ14_MainLauncher import SpyderLauncher, SystemState
+
+        args = types.SimpleNamespace(
+            mode=mode,
+            gui=False,
+            headless=True,
+            debug=False,
+            safe_mode=False,
+            status=False,
+            module=None,
+            shutdown=False,
+            clear_kill_lock=False,
+            reset_paper_state=True,
+        )
+        launcher = SpyderLauncher.__new__(SpyderLauncher)
+        launcher.args = args
+        launcher.project_root = Path(".")
+        launcher.logger = None
+        launcher.state = SystemState.STARTING
+        launcher.log_info = lambda *a, **k: None
+        launcher.log_warning = lambda *a, **k: None
+        launcher.log_error = lambda *a, **k: None
+        return launcher
+
+    def test_request_paper_reset_clears_db_and_local_state(self) -> None:
+        import os
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            data_dir = project_root / "data"
+            market_data_dir = project_root / "market_data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            market_data_dir.mkdir(parents=True, exist_ok=True)
+
+            db = TradingSessionDB(data_dir / "spyder_paper.db")
+            db.record_trade(
+                symbol="SPY260613P00712500",
+                trade_type="BUY_TO_OPEN",
+                side="buy_to_open",
+                quantity=1,
+                price=4.2921,
+                strategy="iron_condor",
+            )
+            tracker_state = project_root / "position_tracker_state.json"
+            tracker_state.write_text('{"positions": []}', encoding="utf-8")
+            paper_state = market_data_dir / "paper_trading_state.json"
+            paper_state.write_text('{"_trades_executed": 1}', encoding="utf-8")
+
+            launcher = self._make_launcher()
+            launcher.project_root = project_root
+            launcher._paper_tracker_state_path = lambda: tracker_state
+
+            with mock.patch.dict(os.environ, {"SPYDER_PAPER_ACCOUNT_STATE_FILE": str(paper_state)}), mock.patch(
+                "Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB.TradingSessionDB.for_paper",
+                return_value=db,
+            ):
+                result = launcher._request_paper_reset()
+
+            self.assertTrue(result)
+            self.assertEqual(db.get_recent_trades(limit=5), [])
+            self.assertFalse(tracker_state.exists())
+            self.assertFalse(paper_state.exists())
+            backup_dirs = list((project_root / "data" / "backups").glob("paper_reset_*"))
+            self.assertEqual(len(backup_dirs), 1)
+            backed_up_names = {path.name for path in backup_dirs[0].iterdir()}
+            self.assertIn("spyder_paper.db", backed_up_names)
+            self.assertIn("position_tracker_state.json", backed_up_names)
+            self.assertIn("paper_trading_state.json", backed_up_names)
+
+    def test_request_paper_reset_rejects_live_mode(self) -> None:
+        import unittest.mock as mock
+
+        launcher = self._make_launcher(mode="live")
+        launcher.log_error = mock.MagicMock()
+
+        result = launcher._request_paper_reset()
+
+        self.assertFalse(result)
+        launcher.log_error.assert_called_once()
+
+    def test_launch_dispatches_reset_before_backend_start(self) -> None:
+        import unittest.mock as mock
+
+        launcher = self._make_launcher(mode="paper")
+        launcher._log_startup_info = mock.MagicMock()
+        launcher._request_paper_reset = mock.MagicMock(return_value=True)
+        launcher._start_backend = mock.MagicMock(return_value=True)
+
+        result = launcher.launch()
+
+        self.assertTrue(result)
+        launcher._request_paper_reset.assert_called_once_with()
+        launcher._start_backend.assert_not_called()
 
 
 class B3AsyncTagTest(unittest.TestCase):
@@ -1181,7 +1342,10 @@ class P114SessionDbModeWiringTest(unittest.TestCase):
         sup = self._make_supervisor_stub(mode="paper")
         fake_engine = mock.MagicMock()
         fake_engine.initialize.return_value = True
-        paper_db = object()
+        fake_engine.start_trading.return_value = True
+        fake_engine.current_session.session_id = "PAPER_20260518_125258"
+        paper_db = mock.MagicMock()
+        fake_engine.set_session_db.side_effect = lambda db: setattr(fake_engine, "_session_db", db)
 
         with mock.patch(
             "Spyder.SpyderR_Runtime.SpyderR04_LiveEngine.create_live_engine",
@@ -1203,6 +1367,10 @@ class P114SessionDbModeWiringTest(unittest.TestCase):
         p_live.assert_not_called()
         fake_engine.set_session_db.assert_called_once_with(paper_db)
         fake_engine.start_trading.assert_called_once()
+        paper_db.mark_paper_session_active.assert_called_once_with(
+            "PAPER_20260518_125258",
+            owner="SessionSupervisor.start",
+        )
         self.assertIn(fake_engine, sup._components)
 
     def test_start_live_engine_uses_live_db_in_live_mode(self) -> None:
@@ -1213,7 +1381,9 @@ class P114SessionDbModeWiringTest(unittest.TestCase):
         sup = self._make_supervisor_stub(mode="live")
         fake_engine = mock.MagicMock()
         fake_engine.initialize.return_value = True
+        fake_engine.start_trading.return_value = True
         live_db = object()
+        fake_engine.set_session_db.side_effect = lambda db: setattr(fake_engine, "_session_db", db)
 
         with mock.patch.dict(os.environ, {"TRADIER_ACCOUNT_ID": "LIVE-TEST-123"}), mock.patch(
             "Spyder.SpyderR_Runtime.SpyderR04_LiveEngine.create_live_engine",
@@ -1236,6 +1406,60 @@ class P114SessionDbModeWiringTest(unittest.TestCase):
         fake_engine.set_session_db.assert_called_once_with(live_db)
         fake_engine.start_trading.assert_called_once()
         self.assertIn(fake_engine, sup._components)
+
+    def test_start_live_engine_fails_when_engine_start_trading_fails(self) -> None:
+        import unittest.mock as mock
+        from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import SessionSupervisor
+
+        sup = self._make_supervisor_stub(mode="paper")
+        fake_engine = mock.MagicMock()
+        fake_engine.initialize.return_value = True
+        fake_engine.start_trading.return_value = False
+        fake_engine.current_session = None
+        paper_db = mock.MagicMock()
+        fake_engine.set_session_db.side_effect = lambda db: setattr(fake_engine, "_session_db", db)
+
+        with mock.patch(
+            "Spyder.SpyderR_Runtime.SpyderR04_LiveEngine.create_live_engine",
+            return_value=fake_engine,
+        ), mock.patch(
+            "Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB.TradingSessionDB.for_paper",
+            return_value=paper_db,
+        ):
+            result = SessionSupervisor._start_live_engine(sup)
+
+        self.assertFalse(result)
+        fake_engine.start_trading.assert_called_once()
+        paper_db.mark_paper_session_active.assert_not_called()
+        self.assertNotIn(fake_engine, sup._components)
+
+    def test_stop_clears_active_paper_session_marker(self) -> None:
+        import threading
+        import unittest.mock as mock
+        from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import SessionSupervisor
+
+        sup = SessionSupervisor.__new__(SessionSupervisor)
+        sup._lock = threading.RLock()
+        sup._running = True
+        sup._deferred_l09_cancel = threading.Event()
+        sup._deferred_l09_thread = None
+        sup.logger = mock.MagicMock()
+        sup.mode = "paper"
+        sup._persist_paper_carryover_manifest = mock.MagicMock()
+        sup._components = []
+        sup._flatten_request_handler_id = None
+        sup.em = None
+        session_db = mock.MagicMock()
+        sup.engine = mock.MagicMock(_session_db=session_db)
+
+        with mock.patch(
+            "Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor.set_session_supervisor"
+        ):
+            SessionSupervisor.stop(sup, flatten=False)
+
+        session_db.clear_paper_session_active.assert_called_once_with(
+            reason="SessionSupervisor.stop"
+        )
 
 
 # =============================================================================

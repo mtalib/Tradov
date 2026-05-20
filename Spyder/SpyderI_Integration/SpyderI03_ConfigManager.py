@@ -296,7 +296,7 @@ class ConfigManager:
             if hub:
                 hub.register_module(self, dependencies=['SpyderU04_Encryption'])
 
-        self.logger.info("ConfigManager initialized for environment: %s", environment)
+        self.logger.debug("ConfigManager initialized for environment: %s", environment)
 
     # ==========================================================================
     # PUBLIC METHODS - CONFIGURATION REGISTRATION

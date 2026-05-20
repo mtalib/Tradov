@@ -95,6 +95,11 @@ _F20_VWAP_AVAILABLE = False
 # ==============================================================================
 ET = ZoneInfo("America/New_York")
 
+
+def _today_et() -> date:
+    """Return the current trading date in Eastern Time."""
+    return datetime.now(tz=ET).date()
+
 # --- Time-of-day windows (Eastern Time) ---
 TOD_ENABLE_START = (10, 15)   # 10:15 AM ET — end of opening range
 TOD_ENABLE_END   = (14,  0)   # 14:00 ET  — before MOC accumulation
@@ -159,7 +164,7 @@ class DailyPivots:
         R3 = prev_high + 2.0 * (P - prev_low)
         S3 = prev_low  - 2.0 * (prev_high - P)
         return DailyPivots(
-            calc_date=date.today(),
+            calc_date=_today_et(),
             P=P, R1=R1, R2=R2, R3=R3, S1=S1, S2=S2, S3=S3,
         )
 
@@ -843,7 +848,7 @@ class PivotMeanReversionStrategy(BaseStrategy):
 
     def _refresh_daily_pivots(self, market_data: pd.DataFrame) -> None:
         """Recompute daily pivots from yesterday's OHLC (once per session)."""
-        today = date.today()
+        today = _today_et()
         if self._daily_pivots and self._daily_pivots.calc_date == today:
             return  # Already current
 
@@ -855,7 +860,8 @@ class PivotMeanReversionStrategy(BaseStrategy):
             elif df.index.tz is None:
                 df.index = df.index.tz_localize("UTC")
 
-            df_prior = df[df.index.date < today]  # type: ignore[attr-defined]
+            df_et = df.tz_convert(ET)
+            df_prior = df_et[df_et.index.date < today]  # type: ignore[attr-defined]
             if df_prior.empty:
                 self.logger.debug("No prior-day data available for pivot calculation.")
                 return

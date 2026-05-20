@@ -118,9 +118,9 @@ DAY_OF_WEEK_REDUCTION = 0.5  # 50% reduction for non-Monday
 
 # Entry Time Windows (from research)
 OPTIMAL_ENTRY_START = "10:15:00"  # Optimal entry start time
-OPTIMAL_ENTRY_END = "11:40:00"    # Optimal entry end time
+OPTIMAL_ENTRY_END = "11:30:00"    # Optimal entry end time (primary session close)
 OPTIMAL_ENTRY_START_MINUTE = 15
-OPTIMAL_ENTRY_END_MINUTE = 40
+OPTIMAL_ENTRY_END_MINUTE = 30
 TIME_BASED_EXIT_MINUTE = 0
 
 # Profit Targets (Updated based on research)

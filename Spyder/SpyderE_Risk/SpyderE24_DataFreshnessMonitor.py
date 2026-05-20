@@ -135,7 +135,7 @@ class DataFreshnessMonitor:
         )
         self._running = True
         self._thread.start()
-        self.logger.info(
+        self.logger.debug(
             "DataFreshnessMonitor started — RTH=%.1fs OOH=%.1fs grace=%.1fs",
             self._rth_threshold_s,
             self._ooh_threshold_s,
@@ -197,6 +197,15 @@ class DataFreshnessMonitor:
         if self._startup_grace_s > 0 and self._start_monotonic > 0:
             if time.monotonic() - self._start_monotonic < self._startup_grace_s:
                 return
+
+        # Outside market hours the live feed is inactive; stale data is expected
+        # and not actionable.  Skip the check to avoid spurious DATA_STALE cascades.
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingTimeUtils
+            if not TradingTimeUtils.is_market_hours():
+                return
+        except Exception:
+            pass
 
         threshold = self._current_threshold()
         now = time.monotonic()

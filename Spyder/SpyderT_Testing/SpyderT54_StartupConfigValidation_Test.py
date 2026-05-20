@@ -815,6 +815,98 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
 
         self.assertEqual(state["mode"], "paper")
 
+    def test_collect_state_uses_helper_plan(self):
+        g05 = self._load_g05()
+        dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
+
+        fake_cfg = MagicMock()
+        fake_cfg.get.side_effect = lambda key, default=None: {
+            "trading.mode": "live",
+            "automation.enabled": True,
+            "runtime.paper_mode": None,
+        }.get(key, default)
+        fake_cfg.config_data = {}
+        fake_cfg.validate_autonomous_readiness_config.return_value = {
+            "warnings": ["warn-a"],
+            "errors": ["err-a"],
+        }
+        fake_cfg_module = MagicMock()
+        fake_cfg_module.get_config_manager.return_value = fake_cfg
+        helper_calls = []
+
+        class _Plan:
+            def __init__(self, mode, automation_enabled, warnings, errors, safe_fallback_applied, live_blocking):
+                self.mode = mode
+                self.automation_enabled = automation_enabled
+                self.warnings = warnings
+                self.errors = errors
+                self.safe_fallback_applied = safe_fallback_applied
+                self.live_blocking = live_blocking
+
+        def _helper(**kwargs):
+            helper_calls.append(dict(kwargs))
+            if kwargs["market_hours_open"] and kwargs["preconnect_idle"]:
+                return _Plan("paper", True, (), (), False, False)
+            return _Plan("live", True, ("warn-a",), ("err-a",), False, True)
+
+        with patch.dict(
+            sys.modules,
+            {"Spyder.SpyderA_Core.SpyderA03_Configuration": fake_cfg_module},
+            clear=False,
+        ), patch.dict(os.environ, {"TRADING_MODE": ""}, clear=False), patch.object(
+            g05,
+            "build_startup_readiness_state_plan",
+            side_effect=_helper,
+        ), patch.object(
+            g05,
+            "is_market_hours",
+            return_value=False,
+        ), patch.object(g05, "_is_preconnect_idle_window", return_value=False):
+            state = dashboard._collect_startup_readiness_state()
+
+        self.assertEqual(len(helper_calls), 2)
+        self.assertEqual(helper_calls[0]["env_mode"], "")
+        self.assertIsNone(helper_calls[0]["runtime_paper_mode"])
+        self.assertEqual(helper_calls[0]["configured_mode"], "live")
+        self.assertTrue(helper_calls[0]["market_hours_open"])
+        self.assertTrue(helper_calls[0]["preconnect_idle"])
+        self.assertEqual(helper_calls[1]["warnings"], ["warn-a"])
+        self.assertEqual(helper_calls[1]["errors"], ["err-a"])
+        self.assertFalse(helper_calls[1]["market_hours_open"])
+        self.assertFalse(helper_calls[1]["preconnect_idle"])
+        self.assertEqual(state["mode"], "live")
+        self.assertEqual(state["warnings"], ["warn-a"])
+        self.assertEqual(state["errors"], ["err-a"])
+        self.assertTrue(state["live_blocking"])
+        self.assertEqual(state["source"], "A03.ConfigManager")
+
+    def test_load_dji_proxy_multiplier_uses_helper(self):
+        g05 = self._load_g05()
+        dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
+
+        fake_cfg = MagicMock()
+        fake_cfg.get.return_value = "105.5"
+        fake_cfg_module = MagicMock()
+        fake_cfg_module.get_config_manager.return_value = fake_cfg
+        helper_calls = []
+
+        with patch.dict(
+            sys.modules,
+            {"Spyder.SpyderA_Core.SpyderA03_Configuration": fake_cfg_module},
+            clear=False,
+        ), patch.object(
+            g05,
+            "normalize_dji_proxy_multiplier",
+            side_effect=lambda configured_value, default_multiplier: helper_calls.append(
+                (configured_value, default_multiplier)
+            )
+            or 109.7,
+        ):
+            multiplier = dashboard._load_dji_proxy_multiplier()
+
+        self.assertEqual(multiplier, 109.7)
+        self.assertEqual(helper_calls, [("105.5", 101.2)])
+
     def test_emit_logs_styles_button_for_safe_mode(self):
         g05 = self._load_g05()
         dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
@@ -852,6 +944,38 @@ class TestG05StartupReadinessHelpers(unittest.TestCase):
 
         self.assertEqual(len(dashboard.system_logs), 1)
         self.assertIn("STARTUP READINESS: unavailable", dashboard.system_logs[0])
+
+    def test_append_banner_uses_helper_plan(self):
+        g05 = self._load_g05()
+        dashboard = g05.SpyderTradingDashboard.__new__(g05.SpyderTradingDashboard)
+
+        dashboard.system_logs = []
+        dashboard._startup_readiness_state = {"checked": True, "mode": "paper"}
+        helper_calls = []
+
+        class _Plan:
+            def __init__(self, system_log_messages):
+                self.system_log_messages = system_log_messages
+
+        with patch.object(g05, "_is_preconnect_idle_window", return_value=True), patch.object(
+            g05,
+            "build_startup_readiness_banner_plan",
+            side_effect=lambda **kwargs: helper_calls.append(dict(kwargs))
+            or _Plan(("[09:30:00] helper banner",)),
+        ):
+            dashboard._append_startup_readiness_banner("09:30:00")
+
+        self.assertEqual(
+            helper_calls,
+            [
+                {
+                    "state": {"checked": True, "mode": "paper"},
+                    "startup_hms": "09:30:00",
+                    "preconnect_idle": True,
+                }
+            ],
+        )
+        self.assertEqual(dashboard.system_logs, ["[09:30:00] helper banner"])
 
     def test_readiness_snapshot_accepts_real_time_data_label(self):
         g05 = self._load_g05()

@@ -56,6 +56,48 @@ def test_invoke_market_worker_slot_calls_directly_without_running_thread(monkeyp
     direct_slot.assert_called_once_with()
 
 
+def test_invoke_market_worker_slot_uses_helper_for_queue_path(monkeypatch) -> None:
+    dash = _build_dashboard_stub()
+    dash.market_worker = SimpleNamespace(pause_periodic_updates=MagicMock())
+    dash.market_thread = SimpleNamespace(isRunning=lambda: True)
+
+    helper_calls: list[dict[str, object]] = []
+    invoked: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        g05,
+        "build_market_worker_slot_invoke_plan",
+        lambda **kwargs: helper_calls.append(dict(kwargs))
+        or SimpleNamespace(action="queue_invoke", warning_message=None),
+    )
+    monkeypatch.setattr(
+        g05.QMetaObject,
+        "invokeMethod",
+        lambda worker, slot_name, connection_type: invoked.update(
+            {
+                "worker": worker,
+                "slot_name": slot_name,
+                "connection_type": connection_type,
+            }
+        )
+        or True,
+    )
+
+    assert dash._invoke_market_worker_slot("pause_periodic_updates") is True
+    assert helper_calls == [
+        {
+            "has_worker": True,
+            "has_callable_slot": True,
+            "thread_running": True,
+            "slot_name": "pause_periodic_updates",
+        }
+    ]
+    assert invoked["worker"] is dash.market_worker
+    assert invoked["slot_name"] == "pause_periodic_updates"
+    assert invoked["connection_type"] == g05.Qt.QueuedConnection
+    dash.market_worker.pause_periodic_updates.assert_not_called()
+
+
 def test_market_worker_pause_periodic_updates_stops_update_timer() -> None:
     worker = ThreadSafeMarketDataWorker.__new__(ThreadSafeMarketDataWorker)
     worker.update_timer = MagicMock()

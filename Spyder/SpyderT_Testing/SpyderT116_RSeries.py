@@ -27,10 +27,11 @@ Coverage targets:
 """
 
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock
+import time
+from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +184,37 @@ class TestR04ExecuteOrderRejections(unittest.TestCase):
         result = engine.execute_order({"symbol": "SPY", "quantity": oversized_qty})
         self.assertEqual(result["status"], "rejected")
 
+    def test_execute_order_allows_explicit_close_when_entry_gates_would_block(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, broker, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+        engine._run_a02_decision_gate = MagicMock(return_value=(False, "data_gate:blocked"))
+        engine._regime_allows_entry = MagicMock(return_value=(False, "regime_blocked"))
+        engine._perform_order_safety_checks = MagicMock(side_effect=AssertionError("close orders must bypass entry-only safety checks"))
+        engine._check_order_confirmation_required = MagicMock(side_effect=AssertionError("close orders must bypass confirmation checks"))
+        engine._wait_for_execution = MagicMock(return_value={"status": "accepted"})
+        engine._update_execution_metrics = MagicMock()
+
+        result = engine.execute_order(
+            {
+                "symbol": "SPY260618P00699000",
+                "action": "close",
+                "side": "buy",
+                "quantity": 1,
+                "price": 4.21,
+                "strategy_id": "iron_condor",
+            }
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        engine._run_a02_decision_gate.assert_not_called()
+        engine._regime_allows_entry.assert_not_called()
+        engine._perform_order_safety_checks.assert_not_called()
+        engine._check_order_confirmation_required.assert_not_called()
+        engine._wait_for_execution.assert_called_once()
+        broker.submit_order.assert_not_called()
+
     def test_rejected_when_a02_preflight_gate_blocks(self):
         from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
 
@@ -317,8 +349,66 @@ class TestR04PauseResume(unittest.TestCase):
         self.assertFalse(engine.resume_trading())
 
 
+class TestR04StartTrading(unittest.TestCase):
+    """start_trading must distinguish paper after-hours from true blockers."""
+
+    def test_paper_start_trading_succeeds_after_hours_when_only_market_closed(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState, TradingMode
+
+        engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+        engine.mode = TradingMode.PAPER
+        engine.state = ExecutionState.CONNECTED
+        engine._is_market_open = MagicMock(return_value=False)
+        engine.risk_manager.check_daily_limits.return_value = True
+
+        result = engine.start_trading()
+
+        self.assertTrue(result)
+        self.assertEqual(engine.state, ExecutionState.TRADING)
+        self.assertIsNotNone(engine.current_session)
+        self.assertEqual(engine.current_session.mode, TradingMode.PAPER)
+
+    def test_paper_start_trading_fails_when_risk_limits_exceeded_after_hours(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState, TradingMode
+
+        engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+        engine.mode = TradingMode.PAPER
+        engine.state = ExecutionState.CONNECTED
+        engine._is_market_open = MagicMock(return_value=False)
+        engine.risk_manager.check_daily_limits.return_value = False
+
+        result = engine.start_trading()
+
+        self.assertFalse(result)
+        self.assertEqual(engine.state, ExecutionState.CONNECTED)
+        self.assertIsNone(engine.current_session)
+
+
 class TestR04PositionHydration(unittest.TestCase):
     """Paper-mode engines should hydrate active positions from H05 when attached."""
+
+    def test_set_session_db_ignores_paper_active_positions_without_carryover_manifest(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            db.upsert_position(
+                position_id="paper:SPY",
+                symbol="SPY",
+                strategy="iron_condor",
+                quantity=-7,
+                entry_price=733.10,
+                current_price=733.20,
+                status="OPEN",
+            )
+
+            engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+
+            engine.set_session_db(db)
+
+            self.assertEqual(engine.active_positions, {})
 
     def test_set_session_db_hydrates_paper_active_positions_from_h05(self):
         from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
@@ -341,7 +431,134 @@ class TestR04PositionHydration(unittest.TestCase):
 
             self.assertEqual(engine.active_positions, {})
 
+            db.save_paper_carryover_manifest(
+                [
+                    {
+                        "position_id": "paper:SPY",
+                        "symbol": "SPY",
+                        "strategy": "iron_condor",
+                        "quantity": -7,
+                    }
+                ]
+            )
+
             engine.set_session_db(db)
+
+            self.assertEqual(engine.active_positions["SPY"]["quantity"], -7)
+            self.assertEqual(engine.active_positions["SPY"]["strategy"], "iron_condor")
+            self.assertEqual(
+                engine.active_positions["SPY"]["position_source"],
+                "session_db_hydration",
+            )
+
+    def test_set_session_db_hydrates_current_paper_session_positions_from_h05(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        class _MarkerDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T14:50:14.499121+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        class _PositionDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T14:50:22.532676+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        with TemporaryDirectory() as tmpdir:
+            db = h05.TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            with patch.object(h05, "datetime", _MarkerDateTime):
+                db.mark_paper_session_active("PAPER_20260519_105014", owner="unit-test")
+
+            with patch.object(h05, "datetime", _PositionDateTime):
+                db.upsert_position(
+                    position_id="paper:SPY",
+                    symbol="SPY",
+                    strategy="iron_condor",
+                    quantity=-7,
+                    entry_price=733.10,
+                    current_price=733.20,
+                    status="OPEN",
+                )
+
+            engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+
+            engine.set_session_db(db)
+
+            self.assertEqual(engine.active_positions["SPY"]["quantity"], -7)
+            self.assertEqual(engine.active_positions["SPY"]["strategy"], "iron_condor")
+            self.assertEqual(
+                engine.active_positions["SPY"]["position_source"],
+                "session_db_hydration",
+            )
+
+    def test_set_session_db_falls_back_to_open_rows_when_manifest_api_is_not_callable(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        class _LegacyPaperDB:
+            get_resume_eligible_open_positions = None
+
+            def get_open_positions(self):
+                return [
+                    {
+                        "symbol": "SPY",
+                        "strategy": "iron_condor",
+                        "quantity": -7,
+                    }
+                ]
+
+        engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+        engine.mode = TradingMode.PAPER
+
+        engine.set_session_db(_LegacyPaperDB())
+
+        self.assertEqual(engine.active_positions["SPY"]["quantity"], -7)
+        self.assertEqual(engine.active_positions["SPY"]["strategy"], "iron_condor")
+        self.assertEqual(
+            engine.active_positions["SPY"]["position_source"],
+            "session_db_hydration",
+        )
+
+    def test_monitor_positions_does_not_clear_h05_hydrated_paper_positions(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            db.upsert_position(
+                position_id="paper:SPY",
+                symbol="SPY",
+                strategy="iron_condor",
+                quantity=-7,
+                entry_price=733.10,
+                current_price=733.20,
+                status="OPEN",
+            )
+
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            broker.get_positions.return_value = []
+
+            db.save_paper_carryover_manifest(
+                [
+                    {
+                        "position_id": "paper:SPY",
+                        "symbol": "SPY",
+                        "strategy": "iron_condor",
+                        "quantity": -7,
+                    }
+                ]
+            )
+
+            engine.set_session_db(db)
+            engine._monitor_positions()
 
             self.assertEqual(engine.active_positions["SPY"]["quantity"], -7)
             self.assertEqual(engine.active_positions["SPY"]["strategy"], "iron_condor")
@@ -383,6 +600,105 @@ class TestH05PositionPersistence(unittest.TestCase):
         self.assertEqual(rows[0]["entry_price"], 733.10)
         self.assertEqual(rows[0]["current_price"], 733.25)
 
+    def test_upsert_position_refreshes_opened_at_when_closed_row_reopens(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "positions.db")
+            first_opened = datetime.fromisoformat("2026-05-14T17:14:08+00:00")
+            first_closed = datetime.fromisoformat("2026-05-14T18:12:04+00:00")
+            reopened_at = datetime.fromisoformat("2026-05-14T18:39:04+00:00")
+
+            db.upsert_position(
+                position_id="paper:SPY260613C00783500",
+                symbol="SPY260613C00783500",
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=8.5743,
+                current_price=8.5743,
+                status="CLOSED",
+                opened_at=first_opened,
+                closed_at=first_closed,
+                expiration="2026-06-13",
+                strike=783.5,
+                option_type="call",
+            )
+            db.upsert_position(
+                position_id="paper:SPY260613C00783500",
+                symbol="SPY260613C00783500",
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=8.5843,
+                current_price=8.5843,
+                status="OPEN",
+                opened_at=reopened_at,
+                expiration="2026-06-13",
+                strike=783.5,
+                option_type="call",
+            )
+
+            rows = db.get_open_positions()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["symbol"], "SPY260613C00783500")
+        self.assertEqual(rows[0]["status"], "OPEN")
+        self.assertEqual(rows[0]["opened_at"], reopened_at.isoformat())
+        self.assertIsNone(rows[0]["closed_at"])
+        self.assertEqual(rows[0]["entry_price"], 8.5843)
+
+    def test_resume_eligibility_rejects_stale_manifest_opened_at_for_reopened_position(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            stale_opened = datetime.fromisoformat("2026-05-14T17:14:08+00:00")
+            current_opened = datetime.fromisoformat("2026-05-14T18:39:04+00:00")
+
+            db.upsert_position(
+                position_id="paper:SPY260613C00783500",
+                symbol="SPY260613C00783500",
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=8.5843,
+                current_price=8.5843,
+                status="OPEN",
+                opened_at=current_opened,
+                expiration="2026-06-13",
+                strike=783.5,
+                option_type="call",
+            )
+
+            db.save_paper_carryover_manifest(
+                [
+                    {
+                        "position_id": "paper:SPY260613C00783500",
+                        "symbol": "SPY260613C00783500",
+                        "strategy": "iron_condor",
+                        "quantity": -1,
+                        "opened_at": stale_opened.isoformat(),
+                    }
+                ]
+            )
+
+            self.assertEqual(db.get_resume_eligible_open_positions(), [])
+
+            db.save_paper_carryover_manifest(
+                [
+                    {
+                        "position_id": "paper:SPY260613C00783500",
+                        "symbol": "SPY260613C00783500",
+                        "strategy": "iron_condor",
+                        "quantity": -1,
+                        "opened_at": current_opened.isoformat(),
+                    }
+                ]
+            )
+
+            rows = db.get_resume_eligible_open_positions()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["opened_at"], current_opened.isoformat())
+
 
 class TestR04GetExecutionStatus(unittest.TestCase):
     """get_execution_status must return a dict with expected top-level keys."""
@@ -402,6 +718,898 @@ class TestR04GetExecutionStatus(unittest.TestCase):
         engine, _, _ = _make_live_engine()
         engine.emergency_stop_all("status test")
         self.assertTrue(engine.get_execution_status()["emergency_stop"])
+
+
+class TestR04FillAccounting(unittest.TestCase):
+    """Unified R04 fill persistence should retain realized P&L for closes."""
+
+    def test_reconciler_fill_records_realized_pnl_for_option_close(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_accounting.db")
+            engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            symbol = "SPY260613P00712500"
+            engine.active_positions = {
+                symbol: {
+                    "symbol": symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                }
+            }
+            engine.pending_orders = {
+                "ORD-CLOSE-1": {
+                    "order": {
+                        "symbol": symbol,
+                        "quantity": 1,
+                        "side": "buy_to_close",
+                        "strategy": "iron_condor",
+                    }
+                }
+            }
+
+            event = MagicMock(
+                source="FillReconciler",
+                data={
+                    "order_id": "ORD-CLOSE-1",
+                    "quantity": 1,
+                    "raw": {
+                        "id": "PAPER-1",
+                        "symbol": symbol,
+                        "avg_fill_price": 4.2921,
+                        "quantity": 1,
+                        "transaction_date": "2026-05-14T19:22:05+00:00",
+                    },
+                },
+            )
+
+            engine._on_reconciler_fill(event)
+
+            trade = db.get_recent_trades(limit=1)[0]
+
+        self.assertEqual(trade["symbol"], symbol)
+        self.assertAlmostEqual(trade["realized_pnl"], 429.22, places=2)
+
+    def test_position_updated_persists_realized_pnl_on_close(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            symbol = "SPY260613P00712500"
+            engine.active_positions = {
+                symbol: {
+                    "symbol": symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                    "opened_at": datetime.fromisoformat("2026-05-14T15:25:02+00:00"),
+                }
+            }
+            engine.pending_orders = {
+                "ORD-CLOSE-2": {
+                    "order": {
+                        "symbol": symbol,
+                        "quantity": 1,
+                        "side": "buy_to_close",
+                        "strategy": "iron_condor",
+                    }
+                }
+            }
+
+            event = MagicMock(
+                source="PositionTracker",
+                data={
+                    "symbol": symbol,
+                    "quantity": 0,
+                    "fill_price": 4.2921,
+                    "order_id": "ORD-CLOSE-2",
+                },
+            )
+
+            engine._on_position_updated(event)
+
+            with db._connect() as conn:
+                row = conn.execute(
+                    "SELECT symbol, status, current_price, realized_pnl FROM positions WHERE position_id = ?",
+                    (f"paper:{symbol}",),
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["symbol"], symbol)
+        self.assertEqual(row["status"], "CLOSED")
+        self.assertAlmostEqual(row["current_price"], 4.2921, places=4)
+        self.assertAlmostEqual(row["realized_pnl"], 429.22, places=2)
+
+    def test_position_updated_persists_close_when_hydrated_opened_at_is_string(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            symbol = "SPY260613P00712500"
+            engine.active_positions = {
+                symbol: {
+                    "symbol": symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                    "opened_at": "2026-05-14T15:25:02+00:00",
+                }
+            }
+            engine.pending_orders = {
+                "ORD-CLOSE-3": {
+                    "order": {
+                        "symbol": symbol,
+                        "quantity": 1,
+                        "side": "buy_to_close",
+                        "strategy": "iron_condor",
+                    }
+                }
+            }
+
+            event = MagicMock(
+                source="PositionTracker",
+                data={
+                    "symbol": symbol,
+                    "quantity": 0,
+                    "fill_price": 4.2921,
+                    "order_id": "ORD-CLOSE-3",
+                },
+            )
+
+            engine._on_position_updated(event)
+
+            with db._connect() as conn:
+                row = conn.execute(
+                    "SELECT symbol, status, opened_at, current_price, realized_pnl FROM positions WHERE position_id = ?",
+                    (f"paper:{symbol}",),
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["symbol"], symbol)
+        self.assertEqual(row["status"], "CLOSED")
+        self.assertEqual(row["opened_at"], "2026-05-14T15:25:02+00:00")
+        self.assertAlmostEqual(row["current_price"], 4.2921, places=4)
+        self.assertAlmostEqual(row["realized_pnl"], 429.22, places=2)
+
+
+class TestR04PaperMarkToMarket(unittest.TestCase):
+    """Paper-mode monitoring should mark positions to market and snapshot equity."""
+
+    def test_monitor_positions_marks_paper_positions_and_records_snapshot(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_mark_to_market.db")
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            symbol = "SPY260613P00712500"
+            broker.get_positions.return_value = []
+            broker.get_account_balances.return_value = {
+                "account": {"balance": 100000.0}
+            }
+            broker._last_prices = {symbol: 4.2921}
+            db.record_trade(
+                symbol=symbol,
+                trade_type="STO",
+                side="sell",
+                quantity=1,
+                price=8.5843,
+                strategy="iron_condor",
+            )
+            engine.active_positions = {
+                symbol: {
+                    "symbol": symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                }
+            }
+
+            engine._monitor_positions()
+
+            open_position = engine.active_positions[symbol]
+            latest_snapshot = db.get_latest_snapshot()
+            open_rows = db.get_open_positions()
+
+        self.assertAlmostEqual(open_position["current_price"], 4.2921, places=4)
+        self.assertAlmostEqual(open_position["unrealized_pnl"], 429.22, places=2)
+        self.assertEqual(len(open_rows), 1)
+        self.assertAlmostEqual(open_rows[0]["current_price"], 4.2921, places=4)
+        self.assertAlmostEqual(open_rows[0]["unrealized_pnl"], 429.22, places=2)
+        self.assertIsNotNone(latest_snapshot)
+        self.assertAlmostEqual(latest_snapshot["unrealized_pnl"], 429.22, places=2)
+        self.assertAlmostEqual(latest_snapshot["equity"], 100429.22, places=2)
+
+    def test_monitor_positions_fetches_live_quotes_for_paper_option_positions(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_mark_to_market.db")
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            symbol = "SPY260618P00700000"
+            quote_client = MagicMock()
+            quote_client.get_quotes.return_value = {
+                "quotes": {
+                    "quote": {
+                        "symbol": symbol,
+                        "bid": 4.2000,
+                        "ask": 4.3842,
+                    }
+                }
+            }
+            engine._paper_option_quote_client = quote_client
+            broker.get_positions.return_value = []
+            broker.get_account_balances.return_value = {
+                "account": {"balance": 100000.0}
+            }
+            broker._last_prices = {}
+            db.record_trade(
+                symbol=symbol,
+                trade_type="STO",
+                side="sell",
+                quantity=1,
+                price=8.5843,
+                strategy="iron_condor",
+            )
+            engine.active_positions = {
+                symbol: {
+                    "symbol": symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                }
+            }
+
+            engine._monitor_positions()
+
+            open_position = engine.active_positions[symbol]
+            latest_snapshot = db.get_latest_snapshot()
+            open_rows = db.get_open_positions()
+
+        quote_client.get_quotes.assert_called_once_with([symbol])
+        self.assertAlmostEqual(broker._last_prices[symbol], 4.2921, places=4)
+        self.assertAlmostEqual(open_position["current_price"], 4.2921, places=4)
+        self.assertAlmostEqual(open_position["unrealized_pnl"], 429.22, places=2)
+        self.assertEqual(len(open_rows), 1)
+        self.assertAlmostEqual(open_rows[0]["current_price"], 4.2921, places=4)
+        self.assertAlmostEqual(open_rows[0]["unrealized_pnl"], 429.22, places=2)
+        self.assertIsNotNone(latest_snapshot)
+        self.assertAlmostEqual(latest_snapshot["unrealized_pnl"], 429.22, places=2)
+        self.assertAlmostEqual(latest_snapshot["equity"], 100429.22, places=2)
+
+    def test_monitor_positions_repairs_invalid_paper_option_symbol_to_live_chain(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_mark_to_market.db")
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            invalid_symbol = "SPY260618P00699500"
+            repaired_symbol = "SPY260618P00699000"
+            quote_client = MagicMock()
+            quote_client.get_quotes.return_value = {
+                "quotes": {
+                    "quote": {
+                        "symbol": repaired_symbol,
+                        "bid": 4.2000,
+                        "ask": 4.3842,
+                    }
+                }
+            }
+            engine._paper_option_quote_client = quote_client
+            engine._paper_option_chain_cache = {
+                ("SPY", "2026-06-18"): {
+                    "put": [689.0, 690.0, 699.0, 700.0],
+                    "call": [770.0, 780.0],
+                }
+            }
+            engine._paper_option_chain_cache_at = {("SPY", "2026-06-18"): time.time()}
+            broker.get_positions.return_value = []
+            broker.get_account_balances.return_value = {
+                "account": {"balance": 100000.0}
+            }
+            broker._last_prices = {}
+            db.record_trade(
+                symbol=invalid_symbol,
+                trade_type="STO",
+                side="sell",
+                quantity=1,
+                price=8.5843,
+                strategy="iron_condor",
+                expiration="2026-06-18",
+                strike=699.5,
+                option_type="put",
+            )
+            db.upsert_position(
+                position_id=f"paper:{invalid_symbol}",
+                symbol=invalid_symbol,
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=8.5843,
+                current_price=8.5843,
+                status="OPEN",
+                expiration="2026-06-18",
+                strike=699.5,
+                option_type="put",
+            )
+            engine.active_positions = {
+                invalid_symbol: {
+                    "symbol": invalid_symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                    "expiration": "2026-06-18",
+                    "strike": 699.5,
+                    "option_type": "put",
+                }
+            }
+
+            engine._monitor_positions()
+
+            latest_snapshot = db.get_latest_snapshot()
+            open_rows = db.get_open_positions()
+            with db._connect() as conn:
+                old_row = conn.execute(
+                    "SELECT symbol FROM positions WHERE position_id = ?",
+                    (f"paper:{invalid_symbol}",),
+                ).fetchone()
+
+        quote_client.get_quotes.assert_called_once_with([repaired_symbol])
+        self.assertNotIn(invalid_symbol, engine.active_positions)
+        self.assertIn(repaired_symbol, engine.active_positions)
+        repaired_position = engine.active_positions[repaired_symbol]
+        self.assertAlmostEqual(repaired_position["strike"], 699.0, places=4)
+        self.assertAlmostEqual(repaired_position["current_price"], 4.2921, places=4)
+        self.assertAlmostEqual(broker._last_prices[repaired_symbol], 4.2921, places=4)
+        self.assertEqual(len(open_rows), 1)
+        self.assertEqual(open_rows[0]["position_id"], f"paper:{repaired_symbol}")
+        self.assertEqual(open_rows[0]["symbol"], repaired_symbol)
+        self.assertAlmostEqual(open_rows[0]["strike"], 699.0, places=4)
+        self.assertIsNone(old_row)
+        self.assertIsNotNone(latest_snapshot)
+        self.assertAlmostEqual(latest_snapshot["unrealized_pnl"], 429.22, places=2)
+        self.assertAlmostEqual(latest_snapshot["equity"], 100429.22, places=2)
+
+    def test_monitor_positions_drops_superseded_invalid_paper_option_symbol_when_repaired_row_exists(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_mark_to_market.db")
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            invalid_symbol = "SPY260618P00699500"
+            repaired_symbol = "SPY260618P00699000"
+            quote_client = MagicMock()
+            quote_client.get_quotes.return_value = {
+                "quotes": {
+                    "quote": {
+                        "symbol": repaired_symbol,
+                        "bid": 4.2000,
+                        "ask": 4.3842,
+                    }
+                }
+            }
+            engine._paper_option_quote_client = quote_client
+            engine._paper_option_chain_cache = {
+                ("SPY", "2026-06-18"): {
+                    "put": [689.0, 690.0, 699.0, 700.0],
+                    "call": [770.0, 780.0],
+                }
+            }
+            engine._paper_option_chain_cache_at = {("SPY", "2026-06-18"): time.time()}
+            broker.get_positions.return_value = []
+            broker.get_account_balances.return_value = {
+                "account": {"balance": 100000.0}
+            }
+            broker._last_prices = {}
+            opened_at = datetime.fromisoformat("2026-05-19T14:57:49+00:00")
+            db.upsert_position(
+                position_id=f"paper:{invalid_symbol}",
+                symbol=invalid_symbol,
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=8.5843,
+                current_price=8.5843,
+                status="OPEN",
+                opened_at=opened_at,
+                expiration="2026-06-18",
+                strike=699.5,
+                option_type="put",
+            )
+            db.upsert_position(
+                position_id=f"paper:{repaired_symbol}",
+                symbol=repaired_symbol,
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=8.5843,
+                current_price=8.5843,
+                status="OPEN",
+                opened_at=opened_at,
+                expiration="2026-06-18",
+                strike=699.0,
+                option_type="put",
+            )
+            engine.active_positions = {
+                invalid_symbol: {
+                    "symbol": invalid_symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                    "expiration": "2026-06-18",
+                    "strike": 699.5,
+                    "option_type": "put",
+                },
+                repaired_symbol: {
+                    "symbol": repaired_symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                    "expiration": "2026-06-18",
+                    "strike": 699.0,
+                    "option_type": "put",
+                },
+            }
+
+            engine._monitor_positions()
+
+            latest_snapshot = db.get_latest_snapshot()
+            open_rows = db.get_open_positions()
+            with db._connect() as conn:
+                old_row = conn.execute(
+                    "SELECT symbol FROM positions WHERE position_id = ?",
+                    (f"paper:{invalid_symbol}",),
+                ).fetchone()
+
+        quote_client.get_quotes.assert_called_once_with([repaired_symbol])
+        self.assertNotIn(invalid_symbol, engine.active_positions)
+        self.assertIn(repaired_symbol, engine.active_positions)
+        self.assertEqual(len(open_rows), 1)
+        self.assertEqual(open_rows[0]["position_id"], f"paper:{repaired_symbol}")
+        self.assertEqual(open_rows[0]["symbol"], repaired_symbol)
+        self.assertIsNone(old_row)
+        self.assertIsNotNone(latest_snapshot)
+
+    def test_monitor_positions_drops_stale_paper_positions_without_lineage(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_mark_to_market.db")
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            symbol = "SPY260613P00712500"
+            broker.get_positions.return_value = []
+            broker.get_account_balances.return_value = {
+                "account": {"balance": 100000.0}
+            }
+            broker._last_prices = {symbol: 4.2921}
+            engine.active_positions = {
+                symbol: {
+                    "symbol": symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                }
+            }
+
+            engine._monitor_positions()
+
+            latest_snapshot = db.get_latest_snapshot()
+            open_rows = db.get_open_positions()
+
+        self.assertEqual(engine.active_positions, {})
+        self.assertEqual(open_rows, [])
+        self.assertIsNotNone(latest_snapshot)
+        self.assertAlmostEqual(latest_snapshot["unrealized_pnl"], 0.0, places=2)
+        self.assertAlmostEqual(latest_snapshot["equity"], 100000.0, places=2)
+
+
+class TestH05PaperResetAudit(unittest.TestCase):
+    """Paper DB reset auditing should surface unexpected wipes and guard active sessions."""
+
+    def test_get_trades_today_uses_eastern_trading_day_boundary(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        class _FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime(2026, 5, 19, 2, 0, 0, tzinfo=UTC)
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        with TemporaryDirectory() as tmpdir:
+            db = h05.TradingSessionDB(Path(tmpdir) / "spyder_paper.db")
+            db.record_trade(
+                symbol="SPY260519C00580000",
+                trade_type="SELL_TO_OPEN",
+                side="sell_to_open",
+                quantity=1,
+                price=1.5,
+                strategy="iron_condor",
+                realized_pnl=25.0,
+                timestamp=datetime(2026, 5, 19, 1, 30, 0, tzinfo=UTC),
+            )
+            db.record_trade(
+                symbol="SPY260519P00570000",
+                trade_type="BUY_TO_OPEN",
+                side="buy_to_open",
+                quantity=1,
+                price=2.0,
+                strategy="iron_condor",
+                realized_pnl=-10.0,
+                timestamp=datetime(2026, 5, 19, 4, 30, 0, tzinfo=UTC),
+            )
+
+            with patch.object(h05, "datetime", _FixedDateTime):
+                trades_today = db.get_trades_today()
+                pnl_summary = db.get_pnl_summary()
+
+        self.assertEqual(len(trades_today), 1)
+        self.assertEqual(trades_today[0]["symbol"], "SPY260519C00580000")
+        self.assertAlmostEqual(pnl_summary["today"], 25.0, places=2)
+        self.assertAlmostEqual(pnl_summary["week"], 25.0, places=2)
+        self.assertAlmostEqual(pnl_summary["month"], 25.0, places=2)
+        self.assertAlmostEqual(pnl_summary["year"], 25.0, places=2)
+
+    def test_unexpected_empty_paper_db_logs_warning_after_prior_activity(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "spyder_paper.db"
+            db = h05.TradingSessionDB(db_path)
+            db.record_trade(
+                symbol="SPY260613P00712500",
+                trade_type="BUY_TO_OPEN",
+                side="buy_to_open",
+                quantity=1,
+                price=4.2921,
+                strategy="iron_condor",
+            )
+            with db._connect() as conn:
+                conn.execute("DELETE FROM trades")
+                conn.commit()
+
+            logger = MagicMock()
+            with patch.object(h05.SpyderLogger, "get_logger", return_value=logger):
+                h05.TradingSessionDB(db_path)
+
+        warning_messages = [call.args[0] for call in logger.warning.call_args_list if call.args]
+        self.assertTrue(
+            any("without an explicit reset marker" in message for message in warning_messages),
+            f"expected unexpected-reset warning, got {warning_messages!r}",
+        )
+
+    def test_reset_paper_ledger_refuses_when_session_marker_active(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "spyder_paper.db")
+            db.mark_paper_session_active("PAPER_20260518_125258", owner="unit-test")
+
+            with self.assertRaisesRegex(RuntimeError, "marked active"):
+                db.reset_paper_ledger(reason="unit test reset")
+
+    def test_purge_stale_paper_open_positions_removes_only_pre_session_rows(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        class _FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T14:50:14.499121+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        with TemporaryDirectory() as tmpdir:
+            db = h05.TradingSessionDB(Path(tmpdir) / "spyder_paper.db")
+            stale_opened_at = datetime.fromisoformat("2026-05-19T13:52:07.686759+00:00")
+            current_opened_at = datetime.fromisoformat("2026-05-19T14:50:22.532676+00:00")
+
+            db.upsert_position(
+                position_id="paper:SPY260618P00690000",
+                symbol="SPY260618P00690000",
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=1.23,
+                status="OPEN",
+                opened_at=stale_opened_at,
+            )
+            db.upsert_position(
+                position_id="paper:SPY260618P00687000",
+                symbol="SPY260618P00687000",
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=1.11,
+                status="OPEN",
+                opened_at=current_opened_at,
+            )
+
+            with patch.object(h05, "datetime", _FixedDateTime):
+                db.mark_paper_session_active("PAPER_20260519_105014", owner="unit-test")
+
+            result = db.purge_stale_paper_open_positions(actor="unit-test")
+            remaining_rows = db.get_open_positions()
+
+        self.assertEqual(result["deleted_positions"], 1)
+        self.assertEqual(result["session_id"], "PAPER_20260519_105014")
+        self.assertEqual(len(remaining_rows), 1)
+        self.assertEqual(remaining_rows[0]["position_id"], "paper:SPY260618P00687000")
+
+    def test_get_active_paper_open_positions_keeps_carryover_and_current_session_rows(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        class _InitialDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T14:00:00+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        class _FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T14:50:14.499121+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        with TemporaryDirectory() as tmpdir:
+            db = h05.TradingSessionDB(Path(tmpdir) / "spyder_paper.db")
+            carryover_opened_at = datetime.fromisoformat("2026-05-18T19:00:00+00:00")
+            stale_opened_at = datetime.fromisoformat("2026-05-19T13:52:07.686759+00:00")
+            current_opened_at = datetime.fromisoformat("2026-05-19T14:50:22.532676+00:00")
+
+            with patch.object(h05, "datetime", _InitialDateTime):
+                db.upsert_position(
+                    position_id="paper:SPY260618P00680000",
+                    symbol="SPY260618P00680000",
+                    strategy="iron_condor",
+                    quantity=-1,
+                    entry_price=1.25,
+                    status="OPEN",
+                    opened_at=carryover_opened_at,
+                )
+                db.upsert_position(
+                    position_id="paper:SPY260618P00690000",
+                    symbol="SPY260618P00690000",
+                    strategy="iron_condor",
+                    quantity=-1,
+                    entry_price=1.23,
+                    status="OPEN",
+                    opened_at=stale_opened_at,
+                )
+                db.upsert_position(
+                    position_id="paper:SPY260618P00687000",
+                    symbol="SPY260618P00687000",
+                    strategy="iron_condor",
+                    quantity=-1,
+                    entry_price=1.11,
+                    status="OPEN",
+                    opened_at=current_opened_at,
+                )
+
+            db.save_paper_carryover_manifest(
+                [
+                    {
+                        "position_id": "paper:SPY260618P00680000",
+                        "symbol": "SPY260618P00680000",
+                        "strategy": "iron_condor",
+                        "quantity": -1,
+                        "opened_at": carryover_opened_at.isoformat(),
+                    }
+                ],
+                session_id="PAPER_20260518_150000",
+            )
+
+            with patch.object(h05, "datetime", _FixedDateTime):
+                db.mark_paper_session_active("PAPER_20260519_105014", owner="unit-test")
+
+            rows = db.get_active_paper_open_positions()
+
+        assert_by_position_id = {row["position_id"]: row for row in rows}
+        self.assertEqual(
+            sorted(assert_by_position_id),
+            ["paper:SPY260618P00680000", "paper:SPY260618P00687000"],
+        )
+        self.assertEqual(assert_by_position_id["paper:SPY260618P00680000"]["_paper_open_origin"], "carryover")
+        self.assertEqual(assert_by_position_id["paper:SPY260618P00687000"]["_paper_open_origin"], "active_session")
+
+    def test_get_active_paper_open_positions_keeps_reused_open_symbol_visible_after_session_start(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        class _StaleDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T13:52:07.686759+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        class _SessionStartDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T14:50:14.499121+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        with TemporaryDirectory() as tmpdir:
+            db = h05.TradingSessionDB(Path(tmpdir) / "spyder_paper.db")
+            stale_opened_at = datetime.fromisoformat("2026-05-19T13:52:07.686759+00:00")
+            current_opened_at = datetime.fromisoformat("2026-05-19T14:50:22.532676+00:00")
+
+            with patch.object(h05, "datetime", _StaleDateTime):
+                db.upsert_position(
+                    position_id="paper:SPY260618P00687000",
+                    symbol="SPY260618P00687000",
+                    strategy="iron_condor",
+                    quantity=-1,
+                    entry_price=1.11,
+                    status="OPEN",
+                    opened_at=stale_opened_at,
+                )
+
+            with patch.object(h05, "datetime", _SessionStartDateTime):
+                db.mark_paper_session_active("PAPER_20260519_105014", owner="unit-test")
+
+            db.upsert_position(
+                position_id="paper:SPY260618P00687000",
+                symbol="SPY260618P00687000",
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=1.11,
+                status="OPEN",
+                opened_at=current_opened_at,
+            )
+
+            rows = db.get_active_paper_open_positions()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["position_id"], "paper:SPY260618P00687000")
+        self.assertEqual(rows[0]["opened_at"], current_opened_at.isoformat())
+        self.assertEqual(rows[0]["_paper_open_origin"], "active_session")
+
+    def test_get_active_paper_open_positions_uses_updated_at_for_legacy_reused_open_rows(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        class _StaleDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T13:52:07.686759+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        class _SessionStartDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T14:50:14.499121+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        class _CurrentDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-19T14:50:22.532676+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        with TemporaryDirectory() as tmpdir:
+            db = h05.TradingSessionDB(Path(tmpdir) / "spyder_paper.db")
+            stale_opened_at = datetime.fromisoformat("2026-05-19T13:52:07.686759+00:00")
+
+            with patch.object(h05, "datetime", _StaleDateTime):
+                db.upsert_position(
+                    position_id="paper:SPY260618P00687000",
+                    symbol="SPY260618P00687000",
+                    strategy="iron_condor",
+                    quantity=-1,
+                    entry_price=1.11,
+                    status="OPEN",
+                    opened_at=stale_opened_at,
+                )
+
+            with patch.object(h05, "datetime", _SessionStartDateTime):
+                db.mark_paper_session_active("PAPER_20260519_105014", owner="unit-test")
+
+            with patch.object(h05, "datetime", _CurrentDateTime):
+                db.upsert_position(
+                    position_id="paper:SPY260618P00687000",
+                    symbol="SPY260618P00687000",
+                    strategy="iron_condor",
+                    quantity=-1,
+                    entry_price=1.11,
+                    status="OPEN",
+                    opened_at=stale_opened_at,
+                )
+
+            rows = db.get_active_paper_open_positions()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["position_id"], "paper:SPY260618P00687000")
+        self.assertEqual(rows[0]["opened_at"], stale_opened_at.isoformat())
+        self.assertEqual(rows[0]["_paper_open_origin"], "active_session")
+
+    def test_explicit_reset_clears_tables_without_startup_warning(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "spyder_paper.db"
+            db = h05.TradingSessionDB(db_path)
+            db.record_trade(
+                symbol="SPY260613P00712500",
+                trade_type="SELL_TO_OPEN",
+                side="sell_to_open",
+                quantity=1,
+                price=8.5843,
+                strategy="iron_condor",
+            )
+            db.record_account_snapshot(
+                cash=100000.0,
+                equity=100000.0,
+                buying_power=100000.0,
+            )
+            db.upsert_position(
+                position_id="paper:SPY260613P00712500",
+                symbol="SPY260613P00712500",
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=8.5843,
+            )
+
+            cleared = db.reset_paper_ledger(reason="operator reset", actor="unit-test")
+
+            self.assertEqual(cleared["trades"], 1)
+            self.assertEqual(cleared["positions"], 1)
+            self.assertEqual(cleared["account_snapshots"], 1)
+            self.assertEqual(db.get_recent_trades(limit=5), [])
+            self.assertEqual(db.get_open_positions(), [])
+            self.assertIsNone(db.get_latest_snapshot())
+
+            logger = MagicMock()
+            with patch.object(h05.SpyderLogger, "get_logger", return_value=logger):
+                h05.TradingSessionDB(db_path)
+
+        warning_messages = [call.args[0] for call in logger.warning.call_args_list if call.args]
+        self.assertFalse(
+            any("without an explicit reset marker" in message for message in warning_messages),
+            f"did not expect unexpected-reset warning, got {warning_messages!r}",
+        )
 
 
 class TestR04CancelPendingOrders(unittest.TestCase):

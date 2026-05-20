@@ -46,7 +46,9 @@ Removed Infrastructure:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone  # noqa: E402
+from datetime import date, datetime, timedelta  # noqa: E402
+import re  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
 from typing import Any  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from enum import Enum, auto  # noqa: E402
@@ -56,6 +58,11 @@ from enum import Enum, auto  # noqa: E402
 # ==============================================================================
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+
+try:
+    ET_TZ = ZoneInfo('America/New_York')
+except Exception:  # pragma: no cover - defensive tzdata fallback
+    ET_TZ = datetime.UTC
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -218,7 +225,7 @@ class IronCondorStrategy(BaseStrategy):
         if MULTILEG_COORDINATOR_AVAILABLE:
             try:
                 self.multileg_coordinator = get_multileg_coordinator()
-                self.logger.info("✅ Connected to MultiLegStrategyCoordinator")
+                self.logger.debug("✅ Connected to MultiLegStrategyCoordinator")
             except Exception as e:
                 self.logger.error("Failed to connect to coordinator: %s", e)
         else:
@@ -251,7 +258,7 @@ class IronCondorStrategy(BaseStrategy):
             'worst_ic_trade': 0.0
         }
 
-        self.logger.info("🎯 IronCondorStrategy initialized with D32 integration")
+        self.logger.debug("🎯 IronCondorStrategy initialized with D32 integration")
 
     @staticmethod
     def _format_diagnostic_float(value: Any) -> str:
@@ -342,7 +349,7 @@ class IronCondorStrategy(BaseStrategy):
                 strength = SignalStrength.WEAK
 
             current_price = float(market_data["close"].iloc[-1])
-            now = datetime.now(timezone.utc)
+            now = datetime.now(datetime.UTC)
             signal = TradingSignal(
                 signal_id=str(uuid.uuid4()),
                 signal_type=SignalType.SELL,
@@ -925,6 +932,142 @@ class IronCondorStrategy(BaseStrategy):
             self.logger.error("Exit criteria analysis failed: %s", e)
             return True, "Exit due to analysis error"
 
+    @staticmethod
+    def _coerce_datetime(value: Any) -> datetime | None:
+        """Best-effort datetime coercion for mixed runtime payloads."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        normalized = text.replace('Z', '+00:00')
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+                try:
+                    return datetime.strptime(normalized, fmt)
+                except ValueError:
+                    continue
+        return None
+
+    @classmethod
+    def _coerce_date(cls, value: Any) -> date | None:
+        """Best-effort date coercion for expiration fields."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+
+        parsed = cls._coerce_datetime(value)
+        if parsed is not None:
+            return parsed.date()
+        return None
+
+    @staticmethod
+    def _extract_occ_expiration(symbol: str) -> date | None:
+        """Parse OCC option expirations from contract symbols when needed."""
+        match = re.search(r'(\d{6})[CP]\d{8}$', str(symbol or '').upper())
+        if match is None:
+            return None
+
+        try:
+            return datetime.strptime(match.group(1), '%y%m%d').date()
+        except ValueError:
+            return None
+
+    @classmethod
+    def _days_held(cls, opened_at: Any) -> int:
+        """Calculate holding duration without forcing timezone awareness."""
+        opened = cls._coerce_datetime(opened_at)
+        if opened is None:
+            return 0
+
+        if opened.tzinfo is not None:
+            now = cls._now_et().astimezone(opened.tzinfo)
+        else:
+            now = cls._now_et().replace(tzinfo=None)
+        return max(0, (now - opened).days)
+
+    @staticmethod
+    def _now_et() -> datetime:
+        """Return the current ET timestamp for DTE and holding-period math."""
+        return datetime.now(ET_TZ)
+
+    @classmethod
+    def _days_to_expiry(cls, expiration: Any, symbol: str) -> int:
+        """Calculate DTE from explicit payload fields or the option symbol."""
+        expiry = cls._coerce_date(expiration)
+        if expiry is None:
+            expiry = cls._extract_occ_expiration(symbol)
+        if expiry is None:
+            return IC_MAX_DTE
+
+        return max(0, (expiry - cls._now_et().date()).days)
+
+    @staticmethod
+    def _build_exit_position_data(position: Any) -> dict[str, Any]:
+        """Normalize ExitMonitor position views into Iron Condor exit inputs."""
+        raw = position.raw if isinstance(getattr(position, 'raw', None), dict) else {}
+        quantity = float(getattr(position, 'quantity', 0.0) or raw.get('quantity', 0.0) or 0.0)
+        entry_price = float(
+            getattr(position, 'cost_basis', 0.0)
+            or raw.get('cost_basis', 0.0)
+            or raw.get('entry_price', 0.0)
+            or 0.0
+        )
+        multiplier = float(raw.get('multiplier', 100.0) or 100.0)
+        unrealized_pnl = float(
+            getattr(position, 'unrealized_pnl', 0.0)
+            or raw.get('unrealized_pnl', 0.0)
+            or 0.0
+        )
+        entry_notional = abs(entry_price * quantity * multiplier)
+        pnl_percent = (unrealized_pnl / entry_notional) if entry_notional > 0.0 else 0.0
+
+        return {
+            'symbol': str(getattr(position, 'symbol', '') or raw.get('symbol', '') or ''),
+            'quantity': quantity,
+            'entry_price': entry_price,
+            'current_price': float(
+                getattr(position, 'current_price', 0.0)
+                or raw.get('current_price', 0.0)
+                or 0.0
+            ),
+            'unrealized_pnl': unrealized_pnl,
+            'pnl_percent': pnl_percent,
+            'days_held': 0,
+            'days_to_expiry': IC_MAX_DTE,
+        }
+
+    def check_exit(self, position: Any) -> str | None:
+        """Adapt authoritative runtime leg positions to Iron Condor exit rules."""
+        position_data = self._build_exit_position_data(position)
+        raw = position.raw if isinstance(getattr(position, 'raw', None), dict) else {}
+
+        position_data['days_held'] = self._days_held(raw.get('opened_at'))
+        position_data['days_to_expiry'] = self._days_to_expiry(
+            raw.get('expiration') or raw.get('expiration_date'),
+            position_data['symbol'],
+        )
+
+        if position_data['days_to_expiry'] <= 7:
+            return 'close'
+
+        # Keep PnL-based exits on short premium legs only; closing a long wing
+        # independently while the short leg is still open would remove protection.
+        if position_data['quantity'] >= 0:
+            return None
+
+        should_close, _reason = self.should_close_iron_condor(position_data)
+        return 'close' if should_close else None
+
     def suggest_iron_condor_adjustment(self, position_data: dict) -> IronCondorAdjustmentType | None:  # noqa: E501
         """Suggest Iron Condor specific adjustments"""
         try:
@@ -1046,7 +1189,7 @@ class IronCondorStrategy(BaseStrategy):
             'active_setups': len(self.active_setups),
             'multileg_coordinator_connected': self.multileg_coordinator is not None,
             'last_analysis': {
-                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'timestamp': datetime.now(datetime.UTC).isoformat(),
                 'market_suitable': self.current_analysis.market_suitable if self.current_analysis else False,  # noqa: E501
                 'confidence_score': self.current_analysis.confidence_score if self.current_analysis else 0.0  # noqa: E501
             }

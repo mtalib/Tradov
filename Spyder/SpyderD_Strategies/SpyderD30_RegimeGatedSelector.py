@@ -630,7 +630,7 @@ class RegimeGatedSelector:
         for strategy_type in StrategyType:
             self.performance_history[strategy_type] = []
 
-        self.logger.info(
+        self.logger.debug(
             f"RegimeGatedSelector initialized: "
             f"confidence_threshold={confidence_threshold:.2%}, "
             f"min_duration={min_regime_duration} days"
@@ -815,62 +815,115 @@ class RegimeGatedSelector:
     ) -> StrategySelection:
         """Select strategy using lean L09 regime consensus."""
         if not L09_AVAILABLE or L09MarketRegime is None:
-            return StrategySelection(
-                timestamp=datetime.now(timezone.utc),
-                current_regime=MarketRegime.UNKNOWN,
-                selected_strategy=StrategyType.IRON_CONDOR,
-                previous_strategy=self.current_strategy,
-                confidence=0.5,
-                transition_state=TransitionState.STABLE,
-                transition_progress=1.0,
-                reason="L09 unavailable — default Iron Condor",
-            )
-        l09_regime = consensus.regime
-        confidence = consensus.confidence
-        selector_feature_flag: str | None = None
-
-        if l09_regime == L09MarketRegime.EVENT_TRANSITION:
-            strategy = StrategyType.NO_TRADE
-            reason = "Event-transition regime — halt new entries"
-        elif l09_regime == L09MarketRegime.CRISIS_MODE:
-            strategy = StrategyType.NO_TRADE
-            reason = "Crisis regime — halt new entries"
-        elif l09_regime == L09MarketRegime.BULL_TRENDING:
-            if self.enable_bull_call_spread:
-                strategy = StrategyType.BULL_CALL_SPREAD
-                reason = "Bull trend — Bull Call Spread (feature-flag enabled)"
-                selector_feature_flag = "SPYDER_ENABLE_BULL_CALL_SPREAD"
-            else:
-                strategy = StrategyType.BULL_PUT_SPREAD
-                reason = "Bull trend — Bull Put Spread"
-        elif l09_regime == L09MarketRegime.BEAR_TRENDING:
-            if self.enable_bear_put_spread:
-                strategy = StrategyType.BEAR_PUT_SPREAD
-                reason = "Bear trend — Bear Put Spread (feature-flag enabled)"
-                selector_feature_flag = "SPYDER_ENABLE_BEAR_PUT_SPREAD"
-            else:
-                strategy = StrategyType.BEAR_CALL_SPREAD
-                reason = "Bear trend — Bear Call Spread"
-        elif l09_regime == L09MarketRegime.SIDEWAYS_RANGE:
+            l09_regime = getattr(consensus, "regime", None)
+            confidence = float(getattr(consensus, "confidence", 0.5) or 0.5)
+            selector_feature_flag: str | None = None
+            regime_value = str(getattr(l09_regime, "value", l09_regime) or "").strip().lower()
+            regime_name = str(getattr(l09_regime, "name", "") or "").strip().lower()
+            regime_tokens = {token for token in (regime_value, regime_name) if token}
             pivot_fired = (
                 isinstance(pivot_signal, dict) and bool(pivot_signal.get("fired", False))
             )
-            if self.enable_pivot_mean_reversion and pivot_fired:
-                strategy = StrategyType.PIVOT_MEAN_REVERSION
-                reason = "Range/calm — Pivot Mean Reversion (pivot signal firing)"
-                selector_feature_flag = "SPYDER_ENABLE_PIVOT_MEAN_REVERSION"
+
+            if any("event" in token for token in regime_tokens):
+                strategy = StrategyType.NO_TRADE
+                reason = "Event-transition fallback regime — halt new entries"
+                current_regime = MarketRegime.CRISIS
+            elif any("crisis" in token for token in regime_tokens):
+                strategy = StrategyType.NO_TRADE
+                reason = "Crisis fallback regime — halt new entries"
+                current_regime = MarketRegime.CRISIS
+            elif any("bull" in token or "recovery" in token for token in regime_tokens):
+                if self.enable_bull_call_spread:
+                    strategy = StrategyType.BULL_CALL_SPREAD
+                    reason = "Bull fallback regime — Bull Call Spread (feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_BULL_CALL_SPREAD"
+                else:
+                    strategy = StrategyType.BULL_PUT_SPREAD
+                    reason = "Bull fallback regime — Bull Put Spread"
+                current_regime = MarketRegime.BULL
+            elif any("bear" in token for token in regime_tokens):
+                if self.enable_bear_put_spread:
+                    strategy = StrategyType.BEAR_PUT_SPREAD
+                    reason = "Bear fallback regime — Bear Put Spread (feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_BEAR_PUT_SPREAD"
+                else:
+                    strategy = StrategyType.BEAR_CALL_SPREAD
+                    reason = "Bear fallback regime — Bear Call Spread"
+                current_regime = MarketRegime.CHOP
+            elif any(
+                "high_vol" in token or "volatility" in token or "volatile" in token
+                for token in regime_tokens
+            ):
+                strategy = StrategyType.IRON_BUTTERFLY
+                reason = "High-vol fallback regime — Iron Butterfly"
+                current_regime = MarketRegime.CHOP
+            elif any(
+                "sideways" in token or "range" in token or "neutral" in token or "chop" in token
+                for token in regime_tokens
+            ):
+                if self.enable_pivot_mean_reversion and pivot_fired:
+                    strategy = StrategyType.PIVOT_MEAN_REVERSION
+                    reason = "Range/calm fallback regime — Pivot Mean Reversion (pivot signal firing)"
+                    selector_feature_flag = "SPYDER_ENABLE_PIVOT_MEAN_REVERSION"
+                else:
+                    strategy = StrategyType.IRON_CONDOR
+                    reason = "Range/calm fallback regime — Iron Condor"
+                current_regime = MarketRegime.CHOP
             else:
                 strategy = StrategyType.IRON_CONDOR
-                reason = "Range/calm — Iron Condor"
-        elif l09_regime == L09MarketRegime.HIGH_VOLATILITY:
-            strategy = StrategyType.IRON_BUTTERFLY
-            reason = "High-vol mean reversion — Iron Butterfly"
-        elif l09_regime == L09MarketRegime.UNKNOWN:
-            strategy = StrategyType.NO_TRADE
-            reason = "Unknown regime (missing/unavailable data) — halt new entries"
+                reason = "L09 unavailable and consensus regime unknown — default Iron Condor"
+                current_regime = MarketRegime.UNKNOWN
         else:
-            strategy = StrategyType.IRON_CONDOR
-            reason = "Fallback neutral posture — Iron Condor"
+            l09_regime = consensus.regime
+            confidence = consensus.confidence
+            selector_feature_flag = None
+
+            if l09_regime == L09MarketRegime.EVENT_TRANSITION:
+                strategy = StrategyType.NO_TRADE
+                reason = "Event-transition regime — halt new entries"
+            elif l09_regime == L09MarketRegime.CRISIS_MODE:
+                strategy = StrategyType.NO_TRADE
+                reason = "Crisis regime — halt new entries"
+            elif l09_regime == L09MarketRegime.BULL_TRENDING:
+                if self.enable_bull_call_spread:
+                    strategy = StrategyType.BULL_CALL_SPREAD
+                    reason = "Bull trend — Bull Call Spread (feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_BULL_CALL_SPREAD"
+                else:
+                    strategy = StrategyType.BULL_PUT_SPREAD
+                    reason = "Bull trend — Bull Put Spread"
+            elif l09_regime == L09MarketRegime.BEAR_TRENDING:
+                if self.enable_bear_put_spread:
+                    strategy = StrategyType.BEAR_PUT_SPREAD
+                    reason = "Bear trend — Bear Put Spread (feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_BEAR_PUT_SPREAD"
+                else:
+                    strategy = StrategyType.BEAR_CALL_SPREAD
+                    reason = "Bear trend — Bear Call Spread"
+            elif l09_regime == L09MarketRegime.SIDEWAYS_RANGE:
+                pivot_fired = (
+                    isinstance(pivot_signal, dict) and bool(pivot_signal.get("fired", False))
+                )
+                if self.enable_pivot_mean_reversion and pivot_fired:
+                    strategy = StrategyType.PIVOT_MEAN_REVERSION
+                    reason = "Range/calm — Pivot Mean Reversion (pivot signal firing)"
+                    selector_feature_flag = "SPYDER_ENABLE_PIVOT_MEAN_REVERSION"
+                else:
+                    strategy = StrategyType.IRON_CONDOR
+                    reason = "Range/calm — Iron Condor"
+            elif l09_regime == L09MarketRegime.HIGH_VOLATILITY:
+                strategy = StrategyType.IRON_BUTTERFLY
+                reason = "High-vol mean reversion — Iron Butterfly"
+            elif l09_regime == L09MarketRegime.UNKNOWN:
+                strategy = StrategyType.NO_TRADE
+                reason = "Unknown regime (missing/unavailable data) — halt new entries"
+            else:
+                strategy = StrategyType.IRON_CONDOR
+                reason = "Fallback neutral posture — Iron Condor"
+
+            regime_map = _get_l09_to_d30_regime_map()
+            current_regime = regime_map.get(l09_regime, MarketRegime.UNKNOWN)
 
         # Pivot overlay is an execution qualifier only; annotate reason for downstream gates.
         if isinstance(pivot_signal, dict):
@@ -889,10 +942,8 @@ class RegimeGatedSelector:
                     f"score={score} level={level_name or '-'}"
                 )
 
-        regime_map = _get_l09_to_d30_regime_map()
-        current_regime = regime_map.get(l09_regime, MarketRegime.UNKNOWN)
         selection = StrategySelection(
-            timestamp=consensus.timestamp,
+            timestamp=getattr(consensus, "timestamp", datetime.now(timezone.utc)),
             current_regime=current_regime,
             selected_strategy=strategy,
             previous_strategy=self.current_strategy,

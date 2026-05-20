@@ -42,7 +42,7 @@ Key Features:
 import os
 import asyncio
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -372,7 +372,7 @@ class MultiLegMarketAnalyzer:
                 raise ValueError("Insufficient market data for analysis")
 
             current_price = market_data['close'].iloc[-1]
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
             # Volatility analysis
             vix_level = market_data.get('vix', pd.Series([20.0])).iloc[-1] if 'vix' in market_data else 20.0  # noqa: E501
@@ -422,7 +422,7 @@ class MultiLegMarketAnalyzer:
         except Exception as e:
             self.logger.error("Market environment analysis failed: %s", e, exc_info=True)
             neutral = MarketEnvironmentAnalysis(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 underlying_price=market_data['close'].iloc[-1],
                 volatility_environment=VolatilityEnvironment.NORMAL_VOL,
                 market_condition=MarketCondition.RANGE_BOUND,
@@ -828,6 +828,121 @@ class MultiLegStrategyConstructor:
         self.config = config or {}
         self.logger = SpyderLogger.get_logger(f"{__name__}.StrategyConstructor")
 
+    def _get_live_option_chain_strikes(
+        self,
+        symbol: str,
+        expiration: str,
+    ) -> dict[str, list[float]]:
+        """Fetch available live option strikes grouped by option type."""
+        try:
+            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+                create_tradier_client_from_env,
+            )
+
+            tradier = create_tradier_client_from_env()
+            chain = tradier.get_option_chain_with_greeks(symbol, expiration)
+        except Exception as exc:
+            self.logger.debug(
+                "Live option chain unavailable for %s %s: %s",
+                symbol,
+                expiration,
+                exc,
+            )
+            return {}
+
+        strikes: dict[str, set[float]] = {"put": set(), "call": set()}
+        for contract in chain or []:
+            option_type = str(getattr(contract, "option_type", "") or "").strip().lower()
+            if option_type not in strikes:
+                continue
+            try:
+                strike = float(getattr(contract, "strike", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if strike > 0.0:
+                strikes[option_type].add(strike)
+
+        return {
+            option_type: sorted(values)
+            for option_type, values in strikes.items()
+            if values
+        }
+
+    @staticmethod
+    def _select_live_chain_strike(
+        available_strikes: list[float],
+        target_strike: float,
+        direction: str,
+    ) -> float:
+        """Snap a target strike to the nearest available live contract."""
+        ordered = sorted(float(strike) for strike in available_strikes if float(strike) > 0.0)
+        if not ordered:
+            return float(target_strike)
+
+        if direction == "down":
+            lower = [strike for strike in ordered if strike <= target_strike]
+            if lower:
+                return lower[-1]
+        elif direction == "up":
+            upper = [strike for strike in ordered if strike >= target_strike]
+            if upper:
+                return upper[0]
+
+        return min(ordered, key=lambda strike: abs(strike - target_strike))
+
+    def _align_iron_condor_strikes_to_live_chain(
+        self,
+        symbol: str,
+        expiration: datetime,
+        long_put_strike: float,
+        short_put_strike: float,
+        short_call_strike: float,
+        long_call_strike: float,
+    ) -> tuple[float, float, float, float]:
+        """Align computed condor strikes to contracts available on the live chain."""
+        expiration_str = expiration.date().isoformat()
+        available_strikes = self._get_live_option_chain_strikes(symbol, expiration_str)
+        put_strikes = available_strikes.get("put", [])
+        call_strikes = available_strikes.get("call", [])
+        if not put_strikes or not call_strikes:
+            return long_put_strike, short_put_strike, short_call_strike, long_call_strike
+
+        snapped_short_put = self._select_live_chain_strike(put_strikes, short_put_strike, "down")
+        snapped_long_put = self._select_live_chain_strike(
+            [strike for strike in put_strikes if strike < snapped_short_put],
+            long_put_strike,
+            "down",
+        )
+        snapped_short_call = self._select_live_chain_strike(call_strikes, short_call_strike, "up")
+        snapped_long_call = self._select_live_chain_strike(
+            [strike for strike in call_strikes if strike > snapped_short_call],
+            long_call_strike,
+            "up",
+        )
+
+        aligned_strikes = (
+            snapped_long_put,
+            snapped_short_put,
+            snapped_short_call,
+            snapped_long_call,
+        )
+        original_strikes = (
+            long_put_strike,
+            short_put_strike,
+            short_call_strike,
+            long_call_strike,
+        )
+        if aligned_strikes != original_strikes:
+            self.logger.info(
+                "Aligned %s iron condor strikes to live chain exp=%s: %s -> %s",
+                symbol,
+                expiration_str,
+                original_strikes,
+                aligned_strikes,
+            )
+
+        return aligned_strikes
+
     def construct_strategy(self, strategy_type: MultiLegStrategyType,
                           market_analysis: MarketEnvironmentAnalysis,
                           days_to_expiration: int = 21) -> MultiLegStructure | None:
@@ -896,6 +1011,9 @@ class MultiLegStrategyConstructor:
                              dte: int) -> MultiLegStructure:
         """Construct Iron Condor strategy"""
         try:
+            underlying_symbol = str(
+                self.config.get("underlying_symbol") or self.config.get("symbol") or "SPY"
+            ).upper()
             underlying_price = market_analysis.underlying_price
             expected_move = market_analysis.expected_move
             iv = market_analysis.implied_volatility
@@ -921,7 +1039,20 @@ class MultiLegStrategyConstructor:
             long_call_strike = short_call_strike + wing_width
 
             # Create legs
-            expiration = datetime.now(timezone.utc) + timedelta(days=dte)
+            expiration = datetime.now(UTC) + timedelta(days=dte)
+            (
+                long_put_strike,
+                short_put_strike,
+                short_call_strike,
+                long_call_strike,
+            ) = self._align_iron_condor_strikes_to_live_chain(
+                underlying_symbol,
+                expiration,
+                long_put_strike,
+                short_put_strike,
+                short_call_strike,
+                long_call_strike,
+            )
 
             legs = [
                 # Put spread (bull put spread)
@@ -996,7 +1127,7 @@ class MultiLegStrategyConstructor:
             long_call_strike = atm_strike + wing_width
 
             # Create legs
-            expiration = datetime.now(timezone.utc) + timedelta(days=dte)
+            expiration = datetime.now(UTC) + timedelta(days=dte)
 
             legs = [
                 OptionLeg('put', long_put_strike, 1, expiration),      # Long put
@@ -1072,7 +1203,7 @@ class MultiLegStrategyConstructor:
             long_call_strike = round(long_call_strike * 2) / 2
 
             # Create legs
-            expiration = datetime.now(timezone.utc) + timedelta(days=dte)
+            expiration = datetime.now(UTC) + timedelta(days=dte)
 
             legs = [
                 OptionLeg('put', short_put_strike, -1, expiration),    # Short put (naked)
@@ -1457,7 +1588,7 @@ class MultiLegStrategyCoordinator:
         self._rl_morph_enabled = HAS_SB3
         self._load_rl_morph_model()
 
-        self.logger.info("MultiLegStrategyCoordinator initialized successfully")
+        self.logger.debug("MultiLegStrategyCoordinator initialized successfully")
 
     def _load_rl_morph_model(self, model_path: str | None = None) -> None:
         """Load pre-trained RL strategy morphing model if available."""
@@ -1500,7 +1631,7 @@ class MultiLegStrategyCoordinator:
         # Greeks staleness check — warn if position Greeks are stale
         GREEKS_STALENESS_SECONDS = 300  # 5 minutes
         if self._greeks_last_updated:
-            age = (datetime.now(timezone.utc) - self._greeks_last_updated).total_seconds()
+            age = (datetime.now(UTC) - self._greeks_last_updated).total_seconds()
             if age > GREEKS_STALENESS_SECONDS:
                 self.logger.warning(
                     f"Greeks are {age:.0f}s old (>{GREEKS_STALENESS_SECONDS}s threshold). "
@@ -1754,7 +1885,7 @@ class MultiLegStrategyCoordinator:
             position = MultiLegPosition(
                 position_id=position_id,
                 strategy_structure=strategy_structure,
-                entry_time=datetime.now(timezone.utc),
+                entry_time=datetime.now(UTC),
                 entry_net_credit=strategy_structure.net_credit,
                 current_value=strategy_structure.net_credit,
                 unrealized_pnl=0.0,

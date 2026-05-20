@@ -83,10 +83,13 @@ def _resolve_gui_paper_autostart_delay_ms(mode: str, now_et: datetime | None = N
             second=0,
             microsecond=0,
         )
-    else:
-        target = _next_et_session_time(_A01_PAPER_AUTOSTART_WARMUP_END_ET, current_et)
+        return max(250, int((target - current_et).total_seconds() * 1000))
 
-    return max(250, int((target - current_et).total_seconds() * 1000))
+    if current_et.weekday() < 5 and current_et.time() < _A01_PAPER_LOAD_START_ET:
+        target = _next_et_session_time(_A01_PAPER_AUTOSTART_WARMUP_END_ET, current_et)
+        return max(250, int((target - current_et).total_seconds() * 1000))
+
+    return 250
 
 # Try to import Qt modules for GUI
 # Using lowercase to avoid constant redefinition warnings
@@ -644,6 +647,7 @@ class SpyderApplication:
     def _prepare_session_supervisor_autostart(self, mode: str) -> bool:
         """Create the SessionSupervisor and either start or defer it."""
         from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
+            authorize_paper_session_start,
             create_session_supervisor,
         )
 
@@ -656,6 +660,8 @@ class SpyderApplication:
         self._session_supervisor_autostart_result = None
         self._session_supervisor_autostart_exception = None
         self.session_supervisor = create_session_supervisor(mode=mode)
+        if mode == "paper":
+            authorize_paper_session_start(self.session_supervisor)
         self.session_supervisor._spyder_autostart_in_progress = False
         if self._should_defer_session_supervisor_autostart():
             self._session_supervisor_autostart_pending = True
@@ -687,6 +693,12 @@ class SpyderApplication:
         self._session_supervisor_autostart_result = None
         self._session_supervisor_autostart_exception = None
         try:
+            if getattr(supervisor, "mode", "paper") == "paper":
+                from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
+                    authorize_paper_session_start,
+                )
+
+                authorize_paper_session_start(supervisor)
             self._session_supervisor_autostart_result = bool(supervisor.start())
         except Exception as exc:  # noqa: BLE001
             self._session_supervisor_autostart_exception = exc
@@ -844,13 +856,20 @@ class SpyderApplication:
             return
 
         if mode == "paper":
+            from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
+                authorize_paper_session_start,
+            )
+
+            authorize_paper_session_start(supervisor)
+
+        if mode == "paper":
             queue_paper_session_start = getattr(self.main_window, "_queue_paper_session_start", None)
             if callable(queue_paper_session_start):
                 self._session_supervisor_autostart_mode = None
                 try:
                     self._session_supervisor_autostart_delegated_to_dashboard = True
                     queue_paper_session_start(show_failure_dialog=False)
-                    self.logger.info(
+                    self.logger.debug(
                         "⏳ SessionSupervisor autostart handed off to dashboard loading window (mode=%s)",
                         mode,
                     )

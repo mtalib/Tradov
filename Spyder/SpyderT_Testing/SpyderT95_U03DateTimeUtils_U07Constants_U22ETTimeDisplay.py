@@ -490,7 +490,7 @@ class TestDateTimeUtilsClass:
         assert "C" in sym
 
     def test_is_optimal_entry_time_in_window(self):
-        # 10:30 AM is in the 10:15-11:40 window
+        # 10:30 AM is in the 10:15-11:30 window
         dt = datetime(2025, 1, 6, 10, 30)
         assert DateTimeUtils.is_optimal_entry_time(dt) is True
 
@@ -510,9 +510,11 @@ class TestDateTimeUtilsClass:
         windows = DateTimeUtils.get_trading_windows()
         assert "market_hours" in windows
         assert "optimal_entry" in windows
+        assert "primary_session" in windows
+        assert "afternoon_continuation" in windows
 
     def test_format_time_window(self):
-        window = (time(10, 15), time(11, 40))
+        window = (time(10, 15), time(11, 30))
         result = DateTimeUtils.format_time_window(window)
         assert isinstance(result, str)
         assert "AM" in result or "PM" in result
@@ -538,6 +540,26 @@ class TestDateTimeUtilsClass:
         info = DateTimeUtils.get_trading_session_info()
         assert isinstance(info, dict)
         assert "date" in info
+
+    def test_is_optimal_entry_time_defaults_to_et_clock(self, monkeypatch):
+        monkeypatch.setattr(
+            u03_mod,
+            "_current_et_datetime",
+            lambda: ET_TZ.localize(datetime(2025, 1, 6, 10, 30)),
+        )
+
+        assert DateTimeUtils.is_optimal_entry_time() is True
+
+    def test_get_trading_session_info_defaults_to_et_clock(self, monkeypatch):
+        monkeypatch.setattr(
+            u03_mod,
+            "_current_et_datetime",
+            lambda: ET_TZ.localize(datetime(2025, 1, 6, 10, 30)),
+        )
+
+        info = DateTimeUtils.get_trading_session_info()
+        assert info["date"] == date(2025, 1, 6)
+        assert info["current_time"] == time(10, 30)
 
     def test_get_time_until_entry_window_returns_timedelta_or_none(self):
         result = DateTimeUtils.get_time_until_entry_window()

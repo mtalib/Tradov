@@ -10,6 +10,7 @@ Defines:
     BoundarySignalType    — canonical signal direction enum at the boundary
     RiskValidationRequest — normalised pre-trade risk check request dataclass
     RiskValidationResult  — normalised approval / rejection result dataclass
+    OverlayPretradeVerdict — structured result for overlay-slot risk checks
     RiskManagerProtocol   — structural Protocol that every E-Series risk gate must satisfy
     StrategyStateProvider — structural Protocol that D-Series strategies must satisfy
 
@@ -23,7 +24,7 @@ Concrete satisfiers (no inheritance required):
 Usage::
 
     from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import (
-        RiskValidationRequest, RiskValidationResult, RiskManagerProtocol,
+        OverlayPretradeVerdict, RiskValidationRequest, RiskValidationResult, RiskManagerProtocol,
         StrategyStateProvider,
     )
     assert isinstance(my_risk_manager, RiskManagerProtocol)   # runtime check
@@ -40,7 +41,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -129,7 +130,26 @@ class RiskValidationResult:
     risk_score: float = 0.0
     max_safe_quantity: int = 0
     violations: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass
+class OverlayPretradeVerdict:
+    """Structured result returned by the E-Series overlay-slot gate.
+
+    Attributes:
+        allow: True when the requested overlay slot may proceed.
+        reason_code: Machine-readable allow/deny reason.
+        limits_snapshot: Effective thresholds used for the decision.
+        computed_values: Actual computed inputs inspected by the gate.
+        timestamp: When the verdict was produced.
+    """
+
+    allow: bool = False
+    reason_code: str = ""
+    limits_snapshot: dict[str, Any] = field(default_factory=dict)
+    computed_values: dict[str, Any] = field(default_factory=dict)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 # ==============================================================================
@@ -147,6 +167,7 @@ class RiskManagerProtocol(Protocol):
 
     Methods:
         validate_signal:  Synchronous pre-trade risk gate; the primary boundary call.
+        validate_overlay_slot: Overlay-specific gate for optional third-slot admission.
         get_risk_metrics: Current portfolio risk metrics snapshot.
         get_positions:    Currently tracked open positions keyed by symbol.
     """
@@ -163,6 +184,21 @@ class RiskManagerProtocol(Protocol):
         Returns:
             RiskValidationResult indicating approval, risk score, and any rule
             violations.
+        """
+        ...
+
+    def validate_overlay_slot(
+        self,
+        request: RiskValidationRequest,
+    ) -> OverlayPretradeVerdict:
+        """Run the overlay-slot pre-trade gate.
+
+        Args:
+            request: Normalised overlay-slot request from the D-Series caller.
+
+        Returns:
+            OverlayPretradeVerdict with allow/deny result, thresholds, and
+            computed inputs used by the decision.
         """
         ...
 

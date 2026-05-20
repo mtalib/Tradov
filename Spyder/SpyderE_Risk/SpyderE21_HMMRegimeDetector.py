@@ -267,7 +267,7 @@ class HMMRegimeDetector:
         self.regime_switch_threshold: float = 0.70  # 70% confidence required
         self.regime_duration_min: int = 5  # Minimum days before considering switch
 
-        self.logger.info(
+        self.logger.debug(
             f"HMMRegimeDetector initialized: n_states={n_states}, "
             f"use_hmm={use_hmm}"
         )

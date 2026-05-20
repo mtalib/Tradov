@@ -73,7 +73,7 @@ VIX_SYMBOLS = {
     'VIX': '^VIX',      # CBOE Volatility Index
     'VIX9D': '^VIX9D',  # CBOE 9-Day Volatility Index (replaced ^VXST in Jan 2020)
     'VVIX': '^VVIX',    # VIX of VIX
-    'VXV': '^VXV',      # VIX 3-Month
+    'VXV': '^VIX3M',    # VIX 3-Month (Yahoo retired ^VXV in favor of ^VIX3M)
     'VXMT': '^VXMT',    # VIX 6-Month
     # ^VXST (VIX Short-Term) was discontinued by CBOE in January 2020; use VIX9D instead.
 }
