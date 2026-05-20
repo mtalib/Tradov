@@ -27,7 +27,7 @@ import json
 import logging
 import threading
 import os
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -279,7 +279,7 @@ class SpyderX07_ExecutionStrategyAgent:
                           plan: ExecutionPlan,
                           market: MarketConditions) -> ExecutionResult:
         """Execute the trading plan."""
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         filled_quantity = 0
         total_cost = 0.0
 
@@ -295,7 +295,7 @@ class SpyderX07_ExecutionStrategyAgent:
 
         # Calculate results
         avg_price = total_cost / filled_quantity if filled_quantity > 0 else 0
-        execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+        execution_time = (datetime.now(UTC) - start_time).total_seconds()
 
         # Calculate slippage
         if request.side == 'BUY':
@@ -632,7 +632,7 @@ Provide a JSON response with:
             self.algorithm_performance[algorithm]['success'] += 1
 
         self.execution_history.append({
-            'timestamp': datetime.now(timezone.utc),
+            'timestamp': datetime.now(UTC),
             'algorithm': algorithm,
             'success': result.success,
             'slippage_bps': result.slippage_bps,

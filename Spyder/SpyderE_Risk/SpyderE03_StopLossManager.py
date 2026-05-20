@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
@@ -195,8 +195,8 @@ class PositionStops:
     time_stop: StopOrder | None = None
     partial_stops: list[StopOrder] = field(default_factory=list)
     stop_history: list[dict[str, Any]] = field(default_factory=list)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    last_checked: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_checked: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 # ==============================================================================
 # STOP LOSS MANAGER CLASS
@@ -331,8 +331,8 @@ class StopLossManager:
                     quantity=quantity,
                     side=position_side,
                     status=StopStatus.PENDING,
-                    created_at=datetime.now(timezone.utc),
-                    last_updated=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
+                    last_updated=datetime.now(UTC),
                     metadata={
                         'strategy': strategy,
                         'method': config.initial_stop_method,
@@ -407,7 +407,7 @@ class StopLossManager:
         with self._lock:
             position_stops = self.position_stops[position_id]
             position_stops.current_price = current_price
-            position_stops.last_checked = datetime.now(timezone.utc)
+            position_stops.last_checked = datetime.now(UTC)
 
             updated_stops = []
 
@@ -488,7 +488,7 @@ class StopLossManager:
             if stop_hit:
                 # Mark as triggered
                 active_stop.status = StopStatus.TRIGGERED
-                active_stop.triggered_at = datetime.now(timezone.utc)
+                active_stop.triggered_at = datetime.now(UTC)
                 active_stop.trigger_reason = f"Stop hit at {current_price:.2f}"
 
                 # Add to triggered history
@@ -499,7 +499,7 @@ class StopLossManager:
                         'entry_price': position_stops.entry_price,
                         'exit_price': current_price
                     },
-                    'timestamp': datetime.now(timezone.utc)
+                    'timestamp': datetime.now(UTC)
                 })
 
                 # Record performance
@@ -585,9 +585,9 @@ class StopLossManager:
             quantity=position_stops.quantity,
             side=position_stops.position_side,
             status=StopStatus.TRIGGERED,
-            created_at=datetime.now(timezone.utc),
-            last_updated=datetime.now(timezone.utc),
-            triggered_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            last_updated=datetime.now(UTC),
+            triggered_at=datetime.now(UTC),
             trigger_reason=trigger_reason,
             metadata={
                 "source": "N04_greeks_exit",
@@ -604,7 +604,7 @@ class StopLossManager:
                     'entry_price': position_stops.entry_price,
                     'exit_price': stop_price,
                 },
-                'timestamp': datetime.now(timezone.utc),
+                'timestamp': datetime.now(UTC),
             })
 
         if self.event_manager:
@@ -684,7 +684,7 @@ class StopLossManager:
             atr = np.mean(tr[-14:])
 
             # Cache ATR
-            self.atr_cache[f"{entry_price}_{datetime.now(timezone.utc).date()}"] = atr
+            self.atr_cache[f"{entry_price}_{datetime.now(UTC).date()}"] = atr
 
             # Calculate stop
             stop_distance = atr * atr_multiplier
@@ -824,8 +824,8 @@ class StopLossManager:
             quantity=position_stops.quantity,
             side=position_stops.position_side,
             status=StopStatus.PENDING,
-            created_at=datetime.now(timezone.utc),
-            last_updated=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            last_updated=datetime.now(UTC),
             metadata={
                 'method': config.trailing_method.name,
                 'distance': config.trailing_distance_pct
@@ -876,7 +876,7 @@ class StopLossManager:
 
         # Check if stop was updated
         if trailing_stop.stop_price != old_stop:
-            trailing_stop.last_updated = datetime.now(timezone.utc)
+            trailing_stop.last_updated = datetime.now(UTC)
 
             # Update with broker
             self._modify_stop_with_broker(trailing_stop)
@@ -932,8 +932,8 @@ class StopLossManager:
             quantity=position_stops.quantity,
             side=position_stops.position_side,
             status=StopStatus.PENDING,
-            created_at=datetime.now(timezone.utc),
-            last_updated=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            last_updated=datetime.now(UTC),
             metadata={'moved_at_price': position_stops.current_price}
         )
 
@@ -1077,8 +1077,8 @@ class StopLossManager:
                     quantity=quantity,
                     side=position_stops.position_side,
                     status=StopStatus.PENDING,
-                    created_at=datetime.now(timezone.utc),
-                    last_updated=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
+                    last_updated=datetime.now(UTC),
                     metadata={
                         'exit_level': exit_level,
                         'scale_percentage': scale_pct,
@@ -1108,7 +1108,7 @@ class StopLossManager:
             if profit_pct >= exit_level:
                 # Activate partial exit
                 partial_stop.status = StopStatus.TRIGGERED
-                partial_stop.triggered_at = datetime.now(timezone.utc)
+                partial_stop.triggered_at = datetime.now(UTC)
                 partial_stop.stop_price = current_price
                 partial_stop.trigger_reason = f"Partial exit at {profit_pct:.1%} profit"
 
@@ -1149,8 +1149,8 @@ class StopLossManager:
             quantity=position_stops.quantity,
             side=position_stops.position_side,
             status=StopStatus.PENDING,
-            created_at=datetime.now(timezone.utc),
-            last_updated=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            last_updated=datetime.now(UTC),
             metadata={
                 'trigger_time': trigger_time.isoformat(),
                 'expected_hold_hours': expected_hold_hours,
@@ -1169,9 +1169,9 @@ class StopLossManager:
 
         trigger_time = datetime.fromisoformat(time_stop.metadata['trigger_time'])
 
-        if datetime.now(timezone.utc) >= trigger_time:
+        if datetime.now(UTC) >= trigger_time:
             time_stop.status = StopStatus.TRIGGERED
-            time_stop.triggered_at = datetime.now(timezone.utc)
+            time_stop.triggered_at = datetime.now(UTC)
             time_stop.stop_price = position_stops.current_price
             time_stop.trigger_reason = "Maximum hold time exceeded"
 
@@ -1250,8 +1250,8 @@ class StopLossManager:
             quantity=quantity,
             side=position_side,
             status=StopStatus.ACTIVE,
-            created_at=datetime.now(timezone.utc),
-            last_updated=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            last_updated=datetime.now(UTC),
             metadata={'emergency': True}
         )
 
@@ -1268,7 +1268,7 @@ class StopLossManager:
         """Update stop history for position."""
         for stop in updated_stops:
             position_stops.stop_history.append({
-                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'timestamp': datetime.now(UTC).isoformat(),
                 'stop_type': stop.stop_type.name,
                 'stop_price': stop.stop_price,
                 'action': 'updated' if stop.status == StopStatus.ACTIVE else stop.status.name,
@@ -1303,7 +1303,7 @@ class StopLossManager:
                 'current_price': position_stops.current_price,
                 'side': position_stops.position_side.name
             },
-            'timestamp': datetime.now(timezone.utc).isoformat()
+            'timestamp': datetime.now(UTC).isoformat()
         }
 
         self.event_manager.emit('STOP_EVENT', event_data)
@@ -1426,7 +1426,7 @@ class StopLossManager:
                 'total_risk_amount': total_risk,
                 'triggered_stops_24h': sum(
                     1 for stop in self.triggered_stops
-                    if datetime.now(timezone.utc) - stop['timestamp'] <= timedelta(hours=24)
+                    if datetime.now(UTC) - stop['timestamp'] <= timedelta(hours=24)
                 )
             }
 
@@ -1487,7 +1487,7 @@ class StopLossManager:
 
             if broker_status == 'FILLED':
                 active_stop.status = StopStatus.TRIGGERED
-                active_stop.triggered_at = datetime.now(timezone.utc)
+                active_stop.triggered_at = datetime.now(UTC)
                 active_stop.trigger_reason = "Broker execution"
 
                 self.logger.info("Stop executed by broker: %s", active_stop.order_id)
@@ -1547,7 +1547,7 @@ if __name__ == "__main__":
     stop_mgr.configure_strategy_stops("momentum", momentum_config)
 
     # Create sample market data
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=50, freq='5min')
+    dates = pd.date_range(end=datetime.now(UTC), periods=50, freq='5min')
     market_data = pd.DataFrame({
         'timestamp': dates,
         'open': 400 + np.random.randn(50).cumsum(),

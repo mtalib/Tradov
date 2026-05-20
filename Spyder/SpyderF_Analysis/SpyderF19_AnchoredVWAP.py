@@ -33,7 +33,7 @@ References:
 # ==============================================================================
 from typing import Any
 from enum import Enum
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, timedelta, UTC
 from dataclasses import dataclass
 
 # ==============================================================================
@@ -419,7 +419,7 @@ class AnchoredVWAPCalculator:
 
         return VWAPLevel(
             anchor=anchor,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             vwap=latest_vwap,
             upper_band_1=latest_vwap + latest_std,
             upper_band_2=latest_vwap + 2 * latest_std,
@@ -453,7 +453,7 @@ class AnchoredVWAPCalculator:
         """Return empty VWAP level."""
         return VWAPLevel(
             anchor=anchor,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             vwap=0,
             upper_band_1=0,
             upper_band_2=0,
@@ -556,14 +556,14 @@ class AnchoredVWAPCalculator:
         # Find most recent swing high
         swing_high_idx = df['high'].iloc[-lookback * 2:-lookback].idxmax()
         swing_high = {
-            'timestamp': swing_high_idx if isinstance(swing_high_idx, datetime) else datetime.now(timezone.utc),
+            'timestamp': swing_high_idx if isinstance(swing_high_idx, datetime) else datetime.now(UTC),
             'price': df.loc[swing_high_idx, 'high']
         }
 
         # Find most recent swing low
         swing_low_idx = df['low'].iloc[-lookback * 2:-lookback].idxmin()
         swing_low = {
-            'timestamp': swing_low_idx if isinstance(swing_low_idx, datetime) else datetime.now(timezone.utc),
+            'timestamp': swing_low_idx if isinstance(swing_low_idx, datetime) else datetime.now(UTC),
             'price': df.loc[swing_low_idx, 'low']
         }
 
@@ -592,7 +592,7 @@ class AnchoredVWAPCalculator:
 
         return AnchorPoint(
             anchor_type=AnchorType.BREAKOUT,
-            timestamp=spike_idx if isinstance(spike_idx, datetime) else datetime.now(timezone.utc),
+            timestamp=spike_idx if isinstance(spike_idx, datetime) else datetime.now(UTC),
             price=latest_spike['close'],
             description=f"Volume Spike ({volume_ratio.loc[spike_idx]:.1f}x)",
             significance=min(1.0, volume_ratio.loc[spike_idx] / 3)
@@ -624,7 +624,7 @@ class AnchoredVWAPCalculator:
 
         return AnchorPoint(
             anchor_type=AnchorType.GAP,
-            timestamp=gap_idx if isinstance(gap_idx, datetime) else datetime.now(timezone.utc),
+            timestamp=gap_idx if isinstance(gap_idx, datetime) else datetime.now(UTC),
             price=latest_gap['open'],
             description=f"Gap {'Up' if gap_size > 0 else 'Down'} {abs(gap_size):.1f}%",
             significance=min(1.0, abs(gap_size) / 2)
@@ -650,7 +650,7 @@ class AnchoredVWAPCalculator:
                 first_bar = df[mask].iloc[0]
                 idx = df[mask].index[0]
                 return {
-                    'timestamp': idx if isinstance(idx, datetime) else datetime.now(timezone.utc),
+                    'timestamp': idx if isinstance(idx, datetime) else datetime.now(UTC),
                     'price': first_bar['open']
                 }
 
@@ -663,7 +663,7 @@ class AnchoredVWAPCalculator:
                 first_bar = df[mask].iloc[0]
                 idx = df[mask].index[0]
                 return {
-                    'timestamp': idx if isinstance(idx, datetime) else datetime.now(timezone.utc),
+                    'timestamp': idx if isinstance(idx, datetime) else datetime.now(UTC),
                     'price': first_bar['open']
                 }
 
@@ -706,7 +706,7 @@ class AnchoredVWAPCalculator:
             session_vwap_df,
             AnchorPoint(
                 anchor_type=AnchorType.SESSION_START,
-                timestamp=df.index[0] if isinstance(df.index[0], datetime) else datetime.now(timezone.utc),
+                timestamp=df.index[0] if isinstance(df.index[0], datetime) else datetime.now(UTC),
                 price=df['open'].iloc[0]
             )
         )
@@ -754,7 +754,7 @@ class AnchoredVWAPCalculator:
 
         return VWAPAnalysis(
             symbol=symbol,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             current_price=current_price,
             primary_vwap=primary_vwap,
             anchored_vwaps=anchored_vwaps,
@@ -775,7 +775,7 @@ class AnchoredVWAPCalculator:
         """Create VWAPLevel from calculated DataFrame."""
         return VWAPLevel(
             anchor=anchor,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             vwap=df['vwap'].iloc[-1],
             upper_band_1=df['vwap_upper_1'].iloc[-1] if 'vwap_upper_1' in df else 0,
             upper_band_2=df['vwap_upper_2'].iloc[-1] if 'vwap_upper_2' in df else 0,
@@ -983,7 +983,7 @@ class AnchoredVWAPCalculator:
 
         event = VWAPCrossEvent(
             symbol=symbol,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             cross_type=cross_type,
             anchor_type=anchor.anchor_type if anchor else AnchorType.SESSION_START,
             cross_price=curr_close,
@@ -1106,7 +1106,7 @@ class AnchoredVWAPCalculator:
 
         return VWAPTradingSetup(
             symbol=symbol,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             setup_type=setup_type,
             direction=direction,
             entry_price=entry,

@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -262,8 +262,8 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
         signals = []
 
         try:
-            current_time = datetime.now(timezone.utc).time()
-            current_date = datetime.now(timezone.utc).date()
+            current_time = datetime.now(UTC).time()
+            current_date = datetime.now(UTC).date()
 
             # Reset daily counter
             if self.last_trade_date != current_date:
@@ -272,7 +272,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
                 self.current_range = None
 
             # Check if preferred trading day
-            if datetime.now(timezone.utc).weekday() not in PREFERRED_DAYS:
+            if datetime.now(UTC).weekday() not in PREFERRED_DAYS:
                 self.logger.debug("Not a preferred trading day")
                 # Still track range but reduce position size
 
@@ -359,7 +359,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
             contracts = int(risk_amount / (stop_distance * SPY_CONTRACT_MULTIPLIER))
 
             # Adjust for day of week
-            if datetime.now(timezone.utc).weekday() not in PREFERRED_DAYS:
+            if datetime.now(UTC).weekday() not in PREFERRED_DAYS:
                 contracts = max(1, contracts // 2)
 
             # Adjust for signal strength
@@ -416,7 +416,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
                     return True, "Time-based exit with profit"
 
             # Check end of day
-            if datetime.now(timezone.utc).time() >= time(15, 45):
+            if datetime.now(UTC).time() >= time(15, 45):
                 return True, "End of day exit"
 
             return False, ""
@@ -458,7 +458,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
     def _update_opening_range(self, market_data: pd.DataFrame) -> None:
         """Update or establish opening range"""
         try:
-            current_time = datetime.now(timezone.utc).time()
+            current_time = datetime.now(UTC).time()
 
             # Filter data for range period
             today_data = market_data[market_data.index.time >= RANGE_START]
@@ -468,7 +468,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
             # Initialize range if needed
             if not self.current_range:
                 self.current_range = OpeningRange(
-                    date=datetime.now(timezone.utc),
+                    date=datetime.now(UTC),
                     range_start=RANGE_START,
                     range_end=self._get_range_end(),
                     high=today_data['high'].max(),
@@ -683,7 +683,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
             # Create signal
             signal = BreakoutSignal(
                 signal_id=str(uuid.uuid4()),
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 breakout_type=breakout_type,
                 breakout_price=breakout_price,
                 range_reference=self.current_range,
@@ -695,7 +695,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
                 initial_target=initial_target,
                 option_type=option_type,
                 strike=strike,
-                expiry=datetime.now(timezone.utc) + timedelta(days=7),  # Weekly options
+                expiry=datetime.now(UTC) + timedelta(days=7),  # Weekly options
                 delta=delta,
                 false_breakout_risk=false_breakout_risk,
                 confidence=1 - false_breakout_risk
@@ -736,7 +736,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
             score += 10
 
         # Time of day score (prefer morning breakouts)
-        if datetime.now(timezone.utc).time() < time(11, 0):
+        if datetime.now(UTC).time() < time(11, 0):
             score += 10
 
         # Convert score to quality
@@ -768,7 +768,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
         # This would need more historical data
 
         # Check time of day (late breakouts more likely false)
-        if datetime.now(timezone.utc).time() > time(14, 0):
+        if datetime.now(UTC).time() > time(14, 0):
             risk += 0.2
 
         # Check if range was too small (prone to false breakouts)
@@ -824,8 +824,8 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
                 stop_loss=breakout.stop_loss,
                 take_profit=breakout.initial_target,
                 position_size=1,  # Will be calculated
-                timestamp=datetime.now(timezone.utc),
-                expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+                timestamp=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(minutes=5),
                 metadata={
                     'strategy': 'opening_range_breakout',
                     'breakout_data': {
@@ -889,7 +889,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
             position = BreakoutPosition(
                 position_id=str(uuid.uuid4()),
                 breakout_signal=breakout_signal,
-                entry_time=datetime.now(timezone.utc),
+                entry_time=datetime.now(UTC),
                 option_contracts=signal.position_size,
                 entry_price=breakout_data['entry_price'],
                 current_stop=breakout_data['stop_loss'],  # Now properly ordered
@@ -910,9 +910,9 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
             self.breakout_stats['total_breakouts'] += 1
 
             # Track by day
-            if datetime.now(timezone.utc).weekday() == 0:
+            if datetime.now(UTC).weekday() == 0:
                 self.breakout_stats['monday_trades'] += 1
-            elif datetime.now(timezone.utc).weekday() == 1:
+            elif datetime.now(UTC).weekday() == 1:
                 self.breakout_stats['tuesday_trades'] += 1
             else:
                 self.breakout_stats['other_day_trades'] += 1
@@ -1005,7 +1005,7 @@ class OpeningRangeBreakoutStrategy(BaseStrategy):
 
             # Update final P&L
             position.realized_pnl = position.unrealized_pnl
-            position.exit_time = datetime.now(timezone.utc)
+            position.exit_time = datetime.now(UTC)
             position.exit_reason = reason
 
             # Update stats
@@ -1105,7 +1105,7 @@ if __name__ == "__main__":
     strategy.start()
 
     # Create sample intraday data
-    current_date = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0)
+    current_date = datetime.now(UTC).replace(hour=9, minute=0, second=0)
     time_index = pd.date_range(start=current_date, periods=100, freq='5min')
 
     # Simulate opening range and breakout

@@ -26,7 +26,7 @@ import os
 import time
 import threading
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import deque
@@ -175,7 +175,7 @@ class StrategyInfo:
     class_instance: Any
     state: StrategyState = StrategyState.REGISTERED
     config: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_signal: datetime | None = None
     signal_count: int = 0
     order_count: int = 0
@@ -195,7 +195,7 @@ class OrderInfo:
     quantity: int
     price: float | None
     state: OrderState = OrderState.PENDING
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     submitted_at: datetime | None = None
     filled_at: datetime | None = None
     fill_price: float | None = None
@@ -238,7 +238,7 @@ class PerformanceMetrics:
     avg_loss: float = 0.0
     profit_factor: float = 0.0
     uptime_seconds: float = 0.0
-    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 @dataclass
 class CircuitBreakerConfig:
@@ -382,7 +382,7 @@ class TradingEngine:
 
         # Timing
         self.start_time = None
-        self.last_health_check = datetime.now(timezone.utc)
+        self.last_health_check = datetime.now(UTC)
 
         # State persistence
         self._state_file = Path.home() / ".spyder" / "engine_state.pkl"
@@ -435,7 +435,7 @@ class TradingEngine:
                     EventType.SYSTEM,
                     {
                         'type': 'risk_manager_connected',
-                        'timestamp': datetime.now(timezone.utc)
+                        'timestamp': datetime.now(UTC)
                     }
                 )
 
@@ -644,7 +644,7 @@ class TradingEngine:
                         EventType.SYSTEM,
                         {
                             'type': 'engine_initialized',
-                            'timestamp': datetime.now(timezone.utc),
+                            'timestamp': datetime.now(UTC),
                             'state': self.state.value
                         }
                     )
@@ -671,7 +671,7 @@ class TradingEngine:
                     return False
 
                 self.logger.info("Starting TradingEngine...")
-                self.start_time = datetime.now(timezone.utc)
+                self.start_time = datetime.now(UTC)
 
                 # Clear shutdown event
                 self._shutdown_event.clear()
@@ -748,7 +748,7 @@ class TradingEngine:
                 # Calculate session metrics
                 session_duration = timedelta()
                 if self.start_time:
-                    session_duration = datetime.now(timezone.utc) - self.start_time
+                    session_duration = datetime.now(UTC) - self.start_time
                     self.performance.uptime_seconds = session_duration.total_seconds()
 
                 self.state = EngineState.STOPPED
@@ -760,7 +760,7 @@ class TradingEngine:
                         EventType.SYSTEM,
                         {
                             'type': 'engine_stopped',
-                            'timestamp': datetime.now(timezone.utc),
+                            'timestamp': datetime.now(UTC),
                             'reason': reason,
                             'session_duration': str(session_duration) if self.start_time else None
                         }
@@ -803,7 +803,7 @@ class TradingEngine:
                         EventType.SYSTEM,
                         {
                             'type': 'engine_paused',
-                            'timestamp': datetime.now(timezone.utc),
+                            'timestamp': datetime.now(UTC),
                             'reason': reason
                         }
                     )
@@ -848,7 +848,7 @@ class TradingEngine:
                         EventType.SYSTEM,
                         {
                             'type': 'engine_resumed',
-                            'timestamp': datetime.now(timezone.utc)
+                            'timestamp': datetime.now(UTC)
                         }
                     )
 
@@ -952,7 +952,7 @@ class TradingEngine:
                         {
                             'type': 'strategy_registered',
                             'strategy_id': strategy_id,
-                            'timestamp': datetime.now(timezone.utc)
+                            'timestamp': datetime.now(UTC)
                         }
                     )
 
@@ -1007,7 +1007,7 @@ class TradingEngine:
                         {
                             'type': 'strategy_unregistered',
                             'strategy_id': strategy_id,
-                            'timestamp': datetime.now(timezone.utc)
+                            'timestamp': datetime.now(UTC)
                         }
                     )
 
@@ -1179,7 +1179,7 @@ class TradingEngine:
                 return False
 
             # Update strategy metrics
-            strategy_info.last_signal = datetime.now(timezone.utc)
+            strategy_info.last_signal = datetime.now(UTC)
             strategy_info.signal_count += 1
 
             self.logger.info("Signal processed from %s: %s", strategy_id, signal.get('action', 'unknown'))  # noqa: E501
@@ -1192,7 +1192,7 @@ class TradingEngine:
                         'strategy_id': strategy_id,
                         'signal': signal,
                         'order_id': None,
-                        'timestamp': datetime.now(timezone.utc)
+                        'timestamp': datetime.now(UTC)
                     }
                 )
 
@@ -1216,7 +1216,7 @@ class TradingEngine:
                 {
                     'type': 'decision_flow_pipeline',
                     'payload': trace,
-                    'timestamp': datetime.now(timezone.utc),
+                    'timestamp': datetime.now(UTC),
                 },
             )
         except Exception as exc:
@@ -1264,7 +1264,7 @@ class TradingEngine:
                 or market_conditions.get('event_clock_state')
                 or {}
             ),
-            'current_time': datetime.now(timezone.utc),
+            'current_time': datetime.now(UTC),
         }
 
         try:
@@ -1396,7 +1396,7 @@ class TradingEngine:
             'pipeline': 'decision_flow_v1',
             'strategy_id': strategy_id,
             'symbol': signal.get('symbol'),
-            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'timestamp': datetime.now(UTC).isoformat(),
             'gates': [],
         }
 
@@ -1614,7 +1614,7 @@ class TradingEngine:
                 or market_conditions.get('event_clock_state')
                 or {}
             ),
-            'current_time': datetime.now(timezone.utc),
+            'current_time': datetime.now(UTC),
         }
 
         try:
@@ -1836,7 +1836,7 @@ class TradingEngine:
                 'daily_loss': 0.0,
                 'triggered_at': None,
                 'recovery_at': None,
-                'last_reset': datetime.now(timezone.utc)
+                'last_reset': datetime.now(UTC)
             }
 
     # ==========================================================================
@@ -1859,9 +1859,9 @@ class TradingEngine:
         while not self._shutdown_event.is_set():
             try:
                 # Perform health check
-                if (datetime.now(timezone.utc) - self.last_health_check).total_seconds() > HEALTH_CHECK_INTERVAL:  # noqa: E501
+                if (datetime.now(UTC) - self.last_health_check).total_seconds() > HEALTH_CHECK_INTERVAL:  # noqa: E501
                     self._perform_health_check()
-                    self.last_health_check = datetime.now(timezone.utc)
+                    self.last_health_check = datetime.now(UTC)
 
                 # Sleep
                 self._shutdown_event.wait(10)
@@ -1894,7 +1894,7 @@ class TradingEngine:
         try:
             return {
                 'state': self.state.name,
-                'uptime': str(datetime.now(timezone.utc) - self.start_time) if self.start_time else None,
+                'uptime': str(datetime.now(UTC) - self.start_time) if self.start_time else None,
                 'active_strategies': len([s for s in self.strategies.values()
                                        if s.state == StrategyState.ACTIVE]),
                 'total_strategies': len(self.strategies),
@@ -1971,7 +1971,7 @@ class TradingEngine:
             order = self.orders.get(order_id)
             if order:
                 order.state = OrderState.FILLED
-                order.filled_at = datetime.now(timezone.utc)
+                order.filled_at = datetime.now(UTC)
 
                 # Update performance
                 self.performance.successful_orders += 1
@@ -2099,7 +2099,7 @@ class TradingEngine:
                             order.order_id, result.tradier_order_id,
                         )
                         order.state = OrderState.SUBMITTED
-                        order.submitted_at = datetime.now(timezone.utc)
+                        order.submitted_at = datetime.now(UTC)
                     else:
                         self.logger.error(
                             "Order %s rejected by broker: %s",
@@ -2154,7 +2154,7 @@ class TradingEngine:
                         "Order %s submitted via B40: %s", order.order_id, response,
                     )
                     order.state = OrderState.SUBMITTED
-                    order.submitted_at = datetime.now(timezone.utc)
+                    order.submitted_at = datetime.now(UTC)
                     return
                 except Exception as b40_exc:
                     self.logger.error(
@@ -2238,7 +2238,7 @@ class TradingEngine:
         try:
             state_data = {
                 'version': '2.0',
-                'timestamp': datetime.now(timezone.utc),
+                'timestamp': datetime.now(UTC),
                 'engine_state': self.state.name,
                 'performance': asdict(self.performance)
             }

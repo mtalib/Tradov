@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 
 from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
     SignalStrength,
@@ -34,7 +34,7 @@ def _make_orchestrator():
 
 
 def _wrapped_iron_condor_signal() -> dict[str, object]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return {
         "signal": TradingSignal(
             signal_id="wrapped-ic-1",

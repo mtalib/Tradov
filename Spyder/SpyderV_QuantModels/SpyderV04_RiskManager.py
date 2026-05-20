@@ -29,7 +29,7 @@ Consolidation Notes:
 # ==============================================================================
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -164,7 +164,7 @@ class RiskMetrics:
     concentration_risk: float  # Concentration measure
 
     # Timestamps and metadata
-    calculation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    calculation_time: datetime = field(default_factory=lambda: datetime.now(UTC))
     data_quality_score: float = 1.0
     warnings: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -197,7 +197,7 @@ class StressTestResult:
     position_impacts: dict[str, float]
     hedge_recommendations: list[str]
     recovery_time_estimate: int  # Days to recover
-    calculation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    calculation_time: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -991,7 +991,7 @@ class SpyderRiskManager:
     def _cache_risk_results(self, params: RiskParameters, metrics: RiskMetrics):
         """Cache risk calculation results."""
         cache_key = self._generate_cache_key(params)
-        self.risk_cache[cache_key] = {"metrics": metrics, "timestamp": datetime.now(timezone.utc)}
+        self.risk_cache[cache_key] = {"metrics": metrics, "timestamp": datetime.now(UTC)}
 
         # Cleanup old cache entries
         self._cleanup_cache()
@@ -1002,7 +1002,7 @@ class SpyderRiskManager:
 
     def _cleanup_cache(self):
         """Remove expired cache entries."""
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
         expired_keys = []
 
         for key, value in self.risk_cache.items():
@@ -1070,7 +1070,7 @@ class SpyderRiskManager:
     ) -> str | dict[str, Any]:
         """Export comprehensive risk report."""
         report_data = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "portfolio_summary": {
                 "total_positions": len(self.positions),
                 "total_value": sum(

@@ -33,7 +33,7 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, date, timezone
+from datetime import datetime, timedelta, date, UTC
 from typing import Optional, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -1040,7 +1040,7 @@ class TransactionCostAnalyzer:
                 self._process_alerts()
 
                 # Generate periodic reports
-                current_time = datetime.now(timezone.utc)
+                current_time = datetime.now(UTC)
                 if current_time.minute == 0:  # Top of hour
                     self._generate_intraday_report()
 
@@ -1063,7 +1063,7 @@ class TransactionCostAnalyzer:
                 'execution_id': execution.execution_id,
                 'symbol': execution.symbol,
                 'cost_bps': costs['total_bps'],
-                'timestamp': datetime.now(timezone.utc)
+                'timestamp': datetime.now(UTC)
             }
             self.alert_queue.put(alert)
             self.logger.warning(f"⚠️ High cost alert: {costs['total_bps']:.1f} bps for {execution.symbol}")  # noqa: E501
@@ -1075,7 +1075,7 @@ class TransactionCostAnalyzer:
                 'execution_id': execution.execution_id,
                 'symbol': execution.symbol,
                 'slippage_bps': costs['slippage_bps'],
-                'timestamp': datetime.now(timezone.utc)
+                'timestamp': datetime.now(UTC)
             }
             self.alert_queue.put(alert)
 
@@ -1100,7 +1100,7 @@ class TransactionCostAnalyzer:
 
     def _generate_intraday_report(self):
         """Generate intraday TCA report"""
-        end_time = datetime.now(timezone.utc)
+        end_time = datetime.now(UTC)
         start_time = end_time - timedelta(hours=1)
 
         report = self.generate_tca_report(start_time, end_time)
@@ -1253,7 +1253,7 @@ if __name__ == "__main__":
         total_quantity=10000,
         order_type="LIMIT",
         limit_price=585.50,
-        arrival_time=datetime.now(timezone.utc) - timedelta(minutes=10),
+        arrival_time=datetime.now(UTC) - timedelta(minutes=10),
         arrival_price=585.45,
         decision_price=585.40,
         strategy="VWAP",
@@ -1272,7 +1272,7 @@ if __name__ == "__main__":
             side="BUY",
             quantity=3000,
             execution_price=585.48,
-            execution_time=datetime.now(timezone.utc) - timedelta(minutes=8),
+            execution_time=datetime.now(UTC) - timedelta(minutes=8),
             venue=ExecutionVenue.SMART,
             liquidity_flag="REMOVE",
             commission=3.00,
@@ -1286,7 +1286,7 @@ if __name__ == "__main__":
             side="BUY",
             quantity=4000,
             execution_price=585.52,
-            execution_time=datetime.now(timezone.utc) - timedelta(minutes=5),
+            execution_time=datetime.now(UTC) - timedelta(minutes=5),
             venue=ExecutionVenue.ARCA,
             liquidity_flag="ADD",
             commission=4.00,
@@ -1300,7 +1300,7 @@ if __name__ == "__main__":
             side="BUY",
             quantity=3000,
             execution_price=585.55,
-            execution_time=datetime.now(timezone.utc) - timedelta(minutes=2),
+            execution_time=datetime.now(UTC) - timedelta(minutes=2),
             venue=ExecutionVenue.NASDAQ,
             liquidity_flag="REMOVE",
             commission=3.00,
@@ -1338,8 +1338,8 @@ if __name__ == "__main__":
 
     # Generate report
     report = tca.generate_tca_report(
-        datetime.now(timezone.utc) - timedelta(hours=1),
-        datetime.now(timezone.utc)
+        datetime.now(UTC) - timedelta(hours=1),
+        datetime.now(UTC)
     )
 
     if report:

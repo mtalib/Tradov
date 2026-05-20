@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -21,7 +20,7 @@ from typing import Any
 try:
     from typing import Protocol, runtime_checkable
 except ImportError:  # Python 3.7 fallback
-    from typing_extensions import Protocol, runtime_checkable  # type: ignore
+    from typing import Protocol, runtime_checkable  # type: ignore
 
 # ==============================================================================
 # BROKER PROTOCOL

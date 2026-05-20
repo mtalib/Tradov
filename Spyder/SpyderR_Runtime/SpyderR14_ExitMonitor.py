@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -33,8 +32,9 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from enum import Enum
-from typing import Any, Callable  # noqa: F401
+from enum import StrEnum
+from typing import Any
+from collections.abc import Callable  # noqa: F401
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -52,7 +52,7 @@ _DEFAULT_SWEEP_INTERVAL_S: float = 1.0
 # TYPES
 # ==============================================================================
 
-class ExitDecision(str, Enum):
+class ExitDecision(StrEnum):
     """Possible decisions returned by ``strategy.check_exit(position)``."""
     HOLD = "hold"
     CLOSE = "close"

@@ -10,7 +10,7 @@ Purpose: Pure presentation helpers for the compact RTH status badge
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from collections.abc import Mapping
 
 
 @dataclass(frozen=True)

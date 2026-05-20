@@ -43,7 +43,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 # ==============================================================================
 # CONSTANTS & STYLING
@@ -718,7 +718,7 @@ if __name__ == "__main__":
     """Example usage of chart templates."""
     # Generate sample data
     periods = 100
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=periods, freq="5T")
+    dates = pd.date_range(end=datetime.now(UTC), periods=periods, freq="5T")
 
     np.random.seed(42)
     base_price = 585.0

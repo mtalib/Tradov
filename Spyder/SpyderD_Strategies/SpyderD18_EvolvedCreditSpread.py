@@ -25,7 +25,7 @@ Change Log:
 import logging
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from typing import Any, Optional
 
@@ -156,7 +156,7 @@ class EvolvedStrategyParams:
         default_factory=lambda: ["profit_target", "trailing_stop", "technical_reversal"]
     )
     strategy_type: str = "credit_spread"
-    evolution_date: str = field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    evolution_date: str = field(default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%d"))
 
 
 @dataclass
@@ -521,7 +521,7 @@ class EvolvedCreditSpreadStrategy:
 
             # Create analysis object
             analysis = MarketAnalysis(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 entry_signals=entry_signals,
                 signal_strength=signal_strength,
                 ai_confidence=ai_confidence,
@@ -548,7 +548,7 @@ class EvolvedCreditSpreadStrategy:
 
             # Return basic analysis in case of error
             return MarketAnalysis(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 entry_signals={},
                 signal_strength=0.0,
                 ai_confidence=0.0,
@@ -588,7 +588,7 @@ class EvolvedCreditSpreadStrategy:
             self.technical_indicators.momentum = momentum
 
             # Update timestamp
-            self.technical_indicators.last_updated = datetime.now(timezone.utc)
+            self.technical_indicators.last_updated = datetime.now(UTC)
 
             self.logger.debug(
                 "Technical indicators updated: RSI=%s, VR=%s",
@@ -978,7 +978,7 @@ class EvolvedCreditSpreadStrategy:
         """
         try:
             # Generate unique signal ID
-            signal_id = f"ENTRY_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{len(self.positions)}"
+            signal_id = f"ENTRY_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{len(self.positions)}"
 
             # Calculate optimal strikes (AI-evolved methodology)
             current_price = self.market_data.get("current_price", 0)
@@ -995,7 +995,7 @@ class EvolvedCreditSpreadStrategy:
                 signal_id=signal_id,
                 strategy_name=self.strategy_name,
                 action="ENTER_CREDIT_SPREAD",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_strength=analysis.signal_strength,
                 ai_confidence=analysis.ai_confidence,
                 market_analysis=analysis,
@@ -1048,7 +1048,7 @@ class EvolvedCreditSpreadStrategy:
             vol_dte_adjustment = (vix - 20) / 10  # Adjust DTE based on volatility
             target_dte = max(14, min(35, base_dte + vol_dte_adjustment))
 
-            expiration = datetime.now(timezone.utc) + timedelta(days=int(target_dte))
+            expiration = datetime.now(UTC) + timedelta(days=int(target_dte))
 
             # Estimate pricing (simplified - would use real options pricing in production)
             estimated_credit = self._estimate_credit_spread_value(
@@ -1146,7 +1146,7 @@ class EvolvedCreditSpreadStrategy:
         """Determine if should exit a position"""
         try:
             # Time-based exit
-            days_to_expiry = (position.expiration - datetime.now(timezone.utc)).days
+            days_to_expiry = (position.expiration - datetime.now(UTC)).days
             if days_to_expiry <= 5:  # Close within 5 days of expiration
                 return True
 
@@ -1170,13 +1170,13 @@ class EvolvedCreditSpreadStrategy:
     ) -> TradingSignal | None:
         """Create exit signal for a position"""
         try:
-            signal_id = f"EXIT_{position.position_id}_{datetime.now(timezone.utc).strftime('%H%M%S')}"
+            signal_id = f"EXIT_{position.position_id}_{datetime.now(UTC).strftime('%H%M%S')}"
 
             signal = TradingSignal(
                 signal_id=signal_id,
                 strategy_name=self.strategy_name,
                 action="EXIT_CREDIT_SPREAD",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_strength=analysis.signal_strength,
                 ai_confidence=analysis.ai_confidence,
                 market_analysis=analysis,
@@ -1199,7 +1199,7 @@ class EvolvedCreditSpreadStrategy:
     ) -> str:
         """Determine the reason for exiting a position"""
         try:
-            days_to_expiry = (position.expiration - datetime.now(timezone.utc)).days
+            days_to_expiry = (position.expiration - datetime.now(UTC)).days
 
             if days_to_expiry <= 5:
                 return "TIME_DECAY"

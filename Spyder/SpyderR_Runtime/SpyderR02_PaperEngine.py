@@ -236,7 +236,7 @@ class PaperTradingEngine:
             self.logger.info("🚀 Starting paper trading engine...")
 
             self.is_running = True
-            self.start_time = datetime.datetime.now(datetime.timezone.utc)
+            self.start_time = datetime.datetime.now(datetime.UTC)
 
             self.logger.info("✅ Paper trading engine started successfully")
             return True
@@ -401,7 +401,7 @@ class PaperTradingEngine:
             order.filled_quantity = order.quantity
             order.avg_fill_price = fill_price
             order.commission = commission
-            order.filled_time = datetime.datetime.now(datetime.timezone.utc)
+            order.filled_time = datetime.datetime.now(datetime.UTC)
 
             # Update position
             self._update_position(order.symbol, order.action, order.quantity, fill_price)
@@ -691,7 +691,7 @@ class PaperTradingEngine:
             total_return = self.account.net_liquidation - self.account.initial_balance
             return_pct = (total_return / self.account.initial_balance) * 100
 
-            runtime = (datetime.datetime.now(datetime.timezone.utc) - self.start_time).total_seconds() / 3600 if self.start_time else 0  # noqa: E501
+            runtime = (datetime.datetime.now(datetime.UTC) - self.start_time).total_seconds() / 3600 if self.start_time else 0  # noqa: E501
 
             return {
                 'initial_balance': self.account.initial_balance,
@@ -743,7 +743,7 @@ class PaperTradingEngine:
     def is_market_hours(self) -> bool:
         """Check if currently in market hours."""
         try:
-            now = datetime.datetime.now(datetime.timezone.utc)
+            now = datetime.datetime.now(datetime.UTC)
             market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
             market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
 

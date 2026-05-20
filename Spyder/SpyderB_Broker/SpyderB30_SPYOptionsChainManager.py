@@ -42,7 +42,7 @@ import threading  # noqa: E402
 import time  # noqa: E402
 from collections import defaultdict  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
-from datetime import date, datetime, timedelta, timezone  # noqa: E402
+from datetime import date, datetime, timedelta, UTC  # noqa: E402
 from enum import Enum  # noqa: E402
 from typing import Any  # noqa: E402
 from collections.abc import Callable  # noqa: E402
@@ -258,7 +258,7 @@ class SPYOptionsChainManager:
         # Current market state
         self.current_spy_price = 585.0  # Default SPY price
         self.market_hours_active = False
-        self.last_spy_update = datetime.now(timezone.utc)
+        self.last_spy_update = datetime.now(UTC)
 
         # Performance tracking
         self.total_subscriptions = 0
@@ -437,7 +437,7 @@ class SPYOptionsChainManager:
             with self._lock:
                 old_price = self.current_spy_price
                 self.current_spy_price = new_price
-                self.last_spy_update = datetime.now(timezone.utc)
+                self.last_spy_update = datetime.now(UTC)
 
                 # Check if we need to reselect strikes (significant price movement)
                 price_change = abs(new_price - old_price) / old_price
@@ -515,7 +515,7 @@ class SPYOptionsChainManager:
                     if mid > 0:
                         with self._lock:
                             self.current_spy_price = mid
-                            self.last_spy_update = datetime.now(timezone.utc)
+                            self.last_spy_update = datetime.now(UTC)
                         self._reselect_strikes_for_all_chains()
                         self.logger.debug(f"SPY price updated to {mid:.2f}")
 
@@ -547,7 +547,7 @@ class SPYOptionsChainManager:
     def _initialize_options_chains(self) -> None:
         """Initialize all options chains based on specifications."""
         try:
-            current_date = datetime.now(timezone.utc).date()
+            current_date = datetime.now(UTC).date()
 
             for chain_type in OptionsChainType:
                 spec = OPTIONS_SPECIFICATIONS[chain_type.value]
@@ -608,7 +608,7 @@ class SPYOptionsChainManager:
         """Calculate expiration date based on chain type."""
         if days_to_expiry == 0:
             # 0DTE - today if before 4 PM, otherwise next trading day
-            current_time = datetime.now(timezone.utc).time()
+            current_time = datetime.now(UTC).time()
             if current_time.hour >= OPTIONS_EXPIRY_HOUR:
                 return current_date + timedelta(days=1)
             return current_date
@@ -845,7 +845,7 @@ class SPYOptionsChainManager:
     def _update_chain_statistics(self) -> None:
         """Update statistics for all chains."""
         try:
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
 
             for chain_type, chain in self.active_chains.items():
                 # Update chain timestamp
@@ -860,8 +860,8 @@ class SPYOptionsChainManager:
     def _check_expired_chains(self) -> None:
         """Check for and handle expired options chains."""
         try:
-            current_date = datetime.now(timezone.utc).date()
-            current_time = datetime.now(timezone.utc).time()
+            current_date = datetime.now(UTC).date()
+            current_time = datetime.now(UTC).time()
 
             to_roll: list[OptionsChainType] = []
             for chain_type, chain in self.active_chains.items():
@@ -895,7 +895,7 @@ class SPYOptionsChainManager:
         """
         try:
             spec = OPTIONS_SPECIFICATIONS[chain_type.value]
-            current_date = datetime.now(timezone.utc).date()
+            current_date = datetime.now(UTC).date()
             expiration_date = self._calculate_expiration_date(
                 current_date, spec["days"]
             )

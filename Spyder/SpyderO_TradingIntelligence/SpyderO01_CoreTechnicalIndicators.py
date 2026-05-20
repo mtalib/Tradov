@@ -30,7 +30,7 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -816,7 +816,7 @@ class CoreTechnicalIndicators:
                     strength=self._calculate_signal_strength(confidence),
                     confidence=confidence,
                     value=macd[-1],
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     current_price=current_price
                 ))
 
@@ -828,7 +828,7 @@ class CoreTechnicalIndicators:
                     strength=self._calculate_signal_strength(confidence),
                     confidence=confidence,
                     value=macd[-1],
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     current_price=current_price
                 ))
 
@@ -841,7 +841,7 @@ class CoreTechnicalIndicators:
                         strength=IndicatorStrength.MODERATE,
                         confidence=0.6,
                         value=histogram[-1],
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
 
@@ -871,7 +871,7 @@ class CoreTechnicalIndicators:
                         strength=self._calculate_signal_strength(confidence),
                         confidence=confidence,
                         value=current_rsi,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
 
@@ -885,7 +885,7 @@ class CoreTechnicalIndicators:
                         strength=self._calculate_signal_strength(confidence),
                         confidence=confidence,
                         value=current_rsi,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
 
@@ -920,7 +920,7 @@ class CoreTechnicalIndicators:
                         strength=IndicatorStrength.MODERATE,
                         confidence=0.7,
                         value=current_width,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
 
@@ -932,7 +932,7 @@ class CoreTechnicalIndicators:
                     strength=IndicatorStrength.STRONG,
                     confidence=min(0.9, current_percent_b - 1.0),
                     value=current_percent_b,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     current_price=current_price
                 ))
 
@@ -943,7 +943,7 @@ class CoreTechnicalIndicators:
                     strength=IndicatorStrength.STRONG,
                     confidence=min(0.9, abs(current_percent_b)),
                     value=current_percent_b,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     current_price=current_price
                 ))
 
@@ -977,7 +977,7 @@ class CoreTechnicalIndicators:
                         strength=self._calculate_signal_strength(confidence),
                         confidence=confidence,
                         value=current_adx,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
                 else:
@@ -988,7 +988,7 @@ class CoreTechnicalIndicators:
                         strength=self._calculate_signal_strength(confidence),
                         confidence=confidence,
                         value=current_adx,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
 
@@ -1022,7 +1022,7 @@ class CoreTechnicalIndicators:
                         strength=self._calculate_signal_strength(confidence),
                         confidence=confidence,
                         value=current_k,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
 
@@ -1036,7 +1036,7 @@ class CoreTechnicalIndicators:
                         strength=self._calculate_signal_strength(confidence),
                         confidence=confidence,
                         value=current_k,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
 
@@ -1067,7 +1067,7 @@ class CoreTechnicalIndicators:
                         strength=IndicatorStrength.STRONG,
                         confidence=0.8,
                         value=sma_20[-1],
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
 
@@ -1078,7 +1078,7 @@ class CoreTechnicalIndicators:
                         strength=IndicatorStrength.STRONG,
                         confidence=0.8,
                         value=sma_20[-1],
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         current_price=current_price
                     ))
 
@@ -1107,7 +1107,7 @@ class CoreTechnicalIndicators:
                     strength=IndicatorStrength.MODERATE,
                     confidence=0.7,
                     value=current_atr,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     current_price=current_price
                 ))
 
@@ -1119,7 +1119,7 @@ class CoreTechnicalIndicators:
                     strength=IndicatorStrength.MODERATE,
                     confidence=0.6,
                     value=current_atr,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     current_price=current_price
                 ))
 

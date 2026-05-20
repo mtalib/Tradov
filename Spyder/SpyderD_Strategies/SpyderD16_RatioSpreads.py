@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -583,7 +583,7 @@ class RatioSpreadsStrategy(BaseStrategy):
 
     def _select_optimal_expiry(self) -> datetime:
         """Select optimal expiration date"""
-        current_date = datetime.now(timezone.utc)
+        current_date = datetime.now(UTC)
         target_date = current_date + timedelta(days=OPTIMAL_DTE)
 
         # Find next Friday
@@ -680,7 +680,7 @@ class RatioSpreadsStrategy(BaseStrategy):
                                 expiry: datetime, iv: float) -> float:
         """Estimate option premium"""
         # Simplified estimation
-        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
+        dte = (expiry - datetime.now(UTC)).days / 365.0
         moneyness = strike / spot
 
         # ATM approximation
@@ -910,7 +910,7 @@ class RatioSpreadsStrategy(BaseStrategy):
                             option_type: OptionType) -> float:
         """Find strike with target delta"""
         # Simplified delta to strike conversion
-        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
+        dte = (expiry - datetime.now(UTC)).days / 365.0
 
         if option_type == OptionType.CALL:
             # Inverse normal of delta
@@ -928,7 +928,7 @@ class RatioSpreadsStrategy(BaseStrategy):
                                   call_strike: float, expiry: datetime,
                                   iv: float) -> float:
         """Calculate probability of profit for Jade Lizard"""
-        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
+        dte = (expiry - datetime.now(UTC)).days / 365.0
 
         # Probability of staying above put strike
         put_z = (np.log(spot / put_strike) + (0.02 - iv**2/2) * dte) / (iv * np.sqrt(dte))
@@ -988,7 +988,7 @@ class RatioSpreadsStrategy(BaseStrategy):
                 confidence = 0.6 + (setup.target_iv_percentile - 50) / 100
 
             signal = TradingSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_type=SignalType.ENTRY,
                 strength=strength,
                 confidence=confidence,
@@ -1136,11 +1136,11 @@ class RatioSpreadsStrategy(BaseStrategy):
 
         # Don't adjust if already adjusted recently
         if position.adjustments and \
-           (datetime.now(timezone.utc) - position.adjustments[-1]['time']).days < 5:
+           (datetime.now(UTC) - position.adjustments[-1]['time']).days < 5:
             return None
 
         signal = TradingSignal(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             signal_type=SignalType.ADJUST,
             strength=SignalStrength.MEDIUM,
             confidence=0.7,
@@ -1154,7 +1154,7 @@ class RatioSpreadsStrategy(BaseStrategy):
 
         # Record adjustment
         position.adjustments.append({
-            'time': datetime.now(timezone.utc),
+            'time': datetime.now(UTC),
             'type': 'risk_reduction',
             'risk_zone': position.current_risk_zone.value
         })
@@ -1182,7 +1182,7 @@ class RatioSpreadsStrategy(BaseStrategy):
 
         # Time-based exit (approaching expiry)
         if hasattr(position.setup, 'expiry'):
-            dte = (position.setup.expiry - datetime.now(timezone.utc)).days
+            dte = (position.setup.expiry - datetime.now(UTC)).days
             if dte <= 5:
                 return self._create_exit_signal(position, "near_expiry")
 
@@ -1190,14 +1190,14 @@ class RatioSpreadsStrategy(BaseStrategy):
 
     def _create_exit_signal(self, position: RatioPosition, reason: str) -> TradingSignal:
         """Create exit signal"""
-        position.exit_time = datetime.now(timezone.utc)
+        position.exit_time = datetime.now(UTC)
         position.exit_reason = reason
 
         # Update stats
         self._update_performance_stats(position)
 
         signal = TradingSignal(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             signal_type=SignalType.EXIT,
             strength=SignalStrength.STRONG,
             confidence=0.95,
@@ -1253,7 +1253,7 @@ class RatioSpreadsStrategy(BaseStrategy):
 
     def add_position(self, signal: TradingSignal) -> str:
         """Add new ratio spread position"""
-        position_id = f"RATIO_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        position_id = f"RATIO_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
         # Reconstruct setup from signal
         # In production, would properly deserialize
@@ -1261,7 +1261,7 @@ class RatioSpreadsStrategy(BaseStrategy):
         position = RatioPosition(
             position_id=position_id,
             setup=None,  # Would reconstruct
-            entry_time=datetime.now(timezone.utc),
+            entry_time=datetime.now(UTC),
             entry_price=signal.metadata.get('current_price', 0)
         )
 
@@ -1353,7 +1353,7 @@ def test_ratio_spreads():
     logging.info(f"Available Margin: ${strategy.available_margin:,.2f}")
 
     # Create sample market data
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=100, freq='D')
+    dates = pd.date_range(end=datetime.now(UTC), periods=100, freq='D')
 
     # Simulate market with suitable IV
     base_price = 450
@@ -1417,7 +1417,7 @@ def test_ratio_spreads():
             new_price = prices[-1] + price_change
 
             market_data.loc[len(market_data)] = {
-                'timestamp': datetime.now(timezone.utc) + timedelta(days=i),
+                'timestamp': datetime.now(UTC) + timedelta(days=i),
                 'open': new_price - 0.3,
                 'high': new_price + 0.5,
                 'low': new_price - 0.5,

@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -186,7 +186,7 @@ class PerformanceAnalyticsEngine:
 
         # Analytics cache
         self.cache = {}
-        self.last_calculation = datetime.now(timezone.utc)
+        self.last_calculation = datetime.now(UTC)
 
         logger.info("Performance Analytics Engine initialized")
 
@@ -214,7 +214,7 @@ class PerformanceAnalyticsEngine:
         win_stats = self._calculate_win_loss_stats()
 
         metrics = PerformanceMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             total_return=total_return,
             daily_return=daily_return,
             cumulative_return=total_return,
@@ -246,7 +246,7 @@ class PerformanceAnalyticsEngine:
 
         # Calculate strategy-specific metrics
         strategy_pnl = sum(t['pnl'] for t in trades)
-        daily_pnl = sum(t['pnl'] for t in trades if t['timestamp'].date() == datetime.now(timezone.utc).date())  # noqa: E501
+        daily_pnl = sum(t['pnl'] for t in trades if t['timestamp'].date() == datetime.now(UTC).date())  # noqa: E501
 
         # Calculate win rate
         winning = [t for t in trades if t['pnl'] > 0]
@@ -267,7 +267,7 @@ class PerformanceAnalyticsEngine:
         performance = StrategyPerformance(
             strategy_id=strategy_id,
             strategy_name=self._get_strategy_name(strategy_id),
-            active_since=trades[0]['timestamp'] if trades else datetime.now(timezone.utc),
+            active_since=trades[0]['timestamp'] if trades else datetime.now(UTC),
             total_pnl=strategy_pnl,
             daily_pnl=daily_pnl,
             roi=roi,
@@ -287,7 +287,7 @@ class PerformanceAnalyticsEngine:
         """Calculate comprehensive risk metrics"""
 
         metrics = RiskMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             portfolio_var_95=var_data.get('var_95', 0),
             portfolio_var_99=var_data.get('var_99', 0),
             portfolio_cvar_99=var_data.get('cvar_99', 0),
@@ -321,7 +321,7 @@ class PerformanceAnalyticsEngine:
         avg_slippage = statistics.mean(slippages) if slippages else 0
 
         metrics = ExecutionMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             total_orders=len(orders),
             filled_orders=len(filled),
             partial_fills=len(partial),
@@ -346,7 +346,7 @@ class PerformanceAnalyticsEngine:
 
         report_data = {
             'metadata': {
-                'generated_at': datetime.now(timezone.utc).isoformat(),
+                'generated_at': datetime.now(UTC).isoformat(),
                 'timeframe': timeframe.value,
                 'portfolio_value': self.portfolio_value,
                 'reporting_period': self._get_reporting_period(timeframe)
@@ -377,7 +377,7 @@ class PerformanceAnalyticsEngine:
         latest_risk = self.risk_metrics_history[-1] if self.risk_metrics_history else None
 
         report = {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'timestamp': datetime.now(UTC).isoformat(),
             'current_risk': {
                 'var_95': latest_risk.portfolio_var_95 if latest_risk else 0,
                 'var_99': latest_risk.portfolio_var_99 if latest_risk else 0,
@@ -658,7 +658,7 @@ class PerformanceAnalyticsEngine:
 
     def _get_reporting_period(self, timeframe: TimeFrame) -> dict[str, str]:
         """Get reporting period based on timeframe"""
-        end_date = datetime.now(timezone.utc)
+        end_date = datetime.now(UTC)
 
         if timeframe == TimeFrame.DAILY:
             start_date = end_date - timedelta(days=1)
@@ -933,7 +933,7 @@ class PerformanceAnalyticsEngine:
     def _export_to_excel(self, data: dict) -> str:
         """Export report to Excel format"""
         # Would use pandas.ExcelWriter in production
-        filename = f"performance_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filename = f"performance_report_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.xlsx"
         # Save logic here
         return filename
 

@@ -46,7 +46,7 @@ Removed Infrastructure:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone  # noqa: E402
+from datetime import datetime, timedelta, UTC  # noqa: E402
 from typing import Any  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from enum import Enum, auto  # noqa: E402
@@ -284,7 +284,7 @@ class IronButterflyStrategy(BaseStrategy):
                 strength = SignalStrength.WEAK
 
             current_price = float(market_data["close"].iloc[-1])
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             signal = TradingSignal(
                 signal_id=str(uuid.uuid4()),
                 signal_type=SignalType.SELL,
@@ -980,7 +980,7 @@ class IronButterflyStrategy(BaseStrategy):
             'active_setups': len(self.active_setups),
             'multileg_coordinator_connected': self.multileg_coordinator is not None,
             'last_analysis': {
-                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'timestamp': datetime.now(UTC).isoformat(),
                 'market_suitable': self.current_analysis.market_suitable if self.current_analysis else False,  # noqa: E501
                 'neutral_outlook': self.current_analysis.neutral_outlook_confirmed if self.current_analysis else False,  # noqa: E501
                 'confidence_score': self.current_analysis.confidence_score if self.current_analysis else 0.0  # noqa: E501

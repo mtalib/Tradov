@@ -27,7 +27,7 @@ Module Description:
 # STANDARD IMPORTS
 # ==============================================================================
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
@@ -136,7 +136,7 @@ class AnalysisManager:
                 "thread_count": 0,
                 "open_files": 0,
                 "status": "psutil_unavailable",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
         try:
@@ -151,7 +151,7 @@ class AnalysisManager:
                 "thread_count": proc.num_threads(),
                 "open_files": len(proc.open_files()),
                 "status": "ok",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except (psutil.NoSuchProcess, psutil.AccessDenied, OSError) as exc:
             self.logger.warning("Could not collect performance snapshot: %s", exc)
@@ -162,7 +162,7 @@ class AnalysisManager:
                 "thread_count": 0,
                 "open_files": 0,
                 "status": f"error:{exc}",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
     def _store(self, snapshot: dict[str, Any]) -> None:
@@ -312,5 +312,5 @@ class AnalysisManager:
             root_cause=root_cause,
             recommendations=recommendations or [],
             auto_fixable=auto_fixable,
-            detected_at=datetime.now(timezone.utc),
+            detected_at=datetime.now(UTC),
         )

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from collections.abc import Mapping
 
 
 _MARKET_CLOSED_WARNING = "Market is closed (outside regular trading hours)"

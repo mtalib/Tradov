@@ -26,7 +26,7 @@ import os
 import asyncio
 from typing import Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from collections import defaultdict
 
@@ -84,7 +84,7 @@ class CorrelationMetrics:
     diversification_ratio: float = 1.0
     concentration_index: float = 0.0
     regime: CorrelationRegime = CorrelationRegime.NORMAL_CORRELATION
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -309,7 +309,7 @@ class CorrelationAnalyzer:
     async def generate_correlation_report(self) -> dict[str, Any]:
         """Generate a comprehensive correlation analysis report."""
         report: dict[str, Any] = {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'timestamp': datetime.now(UTC).isoformat(),
             'regime': self.current_regime.value,
             'history_length': len(self.correlation_history),
             'strategies': list(self.strategy_returns.keys()),
@@ -334,7 +334,7 @@ class CorrelationAnalyzer:
 
     def get_active_alerts(self, hours: int = 24) -> list[dict[str, Any]]:
         """Get alerts generated in the last N hours."""
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=hours)
         return [a for a in self._alerts if a.get('timestamp', datetime.min) > cutoff]
 
     def get_correlation_summary(self) -> dict[str, Any]:
@@ -384,7 +384,7 @@ class CorrelationAnalyzer:
             import json as json_mod
 
             export_data = {
-                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'timestamp': datetime.now(UTC).isoformat(),
                 'regime': self.current_regime.value,
                 'correlation_history': [
                     {

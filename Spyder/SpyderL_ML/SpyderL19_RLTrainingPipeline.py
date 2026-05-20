@@ -34,7 +34,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -157,7 +157,7 @@ class TrainingResult:
     final_metrics: dict[str, float]
     best_metrics: dict[str, float]
     model_path: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -381,7 +381,7 @@ class RLTrainingPipeline:
             f"timesteps={total_timesteps:,}"
         )
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # Create environment
@@ -452,7 +452,7 @@ class RLTrainingPipeline:
             eval_result = self.evaluate(env_name, num_episodes=n_eval_episodes)
 
             # Track metrics
-            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+            elapsed = (datetime.now(UTC) - start_time).total_seconds()
             result = TrainingResult(
                 env_name=env_name,
                 algorithm=algo_name,
@@ -485,7 +485,7 @@ class RLTrainingPipeline:
                 'env_name': env_name,
                 'algorithm': algo_name,
             })
-            elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+            elapsed = (datetime.now(UTC) - start_time).total_seconds()
             return TrainingResult(
                 env_name=env_name,
                 algorithm=algo_name,

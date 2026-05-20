@@ -22,7 +22,7 @@ Description:
 # ==============================================================================
 import sys
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -348,7 +348,7 @@ class VolatilitySurfaceBuilder:
                 surface = VolatilitySurface(
                     symbol=symbol,
                     surface_type=SurfaceType.IMPLIED_VOLATILITY,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     underlying_price=underlying_price,
                     risk_free_rate=risk_free_rate,
                     dividend_yield=dividend_yield,
@@ -395,7 +395,7 @@ class VolatilitySurfaceBuilder:
         for _, row in options_data.iterrows():
             # Calculate moneyness and time
             moneyness = row['strike'] / underlying_price
-            time_to_expiry = (row['expiry'] - datetime.now(timezone.utc)).days / 365.0
+            time_to_expiry = (row['expiry'] - datetime.now(UTC)).days / 365.0
 
             # Skip if outside reasonable bounds
             if (moneyness < 1/MAX_MONEYNESS or moneyness > MAX_MONEYNESS or
@@ -650,7 +650,7 @@ class VolatilitySurfaceBuilder:
             skew = ivs[otm_put_idx] - ivs[otm_call_idx]
 
             # Convert time to expiry date (approximate)
-            expiry = datetime.now(timezone.utc) + timedelta(days=int(t * 365))
+            expiry = datetime.now(UTC) + timedelta(days=int(t * 365))
             skew_params[expiry] = skew
 
         return skew_params
@@ -684,7 +684,7 @@ class VolatilitySurfaceBuilder:
                     'level': coeffs[2]       # ATM level
                 }
 
-                expiry = datetime.now(timezone.utc) + timedelta(days=int(t * 365))
+                expiry = datetime.now(UTC) + timedelta(days=int(t * 365))
                 smile_params[expiry] = params
             except Exception as e:
                 self.logger.debug(f"Smile parameter fit failed for expiry {t:.4f}: {e}")
@@ -734,8 +734,8 @@ class VolatilitySurfaceBuilder:
                     opp = ArbitrageOpportunity(
                         arbitrage_type=ArbitrageType.CALENDAR,
                         strikes=[surface.strikes[m_idx] if m_idx < len(surface.strikes) else surface.underlying_price],  # noqa: E501
-                        expiries=[datetime.now(timezone.utc) + timedelta(days=int(surface.time_grid[t_idx-1, 0] * 365)),  # noqa: E501
-                                 datetime.now(timezone.utc) + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],  # noqa: E501
+                        expiries=[datetime.now(UTC) + timedelta(days=int(surface.time_grid[t_idx-1, 0] * 365)),  # noqa: E501
+                                 datetime.now(UTC) + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],  # noqa: E501
                         current_ivs=[surface.iv_surface[t_idx-1, m_idx], surface.iv_surface[t_idx, m_idx]],  # noqa: E501
                         theoretical_bound=total_variance[t_idx-1],
                         violation_amount=total_variance[t_idx-1] - total_variance[t_idx],
@@ -769,7 +769,7 @@ class VolatilitySurfaceBuilder:
                     opp = ArbitrageOpportunity(
                         arbitrage_type=ArbitrageType.BUTTERFLY,
                         strikes=strikes,
-                        expiries=[datetime.now(timezone.utc) + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],  # noqa: E501
+                        expiries=[datetime.now(UTC) + timedelta(days=int(surface.time_grid[t_idx, 0] * 365))],  # noqa: E501
                         current_ivs=[ivs[m_idx-1], ivs[m_idx], ivs[m_idx+1]],
                         theoretical_bound=0,
                         violation_amount=abs(butterfly),
@@ -870,7 +870,7 @@ class VolatilitySurfaceBuilder:
             # Preserve historical naive-datetime behavior used by existing snapshots/tests.
             age_ms = max(0, int((datetime.now() - surface_ts).total_seconds() * 1000))  # spyder: naive-ok
         else:
-            age_ms = max(0, int((datetime.now(timezone.utc) - surface_ts.astimezone(timezone.utc)).total_seconds() * 1000))
+            age_ms = max(0, int((datetime.now(UTC) - surface_ts.astimezone(UTC)).total_seconds() * 1000))
         coverage = float(np.count_nonzero(np.isfinite(surface.iv_surface)) / surface.iv_surface.size)  # noqa: E501
         age_penalty = 1.0 if age_ms <= 60000 else max(0.0, 1.0 - min(age_ms - 60000, 240000) / 240000.0)  # noqa: E501
         surface_confidence = max(0.0, min(1.0, coverage * age_penalty))
@@ -1127,18 +1127,18 @@ def _demo() -> None:
 
     sample_strikes = np.arange(550, 621, 5)
     sample_expiries = [
-        datetime.now(timezone.utc) + timedelta(days=7),
-        datetime.now(timezone.utc) + timedelta(days=14),
-        datetime.now(timezone.utc) + timedelta(days=30),
-        datetime.now(timezone.utc) + timedelta(days=60),
-        datetime.now(timezone.utc) + timedelta(days=90),
+        datetime.now(UTC) + timedelta(days=7),
+        datetime.now(UTC) + timedelta(days=14),
+        datetime.now(UTC) + timedelta(days=30),
+        datetime.now(UTC) + timedelta(days=60),
+        datetime.now(UTC) + timedelta(days=90),
     ]
 
     sample_rows: list[dict[str, Any]] = []
     sample_underlying = 585.0
 
     for sample_expiry in sample_expiries:
-        time_to_exp = (sample_expiry - datetime.now(timezone.utc)).days / 365.0
+        time_to_exp = (sample_expiry - datetime.now(UTC)).days / 365.0
 
         for sample_strike in sample_strikes:
             sample_moneyness = sample_strike / sample_underlying

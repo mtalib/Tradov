@@ -89,7 +89,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum
 from typing import Any
 
@@ -314,7 +314,7 @@ class BlackSwanIndicator:
             data_quality = self._assess_data_quality(market_data)
 
             # Store in history
-            self.score_history.append((datetime.now(timezone.utc), overall_score))
+            self.score_history.append((datetime.now(UTC), overall_score))
             if len(self.score_history) > 100:
                 self.score_history.pop(0)
 
@@ -322,7 +322,7 @@ class BlackSwanIndicator:
             calc_time = (time.time() - start_time) * 1000
 
             result = BlackSwanResult(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 overall_score=round(overall_score, 2),
                 status=status,
                 component_scores=component_scores,
@@ -361,7 +361,7 @@ class BlackSwanIndicator:
     def _collect_market_data(self) -> dict[str, Any]:
         """Collect all required market data"""
         data = {
-            "timestamp": datetime.now(timezone.utc),
+            "timestamp": datetime.now(UTC),
             "volatility": {},
             "credit": {},
             "market": {},
@@ -728,13 +728,13 @@ class BlackSwanIndicator:
         """Check if cached data is still valid"""
         if key not in self._cache_timestamps:
             return False
-        age = (datetime.now(timezone.utc) - self._cache_timestamps[key]).total_seconds()
+        age = (datetime.now(UTC) - self._cache_timestamps[key]).total_seconds()
         return age < self.cache_ttl
 
     def _update_cache(self, key: str, data: Any):
         """Update cache with new data"""
         self._cache[key] = data
-        self._cache_timestamps[key] = datetime.now(timezone.utc)
+        self._cache_timestamps[key] = datetime.now(UTC)
 
     def clear_cache(self):
         """Clear all cached data"""
@@ -747,7 +747,7 @@ class BlackSwanIndicator:
     def _create_error_result(self) -> BlackSwanResult:
         """Create error result when calculation fails"""
         return BlackSwanResult(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             overall_score=1.0,
             status=RiskStatus.GREEN,
             component_scores={},

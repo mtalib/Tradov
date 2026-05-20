@@ -23,7 +23,6 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import datetime
-from datetime import timezone
 from collections import deque
 from dataclasses import dataclass
 import sys
@@ -1440,7 +1439,7 @@ class ChartWidget(QWidget):
 
             if symbol == "SPY":
                 price = market_data.get("last", 0)
-                timestamp = market_data.get("timestamp", datetime.datetime.now(timezone.utc))
+                timestamp = market_data.get("timestamp", datetime.datetime.now(datetime.UTC))
                 self.add_price_data(timestamp, price, price, price, price, 0)
 
         except Exception as e:
@@ -1617,7 +1616,7 @@ if __name__ == "__main__":
     import random
     base_price = 450.0
     for i in range(100):
-        timestamp = datetime.datetime.now(timezone.utc) - datetime.timedelta(minutes=5*i)
+        timestamp = datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=5*i)
         price_change = random.uniform(-2, 2)
         base_price += price_change
 

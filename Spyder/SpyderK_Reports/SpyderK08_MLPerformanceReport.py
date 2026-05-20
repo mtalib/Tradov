@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -278,7 +278,7 @@ class MLPerformanceReport:
             model_type = ModelType(model_info.get('model_type', 'classification'))
             metrics = ModelPerformanceMetrics(
                 model_id=model_id,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 model_type=model_type,
                 sample_size=len(y_true)
             )
@@ -308,7 +308,7 @@ class MLPerformanceReport:
             self.performance_history[model_id].append(metrics)
 
             # Trim old history
-            cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.tracking_window)
+            cutoff_date = datetime.now(UTC) - timedelta(days=self.tracking_window)
             self.performance_history[model_id] = [
                 m for m in self.performance_history[model_id]
                 if m.timestamp > cutoff_date
@@ -396,7 +396,7 @@ class MLPerformanceReport:
                 feature_importance_list.append(fi)
 
             # Store in history
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
             self.feature_importance_history[model_id].append({
                 'timestamp': timestamp,
                 'features': feature_importance_list
@@ -495,7 +495,7 @@ class MLPerformanceReport:
                 return ModelDriftReport(
                     model_id=reference[0].model_id,
                     drift_type=DriftType.PERFORMANCE_DRIFT,
-                    detection_date=datetime.now(timezone.utc),
+                    detection_date=datetime.now(UTC),
                     p_value=p_value,
                     test_statistic=t_stat,
                     test_name='t-test',
@@ -550,7 +550,7 @@ class MLPerformanceReport:
                 return ModelDriftReport(
                     model_id=reference[0].model_id,
                     drift_type=DriftType.PREDICTION_DRIFT,
-                    detection_date=datetime.now(timezone.utc),
+                    detection_date=datetime.now(UTC),
                     p_value=p_value,
                     test_statistic=chi2,
                     test_name='chi-square',
@@ -589,13 +589,13 @@ class MLPerformanceReport:
         """
         try:
             if test_id is None:
-                test_id = f"ab_test_{model_a_id}_{model_b_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"  # noqa: E501
+                test_id = f"ab_test_{model_a_id}_{model_b_id}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"  # noqa: E501
 
             ab_test = ABTestResult(
                 test_id=test_id,
                 model_a_id=model_a_id,
                 model_b_id=model_b_id,
-                start_date=datetime.now(timezone.utc),
+                start_date=datetime.now(UTC),
                 end_date=None,
                 status=ABTestStatus.RUNNING,
                 metric_tested=metric,
@@ -688,7 +688,7 @@ class MLPerformanceReport:
                     ab_test.improvement = (ab_test.model_a_performance - ab_test.model_b_performance) / ab_test.model_b_performance  # noqa: E501
 
                 ab_test.status = ABTestStatus.COMPLETED
-                ab_test.end_date = datetime.now(timezone.utc)
+                ab_test.end_date = datetime.now(UTC)
 
             return ab_test
 
@@ -768,7 +768,7 @@ class MLPerformanceReport:
 
             return ModelComparisonReport(
                 models=model_ids,
-                comparison_date=datetime.now(timezone.utc),
+                comparison_date=datetime.now(UTC),
                 best_model=best_model,
                 metrics_comparison=comparison_df,
                 ranking={model: rank for rank, (model, _) in enumerate(final_ranking, 1)},
@@ -854,7 +854,7 @@ class MLPerformanceReport:
 
             # Compile report
             report_data = {
-                'report_date': datetime.now(timezone.utc).isoformat(),
+                'report_date': datetime.now(UTC).isoformat(),
                 'summary': asdict(summary),
                 'model_reports': model_reports,
                 'charts': charts,
@@ -1102,7 +1102,7 @@ class MLPerformanceReport:
 
         # Check for drift
         if drift_reports:
-            recent_drift = [d for d in drift_reports if (datetime.now(timezone.utc) - d.detection_date).days < 7]  # noqa: E501
+            recent_drift = [d for d in drift_reports if (datetime.now(UTC) - d.detection_date).days < 7]  # noqa: E501
             if recent_drift:
                 recommendations.append(
                     f"Recent drift detected ({recent_drift[0].drift_type.value}). "
@@ -1330,7 +1330,7 @@ class MLPerformanceReport:
         """Return empty comparison report."""
         return ModelComparisonReport(
             models=model_ids,
-            comparison_date=datetime.now(timezone.utc),
+            comparison_date=datetime.now(UTC),
             best_model=None,
             metrics_comparison=pd.DataFrame(),
             ranking={},
@@ -1427,7 +1427,7 @@ class MLPerformanceReport:
 
             # Fill template
             html_content = html_template.format(
-                report_date=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                report_date=datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S'),
                 total_models=summary['total_models'],
                 active_models=summary['active_models'],
                 avg_accuracy=summary['average_accuracy'],

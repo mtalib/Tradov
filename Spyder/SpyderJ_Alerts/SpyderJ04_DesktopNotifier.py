@@ -25,7 +25,7 @@ Change Log:
 import time
 import threading
 import queue
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from collections.abc import Callable
 from dataclasses import field
@@ -632,7 +632,7 @@ class DesktopNotifier:
         try:
             item = NotificationQueueItem(
                 notification=notification,
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(UTC)
             )
             self.notification_queue.put_nowait(item)
         except queue.Full:
@@ -640,7 +640,7 @@ class DesktopNotifier:
 
     def _check_rate_limit(self) -> bool:
         """Check if rate limit allows sending"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Remove old timestamps
         self._notification_times = [
@@ -661,14 +661,14 @@ class DesktopNotifier:
         if not self.config.quiet_hours_enabled:
             return False
 
-        now = datetime.now(timezone.utc).time()
+        now = datetime.now(UTC).time()
 
         # Parse quiet hours
         start_hour, start_min = map(int, self.config.quiet_hours_start.split(':'))
         end_hour, end_min = map(int, self.config.quiet_hours_end.split(':'))
 
-        start_time = datetime.now(timezone.utc).replace(hour=start_hour, minute=start_min).time()
-        end_time = datetime.now(timezone.utc).replace(hour=end_hour, minute=end_min).time()
+        start_time = datetime.now(UTC).replace(hour=start_hour, minute=start_min).time()
+        end_time = datetime.now(UTC).replace(hour=end_hour, minute=end_min).time()
 
         # Check if in quiet hours
         if start_time <= end_time:

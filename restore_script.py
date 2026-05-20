@@ -17,7 +17,7 @@ db = TradingSessionDB(db_path=db_path)
 positions = db.get_active_paper_open_positions()
 
 restored_spreads, leftover_positions = restore_paper_spreads_from_positions(
-    positions, 
+    positions,
     default_lifecycle_state='MANAGED BY AI'
 )
 

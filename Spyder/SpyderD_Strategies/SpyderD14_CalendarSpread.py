@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum, auto
 from typing import Any
 
@@ -413,7 +413,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
     def _select_optimal_expiries(self, iv_analysis: dict[str, Any]) -> tuple[datetime, datetime]:
         """Select optimal near and far expiration dates"""
-        current_date = datetime.now(timezone.utc)
+        current_date = datetime.now(UTC)
         available_expiries = self._get_available_expiries(current_date)
 
         optimal_spread = iv_analysis["optimal_time_spread"]
@@ -669,7 +669,7 @@ class CalendarSpreadStrategy(BaseStrategy):
     def _estimate_iv(self, expiry: datetime, strike: float, iv_analysis: dict[str, Any]) -> float:
         """Estimate IV for specific expiry and strike"""
         base_iv = iv_analysis["current_iv"]
-        dte = (expiry - datetime.now(timezone.utc)).days
+        dte = (expiry - datetime.now(UTC)).days
 
         # Add term structure adjustment
         if iv_analysis["term_structure"] == TermStructure.CONTANGO:
@@ -688,7 +688,7 @@ class CalendarSpreadStrategy(BaseStrategy):
     ) -> float:
         """Estimate option premium using Black-Scholes approximation"""
         try:
-            dte = (expiry - datetime.now(timezone.utc)).days / 365.0
+            dte = (expiry - datetime.now(UTC)).days / 365.0
 
             # Simplified Black-Scholes approximation
             # In production, use full Black-Scholes or market prices
@@ -759,7 +759,7 @@ class CalendarSpreadStrategy(BaseStrategy):
     ) -> float:
         """Calculate probability of profit for calendar"""
         try:
-            dte = (near_expiry - datetime.now(timezone.utc)).days / 365.0
+            dte = (near_expiry - datetime.now(UTC)).days / 365.0
 
             # Calculate probability of being between breakevens at expiry
             lower_be, upper_be = breakevens
@@ -798,7 +798,7 @@ class CalendarSpreadStrategy(BaseStrategy):
             else:
                 strength = SignalStrength.WEAK
 
-            signal_timestamp = datetime.now(timezone.utc)
+            signal_timestamp = datetime.now(UTC)
             current_price = float(market_data["close"].iloc[-1])
             signal = TradingSignal(
                 signal_id=str(uuid.uuid4()),
@@ -849,8 +849,8 @@ class CalendarSpreadStrategy(BaseStrategy):
         for position_id, position in list(self.active_positions.items()):
             # Update position metrics
             position.days_held += 1
-            position.near_expiry_dte = (position.setup.near_leg.expiry - datetime.now(timezone.utc)).days
-            position.far_expiry_dte = (position.setup.far_leg.expiry - datetime.now(timezone.utc)).days
+            position.near_expiry_dte = (position.setup.near_leg.expiry - datetime.now(UTC)).days
+            position.far_expiry_dte = (position.setup.far_leg.expiry - datetime.now(UTC)).days
 
             # Update position value and P&L
             self._update_position_value(position, current_price, market_data)
@@ -930,7 +930,7 @@ class CalendarSpreadStrategy(BaseStrategy):
             return self._create_exit_signal(position, "unfavorable_conditions")
 
         # Create roll signal
-        signal_timestamp = datetime.now(timezone.utc)
+        signal_timestamp = datetime.now(UTC)
         signal = TradingSignal(
             signal_id=str(uuid.uuid4()),
             signal_type=SignalType.ADJUST,
@@ -958,7 +958,7 @@ class CalendarSpreadStrategy(BaseStrategy):
         position.state = CalendarState.ROLLING
         position.roll_count += 1
         position.adjustments.append(
-            {"time": datetime.now(timezone.utc), "type": "roll", "pnl_at_roll": position.unrealized_pnl}
+            {"time": datetime.now(UTC), "type": "roll", "pnl_at_roll": position.unrealized_pnl}
         )
 
         self.logger.info("Rolling calendar position %s", position.position_id)
@@ -991,11 +991,11 @@ class CalendarSpreadStrategy(BaseStrategy):
 
     def _create_exit_signal(self, position: CalendarPosition, reason: str) -> TradingSignal:
         """Create exit signal for position"""
-        position.exit_time = datetime.now(timezone.utc)
+        position.exit_time = datetime.now(UTC)
         position.exit_reason = reason
         position.state = CalendarState.CLOSING
 
-        signal_timestamp = datetime.now(timezone.utc)
+        signal_timestamp = datetime.now(UTC)
         signal = TradingSignal(
             signal_id=str(uuid.uuid4()),
             signal_type=SignalType.CLOSE,
@@ -1061,7 +1061,7 @@ class CalendarSpreadStrategy(BaseStrategy):
 
     def add_position(self, signal: TradingSignal) -> str:
         """Add new calendar position from signal"""
-        position_id = f"CAL_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        position_id = f"CAL_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
         signal.metadata["setup"]
         # Reconstruct setup object
@@ -1070,7 +1070,7 @@ class CalendarSpreadStrategy(BaseStrategy):
         position = CalendarPosition(
             position_id=position_id,
             setup=None,  # Would reconstruct from setup_dict
-            entry_time=datetime.now(timezone.utc),
+            entry_time=datetime.now(UTC),
             entry_price=signal.metadata.get("current_price", 0),
             state=CalendarState.ESTABLISHED,
         )
@@ -1153,7 +1153,7 @@ def test_calendar_spread():
     logging.info("Max Positions: %s", strategy.max_positions)
 
     # Create sample market data with IV
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=252, freq="D")
+    dates = pd.date_range(end=datetime.now(UTC), periods=252, freq="D")
 
     # Simulate IV environment
     base_iv = 0.20
@@ -1189,10 +1189,10 @@ def test_calendar_spread():
     near_expiry, far_expiry = strategy._select_optimal_expiries(iv_analysis)
     if near_expiry and far_expiry:
         logging.info(
-            "Near Expiry: %s (%s days)", near_expiry.strftime('%Y-%m-%d'), (near_expiry - datetime.now(timezone.utc)).days  # noqa: E501
+            "Near Expiry: %s (%s days)", near_expiry.strftime('%Y-%m-%d'), (near_expiry - datetime.now(UTC)).days  # noqa: E501
         )
         logging.info(
-            "Far Expiry: %s (%s days)", far_expiry.strftime('%Y-%m-%d'), (far_expiry - datetime.now(timezone.utc)).days  # noqa: E501
+            "Far Expiry: %s (%s days)", far_expiry.strftime('%Y-%m-%d'), (far_expiry - datetime.now(UTC)).days  # noqa: E501
         )
         logging.info("Time Spread: %s days", (far_expiry - near_expiry).days)
 
@@ -1225,7 +1225,7 @@ def test_calendar_spread():
 
         for i, price in enumerate(new_prices):
             market_data.loc[len(market_data)] = {
-                "timestamp": datetime.now(timezone.utc) + timedelta(days=i),
+                "timestamp": datetime.now(UTC) + timedelta(days=i),
                 "open": price - 0.3,
                 "high": price + 0.5,
                 "low": price - 0.5,

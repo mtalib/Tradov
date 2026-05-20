@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import asdict
 from enum import Enum, auto
@@ -217,7 +217,7 @@ class PaperTradeLearner:
         try:
             # Set date range
             if not end_date:
-                end_date = datetime.now(timezone.utc)
+                end_date = datetime.now(UTC)
             if not start_date:
                 start_date = end_date - timedelta(days=30)
 
@@ -256,7 +256,7 @@ class PaperTradeLearner:
 
             # Create report
             report = LearningReport(
-                analysis_date=datetime.now(timezone.utc),
+                analysis_date=datetime.now(UTC),
                 total_trades_analyzed=len(trades_df),
                 strategy_performance=strategy_performance,
                 discovered_patterns=patterns,
@@ -486,7 +486,7 @@ class PaperTradeLearner:
                             },
                             confidence=self._calculate_confidence(win_rate, len(group)),
                             sample_size=len(group),
-                            discovered_date=datetime.now(timezone.utc)
+                            discovered_date=datetime.now(UTC)
                         )
                         patterns.append(pattern)
 
@@ -523,7 +523,7 @@ class PaperTradeLearner:
                             },
                             confidence=self._calculate_confidence(win_rate, len(group)),
                             sample_size=len(group),
-                            discovered_date=datetime.now(timezone.utc)
+                            discovered_date=datetime.now(UTC)
                         )
                         patterns.append(pattern)
 
@@ -570,7 +570,7 @@ class PaperTradeLearner:
                                 },
                                 confidence=self._calculate_confidence(win_rate, len(strategy_trades)),  # noqa: E501
                                 sample_size=len(strategy_trades),
-                                discovered_date=datetime.now(timezone.utc)
+                                discovered_date=datetime.now(UTC)
                             )
                             patterns.append(pattern)
 
@@ -609,7 +609,7 @@ class PaperTradeLearner:
                         },
                         confidence=self._calculate_confidence(win_rate, stats['count']),
                         sample_size=int(stats['count']),
-                        discovered_date=datetime.now(timezone.utc)
+                        discovered_date=datetime.now(UTC)
                     )
                     patterns.append(pattern)
 
@@ -647,7 +647,7 @@ class PaperTradeLearner:
                                 },
                                 confidence=0.8,  # Lower confidence for risk patterns
                                 sample_size=int(stats['count']),
-                                discovered_date=datetime.now(timezone.utc)
+                                discovered_date=datetime.now(UTC)
                             )
                             patterns.append(pattern)
 
@@ -1142,7 +1142,7 @@ class PaperTradeLearner:
         # Check cache
         if (self._trade_cache is not None and
             self._cache_timestamp and
-            datetime.now(timezone.utc) - self._cache_timestamp < timedelta(minutes=5)):
+            datetime.now(UTC) - self._cache_timestamp < timedelta(minutes=5)):
             return self._trade_cache
 
         # Load from database
@@ -1162,7 +1162,7 @@ class PaperTradeLearner:
 
         # Update cache
         self._trade_cache = trades_df
-        self._cache_timestamp = datetime.now(timezone.utc)
+        self._cache_timestamp = datetime.now(UTC)
 
         return trades_df
 
@@ -1331,7 +1331,7 @@ class PaperTradeLearner:
         """Update internal learning state"""
         # Update performance history
         self.performance_history.append({
-            'timestamp': datetime.now(timezone.utc),
+            'timestamp': datetime.now(UTC),
             'iteration': self.current_iteration,
             'strategies': {
                 name: {
@@ -1439,7 +1439,7 @@ class PaperTradeLearner:
         ])
 
         # Add time features
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         features.extend([now.hour, now.weekday()])
 
         # Add strategy encoding (simplified)
@@ -1454,7 +1454,7 @@ class PaperTradeLearner:
     def _create_minimal_report(self, trades_df: pd.DataFrame) -> LearningReport:
         """Create minimal report when insufficient data"""
         return LearningReport(
-            analysis_date=datetime.now(timezone.utc),
+            analysis_date=datetime.now(UTC),
             total_trades_analyzed=len(trades_df),
             strategy_performance={},
             discovered_patterns=[],
@@ -1470,7 +1470,7 @@ class PaperTradeLearner:
     def _create_error_report(self, error_msg: str) -> LearningReport:
         """Create error report"""
         return LearningReport(
-            analysis_date=datetime.now(timezone.utc),
+            analysis_date=datetime.now(UTC),
             total_trades_analyzed=0,
             strategy_performance={},
             discovered_patterns=[],
@@ -1625,8 +1625,8 @@ if __name__ == "__main__":
     for i in range(100):
         trade = {
             'strategy': np.random.choice(strategies),
-            'entry_time': datetime.now(timezone.utc) - timedelta(days=30-i),
-            'exit_time': datetime.now(timezone.utc) - timedelta(days=30-i, hours=2),
+            'entry_time': datetime.now(UTC) - timedelta(days=30-i),
+            'exit_time': datetime.now(UTC) - timedelta(days=30-i, hours=2),
             'entry_price': 450 + np.random.randn(),
             'exit_price': 450 + np.random.randn() * 2,
             'position_size': 0.02,

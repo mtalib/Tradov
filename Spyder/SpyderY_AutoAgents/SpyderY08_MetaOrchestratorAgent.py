@@ -51,7 +51,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 # ==============================================================================
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
@@ -76,7 +76,7 @@ except Exception:
             "handoff_type": kwargs.get("handoff_type", "handoff"),
             "topic": kwargs.get("topic", ""),
             "producer": {"agent_id": kwargs.get("producer_agent_id", "unknown")},
-            "timestamp": kwargs.get("timestamp", datetime.now(timezone.utc).timestamp()),
+            "timestamp": kwargs.get("timestamp", datetime.now(UTC).timestamp()),
             "payload": kwargs.get("payload", {}),
             "confidence": kwargs.get("confidence"),
             "reasoning": kwargs.get("reasoning", ""),
@@ -104,7 +104,7 @@ class AgentStatus:
 class SystemDecision:
     """A system-wide decision made by the orchestrator."""
     decision_id: str = ""
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     category: str = ""      # conflict_resolution | threshold_adj | escalation | coordination
     description: str = ""
     agents_involved: list[str] = field(default_factory=list)
@@ -120,7 +120,7 @@ class ConflictRecord:
     topics: list[str] = field(default_factory=list)
     description: str = ""
     resolution: str = ""
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 # ==============================================================================
@@ -251,7 +251,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
     # ==========================================================================
     def _update_agent_health(self) -> None:
         """Update health scores for all managed agents."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for _agent_id, status in self._agent_status.items():
             warnings = []
@@ -354,7 +354,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
                 )
 
         decision = SystemDecision(
-            decision_id=f"D_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
+            decision_id=f"D_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
             category="conflict_resolution",
             description=conflict.description,
             agents_involved=conflict.agents,
@@ -487,7 +487,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
         health_summary = self._get_health_summary()
         decisions_today = [
             d for d in self._decisions
-            if d.timestamp.date() == datetime.now(timezone.utc).date()
+            if d.timestamp.date() == datetime.now(UTC).date()
         ]
 
         prompt = (
@@ -496,7 +496,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
             f"- Regime: {self._current_regime}\n"
             f"- Circuit breaker: {self._circuit_breaker}\n"
             f"- Decisions today: {len(decisions_today)}\n"
-            f"- Conflicts today: {len([c for c in self._conflicts if c.timestamp.date() == datetime.now(timezone.utc).date()])}\n"  # noqa: E501
+            f"- Conflicts today: {len([c for c in self._conflicts if c.timestamp.date() == datetime.now(UTC).date()])}\n"  # noqa: E501
             f"- Session transitions: {self._session_transitions_today}\n\n"
             f"Provide a 3-sentence system health summary with any recommendations."
         )
@@ -635,7 +635,7 @@ class SpyderY08_MetaOrchestratorAgent(BaseAutoAgent):
             # Track agent outputs for health monitoring
             agent_id = message.get("agent_id", "")
             if agent_id in self._agent_status:
-                self._agent_status[agent_id].last_heartbeat = datetime.now(timezone.utc)
+                self._agent_status[agent_id].last_heartbeat = datetime.now(UTC)
                 self._agent_status[agent_id].outputs_today += 1
                 self._agent_status[agent_id].state = "running"
                 self._agent_status[agent_id].last_output_topic = topic

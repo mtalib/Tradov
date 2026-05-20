@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -42,7 +41,7 @@ Description:
 import math
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum
 from typing import Any
 
@@ -233,7 +232,7 @@ class OptionsDataVetter:
         Returns:
             :class:`VetResult` with ``accepted``, ``rejected``, and statistics.
         """
-        t0 = datetime.now(timezone.utc)
+        t0 = datetime.now(UTC)
         result = VetResult(total_in=len(contracts))
 
         for contract in contracts:
@@ -243,12 +242,12 @@ class OptionsDataVetter:
             else:
                 result.rejected.append((contract, reason))
 
-        elapsed = (datetime.now(timezone.utc) - t0).total_seconds() * 1000
+        elapsed = (datetime.now(UTC) - t0).total_seconds() * 1000
         result.elapsed_ms = elapsed
 
         if result.rejected:
             should_log = True
-            now_utc = datetime.now(timezone.utc)
+            now_utc = datetime.now(UTC)
             # Always surface genuine quality degradation as warning.
             if result.accept_rate < 0.70:
                 log_fn = self.logger.warning

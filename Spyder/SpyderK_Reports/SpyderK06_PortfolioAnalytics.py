@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, date, timezone
+from datetime import datetime, timedelta, date, UTC
 from typing import Any
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -721,7 +721,7 @@ class PortfolioAnalytics:
 
             # Compile report data
             report_data = {
-                'report_date': datetime.now(timezone.utc).isoformat(),
+                'report_date': datetime.now(UTC).isoformat(),
                 'portfolio_summary': {
                     'total_value': sum(p.market_value for p in positions),
                     'position_count': len(positions),
@@ -1215,7 +1215,7 @@ class PortfolioAnalytics:
 
             # Fill template
             html_content = html_template.format(
-                report_date=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                report_date=datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S'),
                 total_value=report_data['portfolio_summary']['total_value'],
                 position_count=report_data['portfolio_summary']['position_count'],
                 unrealized_pnl=report_data['portfolio_summary']['unrealized_pnl'],

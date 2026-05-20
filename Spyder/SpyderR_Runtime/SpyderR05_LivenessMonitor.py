@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -38,13 +37,13 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
+from collections.abc import Callable
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
@@ -89,7 +88,7 @@ class LivenessMonitor:
         event_manager: Any,
         engine: Any = None,
         heartbeat_path: str = DEFAULT_HEARTBEAT_PATH,
-        healthz_port: Optional[int] = None,
+        healthz_port: int | None = None,
         deadman_seconds: float = DEADMAN_SECONDS_DEFAULT,
     ) -> None:
         self.logger = SpyderLogger.get_logger(__name__)
@@ -104,9 +103,9 @@ class LivenessMonitor:
         self._deadman_seconds = float(deadman_seconds)
 
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-        self._httpd: Optional[HTTPServer] = None
-        self._http_thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
+        self._httpd: HTTPServer | None = None
+        self._http_thread: threading.Thread | None = None
         self._deadman_fired = False
         self._last_event_ts: float = time.time()
         self._subscribed = False
@@ -174,7 +173,7 @@ class LivenessMonitor:
                 daemon=True,
             )
             self._http_thread.start()
-        except (OSError, socket.error) as exc:
+        except OSError as exc:
             self.logger.warning(
                 "healthz port %d unavailable (%s); liveness file-only",
                 self._healthz_port,
@@ -198,7 +197,7 @@ class LivenessMonitor:
         except Exception:
             pass
         return {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "kill_switch": kill,
             "broker_connected": broker_connected,
             "pending_orders_count": pending,
@@ -224,7 +223,7 @@ class LivenessMonitor:
 
             return bool(TradingCalendar.is_market_open())
         except Exception:
-            now = datetime.now(timezone.utc).astimezone()
+            now = datetime.now(UTC).astimezone()
             if now.weekday() >= 5:
                 return False
             hhmm = now.hour * 60 + now.minute
@@ -244,10 +243,7 @@ class LivenessMonitor:
 
             broker = getattr(engine, "broker", None)
             broker_name = type(broker).__name__.lower() if broker is not None else ""
-            if "paper" in broker_name:
-                return True
-
-            return False
+            return "paper" in broker_name
         except Exception:
             return False
 
@@ -298,8 +294,8 @@ class LivenessMonitor:
 def create_liveness_monitor(
     event_manager: Any,
     engine: Any = None,
-    heartbeat_path: Optional[str] = None,
-    healthz_port: Optional[int] = None,
+    heartbeat_path: str | None = None,
+    healthz_port: int | None = None,
     deadman_seconds: float = DEADMAN_SECONDS_DEFAULT,
 ) -> LivenessMonitor:
     return LivenessMonitor(

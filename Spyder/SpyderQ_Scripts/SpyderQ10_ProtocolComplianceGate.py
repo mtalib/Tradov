@@ -294,7 +294,6 @@ def check_broker_protocol_compliance() -> bool:
         True if both brokers satisfy BrokerProtocol; False otherwise.
     """
     import importlib
-    from typing import Any
 
     try:
         proto_mod = importlib.import_module(
@@ -472,7 +471,7 @@ def check_strategy_orchestrator_health() -> bool:
             em.start()
 
         before = len(em.handlers.get(EventType.STRATEGY_SIGNAL, []))
-        StrategyOrchestrator = getattr(d31, "StrategyOrchestrator")
+        StrategyOrchestrator = d31.StrategyOrchestrator
         _orch = StrategyOrchestrator(event_manager=em)
         after = len(em.handlers.get(EventType.STRATEGY_SIGNAL, []))
 

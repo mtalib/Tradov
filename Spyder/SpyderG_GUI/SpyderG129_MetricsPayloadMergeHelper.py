@@ -30,11 +30,7 @@ def merge_metrics_payload(
         current_entry = dict(merged.get(symbol, {}))
         for key, value in entry.items():
             is_missing = value is None
-            if isinstance(value, (float, np.floating)) and np.isnan(value):
-                is_missing = True
-            elif isinstance(value, dict) and not value:
-                is_missing = True
-            elif isinstance(value, str) and value == "":
+            if isinstance(value, (float, np.floating)) and np.isnan(value) or isinstance(value, dict) and not value or isinstance(value, str) and value == "":
                 is_missing = True
 
             if not is_missing:

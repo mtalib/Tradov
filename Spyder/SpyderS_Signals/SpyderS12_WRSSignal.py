@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -65,8 +64,8 @@ import os
 import time
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, date, timezone
-from enum import Enum
+from datetime import datetime, timedelta, date, UTC
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Optional
 
@@ -156,7 +155,7 @@ STRATEGY_GATES: dict[str, str] = {
 # ENUMS
 # ==============================================================================
 
-class WRSLevel(str, Enum):
+class WRSLevel(StrEnum):
     """WRS signal severity levels."""
     NORMAL = "NORMAL"
     CAUTION = "CAUTION"
@@ -204,10 +203,10 @@ class WRSResult:
     basket_missing: list[str] = field(default_factory=list)
     data_start: str = ""
     data_end: str = ""
-    last_crossover_date: Optional[str] = None
-    last_crossover_dir: Optional[str] = None
+    last_crossover_date: str | None = None
+    last_crossover_dir: str | None = None
     strategy_guidance: str = ""
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     error: str = ""
 
 
@@ -245,7 +244,7 @@ class _TradierMarketClient:
         self,
         symbol: str,
         start: str,
-        end: Optional[str] = None,
+        end: str | None = None,
         interval: str = "daily",
     ) -> list[dict[str, Any]]:
         """
@@ -292,7 +291,7 @@ class _TradierMarketClient:
         self,
         method: str,
         endpoint: str,
-        params: Optional[dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """HTTP request with retry/back-off."""
         url = f"{self._base_url}{endpoint}"
@@ -339,12 +338,12 @@ def _cache_path(key: str) -> Path:
     return _CACHE_DIR / f"{key}.csv"
 
 
-def _load_cache(key: str) -> Optional[pd.Series]:
+def _load_cache(key: str) -> pd.Series | None:
     """Return cached Series if fresh (within CACHE_TTL_HOURS); else None."""
     path = _cache_path(key)
     if not path.exists():
         return None
-    age = datetime.now(timezone.utc) - datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    age = datetime.now(UTC) - datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
     if age > timedelta(hours=CACHE_TTL_HOURS):
         return None
     try:
@@ -381,7 +380,7 @@ def _fetch_series_tradier(
     client: _TradierMarketClient,
     symbol: str,
     start: str,
-    end: Optional[str],
+    end: str | None,
     use_cache: bool,
 ) -> pd.Series:
     """Fetch close-price series via Tradier, with disk cache."""
@@ -399,7 +398,7 @@ def _fetch_series_tradier(
 def _fetch_series_yfinance(
     symbol: str,
     start: str,
-    end: Optional[str],
+    end: str | None,
     use_cache: bool,
 ) -> pd.Series:
     """yfinance fallback for when Tradier is unavailable."""
@@ -427,9 +426,9 @@ def _fetch_series_yfinance(
 # ==============================================================================
 
 def _build_luxury_basket(
-    client: Optional[_TradierMarketClient],
+    client: _TradierMarketClient | None,
     start: str,
-    end: Optional[str],
+    end: str | None,
     use_cache: bool,
 ) -> tuple[pd.Series, dict[str, Any]]:
     """
@@ -602,8 +601,8 @@ def _extract_result(
     level = _resolve_signal_level(pct)
 
     crossovers = _detect_crossovers(computed)
-    last_cross_date: Optional[str] = None
-    last_cross_dir: Optional[str] = None
+    last_cross_date: str | None = None
+    last_cross_dir: str | None = None
     if not crossovers.empty:
         last_cross_date = crossovers.index[-1].date().isoformat()
         last_cross_dir = str(crossovers.iloc[-1]["direction"])
@@ -624,7 +623,7 @@ def _extract_result(
         last_crossover_date=last_cross_date,
         last_crossover_dir=last_cross_dir,
         strategy_guidance=STRATEGY_GATES.get(level.value, ""),
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 
@@ -653,7 +652,7 @@ class WRSSignal:
 
     def __init__(
         self,
-        tradier_token: Optional[str] = None,
+        tradier_token: str | None = None,
         sandbox: bool = False,
         use_cache: bool = True,
         start: str = HISTORY_START,
@@ -665,11 +664,11 @@ class WRSSignal:
 
         self._use_cache = use_cache
         self._start = start
-        self._last_result: Optional[WRSResult] = None
+        self._last_result: WRSResult | None = None
         self._compute_lock = threading.Lock()
 
         if env_token:
-            self._client: Optional[_TradierMarketClient] = _TradierMarketClient(
+            self._client: _TradierMarketClient | None = _TradierMarketClient(
                 env_token, sandbox=env_sandbox
             )
             _logger.info("WRSSignal: Tradier client initialised (sandbox=%s)", env_sandbox)
@@ -699,13 +698,13 @@ class WRSSignal:
                 return self._compute_internal(use_cache)
             except WRSDataError as exc:
                 _logger.error("WRS computation failed: %s", exc)
-                result = WRSResult(error=str(exc), timestamp=datetime.now(timezone.utc))
+                result = WRSResult(error=str(exc), timestamp=datetime.now(UTC))
                 self._last_result = result
                 return result
             except Exception as exc:
                 _logger.exception("WRS unexpected error: %s", exc)
                 result = WRSResult(
-                    error=f"Unexpected: {exc}", timestamp=datetime.now(timezone.utc)
+                    error=f"Unexpected: {exc}", timestamp=datetime.now(UTC)
                 )
                 self._last_result = result
                 return result
@@ -735,7 +734,7 @@ class WRSSignal:
         }
 
     @property
-    def last_result(self) -> Optional[WRSResult]:
+    def last_result(self) -> WRSResult | None:
         """Most recent computed result, or None if never computed."""
         return self._last_result
 
@@ -793,12 +792,12 @@ class WRSSignal:
 # SINGLETON ACCESSOR
 # ==============================================================================
 
-_wrs_instance: Optional[WRSSignal] = None
+_wrs_instance: WRSSignal | None = None
 _wrs_init_lock = threading.Lock()
 
 
 def get_wrs_signal(
-    tradier_token: Optional[str] = None,
+    tradier_token: str | None = None,
     sandbox: bool = False,
     use_cache: bool = True,
 ) -> WRSSignal:
@@ -825,10 +824,10 @@ def get_wrs_signal(
 
 def plot_wrs(
     start: str = HISTORY_START,
-    tradier_token: Optional[str] = None,
-    output_path: Optional[Path] = None,
+    tradier_token: str | None = None,
+    output_path: Path | None = None,
     show: bool = False,
-) -> Optional[Path]:
+) -> Path | None:
     """
     Render a 3-panel WRS chart and save to PNG.
 

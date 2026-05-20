@@ -48,7 +48,7 @@ Consolidation Benefits:
 import time
 import asyncio
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -745,7 +745,7 @@ class AIPerformanceAnalyzer:
                         "High performance may attract increased competition",
                         "Strategy capacity constraints may emerge with scaling"
                     ],
-                    timestamp=datetime.now(timezone.utc)
+                    timestamp=datetime.now(UTC)
                 ))
 
             # Volatility insight
@@ -765,7 +765,7 @@ class AIPerformanceAnalyzer:
                         "High volatility may indicate inadequate risk controls",
                         "Potential for significant drawdowns during market stress"
                     ],
-                    timestamp=datetime.now(timezone.utc)
+                    timestamp=datetime.now(UTC)
                 ))
 
             # Pattern-based insights
@@ -787,7 +787,7 @@ class AIPerformanceAnalyzer:
                         "Pattern may degrade due to market evolution or crowding",
                         "Overreliance on single pattern increases concentration risk"
                     ],
-                    timestamp=datetime.now(timezone.utc)
+                    timestamp=datetime.now(UTC)
                 ))
 
             # Attribution insights
@@ -807,7 +807,7 @@ class AIPerformanceAnalyzer:
                         "Security selection edge may be time-sensitive",
                         "Increased focus on individual securities increases specific risk"
                     ],
-                    timestamp=datetime.now(timezone.utc)
+                    timestamp=datetime.now(UTC)
                 ))
 
             # Anomaly insights
@@ -828,7 +828,7 @@ class AIPerformanceAnalyzer:
                         "Frequent anomalies may indicate unstable strategy",
                         "Extreme outcomes could lead to significant capital loss"
                     ],
-                    timestamp=datetime.now(timezone.utc)
+                    timestamp=datetime.now(UTC)
                 ))
 
         except Exception as e:
@@ -1019,7 +1019,7 @@ class UnifiedPerformanceEngine:
         """
         try:
             start_time = time.time()
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
             self.logger.info("Generating comprehensive performance report for %s periods", len(returns))  # noqa: E501
 

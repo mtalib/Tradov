@@ -32,7 +32,7 @@ Enhancement Notes:
 # ==============================================================================
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -473,7 +473,7 @@ class SpyderModelManager:
             operation="calculate_risk_metrics",
             parameters={"risk_params": risk_params},
             context=context,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         return await self.execute_operation(request)
@@ -492,7 +492,7 @@ class SpyderModelManager:
             operation="price_option",
             parameters={"contract": option_contract, "params": pricing_params},
             context=context,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         return await self.execute_operation(request)
@@ -510,7 +510,7 @@ class SpyderModelManager:
             operation="calculate_volatility",
             parameters={"volatility_request": volatility_request},
             context=context,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         return await self.execute_operation(request)
@@ -528,7 +528,7 @@ class SpyderModelManager:
             operation="analyze_market_regime",
             parameters={"market_data": market_data},
             context=context,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         return await self.execute_operation(request)
@@ -546,7 +546,7 @@ class SpyderModelManager:
             operation="generate_trading_signal",
             parameters={"market_state": market_state},
             context=context,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         return await self.execute_operation(request)
@@ -569,7 +569,7 @@ class SpyderModelManager:
     def get_consolidated_health_report(self) -> dict[str, Any]:
         """Get comprehensive health report for all engines."""
         return {
-            "timestamp": datetime.now(timezone.utc),
+            "timestamp": datetime.now(UTC),
             "engine_status": {k.value: v.value for k, v in self.engine_status.items()},
             "performance_summary": {
                 k.value: {

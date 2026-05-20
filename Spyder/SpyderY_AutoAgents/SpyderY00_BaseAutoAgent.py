@@ -37,7 +37,7 @@ import time
 import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -184,7 +184,7 @@ class AgentHeartbeat:
     """Periodic health signal from an agent."""
     agent_id: str
     state: AgentState
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     uptime_seconds: float = 0.0
     messages_sent: int = 0
     messages_received: int = 0
@@ -205,7 +205,7 @@ class AgentOutput:
     payload: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0   # 0.0 - 1.0
     reasoning: str = ""       # LLM-generated explanation
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     ttl_seconds: int = 300    # 5-minute default TTL
     priority: str = "NORMAL"  # Maps to MessagePriority
 
@@ -300,7 +300,7 @@ class BaseAutoAgent(ABC):
 
         self._stop_event.clear()
         self._pause_event.set()
-        self._start_time = datetime.now(timezone.utc)
+        self._start_time = datetime.now(UTC)
         self.state = AgentState.RUNNING
 
         # Load any persisted state
@@ -683,7 +683,7 @@ class BaseAutoAgent(ABC):
             state = {
                 "agent_id": self.AGENT_ID,
                 "agent_version": self.AGENT_VERSION,
-                "saved_at": datetime.now(timezone.utc).isoformat(),
+                "saved_at": datetime.now(UTC).isoformat(),
                 "metrics": {
                     "messages_sent": self._messages_sent,
                     "messages_received": self._messages_received,
@@ -737,7 +737,7 @@ class BaseAutoAgent(ABC):
 
         uptime = 0.0
         if self._start_time:
-            uptime = (datetime.now(timezone.utc) - self._start_time).total_seconds()
+            uptime = (datetime.now(UTC) - self._start_time).total_seconds()
 
         avg_latency = 0.0
         if self._llm_calls > 0:
@@ -768,7 +768,7 @@ class BaseAutoAgent(ABC):
         """Return current agent status for the dashboard/monitoring."""
         uptime = 0.0
         if self._start_time:
-            uptime = (datetime.now(timezone.utc) - self._start_time).total_seconds()
+            uptime = (datetime.now(UTC) - self._start_time).total_seconds()
 
         avg_latency = 0.0
         if self._llm_calls > 0:

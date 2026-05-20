@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -1223,7 +1223,7 @@ class MicrostructureAnalyzer:
             report = ["=" * 60]
             report.append("MICROSTRUCTURE ANALYSIS REPORT")
             report.append("=" * 60)
-            report.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
+            report.append(f"Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}")
             report.append("")
 
             # Detection statistics

@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -557,7 +557,7 @@ class DoubleCalendarStrategy(BaseStrategy):
 
     def _select_optimal_expiries(self) -> tuple[datetime, datetime]:
         """Select optimal expiration dates"""
-        current_date = datetime.now(timezone.utc)
+        current_date = datetime.now(UTC)
 
         # Near expiry target
         near_target = current_date + timedelta(days=28)
@@ -595,8 +595,8 @@ class DoubleCalendarStrategy(BaseStrategy):
                            spot: float, iv_analysis: IVAnalysis) -> CalendarLeg:
         """Create individual calendar leg"""
         # Get IVs for each expiry
-        near_dte = (near_expiry - datetime.now(timezone.utc)).days
-        far_dte = (far_expiry - datetime.now(timezone.utc)).days
+        near_dte = (near_expiry - datetime.now(UTC)).days
+        far_dte = (far_expiry - datetime.now(UTC)).days
 
         near_iv = iv_analysis.term_structure.get(near_dte, iv_analysis.current_iv)
         far_iv = iv_analysis.term_structure.get(far_dte, iv_analysis.current_iv * 1.02)
@@ -637,7 +637,7 @@ class DoubleCalendarStrategy(BaseStrategy):
                                 expiry: datetime, iv: float,
                                 option_type: OptionType) -> float:
         """Calculate option premium using Black-Scholes"""
-        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
+        dte = (expiry - datetime.now(UTC)).days / 365.0
 
         d1 = (np.log(spot / strike) + (0.02 + iv**2/2) * dte) / (iv * np.sqrt(dte))
         d2 = d1 - iv * np.sqrt(dte)
@@ -654,8 +654,8 @@ class DoubleCalendarStrategy(BaseStrategy):
                                  near_iv: float, far_iv: float,
                                  option_type: OptionType) -> dict[str, float]:
         """Calculate net Greeks for calendar spread"""
-        near_dte = (near_expiry - datetime.now(timezone.utc)).days / 365.0
-        far_dte = (far_expiry - datetime.now(timezone.utc)).days / 365.0
+        near_dte = (near_expiry - datetime.now(UTC)).days / 365.0
+        far_dte = (far_expiry - datetime.now(UTC)).days / 365.0
 
         # Near option Greeks (short)
         near_d1 = (np.log(spot / strike) + (0.02 + near_iv**2/2) * near_dte) / (near_iv * np.sqrt(near_dte))  # noqa: E501
@@ -794,7 +794,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             confidence = self._calculate_signal_confidence(setup, iv_analysis)
 
             signal = TradingSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_type=SignalType.ENTRY,
                 strength=strength,
                 confidence=confidence,
@@ -923,11 +923,11 @@ class DoubleCalendarStrategy(BaseStrategy):
                                 current_price: float) -> None:
         """Update position value and metrics"""
         # Update days held
-        position.days_held = (datetime.now(timezone.utc) - position.entry_time).days
+        position.days_held = (datetime.now(UTC) - position.entry_time).days
 
         # Update DTEs
-        position.near_dte = (position.setup.call_calendar.near_expiry - datetime.now(timezone.utc)).days
-        position.far_dte = (position.setup.call_calendar.far_expiry - datetime.now(timezone.utc)).days
+        position.near_dte = (position.setup.call_calendar.near_expiry - datetime.now(UTC)).days
+        position.far_dte = (position.setup.call_calendar.far_expiry - datetime.now(UTC)).days
 
         # Calculate current value
         current_value = self._calculate_position_value(position, current_price)
@@ -1024,7 +1024,7 @@ class DoubleCalendarStrategy(BaseStrategy):
         """Create position exit signal"""
         try:
             signal = TradingSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_type=SignalType.EXIT,
                 strength=SignalStrength.STRONG,
                 confidence=90.0,
@@ -1084,7 +1084,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             new_put_strike = round((current_price - PUT_STRIKE_OFFSET) / 5) * 5
 
             signal = TradingSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_type=SignalType.ADJUSTMENT,
                 strength=SignalStrength.MEDIUM,
                 confidence=75.0,
@@ -1106,7 +1106,7 @@ class DoubleCalendarStrategy(BaseStrategy):
 
             # Record adjustment
             position.adjustments.append({
-                'timestamp': datetime.now(timezone.utc),
+                'timestamp': datetime.now(UTC),
                 'type': 'roll_strikes',
                 'details': signal.metadata
             })
@@ -1129,7 +1129,7 @@ class DoubleCalendarStrategy(BaseStrategy):
                 adjustment_action = 'reduce'
 
             signal = TradingSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_type=SignalType.ADJUSTMENT,
                 strength=SignalStrength.MEDIUM,
                 confidence=70.0,
@@ -1151,7 +1151,7 @@ class DoubleCalendarStrategy(BaseStrategy):
 
     def _close_position(self, position: DoubleCalendarPosition) -> None:
         """Close position and update tracking"""
-        position.exit_time = datetime.now(timezone.utc)
+        position.exit_time = datetime.now(UTC)
         position.state = PositionState.COMPLETE
 
         # Update performance stats
@@ -1268,7 +1268,7 @@ class DoubleCalendarStrategy(BaseStrategy):
             position = DoubleCalendarPosition(
                 position_id=str(uuid.uuid4()),
                 setup=self._reconstruct_setup_from_signal(signal),
-                entry_time=datetime.now(timezone.utc),
+                entry_time=datetime.now(UTC),
                 entry_price=signal.metadata.get('current_price', 0),
                 iv_at_entry=self.current_iv_analysis or self._create_default_iv_analysis()
             )
@@ -1334,8 +1334,8 @@ class DoubleCalendarStrategy(BaseStrategy):
         call_leg = CalendarLeg(
             option_type=OptionType.CALL,
             strike=metadata['strikes']['call'],
-            near_expiry=datetime.now(timezone.utc) + timedelta(days=30),
-            far_expiry=datetime.now(timezone.utc) + timedelta(days=60),
+            near_expiry=datetime.now(UTC) + timedelta(days=30),
+            far_expiry=datetime.now(UTC) + timedelta(days=60),
             near_premium=10.0,
             far_premium=15.0,
             net_debit=5.0,
@@ -1350,8 +1350,8 @@ class DoubleCalendarStrategy(BaseStrategy):
         put_leg = CalendarLeg(
             option_type=OptionType.PUT,
             strike=metadata['strikes']['put'],
-            near_expiry=datetime.now(timezone.utc) + timedelta(days=30),
-            far_expiry=datetime.now(timezone.utc) + timedelta(days=60),
+            near_expiry=datetime.now(UTC) + timedelta(days=30),
+            far_expiry=datetime.now(UTC) + timedelta(days=60),
             near_premium=10.0,
             far_premium=15.0,
             net_debit=5.0,

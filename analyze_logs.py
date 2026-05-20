@@ -2,7 +2,7 @@ import json
 from collections import Counter
 
 events = []
-with open('logs/decisions/paper/2026-05-15.jsonl', 'r') as f:
+with open('logs/decisions/paper/2026-05-15.jsonl') as f:
     for line in f:
         events.append(json.loads(line))
 

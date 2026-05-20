@@ -155,7 +155,7 @@ def test_e01_slo_gate_passes_with_good_conditions():
         rm,
         "_check_decision_quality_slo",
         return_value=(True, "", []),
-    ) as mock_slo:
+    ):
         ok, reason, violations = rm._check_decision_quality_slo()
     # Just verifying the method exists and is callable
     assert True  # method exists
@@ -173,12 +173,11 @@ def test_e01_slo_gate_blocks_absent_vol_surface():
     with patch(
         "Spyder.SpyderE_Risk.SpyderE01_RiskManager.RiskManager._check_decision_quality_slo",
         wraps=rm._check_decision_quality_slo,
+    ), patch(
+        "Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator.get_metrics_orchestrator",
+        return_value=mock_orch,
     ):
-        with patch(
-            "Spyder.SpyderS_Signals.SpyderS07_CustomMetricsOrchestrator.get_metrics_orchestrator",
-            return_value=mock_orch,
-        ):
-            approved, reason, violations = rm._check_decision_quality_slo()
+        approved, reason, violations = rm._check_decision_quality_slo()
 
     assert approved is False
     assert "vol_surface" in reason

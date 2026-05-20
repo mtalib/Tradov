@@ -32,7 +32,7 @@ Key Features:
 
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 
 import numpy as np
@@ -167,7 +167,7 @@ class OptionContract:
     @property
     def time_to_expiry(self) -> float:
         """Calculate time to expiry in years"""
-        now = datetime.now() if self.expiry.tzinfo is None else datetime.now(timezone.utc)
+        now = datetime.now() if self.expiry.tzinfo is None else datetime.now(UTC)
         if self.expiry <= now:
             return 0.0
         days = (self.expiry - now).days
@@ -176,7 +176,7 @@ class OptionContract:
     @property
     def is_expired(self) -> bool:
         """Check if option is expired"""
-        now = datetime.now() if self.expiry.tzinfo is None else datetime.now(timezone.utc)
+        now = datetime.now() if self.expiry.tzinfo is None else datetime.now(UTC)
         return now >= self.expiry
 
 
@@ -188,7 +188,7 @@ class MarketData:
     volatility: float
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
     dividend_yield: float = DEFAULT_DIVIDEND_YIELD
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     bid: float | None = None
     ask: float | None = None
     last: float | None = None
@@ -211,7 +211,7 @@ class OptionPrice:
     intrinsic_value: float
     time_value: float
     model_used: PricingModel
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Greeks
     delta: float | None = None
@@ -754,7 +754,7 @@ class OptionsPricer:
             cache_key = self._get_cache_key(contract, market_data)
             if self.use_cache and cache_key in self.price_cache:
                 cached = self.price_cache[cache_key]
-                if (datetime.now(timezone.utc) - cached.timestamp).seconds < self.cache_ttl:
+                if (datetime.now(UTC) - cached.timestamp).seconds < self.cache_ttl:
                     return cached
 
             # Select pricing model
@@ -1086,7 +1086,7 @@ def calculate_option_price(
     pricer = OptionsPricer()
 
     # Create contract
-    expiry = datetime.now(timezone.utc) + timedelta(days=int(time_to_expiry * 365))
+    expiry = datetime.now(UTC) + timedelta(days=int(time_to_expiry * 365))
     contract = OptionContract(
         symbol=f"TEST_{strike}_{option_type}",
         underlying="TEST",
@@ -1127,7 +1127,7 @@ if __name__ == "__main__":
     pricer = create_options_pricer()
 
     # Create contracts
-    expiry = datetime.now(timezone.utc) + timedelta(days=expiry_days)
+    expiry = datetime.now(UTC) + timedelta(days=expiry_days)
 
     call_contract = OptionContract(
         symbol=f"SPY{expiry.strftime('%y%m%d')}C{int(strike*1000):08d}",

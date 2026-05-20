@@ -25,7 +25,7 @@ import time
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -644,7 +644,7 @@ class PortfolioOptimizer:
             # Create optimization result
             result = OptimizationResult(
                 optimization_id=optimization_id,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 method=params.method,
                 objective=params.objective,
 
@@ -683,7 +683,7 @@ class PortfolioOptimizer:
 
             # Store result
             self.optimization_history.append(result)
-            self._last_optimization = datetime.now(timezone.utc)
+            self._last_optimization = datetime.now(UTC)
 
             self.status = OptimizerStatus.RUNNING
             self.logger.info(f"Portfolio optimization completed: Sharpe {result.sharpe_ratio:.3f}, Quality {result.optimization_quality.value}")  # noqa: E501
@@ -697,7 +697,7 @@ class PortfolioOptimizer:
             # Return default result on error
             return OptimizationResult(
                 optimization_id=f"error_{int(time.time())}",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 method=params.method if 'params' in locals() else OptimizationMethod.MEAN_VARIANCE,
                 objective=params.objective if 'params' in locals() else OptimizationObjective.MAXIMIZE_SHARPE,  # noqa: E501
                 optimal_weights=self.current_weights or {},
@@ -781,7 +781,7 @@ class PortfolioOptimizer:
             # Create recommendation
             recommendation = RebalancingRecommendation(
                 recommendation_id=f"rebal_{int(time.time())}",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 trigger=RebalancingTrigger.TIME_BASED,  # Would determine actual trigger
                 urgency_level=urgency_level,
 
@@ -820,7 +820,7 @@ class PortfolioOptimizer:
             # Return minimal recommendation on error
             return RebalancingRecommendation(
                 recommendation_id=f"error_{int(time.time())}",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 trigger=RebalancingTrigger.MANUAL,
                 urgency_level=1,
                 current_weights=self.current_weights,
@@ -860,7 +860,7 @@ class PortfolioOptimizer:
                 'execution_id': f"exec_{int(time.time())}",
                 'recommendation_id': recommendation.recommendation_id,
                 'execution_method': execution_method,
-                'start_time': datetime.now(timezone.utc),
+                'start_time': datetime.now(UTC),
                 'trades_executed': {},
                 'execution_costs': 0.0,
                 'slippage': 0.0,
@@ -884,12 +884,12 @@ class PortfolioOptimizer:
 
             # Store rebalancing history
             self.rebalancing_history.append({
-                'timestamp': datetime.now(timezone.utc),
+                'timestamp': datetime.now(UTC),
                 'recommendation': recommendation,
                 'execution_result': execution_result
             })
 
-            self._last_rebalancing = datetime.now(timezone.utc)
+            self._last_rebalancing = datetime.now(UTC)
             self.status = OptimizerStatus.RUNNING
 
             self.logger.info("Rebalancing executed successfully: %s", execution_result['execution_quality'])  # noqa: E501
@@ -1041,7 +1041,7 @@ class PortfolioOptimizer:
             report_lines.append("=" * 80)
             report_lines.append("SPYDER PORTFOLIO OPTIMIZATION REPORT")
             report_lines.append("=" * 80)
-            report_lines.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
+            report_lines.append(f"Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}")
             report_lines.append("")
 
             # Optimizer status

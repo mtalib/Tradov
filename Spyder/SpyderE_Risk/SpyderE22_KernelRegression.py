@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -354,9 +354,9 @@ class KernelRegression:
                 pass
 
             # Fit model
-            start_time = datetime.now(timezone.utc)
+            start_time = datetime.now(UTC)
             trend = self._nadaraya_watson(self.x, self.y, self.bandwidth)
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now(UTC)
             fit_time = (end_time - start_time).total_seconds()
 
             # Calculate residuals
@@ -659,7 +659,7 @@ class KernelRegression:
         expected_reversion = abs(current_price - trend)
 
         return MeanReversionSignal(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             signal_type=signal_type,
             price=current_price,
             trend=trend,
@@ -780,7 +780,7 @@ def create_sample_price_data(n_periods: int = 252,
     np.random.seed(42)
 
     # Generate prices with trend and noise
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=n_periods, freq='D')
+    dates = pd.date_range(end=datetime.now(UTC), periods=n_periods, freq='D')
 
     # Generate returns with trend
     returns = np.random.normal(trend_strength, noise_std, n_periods)

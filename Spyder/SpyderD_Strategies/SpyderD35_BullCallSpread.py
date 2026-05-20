@@ -23,7 +23,7 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 import uuid
 
@@ -116,8 +116,8 @@ class BullCallSpreadStrategy(BaseStrategy):
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 position_size=0,
-                timestamp=datetime.now(timezone.utc),
-                expires_at=datetime.now(timezone.utc) + timedelta(seconds=self.signal_expiry_seconds),
+                timestamp=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(seconds=self.signal_expiry_seconds),
                 metadata={
                     "strategy_type": "bull_call_spread",
                     "structure": "call_debit_vertical",

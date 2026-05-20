@@ -32,7 +32,6 @@ Module Description:
 import time
 import threading
 import datetime
-from datetime import timezone
 from typing import Any
 from enum import Enum
 from dataclasses import dataclass, field
@@ -888,7 +887,7 @@ class OptionChainManager:
             elif tick_type == 4:  # Last
                 option.last = price
 
-            option.last_update = datetime.datetime.now(timezone.utc)
+            option.last_update = datetime.datetime.now(datetime.UTC)
 
         except Exception as e:
             self.logger.error("Error processing tick price for %s: %s", ticker_id, e, exc_info=True)
@@ -943,7 +942,7 @@ class OptionChainManager:
                 option.time_value = opt_price - option.intrinsic_value
                 option.moneyness = und_price / option.strike
 
-            option.last_update = datetime.datetime.now(timezone.utc)
+            option.last_update = datetime.datetime.now(datetime.UTC)
 
         except Exception as e:
             self.logger.error("Error processing option computation for %s: %s", ticker_id, e, exc_info=True)  # noqa: E501
@@ -1000,7 +999,7 @@ class OptionChainManager:
 
     def _check_stale_data(self):
         """Check for stale option data"""
-        current_time = datetime.datetime.now(timezone.utc)
+        current_time = datetime.datetime.now(datetime.UTC)
         stale_threshold = datetime.timedelta(seconds=STALE_DATA_THRESHOLD)
 
         with self._data_lock:
@@ -1031,7 +1030,7 @@ class OptionChainManager:
                     'symbol': self.symbol,
                     'underlying_price': self.underlying_price,
                     'chains': status_summary,
-                    'timestamp': datetime.datetime.now(timezone.utc).isoformat()
+                    'timestamp': datetime.datetime.now(datetime.UTC).isoformat()
                 }
             )
 

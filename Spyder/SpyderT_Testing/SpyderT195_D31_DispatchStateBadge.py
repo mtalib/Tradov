@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib
 
 import pytest
+from datetime import UTC
 
 
 class _StubEM:
@@ -47,7 +48,7 @@ def _read_today_audit_records(orc):
     import json
     import os
 
-    file_path = orc._resolve_signal_audit_file_path(datetime.now(timezone.utc))
+    file_path = orc._resolve_signal_audit_file_path(datetime.now(UTC))
     if not os.path.exists(file_path):
         return []
 

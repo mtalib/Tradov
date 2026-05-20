@@ -47,7 +47,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
@@ -122,7 +122,7 @@ class StrategyRow:
 @dataclass
 class PnLLadderSnapshot:
     """Full ladder snapshot at a point in time."""
-    timestamp:         datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp:         datetime = field(default_factory=lambda: datetime.now(UTC))
     rows:              list[StrategyRow] = field(default_factory=list)
     portfolio_pnl:     float = 0.0
     portfolio_daily_pnl: float = 0.0

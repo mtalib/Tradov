@@ -18,7 +18,7 @@ import json
 import os
 import sys
 import textwrap
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -79,7 +79,7 @@ class TestGoNoGoPreflightCheck:
         launcher = _make_q14_launcher()
         reports_dir = tmp_path / "go_no_go_reports"
         reports_dir.mkdir()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         (reports_dir / f"go_no_go_{today}_1200_NO-GO.json").write_text(
             json.dumps({"decision": "NO-GO", "reason": "VIX spike"}), encoding="utf-8"
         )
@@ -91,7 +91,7 @@ class TestGoNoGoPreflightCheck:
         launcher = _make_q14_launcher()
         reports_dir = tmp_path / "go_no_go_reports"
         reports_dir.mkdir()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         (reports_dir / f"go_no_go_{today}_0900_GO.json").write_text(
             json.dumps({"decision": "GO", "reason": "All clear"}), encoding="utf-8"
         )
@@ -103,7 +103,7 @@ class TestGoNoGoPreflightCheck:
         launcher = _make_q14_launcher()
         reports_dir = tmp_path / "go_no_go_reports"
         reports_dir.mkdir()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         (reports_dir / f"go_no_go_{today}_0930_CONDITIONAL GO.json").write_text(
             json.dumps({"decision": "CONDITIONAL GO", "override_reason": "minor VIX"}),
             encoding="utf-8",
@@ -116,7 +116,7 @@ class TestGoNoGoPreflightCheck:
         launcher = _make_q14_launcher()
         reports_dir = tmp_path / "go_no_go_reports"
         reports_dir.mkdir()
-        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+        yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
         (reports_dir / f"go_no_go_{yesterday}_0900_GO.json").write_text(
             json.dumps({"decision": "GO"}), encoding="utf-8"
         )
@@ -133,7 +133,7 @@ def _invoke_check_go_no_go(launcher, reports_dir: Path) -> bool:
     """
     # Build a wrapped version that substitutes _root
     def _patched_check(self):
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         pattern = f"go_no_go_{today}*.json"
         candidate_files = list(reports_dir.glob(pattern))
         if not candidate_files:
@@ -305,8 +305,7 @@ class TestRecordKillSwitchDrill:
 
 class TestHandleBrokerReconnect:
     def test_appends_jsonl_entry(self, tmp_path):
-        engine = _make_live_engine()
-        reconnect_dir = tmp_path / "market_data" / "reconnect_log"
+        _make_live_engine()
 
         with patch(
             "Spyder.SpyderR_Runtime.SpyderR04_LiveEngine.Path.__new__"
@@ -331,8 +330,8 @@ class TestHandleBrokerReconnect:
         with patch.object(Path, "resolve", _patched_resolve):
             # Directly exercise the logic mirrored from the method
             import json as _json
-            ts = datetime.now(timezone.utc).isoformat()
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            ts = datetime.now(UTC).isoformat()
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
             log_dir = tmp_path / "market_data" / "reconnect_log"
             log_dir.mkdir(parents=True, exist_ok=True)
             log_path = log_dir / f"reconnect_{today}.jsonl"
@@ -423,7 +422,7 @@ class TestGenerateEodReview:
             return_value={"rejected_orders": 0, "avg_slippage": 0.0, "fill_rate": 1.0}
         )
 
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         reports_dir = tmp_path / "market_data" / "go_no_go_reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
         audit_file = reports_dir / f"go_no_go_{today}_0930_CONDITIONAL GO_audit_001.json"
@@ -441,8 +440,8 @@ class TestGenerateEodReview:
         rpt._get_execution_quality_metrics = MagicMock(
             return_value={"rejected_orders": 0, "avg_slippage": 0.0, "fill_rate": 1.0}
         )
-        review = _invoke_eod_review(rpt, tmp_path)
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        _invoke_eod_review(rpt, tmp_path)
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         expected = tmp_path / "market_data" / "eod_reviews" / f"eod_{today}.json"
         assert expected.exists()
 
@@ -451,7 +450,7 @@ class TestGenerateEodReview:
         rpt._get_execution_quality_metrics = MagicMock(
             return_value={"rejected_orders": 0, "avg_slippage": 0.0, "fill_rate": 1.0}
         )
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         log_dir = tmp_path / "market_data" / "reconnect_log"
         log_dir.mkdir(parents=True, exist_ok=True)
         entry = {"ts": f"{today}T09:30:00", "reason": "broker_disconnect", "account_id": "X"}
@@ -474,14 +473,6 @@ def _invoke_eod_review(rpt, tmp_path: Path) -> dict:
     """Call generate_eod_review() with project_root patched to tmp_path."""
     from datetime import date
 
-    # Patch Path(__file__).resolve().parents[2] inside K02 module
-    import Spyder.SpyderK_Reports.SpyderK02_DailyTradingReport as _k02_mod
-
-    real_file = Path(_k02_mod.__file__).resolve()
-
-    # Patch the internal helper methods to use tmp_path
-    original_collect_overrides = rpt._eod_collect_overrides if hasattr(rpt, "_eod_collect_overrides") else None
-
     # Directly call helper methods using tmp_path as project root
     today = date.today()
 
@@ -496,7 +487,7 @@ def _invoke_eod_review(rpt, tmp_path: Path) -> dict:
     out_path = eod_dir / f"eod_{today.isoformat()}.json"
     review = {
         "date": today.isoformat(),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "rejects": rejects,
         "slippage": slippage,
         "policy_blocks": policy_blocks,

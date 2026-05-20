@@ -35,7 +35,7 @@ References:
 # ==============================================================================
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from collections import deque
 import warnings
 
@@ -405,7 +405,7 @@ class FrustrationAnalyzer:
             Complete spin glass analysis
         """
         try:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
             n_assets = len(returns_data.columns)
 
             # Compute correlation matrix if not provided
@@ -670,7 +670,7 @@ class FrustrationAnalyzer:
             )
 
         return FrustrationMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             frustration_index=frustration_index,
             frustrated_triangle_count=frustrated_count,
             total_triangle_count=total_triangles,
@@ -795,7 +795,7 @@ class FrustrationAnalyzer:
         stability_score = max(0, min(100, stability_score))
 
         return EnergyMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             hamiltonian=hamiltonian,
             normalized_energy=normalized_energy,
             energy_per_spin=energy_per_spin,
@@ -879,7 +879,7 @@ class FrustrationAnalyzer:
 
         if n_periods < LONG_WINDOW:
             return ReplicaSymmetryMetrics(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 overlap_mean=1.0,
                 overlap_variance=0.0,
                 rsb_detected=False,
@@ -915,7 +915,7 @@ class FrustrationAnalyzer:
         short_long_divergence = 1.0 - overlap_short_long
 
         return ReplicaSymmetryMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             overlap_mean=overlap_mean,
             overlap_variance=overlap_variance,
             overlap_distribution=overlaps,
@@ -990,7 +990,7 @@ class FrustrationAnalyzer:
         hierarchy_depth = self._estimate_hierarchy_depth(mst_array)
 
         return UltrametricMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             mst_total_length=mst_total_length,
             mst_normalized_length=mst_normalized_length,
             mst_length_ratio=mst_length_ratio,
@@ -1165,7 +1165,7 @@ class FrustrationAnalyzer:
         )
 
         return PhaseTransitionMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             current_phase=current_phase,
             phase_probability=1.0 - (warning_score / 200),  # Confidence
             days_in_phase=days_in_phase,
@@ -1423,7 +1423,7 @@ class FrustrationAnalyzer:
 
     def _get_default_analysis(self) -> SpinGlassAnalysis:
         """Return default analysis for error cases."""
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
 
         return SpinGlassAnalysis(
             timestamp=timestamp,
@@ -1520,7 +1520,7 @@ def create_sample_data(n_assets: int = 20, n_periods: int = 200) -> pd.DataFrame
 
         returns[f'Asset_{i}'] = beta * market + sector_factor + idio
 
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=n_periods, freq='D')
+    dates = pd.date_range(end=datetime.now(UTC), periods=n_periods, freq='D')
     return pd.DataFrame(returns, index=dates)
 
 

@@ -12,7 +12,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, time as dt_time
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 
 _DELAYED_INDEX_SYMBOLS = frozenset({"SPX", "$DJI", "NDX", "RUT"})

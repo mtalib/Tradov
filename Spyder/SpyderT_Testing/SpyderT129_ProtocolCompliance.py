@@ -1100,28 +1100,27 @@ class N1KillSwitchPersistenceTest(unittest.TestCase):
             }))
 
             # Set required env vars and patch the lock path
-            with mock.patch.dict(os.environ, {
-                "LIVE_TRADING_CONFIRMED": "true",
-                "TRADIER_API_KEY": "test",
-                "TRADIER_ACCOUNT_ID": "TEST123",
-                # A12 (v14): additional safety-config env required for live preflight
-                "CLOSE_POSITIONS_ON_EMERGENCY": "true",
-                "MAX_DAILY_LOSS": "500",
-                "MAX_POSITION_SIZE": "100",
-            }):
-                # Patch Path.home() so the launcher finds our temp lock
-                with mock.patch(
-                    "Spyder.SpyderQ_Scripts.SpyderQ14_MainLauncher.Path"
-                ) as MockPath:
-                    # Make Path.home() / ".spyder_kill_lock" return our temp lock
-                    mock_home_dir = mock.MagicMock()
-                    MockPath.home.return_value = mock_home_dir
-                    mock_home_dir.__truediv__ = lambda self, other: lock_path
-                    # Also let Path("/tmp/...") work normally for PID lock
-                    MockPath.side_effect = lambda *a, **k: Path(*a, **k)
+            with (
+                mock.patch.dict(os.environ, {
+                    "LIVE_TRADING_CONFIRMED": "true",
+                    "TRADIER_API_KEY": "test",
+                    "TRADIER_ACCOUNT_ID": "TEST123",
+                    # A12 (v14): additional safety-config env required for live preflight
+                    "CLOSE_POSITIONS_ON_EMERGENCY": "true",
+                    "MAX_DAILY_LOSS": "500",
+                    "MAX_POSITION_SIZE": "100",
+                }),
+                mock.patch("Spyder.SpyderQ_Scripts.SpyderQ14_MainLauncher.Path") as MockPath,
+            ):
+                # Make Path.home() / ".spyder_kill_lock" return our temp lock
+                mock_home_dir = mock.MagicMock()
+                MockPath.home.return_value = mock_home_dir
+                mock_home_dir.__truediv__ = lambda self, other: lock_path
+                # Also let Path("/tmp/...") work normally for PID lock
+                MockPath.side_effect = lambda *a, **k: Path(*a, **k)
 
-                    import fcntl  # noqa: F401 — imported by _live_preflight_checks
-                    result = launcher._live_preflight_checks()
+                import fcntl  # noqa: F401 — imported by _live_preflight_checks
+                result = launcher._live_preflight_checks()
 
             self.assertFalse(result,
                              "_live_preflight_checks must return False when kill-lock present")
@@ -1625,7 +1624,6 @@ class A4A5TimezoneAwareTimestampsTest(unittest.TestCase):
 
         import Spyder.SpyderR_Runtime.SpyderR13_FillReconciler as r13
 
-        rec = mock.MagicMock()
         # Patch the module-level path to a temp file so the test does not
         # touch logs/orphans.jsonl in the repo.
         tmp = Path(tempfile.mkstemp(suffix=".jsonl")[1])

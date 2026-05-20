@@ -10,7 +10,8 @@ Purpose: Pure presentation helper for readiness hard-block start copy
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 
 @dataclass(frozen=True)

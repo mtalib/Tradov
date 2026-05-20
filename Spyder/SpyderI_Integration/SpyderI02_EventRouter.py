@@ -26,7 +26,7 @@ import threading
 import time
 import queue
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from collections.abc import Callable
 from re import Pattern
@@ -129,7 +129,7 @@ class RoutingRule:
     conditions: dict[str, Any] = field(default_factory=dict)
     transformations: list[str] = field(default_factory=list)
     enabled: bool = True
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     usage_count: int = 0
     success_count: int = 0
     error_count: int = 0
@@ -186,7 +186,7 @@ class PrioritizedEvent:
     routing_rules: list[str]
     correlation_id: str | None = None
     retry_count: int = 0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 # ==============================================================================
 # EVENT ROUTER CLASS
@@ -583,7 +583,7 @@ class EventRouter:
             # Add to event history for correlation analysis
             if self.enable_correlation:
                 self.event_history.append({
-                    'timestamp': datetime.now(timezone.utc),
+                    'timestamp': datetime.now(UTC),
                     'event_type': event.type.value,
                     'source': event.source,
                     'event_id': getattr(event, 'id', str(uuid.uuid4()))
@@ -985,7 +985,7 @@ class EventRouter:
                 # Update success metrics
                 handler.success_count += 1
                 handler.total_executions += 1
-                handler.last_execution = datetime.now(timezone.utc)
+                handler.last_execution = datetime.now(UTC)
 
                 # Update latency
                 latency = (time.time() - start_time) * 1000  # ms
@@ -1065,7 +1065,7 @@ class EventRouter:
             if not self.enable_correlation:
                 return None
 
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
             event_type = event.type.value
 
             # Look for correlated events in recent history
@@ -1137,7 +1137,7 @@ class EventRouter:
             # This would implement statistical correlation analysis
             # For brevity, showing simplified version
 
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
             cutoff_time = current_time - timedelta(seconds=window_seconds)
 
             recent_events = events_df[events_df['timestamp'] >= cutoff_time]

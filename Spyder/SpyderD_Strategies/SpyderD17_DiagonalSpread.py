@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum, auto
 from typing import Any
 
@@ -201,7 +201,7 @@ class CostBasis:
 
         self.adjustments.append(
             {
-                "date": datetime.now(timezone.utc),
+                "date": datetime.now(UTC),
                 "amount": amount,
                 "description": description,
                 "new_basis": self.current_basis,
@@ -651,7 +651,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
     def _select_diagonal_expiries(self) -> tuple[datetime, datetime]:
         """Select optimal expiration dates"""
-        current_date = datetime.now(timezone.utc)
+        current_date = datetime.now(UTC)
 
         # Short expiry
         short_target = current_date + timedelta(days=OPTIMAL_SHORT_DTE)
@@ -679,7 +679,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         self, strike: float, spot: float, expiry: datetime, iv: float, option_type: OptionType
     ) -> float:
         """Estimate option premium"""
-        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
+        dte = (expiry - datetime.now(UTC)).days / 365.0
 
         # Simplified Black-Scholes approximation
         d1 = (np.log(spot / strike) + (0.02 + iv**2 / 2) * dte) / (iv * np.sqrt(dte))
@@ -698,7 +698,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         self, strike: float, spot: float, expiry: datetime, iv: float, option_type: OptionType
     ) -> float:
         """Calculate option delta"""
-        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
+        dte = (expiry - datetime.now(UTC)).days / 365.0
 
         d1 = (np.log(spot / strike) + (0.02 + iv**2 / 2) * dte) / (iv * np.sqrt(dte))
 
@@ -712,7 +712,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
     ) -> float:
         """Calculate maximum profit for diagonal"""
         # Max profit if short expires worthless and long retains value
-        time_to_short_expiry = (short_leg.expiry - datetime.now(timezone.utc)).days
+        time_to_short_expiry = (short_leg.expiry - datetime.now(UTC)).days
         time_after_short = (long_leg.expiry - short_leg.expiry).days
 
         # Estimate remaining value of long option
@@ -794,7 +794,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
             confidence = (setup.trend_data.strength + setup.trend_data.reliability) / 2
 
             signal = TradingSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_type=SignalType.ENTRY,
                 strength=strength,
                 confidence=confidence,
@@ -833,8 +833,8 @@ class DiagonalSpreadStrategy(BaseStrategy):
         for position_id, position in list(self.active_positions.items()):
             # Update position metrics
             position.days_held += 1
-            position.short_dte = (position.setup.short_leg.expiry - datetime.now(timezone.utc)).days
-            position.long_dte = (position.setup.long_leg.expiry - datetime.now(timezone.utc)).days
+            position.short_dte = (position.setup.short_leg.expiry - datetime.now(UTC)).days
+            position.long_dte = (position.setup.long_leg.expiry - datetime.now(UTC)).days
             position.current_trend = self.current_trend
 
             # Update position value
@@ -924,7 +924,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
         if roll_credit >= MIN_ROLL_CREDIT * SPY_CONTRACT_MULTIPLIER:
             signal = TradingSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_type=SignalType.ADJUST,
                 strength=SignalStrength.MEDIUM,
                 confidence=0.7,
@@ -965,7 +965,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         )
 
         # Estimate credit from new short leg
-        new_expiry = self._next_expiry_after(datetime.now(timezone.utc) + timedelta(days=30))
+        new_expiry = self._next_expiry_after(datetime.now(UTC) + timedelta(days=30))
         new_short_credit = (
             self._estimate_option_premium(
                 position.setup.short_leg.strike,
@@ -1026,7 +1026,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
     def _create_exit_signal(self, position: DiagonalPosition, reason: str) -> TradingSignal:
         """Create exit signal"""
-        position.exit_time = datetime.now(timezone.utc)
+        position.exit_time = datetime.now(UTC)
         position.exit_reason = reason
         position.state = DiagonalState.CLOSING
 
@@ -1037,7 +1037,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         self._update_performance_stats(position, total_pnl)
 
         signal = TradingSignal(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             signal_type=SignalType.EXIT,
             strength=SignalStrength.STRONG,
             confidence=0.95,
@@ -1094,7 +1094,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
 
     def add_position(self, signal: TradingSignal) -> str:
         """Add new diagonal position"""
-        position_id = f"DIAG_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        position_id = f"DIAG_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
         # Extract setup from signal
         signal.metadata["setup"]
@@ -1112,7 +1112,7 @@ class DiagonalSpreadStrategy(BaseStrategy):
         position = DiagonalPosition(
             position_id=position_id,
             setup=None,  # Would reconstruct from setup_dict
-            entry_time=datetime.now(timezone.utc),
+            entry_time=datetime.now(UTC),
             entry_price=signal.metadata.get("current_price", 0),
             cost_basis=cost_basis,
             state=DiagonalState.ESTABLISHED,
@@ -1233,7 +1233,7 @@ def test_diagonal_spread():
     logging.info("Track Cost Basis: %s", strategy.track_cost_basis)
 
     # Create trending market data
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=100, freq="D")
+    dates = pd.date_range(end=datetime.now(UTC), periods=100, freq="D")
 
     # Create uptrend
     trend = np.linspace(440, 460, 100)
@@ -1300,7 +1300,7 @@ def test_diagonal_spread():
             new_price = prices[-1] + np.random.randn() * 2 + 0.2  # Slight upward bias
 
             market_data.loc[len(market_data)] = {
-                "timestamp": datetime.now(timezone.utc) + timedelta(days=i),
+                "timestamp": datetime.now(UTC) + timedelta(days=i),
                 "open": new_price - 0.3,
                 "high": new_price + 0.5,
                 "low": new_price - 0.5,

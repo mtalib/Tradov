@@ -10,7 +10,8 @@ Purpose: Pure presentation helpers for execution-health diagnostics
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 

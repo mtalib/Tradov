@@ -31,7 +31,7 @@ Consolidation Notes:
 # ==============================================================================
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -213,7 +213,7 @@ class VolatilitySurface:
     model_used: VolatilityModel
     spot_price: float
     surface_quality: float  # Quality score 0-1
-    generation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    generation_time: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -231,7 +231,7 @@ class VolatilityMetrics:
     jarque_bera_stat: float
     ljung_box_stat: float
     arch_lm_stat: float
-    calculation_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    calculation_time: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 # ==============================================================================
@@ -390,7 +390,7 @@ class SpyderVolatilityEngine:
                     "total_forecasts": 0,
                     "avg_error": 0.0,
                     "rmse": 0.0,
-                    "last_used": datetime.now(timezone.utc),
+                    "last_used": datetime.now(UTC),
                 }
                 self.forecast_accuracy[model] = []
 
@@ -619,7 +619,7 @@ class SpyderVolatilityEngine:
 
     async def _ensure_calibration(self):
         """Ensure models are properly calibrated with recent data."""
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
 
         # Check if calibration is needed
         if (
@@ -650,7 +650,7 @@ class SpyderVolatilityEngine:
             # Update volatility regime
             self._update_volatility_regime()
 
-            self.last_calibration = datetime.now(timezone.utc)
+            self.last_calibration = datetime.now(UTC)
             self.logger.info("Volatility model calibration completed successfully")
 
         except Exception as e:
@@ -1233,7 +1233,7 @@ class SpyderVolatilityEngine:
 
         # Check if cache is still valid
         age_minutes = (
-            datetime.now(timezone.utc) - cached_forecast.metadata.get("cache_time", datetime.now(timezone.utc))
+            datetime.now(UTC) - cached_forecast.metadata.get("cache_time", datetime.now(UTC))
         ).total_seconds() / 60
 
         if age_minutes < self.cache_expiry_minutes:
@@ -1244,7 +1244,7 @@ class SpyderVolatilityEngine:
 
     def _cache_forecast(self, cache_key: str, forecast: VolatilityForecast):
         """Cache forecast result."""
-        forecast.metadata["cache_time"] = datetime.now(timezone.utc)
+        forecast.metadata["cache_time"] = datetime.now(UTC)
         self.forecast_cache[cache_key] = forecast
 
         # Cleanup old cache entries
@@ -1260,7 +1260,7 @@ class SpyderVolatilityEngine:
 
         # Check if cache is still valid
         age_minutes = (
-            datetime.now(timezone.utc) - cached_surface.generation_time
+            datetime.now(UTC) - cached_surface.generation_time
         ).total_seconds() / 60
 
         if age_minutes < self.cache_expiry_minutes:
@@ -1279,7 +1279,7 @@ class SpyderVolatilityEngine:
 
     def _cleanup_forecast_cache(self):
         """Remove expired forecast cache entries."""
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
         expired_keys = []
 
         for key, forecast in self.forecast_cache.items():
@@ -1294,7 +1294,7 @@ class SpyderVolatilityEngine:
 
     def _cleanup_surface_cache(self):
         """Remove expired surface cache entries."""
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
         expired_keys = []
 
         for key, surface in self.surface_cache.items():
@@ -1313,7 +1313,7 @@ class SpyderVolatilityEngine:
         if model in self.model_performance:
             perf = self.model_performance[model]
             perf["total_forecasts"] += 1
-            perf["last_used"] = datetime.now(timezone.utc)
+            perf["last_used"] = datetime.now(UTC)
 
             # Update average calculation time
             if "avg_calc_time" in perf:
@@ -1363,7 +1363,7 @@ class SpyderVolatilityEngine:
         self.current_volatility = self._get_historical_volatility()
         self._update_volatility_regime()
 
-        self.last_data_update = datetime.now(timezone.utc)
+        self.last_data_update = datetime.now(UTC)
 
         # Clear conditional variance cache (will be recalculated)
         self.garch_conditional_variance = None

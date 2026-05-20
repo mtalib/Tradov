@@ -27,7 +27,7 @@ import logging
 import sys
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import numpy as np
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
@@ -206,7 +206,7 @@ class SkewDataThread(QThread):
                 value = SKEW_HISTORICAL_MEAN + random.gauss(0, SKEW_HISTORICAL_STD)
                 return SkewData(
                     value=value,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     change_1d=random.uniform(-3, 3),
                     change_5d=random.uniform(-5, 5),
                     change_20d=random.uniform(-10, 10),
@@ -793,7 +793,7 @@ class SkewMonitorDialog(QDialog):
         self.check_alerts(data)
 
         # Update last update time
-        self.last_update_label.setText(f"Last Update: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
+        self.last_update_label.setText(f"Last Update: {datetime.now(UTC).strftime('%H:%M:%S')}")
 
     def update_overview_display(self, data: SkewData):
         """Update overview tab display"""
@@ -1190,7 +1190,7 @@ class SkewMonitorDialog(QDialog):
             alert = SkewAlert(
                 level="CRITICAL",
                 message=f"SKEW at extreme high: {data.value:.1f}",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 value=data.value,
                 action="Review risk exposure immediately",
             )
@@ -1200,7 +1200,7 @@ class SkewMonitorDialog(QDialog):
             alert = SkewAlert(
                 level="WARNING",
                 message=f"SKEW at extreme low: {data.value:.1f}",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 value=data.value,
                 action="Consider buying protection",
             )
@@ -1211,7 +1211,7 @@ class SkewMonitorDialog(QDialog):
             alert = SkewAlert(
                 level="WARNING",
                 message=f"SKEW rapid change: {data.change_1d:+.1f}",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 value=data.value,
                 action="Review positions for tail risk",
             )

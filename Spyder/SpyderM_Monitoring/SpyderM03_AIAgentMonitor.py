@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 import threading
 from collections import defaultdict, deque
@@ -333,7 +333,7 @@ class AIAgentMonitor:
         recommendations = self._generate_recommendations()
 
         return MonitoringReport(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             total_agents=total_agents,
             healthy_agents=status_counts['healthy'],
             warning_agents=status_counts['warning'],
@@ -402,7 +402,7 @@ class AIAgentMonitor:
         for alert in self.active_alerts:
             if alert.alert_id == alert_id and not alert.resolved:
                 alert.resolved = True
-                alert.resolution_time = datetime.now(timezone.utc)
+                alert.resolution_time = datetime.now(UTC)
                 self.logger.info("Alert %s acknowledged", alert_id)
                 return True
         return False
@@ -450,7 +450,7 @@ class AIAgentMonitor:
             self.health_status[agent_name] = AgentHealth(
                 agent_name=agent_name,
                 status=HealthStatus.UNKNOWN,
-                last_check=datetime.now(timezone.utc),
+                last_check=datetime.now(UTC),
                 uptime=timedelta(0),
                 metrics={}
             )
@@ -465,7 +465,7 @@ class AIAgentMonitor:
                 )
 
             # Track start time
-            self.agent_start_times[agent_name] = datetime.now(timezone.utc)
+            self.agent_start_times[agent_name] = datetime.now(UTC)
 
     def _start_monitoring_threads(self):
         """Start all monitoring threads."""
@@ -536,8 +536,8 @@ class AIAgentMonitor:
     def _update_agent_health(self, agent_name: str, status_info: dict[str, Any]):
         """Update health status for an agent."""
         # Calculate uptime
-        start_time = self.agent_start_times.get(agent_name, datetime.now(timezone.utc))
-        uptime = datetime.now(timezone.utc) - start_time
+        start_time = self.agent_start_times.get(agent_name, datetime.now(UTC))
+        uptime = datetime.now(UTC) - start_time
 
         # Extract metrics
         metrics = {}
@@ -592,7 +592,7 @@ class AIAgentMonitor:
         self.health_status[agent_name] = AgentHealth(
             agent_name=agent_name,
             status=status,
-            last_check=datetime.now(timezone.utc),
+            last_check=datetime.now(UTC),
             uptime=uptime,
             metrics=metrics,
             issues=issues,
@@ -605,7 +605,7 @@ class AIAgentMonitor:
     def _collect_all_metrics(self):
         """Collect metrics from all agents."""
         agent_status = self.agent_manager.get_agent_status()
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
 
         for agent_name, status_info in agent_status.get('agents', {}).items():
             self._collect_agent_metrics(agent_name, status_info, timestamp)
@@ -745,7 +745,7 @@ class AIAgentMonitor:
             current_value=current_value,
             threshold=threshold,
             message=message,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
 
         self.active_alerts.append(alert)

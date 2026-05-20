@@ -27,7 +27,7 @@ import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from typing import Any
 from collections.abc import Callable  # noqa: F401
@@ -156,7 +156,7 @@ class TradingSignal:
 
     def is_valid(self) -> bool:
         """Check if signal is still valid"""
-        now = datetime.now(timezone.utc) if self.expires_at.tzinfo else datetime.now()
+        now = datetime.now(UTC) if self.expires_at.tzinfo else datetime.now()
         return now < self.expires_at
 
     def to_dict(self) -> dict[str, Any]:
@@ -232,7 +232,7 @@ class StrategyPosition:
 
     def close_position(self, exit_price: float, exit_reason: str) -> None:
         """Close position and finalize P&L"""
-        self.exit_time = datetime.now(timezone.utc)
+        self.exit_time = datetime.now(UTC)
         self.exit_price = exit_price
         self.exit_reason = exit_reason
         self.state = PositionState.CLOSED
@@ -328,7 +328,7 @@ class PerformanceMetrics:
             )
 
         # Update daily P&L
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         self.daily_pnl[today] = self.daily_pnl.get(today, 0) + pnl
 
 
@@ -475,7 +475,7 @@ class BaseStrategy(ABC):
                 return False
 
             self.state = STRATEGY_INITIALIZING
-            self.start_time = datetime.now(timezone.utc)
+            self.start_time = datetime.now(UTC)
 
             # Perform initialization
             self._initialize_strategy()
@@ -554,7 +554,7 @@ class BaseStrategy(ABC):
             return
 
         try:
-            self.last_update = datetime.now(timezone.utc)
+            self.last_update = datetime.now(UTC)
 
             # Update existing positions
             self._update_positions(market_data)
@@ -608,7 +608,7 @@ class BaseStrategy(ABC):
                     else PositionType.SHORT
                 ),
                 state=PositionState.PENDING,
-                entry_time=datetime.now(timezone.utc),
+                entry_time=datetime.now(UTC),
                 entry_price=signal.entry_price,
                 position_size=signal.position_size,
                 stop_loss=signal.stop_loss,
@@ -731,7 +731,7 @@ class BaseStrategy(ABC):
     def _can_trade(self) -> bool:
         """Check if strategy can trade"""
         # Check daily trade limit
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         if self.last_trade_date != today:
             self.daily_trades = 0
             self.last_trade_date = today
@@ -860,7 +860,7 @@ class BaseStrategy(ABC):
         """Publish strategy status event"""
         self.event_manager.emit(
             EventType.ALERT,
-            {"message": message, "state": self.state, "timestamp": datetime.now(timezone.utc).isoformat()},
+            {"message": message, "state": self.state, "timestamp": datetime.now(UTC).isoformat()},
             source=self.name,
         )
 
@@ -985,8 +985,8 @@ if __name__ == "__main__":
                     stop_loss=market_data["close"].iloc[-1] * 0.98,
                     take_profit=market_data["close"].iloc[-1] * 1.02,
                     position_size=1,
-                    timestamp=datetime.now(timezone.utc),
-                    expires_at=datetime.now(timezone.utc) + timedelta(seconds=SIGNAL_EXPIRY_SECONDS),
+                    timestamp=datetime.now(UTC),
+                    expires_at=datetime.now(UTC) + timedelta(seconds=SIGNAL_EXPIRY_SECONDS),
                 )
                 signals.append(signal)
 
@@ -1041,7 +1041,7 @@ if __name__ == "__main__":
         pass
 
     # Create sample market data
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=50, freq="5min")
+    dates = pd.date_range(end=datetime.now(UTC), periods=50, freq="5min")
     prices = 450 + np.cumsum(np.random.randn(50) * 0.5)
     market_data = pd.DataFrame(
         {

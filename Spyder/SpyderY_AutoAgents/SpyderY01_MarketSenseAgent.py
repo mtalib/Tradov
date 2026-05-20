@@ -33,7 +33,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
@@ -100,7 +100,7 @@ except ImportError:
 @dataclass
 class MarketSnapshot:
     """Point-in-time market state captured by the agent."""
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     session: str = ""
     regime: str = "unknown"
     regime_confidence: float = 0.0
@@ -333,13 +333,13 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
         old_regime = self._current_regime
         self._current_regime = snapshot.regime
         self._regime_confidence = snapshot.regime_confidence
-        self._last_regime_change = datetime.now(timezone.utc)
+        self._last_regime_change = datetime.now(UTC)
 
         transition = {
             "from": old_regime,
             "to": snapshot.regime,
             "confidence": snapshot.regime_confidence,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         self._regime_history.append(transition)
 
@@ -415,7 +415,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
         """Generate end-of-day summary using snapshots and LLM."""
         today_snapshots = [
             s for s in self._snapshots
-            if s.timestamp.date() == datetime.now(timezone.utc).date()
+            if s.timestamp.date() == datetime.now(UTC).date()
         ]
 
         if not today_snapshots:
@@ -429,7 +429,7 @@ class SpyderY01_MarketSenseAgent(BaseAutoAgent):
                 transitions += 1
 
         brief = DailyBrief(
-            date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            date=datetime.now(UTC).strftime("%Y-%m-%d"),
             regime_start=regimes_seen[0] if regimes_seen else "unknown",
             regime_end=regimes_seen[-1] if regimes_seen else "unknown",
             regime_transitions=transitions,

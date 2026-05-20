@@ -30,7 +30,7 @@ Change Log:
 import os
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -139,7 +139,7 @@ class CachedMarketData:
     def is_expired(self) -> bool:
         """Check if cache entry is expired"""
         if self.expiry:
-            return datetime.now(timezone.utc) > self.expiry
+            return datetime.now(UTC) > self.expiry
         return False
 
     def to_dict(self) -> dict[str, Any]:
@@ -365,11 +365,11 @@ class MarketDataCache:
 
             entry = CachedMarketData(
                 symbol=symbol,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 data=data,
                 priority=priority,
                 ttl=ttl,
-                expiry=datetime.now(timezone.utc) + timedelta(seconds=ttl) if ttl else None
+                expiry=datetime.now(UTC) + timedelta(seconds=ttl) if ttl else None
             )
 
             # Store in memory
@@ -414,7 +414,7 @@ class MarketDataCache:
 
         if entry and not entry.is_expired():
             if max_age:
-                age = (datetime.now(timezone.utc) - entry.timestamp).total_seconds()
+                age = (datetime.now(UTC) - entry.timestamp).total_seconds()
                 if age > max_age:
                     entry = None
 
@@ -577,7 +577,7 @@ class MarketDataCache:
         entry = self._l1_cache.get(key)
         if isinstance(entry, CachedMarketData):
             entry.access_count += 1
-            entry.last_access = datetime.now(timezone.utc)
+            entry.last_access = datetime.now(UTC)
             return entry
         return None
 
@@ -640,7 +640,7 @@ class MarketDataCache:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     symbol,
-                    datetime.now(timezone.utc).timestamp(),
+                    datetime.now(UTC).timestamp(),
                     data.get('bid'),
                     data.get('ask'),
                     data.get('last'),
@@ -665,7 +665,7 @@ class MarketDataCache:
                 '''
 
                 if max_age:
-                    min_timestamp = (datetime.now(timezone.utc) - timedelta(seconds=max_age)).timestamp()
+                    min_timestamp = (datetime.now(UTC) - timedelta(seconds=max_age)).timestamp()
                     query = '''
                         SELECT data, timestamp FROM market_data
                         WHERE symbol = ? AND timestamp >= ?
@@ -725,7 +725,7 @@ class MarketDataCache:
         """Clean old data from disk"""
         try:
             retention_days = self.config['persistence']['retention_days']
-            cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+            cutoff = datetime.now(UTC) - timedelta(days=retention_days)
 
             with sqlite3.connect(self.db_path) as conn:
                 # Clean market_data table
@@ -755,7 +755,7 @@ class MarketDataCache:
         symbols = self.config['preload']['symbols']
         lookback = self.config['preload']['lookback_minutes']
 
-        end_time = datetime.now(timezone.utc)
+        end_time = datetime.now(UTC)
         start_time = end_time - timedelta(minutes=lookback)
 
         for symbol in symbols:
@@ -882,7 +882,7 @@ if __name__ == "__main__":
             'ask': 100 + random.random() * 10,
             'last': 100 + random.random() * 10,
             'volume': random.randint(1000, 10000),
-            'timestamp': datetime.now(timezone.utc)
+            'timestamp': datetime.now(UTC)
         }
 
         cache.put(symbol, data, priority=random.randint(1, 4))
@@ -895,7 +895,7 @@ if __name__ == "__main__":
             pass
 
     # Get historical range
-    end_time = datetime.now(timezone.utc)
+    end_time = datetime.now(UTC)
     start_time = end_time - timedelta(minutes=5)
 
     df = cache.get_range('SPY', start_time, end_time)

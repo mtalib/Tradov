@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from enum import Enum
-from datetime import datetime, time, timezone
+from datetime import datetime, time, UTC
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 
@@ -125,7 +125,7 @@ class FilterThreshold:
     min_value: float
     max_value: float
     adaptation_rate: float = 0.1
-    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_update: datetime = field(default_factory=lambda: datetime.now(UTC))
     performance_history: list[float] = field(default_factory=list)
 
     def adapt(self, performance_score: float):
@@ -148,7 +148,7 @@ class FilterThreshold:
         if len(self.performance_history) > 100:
             self.performance_history.pop(0)
 
-        self.last_update = datetime.now(timezone.utc)
+        self.last_update = datetime.now(UTC)
 
 @dataclass
 class FilterCheck:
@@ -173,7 +173,7 @@ class EntryFilterResult:
     checks: list[FilterCheck]
     warnings: list[str]
     recommendations: list[str]
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def get_failed_filters(self) -> list[FilterCheck]:
         """Get all failed filter checks."""
@@ -494,7 +494,7 @@ class EntryFilters:
         Returns:
             Complete filter assessment
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         # Validate critical numeric inputs
         critical_fields = ['current_price', 'volume', 'rsi', 'implied_volatility']
@@ -546,7 +546,7 @@ class EntryFilters:
             )
 
             # Record metrics
-            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
             if hasattr(self.monitor, 'record_metric'):
                 self.monitor.record_metric('entry_filters.execution_ms', elapsed_ms)
                 self.monitor.record_metric('entry_filters.quality_score', quality_rating.value)
@@ -607,7 +607,7 @@ class EntryFilters:
 
         # Check if it's time to adapt
         if self.last_adaptation_time:
-            hours_since = (datetime.now(timezone.utc) - self.last_adaptation_time).total_seconds() / 3600
+            hours_since = (datetime.now(UTC) - self.last_adaptation_time).total_seconds() / 3600
             if hours_since < self.adaptation_interval_hours:
                 return
 
@@ -663,7 +663,7 @@ class EntryFilters:
                             f"(optimized: {opt_value:.3f})"
                         )
 
-            self.last_adaptation_time = datetime.now(timezone.utc)
+            self.last_adaptation_time = datetime.now(UTC)
             self.logger.info("Entry filter thresholds adapted from paper trading")
 
         except Exception as e:
@@ -1090,7 +1090,7 @@ class EntryFilters:
         """Check time-based filters."""
         checks = []
 
-        current_time = params.get('current_time', datetime.now(timezone.utc))
+        current_time = params.get('current_time', datetime.now(UTC))
 
         # Economic event blackout gate from scheduler event-clock feed.
         event_clock_state = params.get('event_clock_state') or {}
@@ -2483,7 +2483,7 @@ if __name__ == "__main__":
         'position_type': 'long',
         'portfolio_delta': 75,
         'position_size_pct': 0.08,
-        'current_time': datetime.now(timezone.utc),
+        'current_time': datetime.now(UTC),
         'days_to_earnings': 10,
         'iv_percentile': 65,
         'iv_skew': 0.08,

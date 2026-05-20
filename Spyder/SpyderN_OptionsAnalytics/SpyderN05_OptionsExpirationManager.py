@@ -24,7 +24,7 @@ Description:
 import sys
 import threading
 import sqlite3
-from datetime import datetime, timedelta, date, time, timezone
+from datetime import datetime, timedelta, date, time, UTC
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -301,7 +301,7 @@ class OptionsExpirationManager:
                 self.underlying_prices[symbol] = underlying_price
 
             # Calculate time to expiry
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             days_to_expiry = (expiry.date() - now.date()).days
             hours_to_expiry = (expiry - now).total_seconds() / 3600
 
@@ -368,7 +368,7 @@ class OptionsExpirationManager:
         Returns:
             List of expiring positions
         """
-        cutoff_date = datetime.now(timezone.utc) + timedelta(days=days_ahead)
+        cutoff_date = datetime.now(UTC) + timedelta(days=days_ahead)
 
         expiring = [
             pos for pos in self.positions
@@ -1099,15 +1099,15 @@ if __name__ == "__main__":
     # Positions with different expiration scenarios
     positions_data = [
         # Expiring today - ITM call
-        ('SPY', 580, datetime.now(timezone.utc), 'CALL', 2, 6.50, 585.0),
+        ('SPY', 580, datetime.now(UTC), 'CALL', 2, 6.50, 585.0),
         # Expiring today - OTM put
-        ('SPY', 575, datetime.now(timezone.utc), 'PUT', -5, 0.10, 585.0),
+        ('SPY', 575, datetime.now(UTC), 'PUT', -5, 0.10, 585.0),
         # Expiring in 3 days - near strike (pin risk)
-        ('SPY', 585, datetime.now(timezone.utc) + timedelta(days=3), 'CALL', -10, 2.00, 585.50),
+        ('SPY', 585, datetime.now(UTC) + timedelta(days=3), 'CALL', -10, 2.00, 585.50),
         # Expiring in 5 days - ITM short put
-        ('SPY', 590, datetime.now(timezone.utc) + timedelta(days=5), 'PUT', -3, 6.00, 585.0),
+        ('SPY', 590, datetime.now(UTC) + timedelta(days=5), 'PUT', -3, 6.00, 585.0),
         # Expiring in 7 days - OTM call
-        ('SPY', 595, datetime.now(timezone.utc) + timedelta(days=7), 'CALL', 5, 0.50, 585.0),
+        ('SPY', 595, datetime.now(UTC) + timedelta(days=7), 'CALL', 5, 0.50, 585.0),
     ]
 
     for data in positions_data:

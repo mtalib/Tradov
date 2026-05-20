@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, time, timezone
+from datetime import datetime, time, UTC
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
@@ -154,7 +154,7 @@ class SpyderCircuitBreakerProtocol:
         # Calculate market decline
         market_decline = (current_price - market_open) / market_open
         # Check time-based restrictions
-        current_time = datetime.now(timezone.utc).time()
+        current_time = datetime.now(UTC).time()
         # Determine circuit breaker level
         new_level = self._determine_level(market_decline, current_time)
         # Handle level changes
@@ -208,7 +208,7 @@ class SpyderCircuitBreakerProtocol:
         self.current_level = new_level
         # Record action
         self.action_history.append({
-            'timestamp': datetime.now(timezone.utc),
+            'timestamp': datetime.now(UTC),
             'old_level': old_level,
             'new_level': new_level,
             'market_decline': market_decline
@@ -216,7 +216,7 @@ class SpyderCircuitBreakerProtocol:
     async def _trigger_halt(self, level: CircuitBreakerLevel):
         """Trigger market halt procedures."""
         self.halt_active = True
-        self.halt_start_time = datetime.now(timezone.utc)
+        self.halt_start_time = datetime.now(UTC)
         # Calculate halt end time
         halt_duration = self.HALT_DURATIONS.get(level)
         if halt_duration != float('inf'):
@@ -392,7 +392,7 @@ class SpyderCircuitBreakerProtocol:
         """Check if halt period has ended."""
         if not self.halt_active or not self.halt_end_time:
             return
-        if datetime.now(timezone.utc) >= self.halt_end_time:
+        if datetime.now(UTC) >= self.halt_end_time:
             self.halt_active = False
             logger.info("Market halt ended for %s", self.current_level.value)
             # Execute post-halt protocols
@@ -462,7 +462,7 @@ class SpyderCircuitBreakerProtocol:
         # Convert to DataFrame
         df = pd.DataFrame(self.action_history)
         # Filter by date range
-        cutoff_date = datetime.now(timezone.utc) - pd.Timedelta(days=days)
+        cutoff_date = datetime.now(UTC) - pd.Timedelta(days=days)
         df = df[df['timestamp'] >= cutoff_date]
         return df
     def get_recovery_analysis(self) -> dict[str, Any]:

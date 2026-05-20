@@ -33,7 +33,7 @@ import json
 import logging
 import hashlib
 import warnings
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, field
@@ -352,7 +352,7 @@ class SpyderS06_SKEWCalculator:
 
             result = SKEWCalculation(
                 skew_index=skew_index,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 spot_price=self.spot_price,
                 risk_free_rate=self.risk_free_rate,
                 expiry_used=expiry,
@@ -412,7 +412,7 @@ class SpyderS06_SKEWCalculator:
                 if getattr(expiry, 'tzinfo', None) is None:
                     dte = (expiry - datetime.now()).days  # spyder: naive-ok
                 else:
-                    dte = (expiry.astimezone(timezone.utc) - datetime.now(timezone.utc)).days
+                    dte = (expiry.astimezone(UTC) - datetime.now(UTC)).days
 
                 # Check if within acceptable range
                 if self.config['min_days'] <= dte <= self.config['max_days']:
@@ -498,7 +498,7 @@ class SpyderS06_SKEWCalculator:
             if expiry_dt.tzinfo is None:
                 dte = (expiry_dt - datetime.now()).days / 365.25  # spyder: naive-ok
             else:
-                dte = (expiry_dt.astimezone(timezone.utc) - datetime.now(timezone.utc)).days / 365.25
+                dte = (expiry_dt.astimezone(UTC) - datetime.now(UTC)).days / 365.25
 
             # Get prices
             bid = row.get('bid', 0)
@@ -1072,7 +1072,7 @@ class SpyderS06_SKEWCalculator:
         """Fetch SPY option chain"""
         # Primary: Tradier B40 — live options with greeks, preferred over C29/yfinance
         try:
-            from datetime import date as _date, timedelta as _td, timezone
+            from datetime import date as _date, timedelta as _td
             from Spyder.SpyderB_Broker.SpyderB40_TradierClient import create_tradier_client_from_env
 
             client = create_tradier_client_from_env()
@@ -1125,7 +1125,7 @@ class SpyderS06_SKEWCalculator:
             try:
                 client = _get_c29_provider()
                 # Get expirations around 30 days out
-                target_date = datetime.now(timezone.utc) + timedelta(days=30)
+                target_date = datetime.now(UTC) + timedelta(days=30)
                 expirations = client.get_option_expirations("SPY")
                 selected = [
                     e for e in expirations
@@ -1191,7 +1191,7 @@ class SpyderS06_SKEWCalculator:
                 return None
 
             # Select appropriate expiries (around 30 days)
-            target_date = datetime.now(timezone.utc) + timedelta(days=30)
+            target_date = datetime.now(UTC) + timedelta(days=30)
             selected_expiries = []
 
             for expiry_str in expiries:
@@ -1239,7 +1239,7 @@ class SpyderS06_SKEWCalculator:
             if cache_key in self.calculation_cache:
                 timestamp = self.cache_timestamps.get(cache_key)
                 if timestamp:
-                    age = (datetime.now(timezone.utc) - timestamp).total_seconds()
+                    age = (datetime.now(UTC) - timestamp).total_seconds()
                     if age < self.config['cache_ttl']:
                         return self.calculation_cache[cache_key]
 
@@ -1254,7 +1254,7 @@ class SpyderS06_SKEWCalculator:
         try:
             cache_key = self._generate_cache_key()
             self.calculation_cache[cache_key] = calculation
-            self.cache_timestamps[cache_key] = datetime.now(timezone.utc)
+            self.cache_timestamps[cache_key] = datetime.now(UTC)
 
             # Limit cache size
             if len(self.calculation_cache) > 100:
@@ -1270,7 +1270,7 @@ class SpyderS06_SKEWCalculator:
         """Generate cache key for current data"""
         key_data = {
             'spot': round(self.spot_price, 2) if self.spot_price else 0,
-            'timestamp': datetime.now(timezone.utc).replace(second=0, microsecond=0).isoformat()
+            'timestamp': datetime.now(UTC).replace(second=0, microsecond=0).isoformat()
         }
         key_str = json.dumps(key_data, sort_keys=True)
         return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()

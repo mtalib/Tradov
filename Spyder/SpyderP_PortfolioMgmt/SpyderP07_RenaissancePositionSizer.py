@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum
 
 # ==============================================================================
@@ -420,7 +420,7 @@ class RenaissancePositionSizer:
             # Create record
             record = TradeRecord(
                 entry_time=entry_time,
-                exit_time=datetime.now(timezone.utc),
+                exit_time=datetime.now(UTC),
                 symbol=symbol,
                 entry_price=entry_price,
                 exit_price=exit_price,
@@ -668,7 +668,7 @@ if __name__ == "__main__":
                 exit_price=exit_price,
                 position_size=result.num_contracts,
                 confidence=confidence,
-                entry_time=datetime.now(timezone.utc),
+                entry_time=datetime.now(UTC),
                 exit_reason=exit_reason
             )
 

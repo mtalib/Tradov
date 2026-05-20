@@ -37,7 +37,7 @@ from __future__ import annotations
 # STANDARD IMPORTS
 # ==============================================================================
 import logging
-from datetime import datetime, UTC, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
@@ -220,7 +220,7 @@ if HAS_QT:
             self._update_badges(summary)
             self._populate_table(agents)
             self._status_lbl.setText(
-                f"Last updated: {datetime.now(timezone.utc).strftime('%H:%M:%S')} — "
+                f"Last updated: {datetime.now(UTC).strftime('%H:%M:%S')} — "
                 f"{len(agents)} agent(s) shown"
             )
 

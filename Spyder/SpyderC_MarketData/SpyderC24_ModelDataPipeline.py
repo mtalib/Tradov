@@ -29,7 +29,7 @@ import warnings
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
@@ -426,7 +426,7 @@ class ModelDataPipeline:
                         # Store metadata
                         feature_metadata[category] = {
                             'feature_count': len(category_features.columns),
-                            'generation_time': datetime.now(timezone.utc),
+                            'generation_time': datetime.now(UTC),
                             'data_range': (category_features.index.min(), category_features.index.max())  # noqa: E501
                         }
 
@@ -818,7 +818,7 @@ class ModelDataPipeline:
 
             # Check how recent the data is
             latest_timestamp = data.index.max()
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
 
             # Handle timezone-naive comparison
             if latest_timestamp.tz is None:
@@ -909,8 +909,8 @@ class ModelDataPipeline:
 
             # Create drift report
             drift_report = DataDriftReport(
-                report_id=hashlib.md5(f"{datetime.now(timezone.utc)}".encode(), usedforsecurity=False).hexdigest()[:8],  # noqa: E501
-                timestamp=datetime.now(timezone.utc),
+                report_id=hashlib.md5(f"{datetime.now(UTC)}".encode(), usedforsecurity=False).hexdigest()[:8],  # noqa: E501
+                timestamp=datetime.now(UTC),
                 drift_detected=drift_detected,
                 drift_score=overall_drift_score,
                 drift_features=drift_features,
@@ -932,7 +932,7 @@ class ModelDataPipeline:
             self.error_handler.handle_error(e, context="detect_data_drift")
             return DataDriftReport(
                 report_id="error",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 drift_detected=False,
                 drift_score=0.0,
                 drift_features=[],
@@ -1310,7 +1310,7 @@ class ModelDataPipeline:
                 self.pipeline_metrics.data_quality_score = self.last_quality_scores.get('overall', 0.0)  # noqa: E501
 
             # Calculate uptime
-            uptime_seconds = (datetime.now(timezone.utc) - datetime.now(timezone.utc).replace(hour=0, minute=0, second=0)).total_seconds()  # noqa: E501
+            uptime_seconds = (datetime.now(UTC) - datetime.now(UTC).replace(hour=0, minute=0, second=0)).total_seconds()  # noqa: E501
             self.pipeline_metrics.uptime_percent = min(100.0, uptime_seconds / 86400 * 100)
 
         except Exception as e:

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta, date, timezone
+from datetime import datetime, timedelta, date, UTC
 from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from Spyder.SpyderC_MarketData.SpyderC03_OptionChain import OptionChainManager
@@ -387,7 +387,7 @@ class AdvancedOptionsFlowAnalyzer:
             List of detected sweep clusters
         """
         sweeps = []
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
 
         # Group recent flows by symbol/strike/expiry
         flow_groups = defaultdict(list)
@@ -461,7 +461,7 @@ class AdvancedOptionsFlowAnalyzer:
 
             # Calculate recent volume
             recent_flows = [f for f in flows if
-                          (datetime.now(timezone.utc) - f.timestamp).total_seconds() < 3600]
+                          (datetime.now(UTC) - f.timestamp).total_seconds() < 3600]
 
             if not recent_flows:
                 continue
@@ -475,7 +475,7 @@ class AdvancedOptionsFlowAnalyzer:
                 activity_type, description = self._analyze_unusual_pattern(recent_flows)
 
                 unusual = UnusualActivity(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     symbol=symbol,
                     activity_type=activity_type,
                     description=description,
@@ -511,7 +511,7 @@ class AdvancedOptionsFlowAnalyzer:
         Returns:
             Current flow sentiment metrics
         """
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
         cutoff_time = current_time - timedelta(seconds=period)
 
         # Filter flows within period

@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass
 from collections import defaultdict
@@ -1290,7 +1290,7 @@ class OptionsAdjustmentRL:
                 "strategy": strategy,
                 "episodes_trained": episodes,
                 "final_performance": eval_results,
-                "training_time": datetime.now(timezone.utc),
+                "training_time": datetime.now(UTC),
             }
 
         except Exception as e:
@@ -1421,7 +1421,7 @@ class OptionsAdjustmentRL:
                 return AdjustmentAction(
                     action_type="hold",
                     parameters={},
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     reason="No trained model available",
                     confidence=0.0,
                 )
@@ -1454,7 +1454,7 @@ class OptionsAdjustmentRL:
             return AdjustmentAction(
                 action_type=action_name,
                 parameters=parameters,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 reason=reason,
                 confidence=confidence,
             )
@@ -1471,7 +1471,7 @@ class OptionsAdjustmentRL:
             return AdjustmentAction(
                 action_type="hold",
                 parameters={},
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 reason="Error in recommendation system",
                 confidence=0.0,
             )
@@ -1631,7 +1631,7 @@ class OptionsAdjustmentRL:
             return AdjustmentAction(
                 action_type="hold",
                 parameters={},
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 reason="No recommendations available",
                 confidence=0.0,
             )
@@ -1660,7 +1660,7 @@ class OptionsAdjustmentRL:
         return AdjustmentAction(
             action_type=best_action,
             parameters=best_rec.parameters,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             reason=combined_reason,
             confidence=ensemble_confidence,
         )

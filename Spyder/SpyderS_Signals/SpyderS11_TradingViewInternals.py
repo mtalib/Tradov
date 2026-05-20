@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -48,8 +47,8 @@ import os  # noqa: F401
 import queue
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import datetime, UTC
+from typing import Any
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -72,7 +71,7 @@ except ImportError:
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-_SYMBOLS: Dict[str, str] = {
+_SYMBOLS: dict[str, str] = {
     "tick": "https://www.tradingview.com/symbols/USI-TICK/",
     "trin": "https://www.tradingview.com/symbols/USI-TRIN.NY/",
     "add":  "https://www.tradingview.com/symbols/USI-ADD/",
@@ -147,7 +146,7 @@ class TradingViewInternals:
     """
 
     def __init__(self) -> None:
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
         self._cache_ts: float = 0.0
 
         # All Playwright calls must run on a single persistent thread.
@@ -164,7 +163,7 @@ class TradingViewInternals:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def get_snapshot(self) -> Dict[str, Any]:
+    def get_snapshot(self) -> dict[str, Any]:
         """
         Return the latest breadth internals.
 
@@ -195,7 +194,7 @@ class TradingViewInternals:
             return result_holder[0]
         return self._stub()
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Return diagnostic status."""
         return {
             "initialised": self._worker_thread.is_alive(),
@@ -223,7 +222,7 @@ class TradingViewInternals:
         pw: Any = None
         browser: Any = None
         ctx: Any = None
-        pages: Dict[str, Any] = {}
+        pages: dict[str, Any] = {}
         initialised = False
 
         def launch() -> None:
@@ -269,8 +268,8 @@ class TradingViewInternals:
                 ctx = browser = pw = None
                 initialised = False
 
-        def refresh_all() -> Dict[str, Any]:
-            result: Dict[str, Any] = {}
+        def refresh_all() -> dict[str, Any]:
+            result: dict[str, Any] = {}
             for name, pg in pages.items():
                 try:
                     pg.reload(wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
@@ -302,7 +301,7 @@ class TradingViewInternals:
 
                 snapshot = refresh_all()
                 snapshot["breadth_regime"] = self._classify_breadth(snapshot)
-                snapshot["as_of"] = datetime.now(timezone.utc)
+                snapshot["as_of"] = datetime.now(UTC)
 
                 self._cache = dict(snapshot)
                 self._cache_ts = time.time()
@@ -326,7 +325,7 @@ class TradingViewInternals:
     # ------------------------------------------------------------------
     # Scraping helpers
     # ------------------------------------------------------------------
-    def _refresh_all(self) -> Dict[str, Any]:
+    def _refresh_all(self) -> dict[str, Any]:
         """Not used directly — scraping runs inside _browser_worker."""
         return {}
 
@@ -380,7 +379,7 @@ class TradingViewInternals:
     # Breadth regime classification
     # ------------------------------------------------------------------
     @staticmethod
-    def _classify_breadth(data: Dict[str, Any]) -> str:
+    def _classify_breadth(data: dict[str, Any]) -> str:
         """
         Majority-vote classification from TICK + TRIN + ADD.
 
@@ -454,7 +453,7 @@ class TradingViewInternals:
     def _is_market_hours() -> bool:
         """True if current ET time is within NYSE regular session."""
         from datetime import timedelta
-        utc_now = datetime.now(timezone.utc)
+        utc_now = datetime.now(UTC)
         et_offset = timedelta(hours=-4)   # EDT (summer); adjust if needed
         et_now = utc_now + et_offset
         if et_now.weekday() >= 5:         # Saturday / Sunday
@@ -464,7 +463,7 @@ class TradingViewInternals:
         return market_open <= et_now <= market_close
 
     @staticmethod
-    def _stub() -> Dict[str, Any]:
+    def _stub() -> dict[str, Any]:
         """Return NaN stub snapshot."""
         return {
             "tick": float("nan"),
@@ -473,14 +472,14 @@ class TradingViewInternals:
             "vold": float("nan"),
             "nymo": float("nan"),
             "breadth_regime": "neutral",
-            "as_of": datetime.now(timezone.utc),
+            "as_of": datetime.now(UTC),
         }
 
 
 # ==============================================================================
 # MODULE SINGLETON
 # ==============================================================================
-_tv_client: Optional[TradingViewInternals] = None
+_tv_client: TradingViewInternals | None = None
 
 
 def get_tv_internals_client() -> TradingViewInternals:

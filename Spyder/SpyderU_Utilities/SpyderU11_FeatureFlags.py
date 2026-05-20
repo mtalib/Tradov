@@ -27,7 +27,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum
 from typing import Any
 
@@ -80,7 +80,7 @@ def _matching_now(reference: datetime | None = None) -> datetime:
     """Return now() with tz-awareness matching the reference timestamp."""
     if reference is not None and reference.tzinfo is None:
         return datetime.now()  # spyder: naive-ok
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 # ==============================================================================
 # ENUMS
@@ -136,8 +136,8 @@ class FeatureFlag:
     rollout_strategy: RolloutStrategy = RolloutStrategy.ALL
     enabled_users: list[str] = field(default_factory=list)
     environments: list[str] = field(default_factory=lambda: ["all"])
-    created_date: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    modified_date: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_date: datetime = field(default_factory=lambda: datetime.now(UTC))
+    modified_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     expires_date: datetime | None = None
     dependencies: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)

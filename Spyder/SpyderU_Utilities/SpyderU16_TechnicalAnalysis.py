@@ -19,7 +19,7 @@ Description:
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum
 # ==============================================================================
 # STANDARD IMPORTS
@@ -437,7 +437,7 @@ class TechnicalAnalysis:
             List of technical signals
         """
         signals = []
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
 
         # RSI signals
         rsi = self.calculate_rsi(df["close"])
@@ -617,7 +617,7 @@ class TechnicalAnalysis:
             volume=volume,
             signals=self.generate_signals(df),
             composite_score=self.get_composite_score(df),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
 
@@ -643,7 +643,7 @@ def quick_analysis(df: pd.DataFrame) -> dict[str, Any]:
         "rsi": ta.calculate_rsi(df["close"]).iloc[-1],
         "vwap": ta.calculate_vwap(df["high"], df["low"], df["close"], df["volume"]).iloc[-1],
         "composite_score": ta.get_composite_score(df),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 

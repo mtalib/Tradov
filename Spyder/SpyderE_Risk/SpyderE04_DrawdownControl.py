@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -225,7 +225,7 @@ class DrawdownController:
 
         # History tracking
         self.equity_history: deque = deque(maxlen=HISTORY_LOOKBACK * 2)
-        self.equity_history.append((datetime.now(timezone.utc), initial_equity))
+        self.equity_history.append((datetime.now(UTC), initial_equity))
 
         self.drawdown_history: deque = deque(maxlen=1000)
         self.state_history: deque = deque(maxlen=1000)
@@ -260,7 +260,7 @@ class DrawdownController:
         """
         with self._lock:
             self.current_equity = current_equity
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
             # Add to history
             self.equity_history.append((timestamp, current_equity))
@@ -397,7 +397,7 @@ class DrawdownController:
             drawdown_start_date=None,
             drawdown_start_value=self.initial_equity,
             peak_value=self.initial_equity,
-            peak_date=datetime.now(timezone.utc),
+            peak_date=datetime.now(UTC),
             trough_value=self.initial_equity,
             trough_date=None,
             days_in_drawdown=0
@@ -468,7 +468,7 @@ class DrawdownController:
 
         # Record state change
         self.state_history.append({
-            'timestamp': datetime.now(timezone.utc),
+            'timestamp': datetime.now(UTC),
             'old_state': old_state.value,
             'new_state': new_state.value,
             'drawdown': self.current_metrics.current_drawdown,
@@ -525,7 +525,7 @@ class DrawdownController:
 
         # Record action
         self.action_history.append({
-            'timestamp': datetime.now(timezone.utc),
+            'timestamp': datetime.now(UTC),
             'action': action.value,
             'state': self.current_state.value,
             'drawdown': self.current_metrics.current_drawdown,
@@ -734,7 +734,7 @@ class DrawdownController:
             List of state changes
         """
         with self._lock:
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+            cutoff = datetime.now(UTC) - timedelta(hours=hours)
             return [
                 s for s in self.state_history
                 if s['timestamp'] >= cutoff

@@ -55,7 +55,7 @@ class TestEventClockState(unittest.TestCase):
     def test_event_clock_state_creation_default(self):
         """Test creating EventClockState with default values."""
         state = EventClockState()
-        
+
         self.assertEqual(state.state, "clear")
         self.assertTrue(state.enabled)
         self.assertEqual(state.sources, "calendar+manual")
@@ -76,7 +76,7 @@ class TestEventClockState(unittest.TestCase):
             blackout_post_minutes=60,
             max_size_multiplier=0.50,
         )
-        
+
         self.assertEqual(state.state, "pre")
         self.assertFalse(state.enabled)
         self.assertEqual(state.sources, "manual")
@@ -90,15 +90,15 @@ class TestEventClockState(unittest.TestCase):
         # Clear state should be green (positive)
         state_clear = EventClockState(state="clear")
         self.assertEqual(state_clear.state_color, COLORS["positive"])
-        
+
         # Pre state should be orange (warning)
         state_pre = EventClockState(state="pre")
         self.assertEqual(state_pre.state_color, COLORS["warning"])
-        
+
         # Live state should be red (negative)
         state_live = EventClockState(state="live")
         self.assertEqual(state_live.state_color, COLORS["negative"])
-        
+
         # Post state should be orange (warning)
         state_post = EventClockState(state="post")
         self.assertEqual(state_post.state_color, COLORS["warning"])
@@ -111,7 +111,7 @@ class TestEventClockState(unittest.TestCase):
             ("live", "◆ LIVE EVENT"),
             ("post", "⊖ POST-EVENT"),
         ]
-        
+
         for state_str, expected_label in test_cases:
             state = EventClockState(state=state_str)
             self.assertEqual(state.state_label, expected_label, f"Failed for state: {state_str}")
@@ -128,9 +128,9 @@ class TestEventClockState(unittest.TestCase):
             blackout_post_minutes=40,
             max_size_multiplier=0.30,
         )
-        
+
         result = state.to_dict()
-        
+
         self.assertEqual(result["state"], "live")
         self.assertEqual(result["state_label"], "◆ LIVE EVENT")
         self.assertTrue(result["enabled"])
@@ -144,7 +144,7 @@ class TestEventClockState(unittest.TestCase):
         """Test to_dict() with empty allowed strategies."""
         state = EventClockState(allowed_strategies=[])
         result = state.to_dict()
-        
+
         self.assertEqual(result["allowed_strategies"], "None")
 
 
@@ -156,7 +156,7 @@ class TestEventClockStateTransitions(unittest.TestCase):
         state = EventClockState(state="clear")
         self.assertEqual(state.state, "clear")
         self.assertEqual(state.state_color, COLORS["positive"])
-        
+
         # Simulate transition
         state.state = "pre"
         self.assertEqual(state.state, "pre")
@@ -166,7 +166,7 @@ class TestEventClockStateTransitions(unittest.TestCase):
         """Test transition from pre to live state."""
         state = EventClockState(state="pre")
         self.assertEqual(state.state_color, COLORS["warning"])
-        
+
         state.state = "live"
         self.assertEqual(state.state_color, COLORS["negative"])
 
@@ -174,7 +174,7 @@ class TestEventClockStateTransitions(unittest.TestCase):
         """Test transition from live to post state."""
         state = EventClockState(state="live")
         self.assertEqual(state.state_color, COLORS["negative"])
-        
+
         state.state = "post"
         self.assertEqual(state.state_color, COLORS["warning"])
 
@@ -182,7 +182,7 @@ class TestEventClockStateTransitions(unittest.TestCase):
         """Test transition from post back to clear state."""
         state = EventClockState(state="post")
         self.assertEqual(state.state_label, "⊖ POST-EVENT")
-        
+
         state.state = "clear"
         self.assertEqual(state.state_color, COLORS["positive"])
         self.assertEqual(state.state_label, "✓ CLEAR")
@@ -195,7 +195,7 @@ class TestEventClockPolicies(unittest.TestCase):
         """Test enabled/disabled policy affects display."""
         state_enabled = EventClockState(enabled=True)
         state_disabled = EventClockState(enabled=False)
-        
+
         self.assertTrue(state_enabled.enabled)
         self.assertFalse(state_disabled.enabled)
 
@@ -203,7 +203,7 @@ class TestEventClockPolicies(unittest.TestCase):
         """Test manual-only source policy."""
         state = EventClockState(sources="manual")
         self.assertEqual(state.sources, "manual")
-        
+
         result = state.to_dict()
         self.assertIn("manual", result["sources"])
 
@@ -221,7 +221,7 @@ class TestEventClockPolicies(unittest.TestCase):
         """Test allowed strategies allowlist policy."""
         strategies = ["IronCondor", "ZeroDTE", "CreditSpread"]
         state = EventClockState(allowed_strategies=strategies)
-        
+
         result = state.to_dict()
         self.assertIn("IronCondor", result["allowed_strategies"])
         self.assertIn("ZeroDTE", result["allowed_strategies"])
@@ -232,7 +232,7 @@ class TestEventClockPolicies(unittest.TestCase):
             blackout_pre_minutes=25,
             blackout_post_minutes=35,
         )
-        
+
         self.assertEqual(state.blackout_pre_minutes, 25)
         self.assertEqual(state.blackout_post_minutes, 35)
 
@@ -240,14 +240,14 @@ class TestEventClockPolicies(unittest.TestCase):
         """Test max size multiplier policy during event."""
         state_conservative = EventClockState(max_size_multiplier=0.10)
         state_moderate = EventClockState(max_size_multiplier=0.50)
-        
+
         self.assertEqual(state_conservative.max_size_multiplier, 0.10)
         self.assertEqual(state_moderate.max_size_multiplier, 0.50)
-        
+
         # Check percentage formatting
         result_conservative = state_conservative.to_dict()
         result_moderate = state_moderate.to_dict()
-        
+
         self.assertIn("10", result_conservative["max_size_multiplier"])
         self.assertIn("50", result_moderate["max_size_multiplier"])
 
@@ -260,7 +260,7 @@ class TestEventClockThreadSafety(unittest.TestCase):
         state = EventClockState()
         lock = threading.Lock()
         results = []
-        
+
         def read_state():
             for _ in range(10):
                 with lock:
@@ -270,26 +270,26 @@ class TestEventClockThreadSafety(unittest.TestCase):
                         'sources': state.sources,
                     }
                 results.append(('read', snapshot))
-        
+
         def write_state():
             states = ['clear', 'pre', 'live', 'post']
             for s in states:
                 with lock:
                     state.state = s
                 results.append(('write', s))
-        
+
         # Run concurrent operations
         threads = [
             threading.Thread(target=read_state),
             threading.Thread(target=write_state),
             threading.Thread(target=read_state),
         ]
-        
+
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        
+
         # Verify no exceptions occurred
         self.assertTrue(len(results) > 0)
 
@@ -300,7 +300,7 @@ class TestEventClockThreadSafety(unittest.TestCase):
             blackout_pre_minutes=30,
         )
         results = []
-        
+
         def dict_caller():
             for _ in range(5):
                 try:
@@ -308,13 +308,13 @@ class TestEventClockThreadSafety(unittest.TestCase):
                     results.append(('success', d))
                 except Exception as e:
                     results.append(('error', str(e)))
-        
+
         threads = [threading.Thread(target=dict_caller) for _ in range(3)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        
+
         # All calls should succeed
         self.assertEqual(len([r for r in results if r[0] == 'success']), 15)
 
@@ -326,7 +326,7 @@ class TestEventClockTimestamp(unittest.TestCase):
         """Test that default timestamp is set to current time."""
         # Create EventClockState without specifying timestamp (uses default)
         state = EventClockState()
-        
+
         # Verify timestamp was set (is not None)
         self.assertIsNotNone(state.timestamp)
         # Verify it's a datetime object
@@ -336,14 +336,14 @@ class TestEventClockTimestamp(unittest.TestCase):
         """Test setting custom timestamp."""
         custom_time = datetime(2026, 4, 25, 10, 30, 0, tzinfo=pytz.timezone("US/Eastern"))
         state = EventClockState(timestamp=custom_time)
-        
+
         self.assertEqual(state.timestamp, custom_time)
 
     def test_timestamp_format_in_dict(self):
         """Test timestamp formatting in to_dict()."""
         state = EventClockState(timestamp=datetime(2026, 4, 25, 14, 45, 30, tzinfo=pytz.timezone("US/Eastern")))
         result = state.to_dict()
-        
+
         # Should format as HH:MM:SS
         self.assertEqual(result["timestamp"], "14:45:30")
 

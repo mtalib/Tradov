@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from enum import Enum
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from dataclasses import dataclass
 
 # ==============================================================================
@@ -205,7 +205,7 @@ class TrendDetector:
         Returns:
             Trend analysis result
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # Get period for timeframe
@@ -242,7 +242,7 @@ class TrendDetector:
                     # Fall back to traditional
 
             # Record performance
-            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
             self.monitor.record_metric('trend.detection_ms', elapsed_ms)
 
             return traditional_trend

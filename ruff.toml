@@ -15,7 +15,9 @@ exclude = [
     "htmlcov",
     "build",
     "dist",
+    "02-Standards-Instructions",
     "13-Archive",
+    "12-Archive",
     "11-TestScripts",
     "Spyder/SpyderF_Analysis/mock_talib.py",   # known mock file, to be moved
 ]
@@ -60,6 +62,9 @@ ignore = [
 "Spyder/SpyderT_Testing/**" = ["T20", "B", "S", "F401"]
 # Utility scripts: allow print
 "Spyder/SpyderQ_Scripts/**" = ["T20"]
+# Root utility scripts: stdout is intentional for local diagnostics/repair flows
+"analyze_logs.py" = ["T20"]
+"restore_script.py" = ["T20"]
 # __init__.py files: imports are intentional re-exports for the package API
 "**/__init__.py" = ["F401"]
 # Legacy demo/standalone scripts embedded in modules:

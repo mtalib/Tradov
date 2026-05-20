@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -246,7 +246,7 @@ class StraddleStrangleStrategy(BaseStrategy):
     def _detect_upcoming_events(self, market_data: pd.DataFrame) -> list[dict]:
         """Detect upcoming volatility events"""
         events = []
-        current_date = datetime.now(timezone.utc)
+        current_date = datetime.now(UTC)
 
         try:
             # Check earnings calendar
@@ -306,7 +306,7 @@ class StraddleStrangleStrategy(BaseStrategy):
         earnings = []
 
         # Simulate quarterly earnings
-        next_earnings = datetime.now(timezone.utc) + timedelta(days=3)
+        next_earnings = datetime.now(UTC) + timedelta(days=3)
         if next_earnings.month in [1, 4, 7, 10]:  # Earnings months
             earnings.append({
                 'date': next_earnings,
@@ -322,11 +322,11 @@ class StraddleStrangleStrategy(BaseStrategy):
         fed_events = []
 
         # FOMC meetings (simplified)
-        days_to_next_wed = (2 - datetime.now(timezone.utc).weekday()) % 7
+        days_to_next_wed = (2 - datetime.now(UTC).weekday()) % 7
         if days_to_next_wed == 0:
             days_to_next_wed = 7
 
-        next_fed = datetime.now(timezone.utc) + timedelta(days=days_to_next_wed)
+        next_fed = datetime.now(UTC) + timedelta(days=days_to_next_wed)
         if next_fed.day >= 15 and next_fed.day <= 21:  # Third week
             fed_events.append({
                 'date': next_fed,
@@ -701,7 +701,7 @@ class StraddleStrangleStrategy(BaseStrategy):
     def _select_expiry(self, strategy: VolatilityStrategy,
                       events: list[dict]) -> datetime:
         """Select optimal expiration date"""
-        current_date = datetime.now(timezone.utc)
+        current_date = datetime.now(UTC)
 
         # Event-based expiry
         if events and events[0]['type'] != VolatilityEvent.VOLATILITY_CRUSH:
@@ -747,7 +747,7 @@ class StraddleStrangleStrategy(BaseStrategy):
                               vol_analysis: dict[str, Any]) -> dict[str, float]:
         """Estimate option prices"""
         # Simplified pricing - in production use Black-Scholes
-        dte = (expiry - datetime.now(timezone.utc)).days / 365.0
+        dte = (expiry - datetime.now(UTC)).days / 365.0
         atm_iv = vol_analysis.get('atm_iv', 0.20)
 
         # Call price approximation
@@ -845,7 +845,7 @@ class StraddleStrangleStrategy(BaseStrategy):
             confidence = self._calculate_signal_confidence(setup)
 
             signal = TradingSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_type=SignalType.ENTRY,
                 strength=strength,
                 confidence=confidence,
@@ -945,7 +945,7 @@ class StraddleStrangleStrategy(BaseStrategy):
                               spot: float, iv: float):
         """Update position Greeks"""
         try:
-            dte = (position.setup.expiry - datetime.now(timezone.utc)).days / 365.0
+            dte = (position.setup.expiry - datetime.now(UTC)).days / 365.0
 
             # Calculate Greeks (simplified)
             # In production, use proper Greeks calculator
@@ -980,7 +980,7 @@ class StraddleStrangleStrategy(BaseStrategy):
                 vega=vega * position.setup.contracts * 100,
                 theta=theta * position.setup.contracts * 100,
                 rho=0,  # Simplified
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(UTC)
             )
 
             position.current_greeks = greeks
@@ -994,7 +994,7 @@ class StraddleStrangleStrategy(BaseStrategy):
         """Update position value and P&L"""
         try:
             # Estimate current option values
-            (position.setup.expiry - datetime.now(timezone.utc)).days / 365.0
+            (position.setup.expiry - datetime.now(UTC)).days / 365.0
 
             # IV change effect
             current_iv - position.setup.iv_at_entry
@@ -1042,7 +1042,7 @@ class StraddleStrangleStrategy(BaseStrategy):
         if price_move > 0.01:  # 1% move
             # Generate scalp signal
             signal = TradingSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 signal_type=SignalType.ADJUST,
                 strength=SignalStrength.MEDIUM,
                 confidence=0.7,
@@ -1083,12 +1083,12 @@ class StraddleStrangleStrategy(BaseStrategy):
             return self._create_exit_signal(position, "stop_loss")
 
         # Time decay (close near expiry)
-        dte = (position.setup.expiry - datetime.now(timezone.utc)).days
+        dte = (position.setup.expiry - datetime.now(UTC)).days
         if dte <= 1:
             return self._create_exit_signal(position, "expiry")
 
         # Event passed (for event trades)
-        if position.setup.event_date and datetime.now(timezone.utc) > position.setup.event_date + timedelta(days=1):  # noqa: E501
+        if position.setup.event_date and datetime.now(UTC) > position.setup.event_date + timedelta(days=1):  # noqa: E501
             if position.unrealized_pnl > 0:
                 return self._create_exit_signal(position, "event_complete")
 
@@ -1103,7 +1103,7 @@ class StraddleStrangleStrategy(BaseStrategy):
     def _create_exit_signal(self, position: VolatilityPosition,
                           reason: str) -> TradingSignal:
         """Create exit signal"""
-        position.exit_time = datetime.now(timezone.utc)
+        position.exit_time = datetime.now(UTC)
         position.exit_reason = reason
         position.state = PositionState.CLOSING
 
@@ -1111,7 +1111,7 @@ class StraddleStrangleStrategy(BaseStrategy):
         self._update_performance_stats(position)
 
         signal = TradingSignal(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             signal_type=SignalType.EXIT,
             strength=SignalStrength.STRONG,
             confidence=0.95,
@@ -1160,7 +1160,7 @@ class StraddleStrangleStrategy(BaseStrategy):
 
     def add_position(self, signal: TradingSignal) -> str:
         """Add new volatility position"""
-        position_id = f"VOL_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        position_id = f"VOL_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
         # Reconstruct setup from signal
         signal.metadata['setup']
@@ -1169,7 +1169,7 @@ class StraddleStrangleStrategy(BaseStrategy):
         position = VolatilityPosition(
             position_id=position_id,
             setup=None,  # Would reconstruct
-            entry_time=datetime.now(timezone.utc),
+            entry_time=datetime.now(UTC),
             entry_price=signal.metadata.get('current_price', 0),
             state=PositionState.ESTABLISHED
         )
@@ -1272,7 +1272,7 @@ def test_straddle_strangle():
     logging.info("Gamma Scalping: %s", strategy.enable_gamma_scalping)
 
     # Create sample market data
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=100, freq='5min')
+    dates = pd.date_range(end=datetime.now(UTC), periods=100, freq='5min')
 
     # Simulate volatility environment
     base_price = 450
@@ -1345,7 +1345,7 @@ def test_straddle_strangle():
             new_iv = iv_series[-1] * (1 + np.random.randn() * 0.02)
 
             market_data.loc[len(market_data)] = {
-                'timestamp': datetime.now(timezone.utc) + timedelta(minutes=i*5),
+                'timestamp': datetime.now(UTC) + timedelta(minutes=i*5),
                 'open': new_price - 0.1,
                 'high': new_price + 0.2,
                 'low': new_price - 0.2,

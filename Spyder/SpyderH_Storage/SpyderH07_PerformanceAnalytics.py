@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -285,7 +285,7 @@ class PerformanceAnalytics:
             strengths, weaknesses, recommendations = self._generate_insights(metrics)
 
             return PerformanceReport(
-                report_date=datetime.now(timezone.utc),
+                report_date=datetime.now(UTC),
                 account_id=account_id,
                 strategy_name=strategy_name,
                 time_frame=time_frame,
@@ -335,7 +335,7 @@ class PerformanceAnalytics:
         if 'executed_at' not in df.columns:
             return df
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if time_frame == TimeFrame.DAILY:
             start = now - timedelta(days=1)

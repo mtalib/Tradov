@@ -31,7 +31,7 @@ import os
 import signal
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum
 from typing import Any
 
@@ -318,14 +318,14 @@ class SpyderX13_MarketAnalysisAgent:
 
             # Cache result
             self.analysis_cache[cache_key] = analysis
-            self.cache_timestamps[cache_key] = datetime.now(timezone.utc)
+            self.cache_timestamps[cache_key] = datetime.now(UTC)
 
             # Update metrics
             self._update_agent_metrics(analysis)
 
             # Store in history
             self.regime_history.append({
-                'timestamp': datetime.now(timezone.utc),
+                'timestamp': datetime.now(UTC),
                 'regime': analysis.regime,
                 'indicators': indicators
             })
@@ -542,7 +542,7 @@ class SpyderX13_MarketAnalysisAgent:
         # Store detected patterns
         for pattern in patterns:
             self.pattern_buffer.append({
-                'timestamp': datetime.now(timezone.utc),
+                'timestamp': datetime.now(UTC),
                 'pattern': pattern
             })
 
@@ -831,7 +831,7 @@ Format as JSON with keys: summary, opportunities, risks, prediction, confidence"
         if cache_key not in self.cache_timestamps:
             return False
 
-        age = (datetime.now(timezone.utc) - self.cache_timestamps[cache_key]).total_seconds()
+        age = (datetime.now(UTC) - self.cache_timestamps[cache_key]).total_seconds()
         return age < ANALYSIS_CACHE_TTL
 
     def _update_agent_metrics(self, analysis: MarketAnalysis) -> None:

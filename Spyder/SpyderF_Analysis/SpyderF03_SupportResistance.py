@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from enum import Enum
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from dataclasses import dataclass, field
 from collections import defaultdict
 
@@ -90,7 +90,7 @@ class PriceLevel:
     @property
     def age(self) -> timedelta:
         """Age of the level."""
-        now = datetime.now() if self.first_touch.tzinfo is None else datetime.now(timezone.utc)
+        now = datetime.now() if self.first_touch.tzinfo is None else datetime.now(UTC)
         return now - self.first_touch
 
     @property
@@ -138,7 +138,7 @@ class SupportResistanceAnalysis:
     current_price: float
     nearest_support: float | None = None
     nearest_resistance: float | None = None
-    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 # ==============================================================================
 # MAIN CLASS
@@ -222,7 +222,7 @@ class SupportResistanceAnalyzer:
         Returns:
             Complete analysis results
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # Get dynamic cluster threshold
@@ -290,12 +290,12 @@ class SupportResistanceAnalyzer:
             )
 
             # Record performance
-            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
             self.monitor.record_metric('sr_analysis.execution_ms', elapsed_ms)
             self.monitor.record_metric('sr_analysis.levels_found', len(support_levels) + len(resistance_levels))  # noqa: E501
 
             # Update history
-            self.last_analysis_time = datetime.now(timezone.utc)
+            self.last_analysis_time = datetime.now(UTC)
             self.analysis_count += 1
 
             return analysis
@@ -365,7 +365,7 @@ class SupportResistanceAnalyzer:
         for level in levels:
             if abs(price - level.price) <= price * tolerance:
                 level.touches += 1
-                level.last_touch = datetime.now(timezone.utc)
+                level.last_touch = datetime.now(UTC)
 
                 # Update strength based on touches
                 if level.touches >= 10:
@@ -390,7 +390,7 @@ class SupportResistanceAnalyzer:
 
         touches = [level.touches for level in all_levels]
         strengths = [level.strength_score for level in all_levels]
-        ages = [(datetime.now(timezone.utc) - level.first_touch).days for level in all_levels]
+        ages = [(datetime.now(UTC) - level.first_touch).days for level in all_levels]
 
         most_touched = max(all_levels, key=lambda x: x.touches)
 
@@ -480,8 +480,8 @@ class SupportResistanceAnalyzer:
                 level_type=LevelType.VOLUME_NODE,
                 strength=LevelStrength.MODERATE,
                 touches=1,
-                first_touch=datetime.now(timezone.utc),
-                last_touch=datetime.now(timezone.utc),
+                first_touch=datetime.now(UTC),
+                last_touch=datetime.now(UTC),
                 volume_at_level=volume_profile[idx]
             )
             levels.append(level)
@@ -552,8 +552,8 @@ class SupportResistanceAnalyzer:
                     level_type=LevelType.PSYCHOLOGICAL,
                     strength=LevelStrength.WEAK,
                     touches=0,
-                    first_touch=datetime.now(timezone.utc),
-                    last_touch=datetime.now(timezone.utc)
+                    first_touch=datetime.now(UTC),
+                    last_touch=datetime.now(UTC)
                 )
                 levels.append(level)
 
@@ -682,8 +682,8 @@ class SupportResistanceAnalyzer:
                 level_type=level_type,
                 strength=LevelStrength.MODERATE,
                 touches=0,
-                first_touch=datetime.now(timezone.utc),
-                last_touch=datetime.now(timezone.utc)
+                first_touch=datetime.now(UTC),
+                last_touch=datetime.now(UTC)
             )
             levels.append(level)
 

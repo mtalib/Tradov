@@ -45,7 +45,7 @@ import statistics  # noqa: E402
 import threading  # noqa: E402
 import uuid  # noqa: E402
 from collections import defaultdict  # noqa: E402
-from datetime import datetime, timedelta, timezone  # noqa: E402
+from datetime import datetime, timedelta, UTC  # noqa: E402
 from dataclasses import dataclass, field, asdict  # noqa: E402
 from enum import Enum  # noqa: E402
 from typing import Any  # noqa: E402
@@ -322,7 +322,7 @@ class ProfitTargetProgress:
     orders_pending: int
     risk_utilization_pct: float
     execution_metrics: ExecutionMetrics
-    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -336,7 +336,7 @@ class RiskAlert:
     current_value: float
     threshold_value: float
     recommended_action: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -466,7 +466,7 @@ class AlgorithmicSlicingManager:
         num_orders = max(1, total_contracts // child_order_size)
         time_interval = (time_window_minutes * 60) // num_orders
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         for i in range(num_orders):
             # Calculate scheduled execution time
@@ -516,7 +516,7 @@ class AlgorithmicSlicingManager:
         min(DEFAULT_CHILD_ORDER_SIZE, total_contracts // 8)
         num_periods = len(volume_profile)
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         for i, volume_weight in enumerate(volume_profile):
             # Calculate order size based on volume weight
@@ -594,7 +594,7 @@ class AlgorithmicSlicingManager:
         orders_per_venue = total_contracts // len(venues)
         child_order_size = min(DEFAULT_CHILD_ORDER_SIZE // 2, orders_per_venue // 5)
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         for venue_idx, venue in enumerate(venues):
             venue_contracts = orders_per_venue
@@ -650,7 +650,7 @@ class AlgorithmicSlicingManager:
         # Get expected volume profile
         expected_volume_per_minute = self._get_expected_volume_per_minute()
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         for minute in range(time_window_minutes):
             expected_volume = expected_volume_per_minute.get(
@@ -701,7 +701,7 @@ class AlgorithmicSlicingManager:
         adaptive_order_size = DEFAULT_CHILD_ORDER_SIZE // 3
         num_orders = max(1, total_contracts // adaptive_order_size)
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         for i in range(num_orders):
             order_qty = min(
@@ -1045,7 +1045,7 @@ class DayProfitTargetEngine:
                 current_profit=0.0,
                 progress_percentage=0.0,
                 time_elapsed_minutes=0,
-                estimated_completion_time=datetime.now(timezone.utc)
+                estimated_completion_time=datetime.now(UTC)
                 + timedelta(minutes=time_window_minutes),
                 orders_executed=0,
                 orders_pending=0,
@@ -1125,7 +1125,7 @@ class DayProfitTargetEngine:
             await self._start_monitoring()
 
             # Begin execution
-            self.execution_start_time = datetime.now(timezone.utc)
+            self.execution_start_time = datetime.now(UTC)
             self.status = ProfitTargetStatus.IN_PROGRESS
 
             # Start execution thread
@@ -1234,7 +1234,7 @@ class DayProfitTargetEngine:
                     break
 
                 # Wait until scheduled time
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 if child_order.scheduled_time > now:
                     sleep_seconds = (child_order.scheduled_time - now).total_seconds()
                     if self.shutdown_event.wait(sleep_seconds):
@@ -1401,7 +1401,7 @@ class DayProfitTargetEngine:
 
             # Calculate time elapsed
             if self.execution_start_time:
-                elapsed = datetime.now(timezone.utc) - self.execution_start_time
+                elapsed = datetime.now(UTC) - self.execution_start_time
                 time_elapsed_minutes = int(elapsed.total_seconds() / 60)
             else:
                 time_elapsed_minutes = 0
@@ -1410,7 +1410,7 @@ class DayProfitTargetEngine:
             self.current_progress.current_profit = current_profit
             self.current_progress.progress_percentage = progress_pct
             self.current_progress.time_elapsed_minutes = time_elapsed_minutes
-            self.current_progress.last_updated = datetime.now(timezone.utc)
+            self.current_progress.last_updated = datetime.now(UTC)
 
             # Update risk utilization
             if self.current_config:
@@ -1491,7 +1491,7 @@ class DayProfitTargetEngine:
         # For demo, return progressive profit
         if self.execution_start_time:
             elapsed_minutes = (
-                datetime.now(timezone.utc) - self.execution_start_time
+                datetime.now(UTC) - self.execution_start_time
             ).total_seconds() / 60
             # Simulate gradual progress toward target
             if self.current_config:
@@ -1540,7 +1540,7 @@ class DayProfitTargetEngine:
         except Exception as exc:
             self.logger.error("E13: failed to emit EMERGENCY: %s", exc, exc_info=True)
 
-    def _check_account_balance_risk(self) -> "RiskAlert | None":
+    def _check_account_balance_risk(self) -> RiskAlert | None:
         """Check for account balance risk. Returns RiskAlert or None."""
         try:
             if not self.current_config or self.current_account_balance <= 0:
@@ -1550,7 +1550,7 @@ class DayProfitTargetEngine:
             )
             if self.current_account_balance < min_balance:
                 return RiskAlert(
-                    alert_id=f"acct_balance_{int(datetime.now(timezone.utc).timestamp())}",
+                    alert_id=f"acct_balance_{int(datetime.now(UTC).timestamp())}",
                     breach_type=RiskBreachType.ACCOUNT_BALANCE,
                     severity="high",
                     message=(
@@ -1565,7 +1565,7 @@ class DayProfitTargetEngine:
             self.logger.error("_check_account_balance_risk error: %s", exc)
         return None
 
-    def _check_daily_loss_limit(self) -> "RiskAlert | None":
+    def _check_daily_loss_limit(self) -> RiskAlert | None:
         """Check daily loss limit. Returns RiskAlert or None.
 
         Primary daily-loss enforcement lives in E11_MaxLossProtection.  This
@@ -1578,7 +1578,7 @@ class DayProfitTargetEngine:
             current_profit = self._get_current_profit()
             if current_profit < -abs(self.current_config.max_risk_amount):
                 return RiskAlert(
-                    alert_id=f"daily_loss_{int(datetime.now(timezone.utc).timestamp())}",
+                    alert_id=f"daily_loss_{int(datetime.now(UTC).timestamp())}",
                     breach_type=RiskBreachType.DAILY_LOSS_LIMIT,
                     severity="critical",
                     message=(
@@ -1593,15 +1593,15 @@ class DayProfitTargetEngine:
             self.logger.error("_check_daily_loss_limit error: %s", exc)
         return None
 
-    def _check_market_impact(self) -> "RiskAlert | None":
+    def _check_market_impact(self) -> RiskAlert | None:
         """Check market impact risk. Returns RiskAlert or None."""
         return None
 
-    def _check_execution_quality(self) -> "RiskAlert | None":
+    def _check_execution_quality(self) -> RiskAlert | None:
         """Check execution quality risk. Returns RiskAlert or None."""
         return None
 
-    def _process_risk_alert(self, alert: "RiskAlert") -> None:
+    def _process_risk_alert(self, alert: RiskAlert) -> None:
         """Handle a risk alert: log, store, notify callbacks.
 
         Args:
@@ -1709,7 +1709,7 @@ class ExecutionQualityTracker:
             "target_price": target_price,
             "slippage_bps": slippage,
             "fill_time": fill_time,
-            "timestamp": datetime.now(timezone.utc),
+            "timestamp": datetime.now(UTC),
         }
 
         self.execution_history.append(execution_record)
@@ -2198,7 +2198,7 @@ class DayProfitTargetWidget(QWidget):
         self.progress_timer.timeout.connect(self._update_simulated_progress)
         self.progress_timer.start(5000)  # Update every 5 seconds
 
-        self.simulation_start_time = datetime.now(timezone.utc)
+        self.simulation_start_time = datetime.now(UTC)
         self.simulation_progress = 0.0
 
     def _update_simulated_progress(self):
@@ -2224,7 +2224,7 @@ class DayProfitTargetWidget(QWidget):
             self.progress_bar.setValue(int(self.simulation_progress))
             self.current_profit_lcd.display(current_profit)
 
-            elapsed = datetime.now(timezone.utc) - self.simulation_start_time
+            elapsed = datetime.now(UTC) - self.simulation_start_time
             elapsed_minutes = int(elapsed.total_seconds() / 60)
             self.time_elapsed_label.setText(f"Time Elapsed: {elapsed_minutes} minutes")
 
