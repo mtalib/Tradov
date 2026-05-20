@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, time, timedelta, date, timezone
+from datetime import datetime, time, timedelta, date, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -147,7 +147,7 @@ class ZeroDTEPosition:
         """Hours to expiry"""
         if self.expiry_date == date.today():
             close_time = datetime.combine(date.today(), MARKET_CLOSE_TIME)
-            return max(0, (close_time - datetime.now(timezone.utc)).total_seconds() / 3600)
+            return max(0, (close_time - datetime.now(UTC)).total_seconds() / 3600)
         return 0
 
     @property
@@ -736,8 +736,8 @@ class ZeroDTEStrategy(BaseStrategy):
                 stop_loss=0,  # Managed differently
                 take_profit=0,  # Managed differently
                 position_size=1,  # Will be calculated
-                timestamp=datetime.now(timezone.utc),
-                expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+                timestamp=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(minutes=5),
                 metadata={
                     'strategy': '0dte',
                     'setup_data': {
@@ -772,7 +772,7 @@ class ZeroDTEStrategy(BaseStrategy):
             position = ZeroDTEPosition(
                 position_id=str(uuid.uuid4()),
                 strategy_type=ZeroDTEStrategy[setup_data['strategy_type']],
-                entry_time=datetime.now(timezone.utc),
+                entry_time=datetime.now(UTC),
                 expiry_date=date.today(),
                 strikes=setup_data['strikes'],
                 contracts=signal.position_size,
@@ -886,7 +886,7 @@ class ZeroDTEStrategy(BaseStrategy):
 
             # Update final P&L
             position.realized_pnl = position.unrealized_pnl
-            position.exit_time = datetime.now(timezone.utc)
+            position.exit_time = datetime.now(UTC)
             position.exit_reason = reason
 
             # Update state based on reason
@@ -1031,7 +1031,7 @@ if __name__ == "__main__":
     strategy.start()
 
     # Create intraday market data
-    current_time = datetime.now(timezone.utc)
+    current_time = datetime.now(UTC)
     market_open = current_time.replace(hour=9, minute=30, second=0)
 
     # Generate 5-minute bars from market open

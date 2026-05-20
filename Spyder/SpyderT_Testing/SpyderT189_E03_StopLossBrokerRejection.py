@@ -27,7 +27,7 @@ These tests are RED until SPEC-13 ships.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -61,8 +61,8 @@ def _make_stop_order() -> StopOrder:
         quantity=10,
         side=PositionSide.LONG,
         status=StopStatus.PENDING,
-        created_at=datetime.now(timezone.utc),
-        last_updated=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        last_updated=datetime.now(UTC),
     )
 
 

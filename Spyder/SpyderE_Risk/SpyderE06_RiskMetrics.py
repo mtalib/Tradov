@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -485,7 +485,7 @@ class RiskMetricsCalculator:
 
                 # Set period dates
                 if not period_end:
-                    period_end = datetime.now(timezone.utc)
+                    period_end = datetime.now(UTC)
                 if not period_start:
                     period_start = period_end - timedelta(days=len(returns))
 
@@ -535,7 +535,7 @@ class RiskMetricsCalculator:
 
                 # Create metrics object
                 metrics = RiskMetrics(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     period_start=period_start,
                     period_end=period_end,
                     num_periods=len(returns),
@@ -566,7 +566,7 @@ class RiskMetricsCalculator:
                     time_underwater=time_underwater,
                     metadata={
                         'risk_free_rate': self.risk_free_rate,
-                        'calculation_timestamp': datetime.now(timezone.utc).isoformat()
+                        'calculation_timestamp': datetime.now(UTC).isoformat()
                     }
                 )
 
@@ -753,7 +753,7 @@ class RiskMetricsCalculator:
             avg_return = np.mean(window_returns)
 
             # Store results
-            timestamps.append(datetime.now(timezone.utc) - timedelta(days=len(returns) - i - window_size))
+            timestamps.append(datetime.now(UTC) - timedelta(days=len(returns) - i - window_size))
             sharpe_ratios.append(sharpe)
             sortino_ratios.append(sortino)
             volatilities.append(vol)
@@ -997,9 +997,9 @@ class RiskMetricsCalculator:
     def _create_empty_metrics(self) -> RiskMetrics:
         """Create empty metrics object."""
         return RiskMetrics(
-            timestamp=datetime.now(timezone.utc),
-            period_start=datetime.now(timezone.utc),
-            period_end=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
+            period_start=datetime.now(UTC),
+            period_end=datetime.now(UTC),
             num_periods=0,
             total_return=0.0,
             annualized_return=0.0,

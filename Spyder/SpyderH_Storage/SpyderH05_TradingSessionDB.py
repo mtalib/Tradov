@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -42,7 +41,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -207,12 +206,11 @@ class TradingSessionDB:
 
     def _init_schema(self) -> None:
         """Create tables and indexes if they do not exist."""
-        with self._lock:
-            with self._connect() as conn:
-                conn.executescript(_SCHEMA_SQL)
-                for idx_sql in _INDEXES_SQL:
-                    conn.execute(idx_sql)
-                conn.commit()
+        with self._lock, self._connect() as conn:
+            conn.executescript(_SCHEMA_SQL)
+            for idx_sql in _INDEXES_SQL:
+                conn.execute(idx_sql)
+            conn.commit()
 
     def _paper_state_path(self) -> Path:
         """Return the sidecar file storing paper DB audit state."""
@@ -265,7 +263,7 @@ class TradingSessionDB:
                 "db_path": str(self.db_path),
                 "expected_empty": False,
                 "last_activity": str(activity or "write"),
-                "last_activity_at": datetime.now(timezone.utc).isoformat(),
+                "last_activity_at": datetime.now(UTC).isoformat(),
             }
         )
         self._write_sidecar_json(self._paper_state_path(), state)
@@ -287,7 +285,7 @@ class TradingSessionDB:
                 "schema": 1,
                 "db_path": str(self.db_path),
                 "expected_empty": True,
-                "last_reset_at": datetime.now(timezone.utc).isoformat(),
+                "last_reset_at": datetime.now(UTC).isoformat(),
                 "last_reset_reason": str(reason or "unspecified"),
                 "last_reset_actor": str(actor or "unknown"),
                 "last_reset_cleared_counts": dict(cleared_counts),
@@ -393,7 +391,7 @@ class TradingSessionDB:
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "schema": 1,
-            "saved_at": datetime.now(timezone.utc).isoformat(),
+            "saved_at": datetime.now(UTC).isoformat(),
             "session_id": str(session_id or ""),
             "positions": manifest_rows,
         }
@@ -429,7 +427,7 @@ class TradingSessionDB:
             "session_id": normalized_session_id,
             "owner": str(owner or ""),
             "pid": os.getpid(),
-            "marked_at": datetime.now(timezone.utc).isoformat(),
+            "marked_at": datetime.now(UTC).isoformat(),
         }
         self._write_sidecar_json(self._paper_active_session_path(), payload)
 
@@ -456,7 +454,7 @@ class TradingSessionDB:
                 {
                     "schema": 1,
                     "last_session_clear_reason": str(reason),
-                    "last_session_cleared_at": datetime.now(timezone.utc).isoformat(),
+                    "last_session_cleared_at": datetime.now(UTC).isoformat(),
                 }
             )
             self._write_sidecar_json(self._paper_state_path(), state)
@@ -701,11 +699,10 @@ class TradingSessionDB:
             The generated trade_id (UUID string).
         """
         trade_id = str(uuid.uuid4())
-        ts = (timestamp or datetime.now(timezone.utc)).isoformat()
-        with self._lock:
-            with self._connect() as conn:
-                conn.execute(
-                    """
+        ts = (timestamp or datetime.now(UTC)).isoformat()
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
                     INSERT INTO trades
                         (trade_id, timestamp, symbol, strategy, trade_type, side,
                          quantity, price, commission, slippage, realized_pnl,
@@ -713,14 +710,14 @@ class TradingSessionDB:
                     VALUES
                         (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (
-                        trade_id, ts, symbol, strategy, trade_type, side,
-                        quantity, price, commission, slippage, realized_pnl,
-                        order_id, expiration, strike, option_type, notes,
-                    ),
-                )
-                conn.commit()
-                self._record_paper_activity("record_trade")
+                (
+                    trade_id, ts, symbol, strategy, trade_type, side,
+                    quantity, price, commission, slippage, realized_pnl,
+                    order_id, expiration, strike, option_type, notes,
+                ),
+            )
+            conn.commit()
+            self._record_paper_activity("record_trade")
         return trade_id
 
     def record_account_snapshot(
@@ -752,25 +749,24 @@ class TradingSessionDB:
             max_drawdown:   Maximum drawdown fraction (0.0–1.0).
             timestamp:      UTC timestamp (defaults to utcnow).
         """
-        ts = (timestamp or datetime.now(timezone.utc)).isoformat()
-        with self._lock:
-            with self._connect() as conn:
-                conn.execute(
-                    """
+        ts = (timestamp or datetime.now(UTC)).isoformat()
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
                     INSERT INTO account_snapshots
                         (timestamp, cash, equity, buying_power, realized_pnl,
                          unrealized_pnl, total_trades, winning_trades,
                          losing_trades, max_drawdown)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (
-                        ts, cash, equity, buying_power, realized_pnl,
-                        unrealized_pnl, total_trades, winning_trades,
-                        losing_trades, max_drawdown,
-                    ),
-                )
-                conn.commit()
-                self._record_paper_activity("record_account_snapshot")
+                (
+                    ts, cash, equity, buying_power, realized_pnl,
+                    unrealized_pnl, total_trades, winning_trades,
+                    losing_trades, max_drawdown,
+                ),
+            )
+            conn.commit()
+            self._record_paper_activity("record_account_snapshot")
 
     def upsert_position(
         self,
@@ -817,13 +813,12 @@ class TradingSessionDB:
             strike:        Options strike.
             option_type:   "call" or "put".
         """
-        opened_ts = (opened_at or datetime.now(timezone.utc)).isoformat()
+        opened_ts = (opened_at or datetime.now(UTC)).isoformat()
         closed_ts = closed_at.isoformat() if closed_at else None
-        now = datetime.now(timezone.utc).isoformat()
-        with self._lock:
-            with self._connect() as conn:
-                conn.execute(
-                    """
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
                     INSERT INTO positions
                         (position_id, symbol, strategy, quantity, entry_price,
                          current_price, unrealized_pnl, realized_pnl, status,
@@ -862,15 +857,15 @@ class TradingSessionDB:
                         option_type    = COALESCE(excluded.option_type, positions.option_type),
                         updated_at     = excluded.updated_at
                     """,
-                    (
-                        position_id, symbol, strategy, quantity, entry_price,
-                        current_price, unrealized_pnl, realized_pnl, status,
-                        opened_ts, closed_ts, delta, gamma, theta, vega,
-                        expiration, strike, option_type, now,
-                    ),
-                )
-                conn.commit()
-                self._record_paper_activity("upsert_position")
+                (
+                    position_id, symbol, strategy, quantity, entry_price,
+                    current_price, unrealized_pnl, realized_pnl, status,
+                    opened_ts, closed_ts, delta, gamma, theta, vega,
+                    expiration, strike, option_type, now,
+                ),
+            )
+            conn.commit()
+            self._record_paper_activity("upsert_position")
 
     def rekey_open_position(
         self,
@@ -889,9 +884,8 @@ class TradingSessionDB:
         if not old_position_id or not new_position_id or not new_symbol:
             return False
 
-        updated_at = datetime.now(timezone.utc).isoformat()
-        with self._lock:
-            with self._connect() as conn:
+        updated_at = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as conn:
                 existing = conn.execute(
                     "SELECT position_id FROM positions WHERE position_id = ? AND status = 'OPEN'",
                     (old_position_id,),
@@ -941,16 +935,15 @@ class TradingSessionDB:
         if not normalized_position_id:
             return False
 
-        with self._lock:
-            with self._connect() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM positions WHERE position_id = ? AND status = 'OPEN'",
-                    (normalized_position_id,),
-                )
-                conn.commit()
-                deleted = int(getattr(cursor, "rowcount", 0) or 0) > 0
-                if deleted:
-                    self._record_paper_activity("delete_open_position")
+        with self._lock, self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM positions WHERE position_id = ? AND status = 'OPEN'",
+                (normalized_position_id,),
+            )
+            conn.commit()
+            deleted = int(getattr(cursor, "rowcount", 0) or 0) > 0
+            if deleted:
+                self._record_paper_activity("delete_open_position")
 
         return deleted
 
@@ -965,20 +958,19 @@ class TradingSessionDB:
         Returns:
             Dict with all account_snapshots columns, or None.
         """
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    "SELECT * FROM account_snapshots ORDER BY timestamp DESC LIMIT 1"
-                ).fetchone()
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM account_snapshots ORDER BY timestamp DESC LIMIT 1"
+            ).fetchone()
         return dict(row) if row else None
 
     @staticmethod
     def _normalize_reference_time(reference_time: datetime | None = None) -> datetime:
         """Return an aware UTC datetime for date-bucket calculations."""
-        current = reference_time or datetime.now(timezone.utc)
+        current = reference_time or datetime.now(UTC)
         if current.tzinfo is None:
-            return current.replace(tzinfo=timezone.utc)
-        return current.astimezone(timezone.utc)
+            return current.replace(tzinfo=UTC)
+        return current.astimezone(UTC)
 
     @classmethod
     def _eastern_day_window_utc(
@@ -990,7 +982,7 @@ class TradingSessionDB:
         current_et = current_utc.astimezone(_EASTERN_TIMEZONE)
         start_et = current_et.replace(hour=0, minute=0, second=0, microsecond=0)
         end_et = start_et + timedelta(days=1)
-        return start_et.astimezone(timezone.utc), end_et.astimezone(timezone.utc)
+        return start_et.astimezone(UTC), end_et.astimezone(UTC)
 
     @classmethod
     def _eastern_period_start_utc(
@@ -1012,7 +1004,7 @@ class TradingSessionDB:
             start_et = current_et.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         else:
             raise ValueError(f"Unsupported period for ET bucket: {period}")
-        return start_et.astimezone(timezone.utc)
+        return start_et.astimezone(UTC)
 
     def get_trades_today(self) -> list[dict[str, Any]]:
         """
@@ -1023,15 +1015,14 @@ class TradingSessionDB:
         """
         now_utc = self._normalize_reference_time()
         start_utc, _ = self._eastern_day_window_utc(now_utc)
-        with self._lock:
-            with self._connect() as conn:
-                rows = conn.execute(
-                    "SELECT * FROM trades "
-                    "WHERE datetime(timestamp) >= datetime(?) "
-                    "AND datetime(timestamp) <= datetime(?) "
-                    "ORDER BY datetime(timestamp), timestamp",
-                    (start_utc.isoformat(), now_utc.isoformat()),
-                ).fetchall()
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM trades "
+                "WHERE datetime(timestamp) >= datetime(?) "
+                "AND datetime(timestamp) <= datetime(?) "
+                "ORDER BY datetime(timestamp), timestamp",
+                (start_utc.isoformat(), now_utc.isoformat()),
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def get_recent_trades(self, limit: int = 3) -> list[dict[str, Any]]:
@@ -1045,12 +1036,11 @@ class TradingSessionDB:
             List of trade dicts ordered by descending timestamp.
         """
         safe_limit = max(1, int(limit))
-        with self._lock:
-            with self._connect() as conn:
-                rows = conn.execute(
-                    "SELECT * FROM trades ORDER BY timestamp DESC LIMIT ?",
-                    (safe_limit,),
-                ).fetchall()
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM trades ORDER BY timestamp DESC LIMIT ?",
+                (safe_limit,),
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def has_trade_history_for_symbol(self, symbol: str) -> bool:
@@ -1059,12 +1049,11 @@ class TradingSessionDB:
         if not normalized_symbol:
             return False
 
-        with self._lock:
-            with self._connect() as conn:
-                row = conn.execute(
-                    "SELECT 1 FROM trades WHERE symbol = ? LIMIT 1",
-                    (normalized_symbol,),
-                ).fetchone()
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM trades WHERE symbol = ? LIMIT 1",
+                (normalized_symbol,),
+            ).fetchone()
         return row is not None
 
     def get_open_positions(self) -> list[dict[str, Any]]:
@@ -1074,11 +1063,10 @@ class TradingSessionDB:
         Returns:
             List of position dicts.
         """
-        with self._lock:
-            with self._connect() as conn:
-                rows = conn.execute(
-                    "SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at"
-                ).fetchall()
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at"
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def get_active_paper_open_positions(self) -> list[dict[str, Any]]:
@@ -1179,20 +1167,19 @@ class TradingSessionDB:
         month_start = self._eastern_period_start_utc("month", now_utc)
         year_start = self._eastern_period_start_utc("year", now_utc)
 
-        with self._lock:
-            with self._connect() as conn:
-                def _sum(since: datetime) -> float:
-                    row = conn.execute(
-                        "SELECT COALESCE(SUM(realized_pnl), 0.0) FROM trades "
-                        "WHERE datetime(timestamp) >= datetime(?) "
-                        "AND datetime(timestamp) <= datetime(?)",
-                        (since.isoformat(), now_utc.isoformat()),
-                    ).fetchone()
-                    return float(row[0]) if row else 0.0
+        with self._lock, self._connect() as conn:
+            def _sum(since: datetime) -> float:
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(realized_pnl), 0.0) FROM trades "
+                    "WHERE datetime(timestamp) >= datetime(?) "
+                    "AND datetime(timestamp) <= datetime(?)",
+                    (since.isoformat(), now_utc.isoformat()),
+                ).fetchone()
+                return float(row[0]) if row else 0.0
 
-                return {
-                    "today": _sum(today_start),
-                    "week": _sum(week_start),
-                    "month": _sum(month_start),
-                    "year": _sum(year_start),
-                }
+            return {
+                "today": _sum(today_start),
+                "week": _sum(week_start),
+                "month": _sum(month_start),
+                "year": _sum(year_start),
+            }

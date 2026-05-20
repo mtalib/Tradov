@@ -10,7 +10,8 @@ Purpose: Pure presentation helpers for IV and portfolio Greek strip labels
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 
 @dataclass(frozen=True)

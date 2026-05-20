@@ -4,12 +4,12 @@ Script to apply standard Python formatting to all Spyder modules
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 # Get today's date and time
-TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-NOW_TIME = datetime.now(timezone.utc).strftime("%H:%M:%S")
+TODAY = datetime.now(UTC).strftime("%Y-%m-%d")
+NOW_TIME = datetime.now(UTC).strftime("%H:%M:%S")
 
 def extract_module_info(filepath: str) -> tuple[str, str, str]:
     """

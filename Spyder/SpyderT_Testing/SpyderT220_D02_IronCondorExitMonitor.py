@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from types import SimpleNamespace
 
 from Spyder.SpyderD_Strategies.SpyderD02_IronCondor import IronCondorStrategy
@@ -30,8 +30,8 @@ def _build_position(
     days_to_expiry: int = 30,
     days_held: int = 3,
 ):
-    opened_at = datetime.now(timezone.utc) - timedelta(days=days_held)
-    expiration = (datetime.now(timezone.utc) + timedelta(days=days_to_expiry)).date().isoformat()
+    opened_at = datetime.now(UTC) - timedelta(days=days_held)
+    expiration = (datetime.now(UTC) + timedelta(days=days_to_expiry)).date().isoformat()
     return SimpleNamespace(
         symbol=symbol,
         strategy_id='iron_condor',
@@ -103,7 +103,7 @@ def test_days_to_expiry_uses_et_date_source(monkeypatch) -> None:
     monkeypatch.setattr(
         IronCondorStrategy,
         '_now_et',
-        staticmethod(lambda: datetime(2026, 5, 20, 10, 30, tzinfo=timezone.utc)),
+        staticmethod(lambda: datetime(2026, 5, 20, 10, 30, tzinfo=UTC)),
     )
 
     assert IronCondorStrategy._days_to_expiry('2026-05-21', 'SPY260521P00530000') == 1

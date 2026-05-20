@@ -27,7 +27,7 @@ import os
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import deque
@@ -198,7 +198,7 @@ class GreeksData:
     risk_free_rate: float
     option_type: str  # 'call' or 'put'
     position_value: float
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -241,7 +241,7 @@ class AIGreeksAnalysis:
     prediction_accuracy: float
     feature_importance: dict[str, float]
 
-    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -275,7 +275,7 @@ class PortfolioGreeksAnalysis:
     optimal_hedges: list[dict[str, Any]]
     risk_attribution: dict[str, float]
 
-    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    analysis_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -289,7 +289,7 @@ class MarketContext:
     correlation_environment: float
     liquidity_conditions: str
     recent_events: list[str]
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -759,7 +759,7 @@ class GreeksAgent:
                     accuracy_score=cv_scores.mean(),
                     prediction_confidence=cv_scores.std(),
                     training_samples=n_samples,
-                    last_training=datetime.now(timezone.utc),
+                    last_training=datetime.now(UTC),
                     feature_importance=dict(
                         enumerate(getattr(model, "feature_importances_", []))
                     ),
@@ -2062,7 +2062,7 @@ class GreeksAgent:
                 self.market_context.market_regime = MarketRegime.NORMAL
 
             # Update timestamp
-            self.market_context.timestamp = datetime.now(timezone.utc)
+            self.market_context.timestamp = datetime.now(UTC)
 
             self.logger.debug(
                 f"Market context updated: VIX={self.market_context.vix_level:.1f}, "

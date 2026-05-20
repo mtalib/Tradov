@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any, TypedDict
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
@@ -71,7 +71,7 @@ except Exception:
             "handoff_type": kwargs.get("handoff_type", "handoff"),
             "topic": kwargs.get("topic", ""),
             "producer": {"agent_id": kwargs.get("producer_agent_id", "unknown")},
-            "timestamp": kwargs.get("timestamp", datetime.now(timezone.utc).timestamp()),
+            "timestamp": kwargs.get("timestamp", datetime.now(UTC).timestamp()),
             "payload": kwargs.get("payload", {}),
             "confidence": kwargs.get("confidence"),
             "reasoning": kwargs.get("reasoning", ""),
@@ -509,7 +509,7 @@ class SpyderX14_OrchestratorAgent:
             OrchestratorDecision with collective intelligence
         """
         try:
-            start_time = datetime.now(timezone.utc)
+            start_time = datetime.now(UTC)
 
             # --- LangGraph path (TradingAgents-inspired stateful pipeline) ---
             if self._graph is not None:
@@ -526,7 +526,7 @@ class SpyderX14_OrchestratorAgent:
                 result = await self._graph.ainvoke(initial_state)
                 decision = result.get("decision")
                 if decision is not None:
-                    processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+                    processing_time = (datetime.now(UTC) - start_time).total_seconds()
                     self.logger.info(
                         "LangGraph orchestrated decision in %.2fs — "
                         "%d agents, confidence: %.0f%%",
@@ -570,7 +570,7 @@ class SpyderX14_OrchestratorAgent:
             self._update_performance_tracking(decision, valid_outputs)
 
             # Log decision
-            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            processing_time = (datetime.now(UTC) - start_time).total_seconds()
             self.logger.info(
                 f"Orchestrated decision in {processing_time:.2f}s with "
                 f"{len(valid_outputs)} agents, confidence: {decision.confidence:.2%}"
@@ -617,7 +617,7 @@ class SpyderX14_OrchestratorAgent:
     ) -> AgentOutput | None:
         """Get output from a single agent."""
         try:
-            start_time = datetime.now(timezone.utc)
+            start_time = datetime.now(UTC)
 
             # Call agent's analyze method
             if hasattr(agent, "analyze"):
@@ -637,7 +637,7 @@ class SpyderX14_OrchestratorAgent:
                 reasoning = ""
                 metadata = {}
 
-            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            processing_time = (datetime.now(UTC) - start_time).total_seconds()
 
             return AgentOutput(
                 agent_id=agent_id,
@@ -645,7 +645,7 @@ class SpyderX14_OrchestratorAgent:
                 confidence=confidence,
                 reasoning=reasoning,
                 processing_time=processing_time,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 metadata=metadata,
             )
 
@@ -993,7 +993,7 @@ class SpyderX14_OrchestratorAgent:
         # Store decision
         self.decision_history.append(
             {
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": datetime.now(UTC),
                 "decision": decision,
                 "outputs": agent_outputs,
             }

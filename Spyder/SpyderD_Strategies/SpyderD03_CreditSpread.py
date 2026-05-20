@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, time as _time, timedelta, timezone
+from datetime import datetime, time as _time, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 import uuid
@@ -417,7 +417,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 return True, f"Stop loss triggered: {loss_pct:.1%}"
 
             # Check days to expiry
-            dte = (spread.expiry - datetime.now(timezone.utc)).days
+            dte = (spread.expiry - datetime.now(UTC)).days
             if dte <= 5 and profit_pct > 0.25:
                 return True, f"Near expiry with profit: {dte} DTE"
 
@@ -587,8 +587,8 @@ class CreditSpreadStrategy(BaseStrategy):
                 stop_loss=0,  # Managed differently for spreads
                 take_profit=0,  # Managed differently for spreads
                 position_size=1,  # Will be calculated later
-                timestamp=datetime.now(timezone.utc),
-                expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+                timestamp=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(minutes=5),
                 metadata={
                     'strategy': 'credit_spread',
                     'spread_data': spread_data
@@ -639,8 +639,8 @@ class CreditSpreadStrategy(BaseStrategy):
                 stop_loss=0,  # Managed differently for spreads
                 take_profit=0,  # Managed differently for spreads
                 position_size=1,  # Will be calculated later
-                timestamp=datetime.now(timezone.utc),
-                expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+                timestamp=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(minutes=5),
                 metadata={
                     'strategy': 'credit_spread',
                     'spread_data': spread_data
@@ -751,7 +751,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 short_leg = OptionLeg(
                     symbol=f"SPY_P_{spread_data['short_strike']}",
                     strike=spread_data['short_strike'],
-                    expiry=datetime.now(timezone.utc) + timedelta(days=spread_data['dte']),
+                    expiry=datetime.now(UTC) + timedelta(days=spread_data['dte']),
                     option_type='put',
                     position='short',
                     quantity=signal.position_size,
@@ -760,7 +760,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 long_leg = OptionLeg(
                     symbol=f"SPY_P_{spread_data['long_strike']}",
                     strike=spread_data['long_strike'],
-                    expiry=datetime.now(timezone.utc) + timedelta(days=spread_data['dte']),
+                    expiry=datetime.now(UTC) + timedelta(days=spread_data['dte']),
                     option_type='put',
                     position='long',
                     quantity=signal.position_size,
@@ -770,7 +770,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 short_leg = OptionLeg(
                     symbol=f"SPY_C_{spread_data['short_strike']}",
                     strike=spread_data['short_strike'],
-                    expiry=datetime.now(timezone.utc) + timedelta(days=spread_data['dte']),
+                    expiry=datetime.now(UTC) + timedelta(days=spread_data['dte']),
                     option_type='call',
                     position='short',
                     quantity=signal.position_size,
@@ -779,7 +779,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 long_leg = OptionLeg(
                     symbol=f"SPY_C_{spread_data['long_strike']}",
                     strike=spread_data['long_strike'],
-                    expiry=datetime.now(timezone.utc) + timedelta(days=spread_data['dte']),
+                    expiry=datetime.now(UTC) + timedelta(days=spread_data['dte']),
                     option_type='call',
                     position='long',
                     quantity=signal.position_size,
@@ -792,7 +792,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 spread_type=spread_data['spread_type'],
                 short_leg=short_leg,
                 long_leg=long_leg,
-                entry_time=datetime.now(timezone.utc),
+                entry_time=datetime.now(UTC),
                 expiry=short_leg.expiry,
                 quantity=signal.position_size,
                 state=SpreadState.ACTIVE,
@@ -847,7 +847,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 # Bull put profits if price stays above short strike
                 if current_price > spread.short_leg.strike:
                     # Time decay in our favor
-                    days_held = (datetime.now(timezone.utc) - spread.entry_time).days
+                    days_held = (datetime.now(UTC) - spread.entry_time).days
                     time_decay_pct = min(0.9, days_held / 30)
                     spread.unrealized_pnl = spread.max_profit * time_decay_pct
                 else:
@@ -860,7 +860,7 @@ class CreditSpreadStrategy(BaseStrategy):
                 # Bear call profits if price stays below short strike
                 if current_price < spread.short_leg.strike:
                     # Time decay in our favor
-                    days_held = (datetime.now(timezone.utc) - spread.entry_time).days
+                    days_held = (datetime.now(UTC) - spread.entry_time).days
                     time_decay_pct = min(0.9, days_held / 30)
                     spread.unrealized_pnl = spread.max_profit * time_decay_pct
                 else:
@@ -890,7 +890,7 @@ class CreditSpreadStrategy(BaseStrategy):
             spread.realized_pnl = spread.unrealized_pnl
             spread.state = SpreadState.CLOSED
             spread.exit_reason = reason
-            spread.days_in_trade = (datetime.now(timezone.utc) - spread.entry_time).days
+            spread.days_in_trade = (datetime.now(UTC) - spread.entry_time).days
 
             # Move to history
             self.spread_history.append(spread)
@@ -995,7 +995,7 @@ if __name__ == "__main__":
     strategy.start()
 
     # Create sample market data
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=100, freq='5min')
+    dates = pd.date_range(end=datetime.now(UTC), periods=100, freq='5min')
     base_price = 450  # SPY price
     trend = np.linspace(0, 5, 100)  # Slight uptrend
     noise = np.random.randn(100) * 2

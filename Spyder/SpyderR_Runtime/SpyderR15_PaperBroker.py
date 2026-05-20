@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -42,7 +41,7 @@ Module Description:
 import threading
 import time
 import uuid  # noqa: F401
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any, Optional  # noqa: F401
 
 # ==============================================================================
@@ -361,9 +360,11 @@ class PaperBroker:
             # Underlying must be ≥1 char; tail must have room for 6+1+8 chars.
             if idx == 0 or idx + 15 > len(sym):
                 return False
-            if sym[idx:idx + 6].isdigit() and sym[idx + 6] in "CP" and sym[idx + 7:idx + 15].isdigit():  # noqa: E501
-                return True
-            return False
+            return (
+                sym[idx:idx + 6].isdigit()
+                and sym[idx + 6] in "CP"
+                and sym[idx + 7:idx + 15].isdigit()
+            )
 
         is_option = _is_occ_option(symbol)
         side = "buy_to_close" if is_option else "sell"
@@ -452,7 +453,7 @@ class PaperBroker:
                 "status": "filled",
                 "avg_fill_price": round(fill_price, 4),
                 "quantity": order.get("quantity", 1),
-                "transaction_date": datetime.now(timezone.utc).isoformat(),
+                "transaction_date": datetime.now(UTC).isoformat(),
                 "symbol": symbol,
             }
         }

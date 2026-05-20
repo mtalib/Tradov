@@ -94,7 +94,6 @@ sys.modules["Spyder.SpyderA_Core.SpyderA02_TradingEngine"] = _a02
 # --- A05 EventManager (import before A04 so it's cached) ---
 import Spyder.SpyderA_Core.SpyderA05_EventManager as _a05
 from Spyder.SpyderA_Core.SpyderA05_EventManager import (
-    EventType,
     EventPriority,
     HandlerType,
     Event,

@@ -566,7 +566,7 @@ class PaperTradingMonitor:
         # Check if already active
         if alert_key not in self.active_alerts:
             # New alert
-            alert['timestamp'] = datetime.datetime.now(datetime.timezone.utc)
+            alert['timestamp'] = datetime.datetime.now(datetime.UTC)
             alert['alert_key'] = alert_key
 
             self.active_alerts[alert_key] = alert
@@ -606,7 +606,7 @@ class PaperTradingMonitor:
             total_pnl = sum(s.total_pnl for s in self.strategy_performance.values())
 
             status = {
-                'timestamp': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                'timestamp': datetime.datetime.now(datetime.UTC).isoformat(),
                 'total_trades': total_trades,
                 'total_pnl': total_pnl,
                 'current_drawdown': self.current_drawdown,
@@ -653,7 +653,7 @@ class PaperTradingMonitor:
         report.append("="*80)
         report.append("PAPER TRADING PERFORMANCE REPORT")
         report.append("="*80)
-        report.append(f"Generated: {datetime.datetime.now(datetime.timezone.utc)}")
+        report.append(f"Generated: {datetime.datetime.now(datetime.UTC)}")
         report.append("")
 
         # Overall summary
@@ -789,7 +789,7 @@ class PaperTradingMonitor:
     def export_metrics(self, filename: str) -> None:
         """Export detailed metrics to file"""
         metrics_data = {
-            'export_time': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'export_time': datetime.datetime.now(datetime.UTC).isoformat(),
             'summary': {
                 'total_trades': sum(s.total_trades for s in self.strategy_performance.values()),
                 'total_pnl': sum(s.total_pnl for s in self.strategy_performance.values()),

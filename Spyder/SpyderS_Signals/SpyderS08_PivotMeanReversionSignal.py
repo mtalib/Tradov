@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -45,8 +44,7 @@ Last Updated: 2026-04-17 Time: 00:00:00
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -93,7 +91,7 @@ CENTER_KEY = "P"
 # ==============================================================================
 # TYPES
 # ==============================================================================
-class PivotDirection(str, Enum):
+class PivotDirection(StrEnum):
     """Direction of the proposed mean-reversion trade."""
     FADE_RESISTANCE = "fade_resistance"   # short bias / sell call spread
     FADE_SUPPORT = "fade_support"         # long bias / sell put spread
@@ -129,13 +127,13 @@ class PivotMRInputs:
 
     # --- Tier 1 / Tier 3 core ---------------------------------------------
     regime_label: str = ""                      # e.g. "LOW_VOL", "TREND", ""
-    net_gex: Optional[float] = None             # dollars, None = unknown
+    net_gex: float | None = None             # dollars, None = unknown
 
     # --- Optional confluences (default neutral) ---------------------------
-    vwap_slope: Optional[float] = None          # bps/min; None = unknown
-    max_pain_strike: Optional[float] = None
-    breadth_tick: Optional[float] = None        # NYSE TICK reading
-    vix: Optional[float] = None
+    vwap_slope: float | None = None          # bps/min; None = unknown
+    max_pain_strike: float | None = None
+    breadth_tick: float | None = None        # NYSE TICK reading
+    vix: float | None = None
     vix_backwardation: bool = False
     is_news_window: bool = False
     is_edge_of_day: bool = False                # first/last 15 min
@@ -204,7 +202,7 @@ class PivotMeanReversionSignal:
         atr: float,
         keys: tuple[str, ...],
         side: str,
-    ) -> Optional[tuple[str, float, float]]:
+    ) -> tuple[str, float, float] | None:
         """Return (name, price, signed_atr_distance) of the closest level
         that price has reached on the given side, else None.
 
@@ -217,7 +215,7 @@ class PivotMeanReversionSignal:
         # strongest fade signal because price has travelled the furthest past
         # the original breakout. The previous `dist < best[2]` selected the
         # closest, contradicting the test contract in T131.
-        best: Optional[tuple[str, float, float]] = None
+        best: tuple[str, float, float] | None = None
         for k in keys:
             lvl = pivots.get(k)
             if lvl is None:
@@ -235,7 +233,7 @@ class PivotMeanReversionSignal:
     @staticmethod
     def _center_pivot_candidate(
         inp: PivotMRInputs,
-    ) -> Optional[tuple[str, float, float, PivotDirection]]:
+    ) -> tuple[str, float, float, PivotDirection] | None:
         """Return a center-pivot candidate when price is rotating around P.
 
         Direction is inferred from local RSI bias so the signal can qualify

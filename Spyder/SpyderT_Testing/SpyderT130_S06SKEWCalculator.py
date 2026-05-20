@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -253,7 +252,7 @@ class TestSKEWCalculation:
         assert sc.strikes_used == 18
 
 
-class TestSKEWComponents:
+class TestSKEWComponentsDataclass:
     def test_creation_and_wing_lengths(self):
         sc = SKEWComponents(
             spot=550.0, forward=552.0, atm_volatility=0.20,
@@ -941,10 +940,12 @@ class TestDataUnavailableError:
 
     def test_calculate_skew_no_data_raises(self, calc):
         """calculate_skew() with no data and no provider raises DataUnavailableError."""
-        with patch.object(calc, "_fetch_spot_price", return_value=None), \
-             patch.object(calc, "_fetch_option_chain", return_value=None):
-            with pytest.raises(DataUnavailableError):
-                calc.calculate_skew()
+        with (
+            patch.object(calc, "_fetch_spot_price", return_value=None),
+            patch.object(calc, "_fetch_option_chain", return_value=None),
+            pytest.raises(DataUnavailableError),
+        ):
+            calc.calculate_skew()
 
     def test_error_message_contains_context(self, calc):
         try:

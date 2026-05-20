@@ -25,7 +25,7 @@ Change Log:
 import time
 import threading
 import queue
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -226,7 +226,7 @@ class RealTimePredictor:
             # Create result
             result = PredictionResult(
                 request_id=request_id,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 predictions=predictions,
                 latency_ms=latency_ms,
                 from_cache=False
@@ -248,7 +248,7 @@ class RealTimePredictor:
             # Return empty result
             return PredictionResult(
                 request_id=request_id,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 predictions={},
                 latency_ms=(time.time() - start_time) * 1000,
                 metadata={'error': str(e)}
@@ -277,7 +277,7 @@ class RealTimePredictor:
 
         request = PredictionRequest(
             request_id=request_id,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             features=features,
             model_names=model_names or list(self.models.keys()),
             priority=priority,
@@ -363,7 +363,7 @@ class RealTimePredictor:
                     model_name=model_name,
                     model=model,
                     feature_names=model_version.config.features,
-                    last_used=datetime.now(timezone.utc)
+                    last_used=datetime.now(UTC)
                 )
 
                 # Warm up model
@@ -536,7 +536,7 @@ class RealTimePredictor:
                 latency_ms = (time.time() - start_time) * 1000
                 instance.prediction_count += 1
                 instance.total_latency_ms += latency_ms
-                instance.last_used = datetime.now(timezone.utc)
+                instance.last_used = datetime.now(UTC)
 
                 return prediction
 
@@ -581,7 +581,7 @@ class RealTimePredictor:
                 entry = self.feature_cache[cache_key]
 
                 # Check TTL
-                age = (datetime.now(timezone.utc) - entry.timestamp).total_seconds()
+                age = (datetime.now(UTC) - entry.timestamp).total_seconds()
                 if age < CACHE_TTL_SECONDS:
                     # Make predictions using cached features
                     predictions = {}
@@ -597,7 +597,7 @@ class RealTimePredictor:
 
                     return PredictionResult(
                         request_id=f"cache_{int(time.time() * 1000000)}",
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         predictions=predictions,
                         latency_ms=0.1,  # Cache lookup is fast
                         from_cache=True
@@ -621,7 +621,7 @@ class RealTimePredictor:
             feature_vector = np.array(list(features.values()))
 
         entry = FeatureCacheEntry(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             features=features,
             feature_vector=feature_vector,
             hash_key=cache_key

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from dataclasses import dataclass
 from collections import defaultdict, deque
 from enum import Enum
@@ -361,7 +361,7 @@ class VIXAnalyzer:
     def _load_historical_data(self) -> bool:
         """Load historical VIX data for analysis."""
         try:
-            end_date = datetime.now(timezone.utc)
+            end_date = datetime.now(UTC)
             start_date = end_date - timedelta(days=365)  # 1 year of data
 
             for symbol_key, yahoo_symbol in VIX_SYMBOLS.items():
@@ -517,7 +517,7 @@ class VIXAnalyzer:
         and is no longer included.
         """
         try:
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
 
             # Only update during market hours or near market hours
             if not self._is_update_time(current_time):
@@ -628,7 +628,7 @@ class VIXAnalyzer:
                         vix_data = VIXData(
                             symbol=vix_symbol,
                             value=price,
-                            timestamp=event.timestamp or datetime.now(timezone.utc)
+                            timestamp=event.timestamp or datetime.now(UTC)
                         )
                         self._process_vix_update(vix_data)
                     break
@@ -649,7 +649,7 @@ class VIXAnalyzer:
                 vix_data = VIXData(
                     symbol=symbol,
                     value=price,
-                    timestamp=event.timestamp or datetime.now(timezone.utc)
+                    timestamp=event.timestamp or datetime.now(UTC)
                 )
                 self._process_vix_update(vix_data)
 
@@ -708,7 +708,7 @@ class VIXAnalyzer:
             if not self._has_sufficient_data():
                 return
 
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
 
             # Get current VIX values
             vix = self.vix_data.get('VIX', VIXData('VIX', 0, current_time)).value
@@ -776,7 +776,7 @@ class VIXAnalyzer:
     def _update_term_structure(self) -> None:
         """Update VIX term structure analysis."""
         try:
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
 
             # Get required VIX values
             vix9d = self.vix_data.get('VIX9D', VIXData('VIX9D', 0, current_time)).value
@@ -815,7 +815,7 @@ class VIXAnalyzer:
     def _update_risk_premium(self) -> None:
         """Update volatility risk premium analysis."""
         try:
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
 
             # Get VIX (implied volatility)
             vix = self.vix_data.get('VIX', VIXData('VIX', 0, current_time)).value
@@ -932,7 +932,7 @@ class VIXAnalyzer:
                 return
 
             signals = []
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
 
             # Volatility expansion signal
             if self._detect_volatility_expansion():
@@ -1144,9 +1144,9 @@ class VIXAnalyzer:
                 data={
                     'old_regime': old_regime.value,
                     'new_regime': new_regime.value,
-                    'timestamp': datetime.now(timezone.utc).isoformat()
+                    'timestamp': datetime.now(UTC).isoformat()
                 },
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(UTC)
             )
             self.event_manager.emit(event)
 
@@ -1211,7 +1211,7 @@ class VIXAnalyzer:
         Returns:
             List of VolatilityMetrics for specified period
         """
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff_date = datetime.now(UTC) - timedelta(days=days)
         return [
             metrics for metrics in self.regime_history
             if metrics.timestamp >= cutoff_date
@@ -1463,7 +1463,7 @@ if __name__ == "__main__":
         test_vix_data = VIXData(
             symbol="VIX",
             value=22.5,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(UTC)
         )
         analyzer._process_vix_update(test_vix_data)
 

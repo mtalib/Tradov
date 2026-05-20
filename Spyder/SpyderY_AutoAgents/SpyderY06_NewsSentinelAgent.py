@@ -36,7 +36,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 
 # ==============================================================================
@@ -66,7 +66,7 @@ class NewsItem:
     """A news item with sentiment analysis."""
     headline: str = ""
     source: str = ""
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     category: str = ""        # macro | earnings | fed | geopolitical | sector
     sentiment_score: float = 0.0   # -1.0 (bearish) to 1.0 (bullish)
     spy_impact: str = "none"       # none | low | medium | high | critical
@@ -96,7 +96,7 @@ class SentimentState:
     fear_greed_index: float = 50.0  # 0-100
     trend: str = "neutral"          # improving | deteriorating | neutral
     dominant_theme: str = ""
-    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 # ==============================================================================
@@ -308,7 +308,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         """Update aggregated sentiment from recent news."""
         recent_news = [
             n for n in self._processed_news
-            if n.timestamp > datetime.now(timezone.utc) - timedelta(hours=4)
+            if n.timestamp > datetime.now(UTC) - timedelta(hours=4)
         ]
 
         if not recent_news:
@@ -333,8 +333,8 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         # Determine trend
         older_news = [
             n for n in self._processed_news
-            if n.timestamp > datetime.now(timezone.utc) - timedelta(hours=12)
-            and n.timestamp < datetime.now(timezone.utc) - timedelta(hours=4)
+            if n.timestamp > datetime.now(UTC) - timedelta(hours=12)
+            and n.timestamp < datetime.now(UTC) - timedelta(hours=4)
         ]
         if older_news:
             older_score = sum(n.sentiment_score for n in older_news) / len(older_news)
@@ -351,7 +351,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
             from collections import Counter
             self._sentiment_state.dominant_theme = Counter(categories).most_common(1)[0][0]
 
-        self._sentiment_state.last_updated = datetime.now(timezone.utc)
+        self._sentiment_state.last_updated = datetime.now(UTC)
 
     # ==========================================================================
     # ECONOMIC CALENDAR
@@ -362,7 +362,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         # For now, publish any tracked events
         upcoming = [
             e for e in self._economic_calendar
-            if e.date >= datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            if e.date >= datetime.now(UTC).strftime("%Y-%m-%d")
         ]
 
         for event in upcoming:
@@ -403,7 +403,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
                 "type": "news_driven",
                 "headline": item.headline,
                 "category": item.category,
-                "id": f"news_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
+                "id": f"news_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
             },
             confidence=strength * 0.8,  # Discount news signals slightly
             reasoning=item.options_implication,
@@ -418,7 +418,7 @@ class SpyderY06_NewsSentinelAgent(BaseAutoAgent):
         """Generate overnight news summary for pre-market."""
         overnight_news = [
             n for n in self._processed_news
-            if n.timestamp > datetime.now(timezone.utc) - timedelta(hours=14)
+            if n.timestamp > datetime.now(UTC) - timedelta(hours=14)
         ]
 
         if not overnight_news:

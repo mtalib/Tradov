@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -188,7 +188,7 @@ class InteractionMatrix:
 
         # Cache for analysis results
         self._analysis_cache: dict[str, MatrixAnalysis] = {}
-        self._cache_timestamp = datetime.now(timezone.utc)
+        self._cache_timestamp = datetime.now(UTC)
 
         self.logger.info("InteractionMatrix initialized (max_modules: %s)", max_modules)
 
@@ -226,7 +226,7 @@ class InteractionMatrix:
                     source=source,
                     target=target,
                     interaction_type=interaction_type,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     status=status,
                     latency_ms=latency_ms,
                     data_size=data_size,
@@ -269,7 +269,7 @@ class InteractionMatrix:
             Interaction ID for completion tracking
         """
         try:
-            interaction_id = f"{source}->{target}:{datetime.now(timezone.utc).timestamp()}"
+            interaction_id = f"{source}->{target}:{datetime.now(UTC).timestamp()}"
 
             # Record as pending
             self.record_interaction(
@@ -329,14 +329,14 @@ class InteractionMatrix:
 
             # Check cache
             if (cache_key in self._analysis_cache and
-                datetime.now(timezone.utc) - self._cache_timestamp < timedelta(minutes=5)):
+                datetime.now(UTC) - self._cache_timestamp < timedelta(minutes=5)):
                 return self._analysis_cache[cache_key]
 
             with self._lock:
                 # Filter interactions by time window if specified
                 filtered_interactions = self.interactions
                 if time_window:
-                    cutoff_time = datetime.now(timezone.utc) - time_window
+                    cutoff_time = datetime.now(UTC) - time_window
                     filtered_interactions = [
                         i for i in self.interactions
                         if i.timestamp >= cutoff_time
@@ -833,7 +833,7 @@ class InteractionMatrix:
                     self.logger.debug(f"System interaction health: {health['health_score']:.1f} ({health['status']})")  # noqa: E501
 
                 # Clean old interactions
-                cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
+                cutoff_time = datetime.now(UTC) - timedelta(hours=24)
                 with self._lock:
                     self.interactions = [i for i in self.interactions if i.timestamp >= cutoff_time]
 
@@ -846,7 +846,7 @@ class InteractionMatrix:
     def _invalidate_cache(self) -> None:
         """Invalidate analysis cache"""
         self._analysis_cache.clear()
-        self._cache_timestamp = datetime.now(timezone.utc)
+        self._cache_timestamp = datetime.now(UTC)
 
 # ==============================================================================
 # MODULE FUNCTIONS

@@ -27,7 +27,7 @@ import inspect
 import logging
 import warnings
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
@@ -354,7 +354,7 @@ class SpyderLSTMPricer:
             Training metrics
         """
         logger.info("Starting LSTM training")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         # Prepare features
         features = self.prepare_features(training_data)
         targets = training_data["option_price"].values
@@ -449,7 +449,7 @@ class SpyderLSTMPricer:
         # Load best model
         self._load_checkpoint("best_model.pth")
         # Final metrics
-        training_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+        training_time = (datetime.now(UTC) - start_time).total_seconds()
         final_metrics = TrainingMetrics(
             epoch=epoch,
             train_loss=train_loss,
@@ -461,7 +461,7 @@ class SpyderLSTMPricer:
         )
         # Update model state
         self.is_trained = True
-        self.last_training_date = datetime.now(timezone.utc)
+        self.last_training_date = datetime.now(UTC)
         self.training_history.append(final_metrics)
         logger.info(
             f"Training complete - Val RMSE: {val_rmse:.4f}, " f"Improvement: {improvement:.1f}%"
@@ -479,7 +479,7 @@ class SpyderLSTMPricer:
         """
         if not self.is_trained:
             raise ValueError("Model must be trained before prediction")
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         # Prepare features
         features = self.prepare_features(option_data)
         features_scaled = self.scaler.transform(features)
@@ -506,7 +506,7 @@ class SpyderLSTMPricer:
                 predictions = predictions.cpu().numpy().flatten()
                 uncertainties = uncertainties.cpu().numpy().flatten()
             # Track inference time
-            inference_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            inference_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
             self.inference_times.append(inference_time)
             return predictions, uncertainties
         else:
@@ -514,7 +514,7 @@ class SpyderLSTMPricer:
                 predictions = self.model(X_tensor)
                 predictions = predictions.cpu().numpy().flatten()
             # Track inference time
-            inference_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            inference_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
             self.inference_times.append(inference_time)
             return predictions
 

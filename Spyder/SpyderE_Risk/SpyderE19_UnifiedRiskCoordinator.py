@@ -44,7 +44,7 @@ import time
 import asyncio
 import threading
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -319,7 +319,7 @@ class RiskCalculationCache:
                 result, timestamp = self.cache[key]
 
                 # Check expiry
-                if (datetime.now(timezone.utc) - timestamp).total_seconds() < self.expiry_seconds:
+                if (datetime.now(UTC) - timestamp).total_seconds() < self.expiry_seconds:
                     return result
                 else:
                     # Remove expired entry
@@ -343,11 +343,11 @@ class RiskCalculationCache:
                         del self.cache[key]
 
             key = self._generate_key(calculation_type, data)
-            self.cache[key] = (result, datetime.now(timezone.utc))
+            self.cache[key] = (result, datetime.now(UTC))
 
     def _cleanup_expired(self) -> None:
         """Clean up expired entries"""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expired_keys = []
 
         for key, (_, timestamp) in self.cache.items():
@@ -497,7 +497,7 @@ class UnifiedRiskCoordinator:
         """
         try:
             start_time = time.time()
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
             self.logger.info("Calculating unified risk profile for %s positions", len(positions))
 
@@ -686,7 +686,7 @@ class UnifiedRiskCoordinator:
             cache_key_data = {
                 'positions_count': len(positions),
                 'portfolio_value': portfolio_value,
-                'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')  # Cache for 1 minute
+                'timestamp': datetime.now(UTC).strftime('%Y-%m-%d %H:%M')  # Cache for 1 minute
             }
 
             cached_result = self.cache.get(RiskCalculationType.AI_PATTERN_ANALYSIS, cache_key_data)
@@ -753,7 +753,7 @@ class UnifiedRiskCoordinator:
             # Fall back to a fresh regime call using market_data fields
             from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketConditions as _L09Cond  # noqa: PLC0415
             conditions = _L09Cond(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 spy_price=float(market_data.get('spy_price', 500.0)),
                 spy_change_pct=float(market_data.get('spy_change_pct', 0.0)),
                 volume_ratio=float(market_data.get('volume_ratio', 1.0)),
@@ -899,7 +899,7 @@ class UnifiedRiskCoordinator:
         with self._lock:
             self.active_alerts.extend(new_alerts)
             # Keep only recent alerts (last 24 hours)
-            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
+            cutoff_time = datetime.now(UTC) - timedelta(hours=24)
             self.active_alerts = [a for a in self.active_alerts if a.timestamp > cutoff_time]
 
         if new_alerts:

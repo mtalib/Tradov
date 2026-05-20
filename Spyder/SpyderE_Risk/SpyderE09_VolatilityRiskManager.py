@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass
 from collections import deque
@@ -272,7 +272,7 @@ class VolatilityRiskManager:
 
         # Initialize vol surface data
         self._vol_surface_data: dict[str, Any] = {}
-        self._last_surface_update = datetime.now(timezone.utc)
+        self._last_surface_update = datetime.now(UTC)
 
         # VIX analyzer — provides live VIX data; obtained via singleton if available
         self._vix_analyzer: Any = None
@@ -325,7 +325,7 @@ class VolatilityRiskManager:
 
                 # Create profile
                 profile = VolRiskProfile(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     metrics=self.current_metrics,
                     exposure=self.current_exposure,
                     risk_assessment=risk_assessment,
@@ -367,8 +367,8 @@ class VolatilityRiskManager:
 
             # Create protocol
             protocol = VolProtectionProtocol(
-                protocol_id=f"VOL_PROT_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
-                activation_time=datetime.now(timezone.utc),
+                protocol_id=f"VOL_PROT_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}",
+                activation_time=datetime.now(UTC),
                 protection_level=level,
                 actions=self._determine_protection_actions(level),
                 target_vega_reduction=self._calculate_target_vega_reduction(level),
@@ -432,7 +432,7 @@ class VolatilityRiskManager:
 
                 # Record scalp
                 scalp_result = {
-                    'timestamp': datetime.now(timezone.utc),
+                    'timestamp': datetime.now(UTC),
                     'position_id': position_id,
                     'direction': scalp_direction,
                     'quantity': scalp_quantity,
@@ -481,7 +481,7 @@ class VolatilityRiskManager:
                 self.logger.warning("VIX analyzer data fetch failed: %s", e)
 
         # Record VIX in history (throttled to once per minute to preserve resolution)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if (not self.vix_history
                 or (now - list(self.vix_history)[-1]['timestamp']).total_seconds() >= 60):
             self.vix_history.append({'timestamp': now, 'spot': spot_vix})
@@ -630,7 +630,7 @@ class VolatilityRiskManager:
             protection = ProtectionLevel.NONE
 
         return VolRiskAssessment(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             risk_signal=risk_signal,
             risk_score=risk_score,
             vix_spike_risk=spike_risk,
@@ -778,7 +778,7 @@ class VolatilityRiskManager:
 
     def _update_active_protocols(self) -> None:
         """Update status of active protocols."""
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
 
         for protocol in self.active_protocols:
             # Check if protocol should be completed
@@ -836,7 +836,7 @@ class VolatilityRiskManager:
     def _create_default_risk_profile(self) -> VolRiskProfile:
         """Create default risk profile for error cases."""
         default_metrics = VolatilityMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             spot_vix=20.0,
             vix_change_1d=0.0,
             vix_change_5d=0.0,
@@ -863,7 +863,7 @@ class VolatilityRiskManager:
         )
 
         default_assessment = VolRiskAssessment(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             risk_signal=VolRiskSignal.SAFE,
             risk_score=0.0,
             vix_spike_risk=0.0,
@@ -878,7 +878,7 @@ class VolatilityRiskManager:
         )
 
         return VolRiskProfile(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             metrics=default_metrics,
             exposure=default_exposure,
             risk_assessment=default_assessment,
@@ -972,7 +972,7 @@ class VolatilityRiskManager:
                         self.logger.warning("VIX elevated - considering protection")
 
                 # Update vol surface periodically
-                if (datetime.now(timezone.utc) - self._last_surface_update).seconds > SURFACE_UPDATE_INTERVAL:
+                if (datetime.now(UTC) - self._last_surface_update).seconds > SURFACE_UPDATE_INTERVAL:
                     self._update_vol_surface()
 
                 # Sleep
@@ -985,7 +985,7 @@ class VolatilityRiskManager:
     def _update_vol_surface(self) -> None:
         """Update volatility surface data."""
         # In production, would fetch from market data
-        self._last_surface_update = datetime.now(timezone.utc)
+        self._last_surface_update = datetime.now(UTC)
         self.logger.debug("Volatility surface updated")
 
 # ==============================================================================

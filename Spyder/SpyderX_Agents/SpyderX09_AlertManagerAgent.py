@@ -27,7 +27,7 @@ import json
 import logging
 import threading
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -279,7 +279,7 @@ class SpyderX09_AlertManagerAgent:
                 alert = await self._create_alert(condition, market_data)
                 if alert:
                     alerts.append(alert)
-                    self.last_alert_time[name] = datetime.now(timezone.utc)
+                    self.last_alert_time[name] = datetime.now(UTC)
 
         # Process alerts with AI if enabled
         if alerts and self.config['ai_enhancement_enabled']:
@@ -313,7 +313,7 @@ class SpyderX09_AlertManagerAgent:
         """
         alert = Alert(
             id=self._generate_alert_id(),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             type=AlertType.CUSTOM,
             severity=severity,
             title=title,
@@ -401,7 +401,7 @@ class SpyderX09_AlertManagerAgent:
         for attempt in range(max_attempts):
             try:
                 delivery.attempts = attempt + 1
-                delivery.last_attempt = datetime.now(timezone.utc)
+                delivery.last_attempt = datetime.now(UTC)
 
                 # Call delivery handler
                 success = await handler(alert, delivery.recipient)
@@ -564,7 +564,7 @@ Provide a JSON response with:
                     # Create a single aggregated alert
                     aggregated = Alert(
                         id=self._generate_alert_id(),
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                         type=alerts[0].type,
                         severity=self._parse_severity(
                             group_analysis.get('combined_severity', 'MEDIUM')
@@ -710,7 +710,7 @@ Provide a JSON response with:
 
             alert = Alert(
                 id=self._generate_alert_id(),
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 type=condition.type,
                 severity=severity,
                 title=f"{condition.type.value} Alert: {condition.name}",
@@ -741,12 +741,12 @@ Provide a JSON response with:
         if condition_name not in self.last_alert_time:
             return False
 
-        time_since_last = datetime.now(timezone.utc) - self.last_alert_time[condition_name]
+        time_since_last = datetime.now(UTC) - self.last_alert_time[condition_name]
         return time_since_last < timedelta(minutes=cooldown_minutes)
 
     def _generate_alert_id(self) -> str:
         """Generate unique alert ID."""
-        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')
+        timestamp = datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')
         return f"ALERT_{timestamp}"
 
     def _determine_severity(self, condition: AlertCondition,
@@ -882,13 +882,13 @@ Provide a JSON response with:
     def _manage_alert_queue(self):
         """Manage alert queue size and remove old alerts."""
         # Remove alerts older than 24 hours
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
+        cutoff_time = datetime.now(UTC) - timedelta(hours=24)
         self.active_alerts = [a for a in self.active_alerts
                             if a.timestamp > cutoff_time]
 
         # Check rate limiting
         recent_count = sum(1 for a in self.active_alerts
-                         if a.timestamp > datetime.now(timezone.utc) - timedelta(hours=1))
+                         if a.timestamp > datetime.now(UTC) - timedelta(hours=1))
 
         if recent_count > self.config['max_alerts_per_hour']:
             self.logger.warning("Alert rate limit reached: %s alerts/hour", recent_count)
@@ -901,7 +901,7 @@ Provide a JSON response with:
 
         summary_lines = []
         for alert in recent:
-            time_ago = (datetime.now(timezone.utc) - alert.timestamp).total_seconds() / 60
+            time_ago = (datetime.now(UTC) - alert.timestamp).total_seconds() / 60
             summary_lines.append(
                 f"- {alert.type.value} ({alert.severity.value}): "
                 f"{alert.title} ({time_ago:.0f}m ago)"

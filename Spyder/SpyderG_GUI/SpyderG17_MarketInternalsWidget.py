@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -34,9 +33,8 @@ Description:
 import logging
 import sys
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
-from typing import Optional
 
 # ==============================================================================
 # PATH SETUP
@@ -330,7 +328,7 @@ class _InternalPanel(QGroupBox):
         self._low_threshold = value
 
     # ------------------------------------------------------------------
-    def update_value(self, value: Optional[float], source: str = "TradingView (Playwright)"):
+    def update_value(self, value: float | None, source: str = "TradingView (Playwright)"):
         """Called from the main dialog when fresh data arrives."""
         if value is None:
             self._value_lbl.setText("N/A")
@@ -342,8 +340,7 @@ class _InternalPanel(QGroupBox):
         colour  = _CYAN  # default
 
         if self.symbol == "TICK":
-            if   value >=  1000: colour = _GREEN  # noqa: E701
-            elif value >=   600: colour = _GREEN  # noqa: E701
+            if   value >=  1000 or value >=   600: colour = _GREEN  # noqa: E701
             elif value <=  -1000: colour = _RED  # noqa: E701
             elif value <=  -600: colour = _ORANGE  # noqa: E701
         elif self.symbol == "ADD":
@@ -359,12 +356,12 @@ class _InternalPanel(QGroupBox):
         self._value_lbl.setStyleSheet(f"color: {colour};")
 
         # Status text
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.now(UTC).strftime("%H:%M:%S")
         self._status_lbl.setText(f"last update: {ts}")
         self._src_lbl.setText(f"source: {source}")
 
         # Append to rolling history
-        self._history.append((datetime.now(timezone.utc), value))
+        self._history.append((datetime.now(UTC), value))
 
         # Check alerts
         scaled_val = value * self._scale
@@ -420,8 +417,8 @@ class MarketInternalsDialog(QDialog):
     def __init__(self, tradier_client=None, orchestrator=None, parent=None):
         """tradier_client kept for signature compatibility but is no longer used."""
         super().__init__(parent)
-        self._fetch_worker: Optional[_FetchWorker] = None
-        self._hist_worker:  Optional[_HistoryWorker] = None
+        self._fetch_worker: _FetchWorker | None = None
+        self._hist_worker:  _HistoryWorker | None = None
         self._orchestrator = orchestrator
 
         self.setWindowTitle("Market Internals Monitor — TICK | ADD | TRIN | NYMO")
@@ -615,7 +612,7 @@ class MarketInternalsDialog(QDialog):
                 any_updated = True
         if not any_updated:
             return  # no real data — don't touch status or indicator
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.now(UTC).strftime("%H:%M:%S")
         regime = snap.get("breadth_regime", "")
         self._status_lbl.setText(f"Last update: {ts}  |  Regime: {regime}" if regime else f"Last update: {ts}")  # noqa: E501
         self._refresh_indicator.setStyleSheet(f"color: {_TEXT}; font-size: 14px;")

@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 import time
 import threading
-from datetime import datetime, timedelta, time as dt_time, timezone
+from datetime import datetime, timedelta, time as dt_time, UTC
 from dataclasses import dataclass
 from collections import deque
 from enum import Enum
@@ -295,7 +295,7 @@ class VolumeProfileAnalyzer:
                 period=period,
                 std_dev_1=0.0,
                 std_dev_2=0.0,
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(UTC)
             )
 
     # ==========================================================================
@@ -364,7 +364,7 @@ class VolumeProfileAnalyzer:
                 symbol=tick_data.get('symbol', 'SPY'),
                 price=float(tick_data['price']),
                 size=int(tick_data.get('size', 0)),
-                timestamp=tick_data.get('timestamp', datetime.now(timezone.utc)),
+                timestamp=tick_data.get('timestamp', datetime.now(UTC)),
                 bid=float(tick_data.get('bid', 0)),
                 ask=float(tick_data.get('ask', 0)),
                 volume=int(tick_data.get('volume', 0))
@@ -489,7 +489,7 @@ class VolumeProfileAnalyzer:
         try:
             trade_data.get('size', 0)
             price = trade_data.get('price', 0.0)
-            timestamp = trade_data.get('timestamp', datetime.now(timezone.utc))
+            timestamp = trade_data.get('timestamp', datetime.now(UTC))
 
             # Classify trade size
 
@@ -638,13 +638,13 @@ class VolumeProfileAnalyzer:
                 value_area_high=value_area_high,
                 value_area_low=value_area_low,
                 total_volume=total_volume,
-                period_start=min(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(timezone.utc),  # noqa: E501
-                period_end=max(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(timezone.utc),  # noqa: E501
+                period_start=min(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(UTC),  # noqa: E501
+                period_end=max(level.timestamp for level in self.price_levels.values()) if self.price_levels else datetime.now(UTC),  # noqa: E501
                 session=self.current_session
             )
 
             # Cache profile
-            cache_key = f"{self.current_session}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H')}"
+            cache_key = f"{self.current_session}_{datetime.now(UTC).strftime('%Y%m%d_%H')}"
             self.profile_cache[cache_key] = profile
 
     # ==========================================================================
@@ -703,7 +703,7 @@ class VolumeProfileAnalyzer:
 
     def _cleanup_old_data(self) -> None:
         """Clean up old data to manage memory usage."""
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
         cutoff_time = current_time - timedelta(hours=1)  # Keep 1 hour of data
 
         with self._lock:
@@ -724,7 +724,7 @@ class VolumeProfileAnalyzer:
     # ==========================================================================
     def get_current_profile(self) -> VolumeProfile | None:
         """Get current volume profile."""
-        cache_key = f"{self.current_session}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H')}"
+        cache_key = f"{self.current_session}_{datetime.now(UTC).strftime('%Y%m%d_%H')}"
         return self.profile_cache.get(cache_key)
 
     def get_volume_nodes(self) -> list[VolumeNode]:
@@ -857,7 +857,7 @@ if __name__ == "__main__":
                 symbol="SPY",
                 price=price,
                 size=size,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 bid=price - 0.01,
                 ask=price + 0.01,
                 volume=size

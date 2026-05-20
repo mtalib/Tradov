@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -19,7 +18,7 @@ import sys
 import importlib
 from pathlib import Path
 from unittest.mock import Mock, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime
 import tempfile
 import json
 

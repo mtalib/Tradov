@@ -33,7 +33,7 @@ Key Features:
 # ==============================================================================
 import asyncio
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -396,7 +396,7 @@ class TradingOpportunityScanner:
         """
         try:
             self.is_scanning = True
-            self.last_scan_time = datetime.now(timezone.utc)
+            self.last_scan_time = datetime.now(UTC)
 
             # Get market context
             context = await self._build_opportunity_context(market_data)
@@ -559,7 +559,7 @@ class TradingOpportunityScanner:
             trend_strength = self._calculate_trend_strength(market_data)
 
             return OpportunityContext(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 spy_price=current_price,
                 vix_level=vix_level,
                 primary_regime=regime_info.get('regime', 'unknown'),
@@ -584,7 +584,7 @@ class TradingOpportunityScanner:
             self.error_handler.handle_error(e, {'method': '_build_opportunity_context'})
             # Return default context
             return OpportunityContext(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 spy_price=market_data['close'].iloc[-1],
                 vix_level=20.0,
                 primary_regime='unknown',
@@ -762,7 +762,7 @@ class TradingOpportunityScanner:
                 opportunity_id=str(uuid.uuid4()),
                 opportunity_type=OpportunityType.IRON_CONDOR,
                 priority=OpportunityPriority.MEDIUM,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 confidence_score=confidence,
                 risk_reward_ratio=risk_reward,
                 probability_of_profit=pop,
@@ -785,7 +785,7 @@ class TradingOpportunityScanner:
                 },
                 position_size_recommendation=1,
                 strikes=[put_strike_long, put_strike_short, call_strike_short, call_strike_long],
-                expiration_date=datetime.now(timezone.utc) + timedelta(days=30),
+                expiration_date=datetime.now(UTC) + timedelta(days=30),
                 greeks={'delta': 0.0, 'gamma': -0.05, 'theta': 0.10, 'vega': -0.30},
                 liquidity_score=0.8,
                 supporting_indicators=['High IV Rank', 'Range-bound market', 'Low trend strength'],
@@ -834,7 +834,7 @@ class TradingOpportunityScanner:
                 opportunity_id=str(uuid.uuid4()),
                 opportunity_type=opportunity_type,
                 priority=OpportunityPriority.HIGH,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 confidence_score=confidence,
                 risk_reward_ratio=risk_reward,
                 probability_of_profit=pop,
@@ -857,7 +857,7 @@ class TradingOpportunityScanner:
                 },
                 position_size_recommendation=2,
                 strikes=[long_strike, short_strike],
-                expiration_date=datetime.now(timezone.utc) + timedelta(days=21),
+                expiration_date=datetime.now(UTC) + timedelta(days=21),
                 greeks={'delta': 0.15 if context.trend_strength > 0 else -0.15,
                        'theta': 0.08, 'vega': -0.20},
                 liquidity_score=0.9,

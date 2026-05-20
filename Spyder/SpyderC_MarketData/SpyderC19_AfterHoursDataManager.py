@@ -28,7 +28,7 @@ import threading
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime, time as dt_time, timezone
+from datetime import datetime, time as dt_time, UTC
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -299,7 +299,7 @@ class AfterHoursDataManager:
 
             if snapshot:
                 # Check data freshness
-                age_hours = (datetime.now(timezone.utc) - snapshot.closing_time).total_seconds() / 3600
+                age_hours = (datetime.now(UTC) - snapshot.closing_time).total_seconds() / 3600
 
                 if age_hours > MAX_CLOSING_DATA_AGE_HOURS:
                     snapshot.data_freshness = DataFreshness.EXPIRED
@@ -387,9 +387,9 @@ class AfterHoursDataManager:
                         closing_bid=ticker.bid if ticker.bid else 0.0,
                         closing_ask=ticker.ask if ticker.ask else 0.0,
                         closing_volume=int(ticker.volume) if ticker.volume else 0,
-                        closing_time=datetime.now(timezone.utc),
+                        closing_time=datetime.now(UTC),
                         previous_close=ticker.close if ticker.close else ticker.last,
-                        trading_date=datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+                        trading_date=datetime.now(UTC).strftime('%Y-%m-%d'),
                         source=DataSource.LIVE_FEED,
                         data_freshness=DataFreshness.FRESH,
                         day_high=ticker.high if ticker.high else 0.0,
@@ -531,7 +531,7 @@ class AfterHoursDataManager:
 
             # Calculate average cache age
             if self.closing_snapshots:
-                ages = [(datetime.now(timezone.utc) - s.closing_time).total_seconds() / 60
+                ages = [(datetime.now(UTC) - s.closing_time).total_seconds() / 60
                        for s in self.closing_snapshots.values()]
                 avg_age = sum(ages) / len(ages)
             else:
@@ -543,7 +543,7 @@ class AfterHoursDataManager:
                 live_after_hours_feeds=len(self.after_hours_data),
                 cached_data_age_minutes=avg_age,
                 data_quality_score=quality_score,
-                last_update=datetime.now(timezone.utc)
+                last_update=datetime.now(UTC)
             )
 
     def get_status(self) -> dict[str, Any]:
@@ -625,7 +625,7 @@ class AfterHoursDataManager:
             # Validate data freshness
             expired_symbols = []
             for symbol, snapshot in self.closing_snapshots.items():
-                age_hours = (datetime.now(timezone.utc) - snapshot.closing_time).total_seconds() / 3600
+                age_hours = (datetime.now(UTC) - snapshot.closing_time).total_seconds() / 3600
                 if age_hours > MAX_CLOSING_DATA_AGE_HOURS:
                     expired_symbols.append(symbol)
 
@@ -800,9 +800,9 @@ if __name__ == "__main__":
         closing_bid=450.20,
         closing_ask=450.30,
         closing_volume=1000000,
-        closing_time=datetime.now(timezone.utc),
+        closing_time=datetime.now(UTC),
         previous_close=449.50,
-        trading_date=datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+        trading_date=datetime.now(UTC).strftime('%Y-%m-%d'),
         source=DataSource.CACHED_SNAPSHOT,
         data_freshness=DataFreshness.FRESH,
         day_high=451.00,

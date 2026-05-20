@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -452,7 +452,7 @@ class SpyderX02_FlowAgent:
         self.logger.info("Starting real-time flow monitoring")
 
         batch = []
-        last_analysis = datetime.now(timezone.utc)
+        last_analysis = datetime.now(UTC)
 
         while True:
             try:
@@ -461,7 +461,7 @@ class SpyderX02_FlowAgent:
                 batch.append(flow)
 
                 # Process batch every 10 flows or 5 seconds
-                if len(batch) >= 10 or (datetime.now(timezone.utc) - last_analysis).seconds >= 5:
+                if len(batch) >= 10 or (datetime.now(UTC) - last_analysis).seconds >= 5:
                     if batch:
                         # Analyze batch
                         analysis = await self.analyze_flow_batch(batch)
@@ -473,7 +473,7 @@ class SpyderX02_FlowAgent:
 
                         # Reset batch
                         batch = []
-                        last_analysis = datetime.now(timezone.utc)
+                        last_analysis = datetime.now(UTC)
 
             except TimeoutError:
                 continue

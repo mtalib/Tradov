@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import time
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -123,7 +123,7 @@ class MigrationMonitor:
             Tuple of (result, comparison_metrics)
         """
         comparison = ComparisonResult(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             module_name=module_name,
             spyderf_result=None,
             spyderx_result=None,
@@ -284,7 +284,7 @@ class MigrationMonitor:
     def get_migration_report(self) -> dict[str, Any]:
         """Generate comprehensive migration report"""
         report = {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'timestamp': datetime.now(UTC).isoformat(),
             'modules': {},
             'summary': {
                 'total_modules': len(self.metrics),

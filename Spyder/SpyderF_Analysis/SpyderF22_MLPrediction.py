@@ -37,7 +37,7 @@ import inspect
 import warnings
 from typing import Any
 from enum import Enum
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -231,7 +231,7 @@ class ModelMetrics:
     f1: float
     sharpe_ratio: float | None = None
     max_drawdown: float | None = None
-    training_date: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    training_date: datetime = field(default_factory=lambda: datetime.now(UTC))
     samples_used: int = 0
 
     def to_dict(self) -> dict[str, Any]:
@@ -652,7 +652,7 @@ class MLPredictionEngine:
         else:
             metrics = self._train_ensemble(features, symbol, validation_split)
 
-        self._last_training = datetime.now(timezone.utc)
+        self._last_training = datetime.now(UTC)
         self.model_metrics[symbol] = metrics
 
         # Save model
@@ -929,7 +929,7 @@ class MLPredictionEngine:
 
             return PredictionResult(
                 symbol=symbol,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 direction=direction,
                 confidence=confidence,
                 predicted_return=expected_return,
@@ -942,7 +942,7 @@ class MLPredictionEngine:
             logger.error("Direction prediction failed: %s", e)
             return PredictionResult(
                 symbol=symbol,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 direction=PredictionDirection.NEUTRAL,
                 confidence=0.0,
                 predicted_return=0.0,
@@ -1075,7 +1075,7 @@ class MLPredictionEngine:
 
             return VolatilityPrediction(
                 symbol=symbol,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_regime=current_regime,
                 predicted_regime=predicted_regime,
                 regime_probability=regime_probs,
@@ -1087,7 +1087,7 @@ class MLPredictionEngine:
             logger.error("Volatility prediction failed: %s", e)
             return VolatilityPrediction(
                 symbol=symbol,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_regime=VolatilityRegime.NORMAL,
                 predicted_regime=VolatilityRegime.NORMAL,
                 regime_probability={r.value: 0.25 for r in VolatilityRegime},
@@ -1179,7 +1179,7 @@ class MLPredictionEngine:
 
             return StrikeRecommendation(
                 symbol=symbol,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 underlying_price=underlying_price,
                 recommended_strikes=strikes,
                 recommended_expiry="7_days" if volatility_pred.current_regime == VolatilityRegime.HIGH else "21_days",  # noqa: E501
@@ -1192,7 +1192,7 @@ class MLPredictionEngine:
             logger.error("Strike recommendation failed: %s", e)
             return StrikeRecommendation(
                 symbol=symbol,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 underlying_price=underlying_price,
                 recommended_strikes={},
                 recommended_expiry="21_days",
@@ -1316,7 +1316,7 @@ class MLPredictionEngine:
         """Check if model needs retraining."""
         if self._last_training is None:
             return True
-        return (datetime.now(timezone.utc) - self._last_training).total_seconds() > hours * 3600
+        return (datetime.now(UTC) - self._last_training).total_seconds() > hours * 3600
 
     def get_model_metrics(self, symbol: str = "SPY") -> ModelMetrics | None:
         """Get model performance metrics."""

@@ -26,7 +26,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from typing import Any
 
@@ -310,11 +310,11 @@ class MarketInternalsAnalyzer:
             # Initialize data structures
             for symbol_key, symbol in INTERNAL_SYMBOLS.items():
                 self.internals_data[symbol_key] = InternalData(
-                    symbol=symbol, value=0.0, timestamp=datetime.now(timezone.utc)
+                    symbol=symbol, value=0.0, timestamp=datetime.now(UTC)
                 )
             # RVOL is computed locally — register a synthetic entry
             self.internals_data["RVOL"] = InternalData(
-                symbol="RVOL", value=1.0, timestamp=datetime.now(timezone.utc)
+                symbol="RVOL", value=1.0, timestamp=datetime.now(UTC)
             )
 
             # Subscribe to market data events
@@ -366,7 +366,7 @@ class MarketInternalsAnalyzer:
             if symbol in self.internals_data:
                 old_value = self.internals_data[symbol].value
                 self.internals_data[symbol].value = value
-                self.internals_data[symbol].timestamp = datetime.now(timezone.utc)
+                self.internals_data[symbol].timestamp = datetime.now(UTC)
                 self.internals_data[symbol].change = value - old_value
                 if old_value != 0:
                     self.internals_data[symbol].percent_change = (
@@ -374,7 +374,7 @@ class MarketInternalsAnalyzer:
                     )
 
                 # Add to history
-                self.history[symbol].append({"timestamp": datetime.now(timezone.utc), "value": value})
+                self.history[symbol].append({"timestamp": datetime.now(UTC), "value": value})
 
     def get_current_analysis(self) -> InternalsAnalysis | None:
         """
@@ -694,7 +694,7 @@ class MarketInternalsAnalyzer:
         if self._spy_avg_volume <= 0:
             return 1.0
         # Compute ET time without importing pytz — use UTC offset heuristic
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         # ET = UTC-4 (EDT summer) or UTC-5 (EST winter); use market-hours offset
         et_offset = timedelta(hours=-4)  # EDT (Mar–Nov); acceptable approximation
         now_et = now_utc + et_offset
@@ -724,7 +724,7 @@ class MarketInternalsAnalyzer:
                     # Publish event
                     event = Event(
                         type=EventType.MARKET_INTERNALS,
-                        data={"analysis": analysis, "timestamp": datetime.now(timezone.utc)},
+                        data={"analysis": analysis, "timestamp": datetime.now(UTC)},
                     )
                     self.event_bus.publish(event)
 
@@ -739,7 +739,7 @@ class MarketInternalsAnalyzer:
         try:
             with self.lock:
                 snapshot = MarketInternalsSnapshot(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     tick=self.get_internal_value("TICK") or 0,
                     ticki=self.get_internal_value("TICKI") or 0,
                     add=self.get_internal_value("ADD") or 0,
@@ -837,7 +837,7 @@ class MarketInternalsAnalyzer:
 
             # Create analysis
             analysis = InternalsAnalysis(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 market_condition=condition,
                 breadth_condition=breadth_condition,
                 market_phase=market_phase,
@@ -936,7 +936,7 @@ class MarketInternalsAnalyzer:
             return {}
 
         signals = {
-            "timestamp": datetime.now(timezone.utc),
+            "timestamp": datetime.now(UTC),
             "market_condition": self.current_analysis.market_condition.value,
             "signal_strength": self.current_analysis.signal_strength,
             "confidence": self.current_analysis.confidence,

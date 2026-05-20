@@ -39,7 +39,7 @@ import logging
 import sqlite3
 import json
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any
 from collections.abc import Callable
@@ -205,7 +205,7 @@ class DataAccessLayer:
                 )
 
                 self.connection_state = ConnectionState.CONNECTED
-                self.connection_time = datetime.now(timezone.utc)
+                self.connection_time = datetime.now(UTC)
 
                 self.logger.info("Database connection established successfully")
                 return True
@@ -699,7 +699,7 @@ class DataAccessLayer:
 
                 results = cursor.fetchall()
                 self.query_count += 1
-                self.last_query_time = datetime.now(timezone.utc)
+                self.last_query_time = datetime.now(UTC)
 
                 return results
 
@@ -728,7 +728,7 @@ class DataAccessLayer:
 
                 self.connection.commit()
                 self.query_count += 1
-                self.last_query_time = datetime.now(timezone.utc)
+                self.last_query_time = datetime.now(UTC)
 
                 return True
 
@@ -917,7 +917,7 @@ class DataAccessLayer:
                 'error_count': self.error_count,
                 'last_query_time': self.last_query_time.isoformat() if self.last_query_time else None,  # noqa: E501
                 'connection_time': self.connection_time.isoformat() if self.connection_time else None,  # noqa: E501
-                'uptime_seconds': (datetime.now(timezone.utc) - self.connection_time).total_seconds() if self.connection_time else 0  # noqa: E501
+                'uptime_seconds': (datetime.now(UTC) - self.connection_time).total_seconds() if self.connection_time else 0  # noqa: E501
             }
 
             # Get table statistics
@@ -963,7 +963,7 @@ class DataAccessLayer:
             True if successful
         """
         try:
-            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_keep)
+            cutoff_date = datetime.now(UTC) - timedelta(days=days_to_keep)
 
             # Clean market data
             query = "DELETE FROM market_data WHERE timestamp < ?"
@@ -1066,7 +1066,7 @@ if __name__ == "__main__":
         'action': 'BUY',
         'quantity': 100,
         'price': 450.50,
-        'order_id': f'TEST_{datetime.now(timezone.utc).timestamp()}',
+        'order_id': f'TEST_{datetime.now(UTC).timestamp()}',
         'status': 'FILLED'
     }
 
@@ -1079,7 +1079,7 @@ if __name__ == "__main__":
     trades = dal.get_trades('SPY')
 
     # Test state management
-    if dal.save_state('test_key', {'value': 'test_data', 'timestamp': datetime.now(timezone.utc).isoformat()}):
+    if dal.save_state('test_key', {'value': 'test_data', 'timestamp': datetime.now(UTC).isoformat()}):
         pass
 
     state = dal.get_state('test_key')

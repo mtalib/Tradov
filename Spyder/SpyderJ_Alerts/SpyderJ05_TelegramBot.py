@@ -29,7 +29,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum
 from pathlib import Path
 from queue import Empty, Queue
@@ -118,7 +118,7 @@ class TelegramMessage:
     disable_notification: bool = False
     reply_markup: dict | None = None
     retry_count: int = 0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 @dataclass
 class NotificationStats:
@@ -128,7 +128,7 @@ class NotificationStats:
     last_sent: datetime | None = None
     last_error: str | None = None
     total_errors: int = 0
-    uptime_start: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    uptime_start: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 # ==============================================================================
 # TELEGRAM BOT CLASS
@@ -715,7 +715,7 @@ class TelegramBot:
             False — operator rejected.
             None  — timed out; caller should fall back to autonomous decision.
         """
-        order_id = order.get('id', f"ord_{int(datetime.now(timezone.utc).timestamp())}")
+        order_id = order.get('id', f"ord_{int(datetime.now(UTC).timestamp())}")
         approve_data = f"spyder_approve_{order_id}"
         reject_data = f"spyder_reject_{order_id}"
 
@@ -857,7 +857,7 @@ class TelegramBot:
 
                 # Update stats
                 self.stats.messages_sent += 1
-                self.stats.last_sent = datetime.now(timezone.utc)
+                self.stats.last_sent = datetime.now(UTC)
 
             return True
 
@@ -927,7 +927,7 @@ class TelegramBot:
             "reply_markup": message.reply_markup,
             "retry_count": message.retry_count,
             "timestamp": message.timestamp.isoformat(),
-            "persisted_at": datetime.now(timezone.utc).isoformat(),
+            "persisted_at": datetime.now(UTC).isoformat(),
         }
 
     def _deserialize_message(self, payload: dict[str, Any]) -> TelegramMessage:
@@ -944,12 +944,12 @@ class TelegramBot:
             msg_type = MessageType.SYSTEM
 
         ts_raw = payload.get("timestamp")
-        ts_val = datetime.now(timezone.utc)
+        ts_val = datetime.now(UTC)
         if isinstance(ts_raw, str):
             try:
                 ts_val = datetime.fromisoformat(ts_raw)
             except Exception:
-                ts_val = datetime.now(timezone.utc)
+                ts_val = datetime.now(UTC)
 
         return TelegramMessage(
             content=str(payload.get("content", "")),
@@ -968,9 +968,8 @@ class TelegramBot:
         try:
             self._pending_queue_file.parent.mkdir(parents=True, exist_ok=True)
             row = self._serialize_message(message, reason=reason)
-            with self._pending_file_lock:
-                with self._pending_queue_file.open("a", encoding="utf-8") as fh:
-                    fh.write(json.dumps(row, ensure_ascii=True) + "\n")
+            with self._pending_file_lock, self._pending_queue_file.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=True) + "\n")
             self._enforce_pending_retention()
             self.logger.warning("Persisted failed Telegram message for replay: reason=%s", reason)
         except Exception as exc:
@@ -984,7 +983,7 @@ class TelegramBot:
         try:
             ts = datetime.fromisoformat(ts_raw)
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
             return (now_utc - ts).total_seconds() > self._pending_max_age_hours * 3600
         except Exception:
             return True
@@ -1002,7 +1001,7 @@ class TelegramBot:
                     self._pending_queue_file.unlink(missing_ok=True)
                     return
 
-                now_utc = datetime.now(timezone.utc)
+                now_utc = datetime.now(UTC)
                 kept: list[str] = []
                 dropped = 0
                 for line in rows:
@@ -1114,7 +1113,7 @@ class TelegramBot:
         try:
             return datetime.now(ZoneInfo("America/New_York"))
         except Exception:
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)
 
     @staticmethod
     def _coerce_float(value: Any, default: float = 0.0) -> float:
@@ -1799,7 +1798,7 @@ class TelegramBot:
             )
             self._append_command_audit(
                 {
-                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "ts": datetime.now(UTC).isoformat(),
                     "correlation_id": correlation_id,
                     "command": command,
                     "user_id": user_id,
@@ -1868,7 +1867,7 @@ class TelegramBot:
             )
             self._append_command_audit(
                 {
-                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "ts": datetime.now(UTC).isoformat(),
                     "correlation_id": correlation_id,
                     "command": "/help",
                     "user_id": user_id,
@@ -1921,7 +1920,7 @@ class TelegramBot:
         )
         self._append_command_audit(
             {
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
                 "correlation_id": correlation_id,
                 "command": "/status",
                 "user_id": user_id,
@@ -1967,7 +1966,7 @@ class TelegramBot:
 
         self._append_command_audit(
             {
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
                 "correlation_id": correlation_id,
                 "command": "/halt",
                 "user_id": user_id,
@@ -2199,7 +2198,7 @@ class TelegramBot:
         )
         self._append_command_audit(
             {
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
                 "correlation_id": correlation_id,
                 "command": "/flatten",
                 "user_id": user_id,
@@ -2235,7 +2234,7 @@ class TelegramBot:
             )
             self._append_command_audit(
                 {
-                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "ts": datetime.now(UTC).isoformat(),
                     "correlation_id": correlation_id,
                     "command": "/resume",
                     "user_id": user_id,
@@ -2281,7 +2280,7 @@ class TelegramBot:
         )
         self._append_command_audit(
             {
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
                 "correlation_id": correlation_id,
                 "command": "/resume",
                 "user_id": user_id,
@@ -2297,7 +2296,7 @@ class TelegramBot:
     def _resume_preflight_failed_gates(self) -> list[str]:
         """Return failed preflight gate names for resume requests."""
         failed: list[str] = []
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         # Trading-day gate (simple, conservative): weekdays only.
         if now_utc.weekday() >= 5:
             failed.append("trading_day")
@@ -2321,7 +2320,7 @@ class TelegramBot:
         """Append operator command audit JSONL entry."""
         try:
             COMMAND_AUDIT_DIR.mkdir(parents=True, exist_ok=True)
-            day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            day = datetime.now(UTC).strftime("%Y-%m-%d")
             audit_file = COMMAND_AUDIT_DIR / f"operator_commands_{day}.jsonl"
             with audit_file.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(payload, sort_keys=True) + "\n")
@@ -2604,7 +2603,7 @@ class TelegramBot:
     # ==========================================================================
     def get_stats(self) -> dict[str, Any]:
         """Get bot statistics"""
-        uptime = datetime.now(timezone.utc) - self.stats.uptime_start
+        uptime = datetime.now(UTC) - self.stats.uptime_start
 
         return {
             'messages_sent': self.stats.messages_sent,
@@ -2709,7 +2708,7 @@ if __name__ == "__main__":
 
     # Test daily summary
     bot.send_daily_summary(
-        date=datetime.now(timezone.utc),
+        date=datetime.now(UTC),
         total_trades=5,
         winning_trades=3,
         losing_trades=2,

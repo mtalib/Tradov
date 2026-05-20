@@ -30,7 +30,7 @@ import sys
 import threading
 import warnings
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -250,7 +250,7 @@ class PositionGreeks:
 class PortfolioGreeks:
     """Aggregated portfolio Greeks"""
 
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Aggregated first-order Greeks
     total_delta: float = 0.0
@@ -712,7 +712,7 @@ class OptionsGreeksCalculator:
             volatility = volatility or self.volatilities.get(symbol, 0.20)
 
             # Calculate time to expiry
-            time_to_expiry = max(0, (expiry - datetime.now(timezone.utc)).days / 365.0)
+            time_to_expiry = max(0, (expiry - datetime.now(UTC)).days / 365.0)
 
             # Calculate Greeks
             greeks = self.calculate_greeks(
@@ -829,7 +829,7 @@ class OptionsGreeksCalculator:
             self.portfolio_greeks.vega_dollars = self.portfolio_greeks.total_vega
 
         # Update timestamp
-        self.portfolio_greeks.timestamp = datetime.now(timezone.utc)
+        self.portfolio_greeks.timestamp = datetime.now(UTC)
 
     # ==========================================================================
     # SCENARIO ANALYSIS
@@ -892,7 +892,7 @@ class OptionsGreeksCalculator:
                 pnl += position_pnl
 
                 # Recalculate Greeks at new spot
-                time_to_expiry = max(0, (position.expiry - datetime.now(timezone.utc)).days / 365.0)
+                time_to_expiry = max(0, (position.expiry - datetime.now(UTC)).days / 365.0)
                 volatility = self.volatilities.get(position.symbol, 0.20)
 
                 new_greeks = self.calculate_greeks(
@@ -951,7 +951,7 @@ class OptionsGreeksCalculator:
 
                 # Recalculate Greeks at new vol
                 spot = self.spot_prices.get(position.symbol, 100.0)
-                time_to_expiry = max(0, (position.expiry - datetime.now(timezone.utc)).days / 365.0)
+                time_to_expiry = max(0, (position.expiry - datetime.now(UTC)).days / 365.0)
 
                 new_greeks = self.calculate_greeks(
                     spot,
@@ -1005,7 +1005,7 @@ class OptionsGreeksCalculator:
                 spot = self.spot_prices.get(position.symbol, 100.0)
                 volatility = self.volatilities.get(position.symbol, 0.20)
                 time_to_expiry = max(
-                    0, (position.expiry - datetime.now(timezone.utc)).days / 365.0 - days / 365.0
+                    0, (position.expiry - datetime.now(UTC)).days / 365.0 - days / 365.0
                 )
 
                 if time_to_expiry > 0:
@@ -1385,7 +1385,7 @@ class OptionsGreeksCalculator:
         # Get first position for reference
         position = self.positions[0]
         strike = position.strike
-        time_to_expiry = max(0, (position.expiry - datetime.now(timezone.utc)).days / 365.0)
+        time_to_expiry = max(0, (position.expiry - datetime.now(UTC)).days / 365.0)
 
         # Define ranges
         current_spot = self.spot_prices.get(position.symbol, 100.0)
@@ -1559,7 +1559,7 @@ class OptionsGreeksCalculator:
             # Recalculate Greeks for affected positions
             for position in self.positions:
                 if position.symbol == symbol:
-                    time_to_expiry = max(0, (position.expiry - datetime.now(timezone.utc)).days / 365.0)
+                    time_to_expiry = max(0, (position.expiry - datetime.now(UTC)).days / 365.0)
 
                     greeks = self.calculate_greeks(
                         spot,
@@ -1649,7 +1649,7 @@ if __name__ == "__main__":
     # Test 2: Portfolio Greeks
 
     # Add iron condor position
-    expiry = datetime.now(timezone.utc) + timedelta(days=30)
+    expiry = datetime.now(UTC) + timedelta(days=30)
 
     # Short put spread
     calculator.add_position("SPY", 575, expiry, "PUT", -1)  # Short put

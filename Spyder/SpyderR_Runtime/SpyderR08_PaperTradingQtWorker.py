@@ -28,7 +28,7 @@ Module Description:
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 # ==============================================================================
@@ -307,7 +307,7 @@ class PaperTradingQtWorker(QObject):
         try:
             log_dir = Path("logs") / "decisions"
             log_dir.mkdir(parents=True, exist_ok=True)
-            day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            day = datetime.now(UTC).strftime("%Y-%m-%d")
             path = log_dir / f"{day}.jsonl"
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, default=str) + "\n")
@@ -750,7 +750,7 @@ class PaperTradingQtWorker(QObject):
             return False
 
         open_spreads: list[dict] = state.get("_open_spreads", [])
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(UTC).date().isoformat()
 
         # Drop spreads that have already expired.
         live_spreads = [
@@ -1008,7 +1008,7 @@ class PaperTradingQtWorker(QObject):
         # ---- Decision audit record (written at end of every poll) -----------
         self._poll_seq += 1
         _dec: dict = {
-            "ts": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "ts": datetime.now(UTC).astimezone().isoformat(timespec="seconds"),
             "seq": self._poll_seq,
             "spy": round(last_price, 4),
             "bid": round(bid, 4),

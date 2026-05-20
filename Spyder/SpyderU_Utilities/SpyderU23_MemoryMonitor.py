@@ -25,7 +25,6 @@ import gc
 import time
 import threading
 import datetime
-from datetime import timezone
 from typing import Any
 from collections.abc import Callable
 from collections import deque
@@ -269,7 +268,7 @@ class SpyderMemoryMonitor:
 
             # Create snapshot
             snapshot = MemorySnapshot(
-                timestamp=datetime.datetime.now(timezone.utc),
+                timestamp=datetime.datetime.now(datetime.UTC),
                 rss=memory_info.rss,
                 vms=memory_info.vms,
                 percent=memory_percent,

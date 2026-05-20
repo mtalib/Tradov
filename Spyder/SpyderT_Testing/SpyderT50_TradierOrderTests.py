@@ -700,25 +700,29 @@ class TestOptionChainWithGreeks:
     def test_vetter_failure_is_fail_open_by_default(self, mock_request, client):
         """Default behavior keeps service available when vetter import/call fails."""
         mock_request.return_value = self._chain_response(1)
-        with patch.dict(os.environ, {"SPYDER_OPRA_REQUIRE_VETTER": "false"}, clear=False):
-            with patch(
+        with (
+            patch.dict(os.environ, {"SPYDER_OPRA_REQUIRE_VETTER": "false"}, clear=False),
+            patch(
                 "Spyder.SpyderN_OptionsAnalytics.SpyderN14_OptionsDataVetter.get_vetter",
                 side_effect=RuntimeError("vetter down"),
-            ):
-                result = client.get_option_chain_with_greeks("SPY", EXPIRY)
+            ),
+        ):
+            result = client.get_option_chain_with_greeks("SPY", EXPIRY)
         assert len(result) == 1
         assert isinstance(result[0], GreekData)
 
     def test_vetter_failure_is_fail_closed_when_required(self, mock_request, client):
         """When explicitly required, unvetted OPRA data is rejected."""
         mock_request.return_value = self._chain_response(1)
-        with patch.dict(os.environ, {"SPYDER_OPRA_REQUIRE_VETTER": "true"}, clear=False):
-            with patch(
+        with (
+            patch.dict(os.environ, {"SPYDER_OPRA_REQUIRE_VETTER": "true"}, clear=False),
+            patch(
                 "Spyder.SpyderN_OptionsAnalytics.SpyderN14_OptionsDataVetter.get_vetter",
                 side_effect=RuntimeError("vetter down"),
-            ):
-                with pytest.raises(TradierAPIError, match="SPYDER_OPRA_REQUIRE_VETTER=true"):
-                    client.get_option_chain_with_greeks("SPY", EXPIRY)
+            ),
+            pytest.raises(TradierAPIError, match="SPYDER_OPRA_REQUIRE_VETTER=true"),
+        ):
+            client.get_option_chain_with_greeks("SPY", EXPIRY)
 
 
 # ==============================================================================

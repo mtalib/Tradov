@@ -6,7 +6,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -41,7 +41,7 @@ def _refresh_runtime_modules():
 
 def _base_conditions(l09):
     return l09.MarketConditions(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         spy_price=500.0,
         spy_change_pct=0.0,
         volume_ratio=1.0,
@@ -169,7 +169,7 @@ def test_d30_consensus_mapping_is_restricted_to_four_strategies_and_halts() -> N
         return SimpleNamespace(
             regime=regime,
             confidence=0.90,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     bull_regime = _regime_member(d30.L09MarketRegime, "BULL_TRENDING", "BULL")
@@ -197,7 +197,7 @@ def test_d30_consensus_mapping_enables_bull_call_spread_via_flag(monkeypatch) ->
         SimpleNamespace(
             regime=bull_regime,
             confidence=0.90,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
     )
 
@@ -215,7 +215,7 @@ def test_d30_consensus_mapping_enables_bear_put_spread_via_flag(monkeypatch) -> 
         SimpleNamespace(
             regime=bear_regime,
             confidence=0.90,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
     )
 
@@ -233,14 +233,14 @@ def test_d30_missing_l09_module_still_honors_consensus_regime(monkeypatch) -> No
         SimpleNamespace(
             regime=SimpleNamespace(value="bull_trending", name="BULL_TRENDING"),
             confidence=0.90,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
     )
     volatile_selection = selector.select_strategy_from_consensus(
         SimpleNamespace(
             regime=SimpleNamespace(value="high_volatility", name="HIGH_VOLATILITY"),
             confidence=0.90,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
     )
 

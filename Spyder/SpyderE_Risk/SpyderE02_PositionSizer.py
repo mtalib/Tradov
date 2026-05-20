@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -518,7 +518,7 @@ class PositionSizer:
                 adjustments.append(f"Volatility ({vol_mult:.1f}x)")
 
         # Day of week adjustment
-        dow_mult = DAY_OF_WEEK_MULTIPLIERS.get(datetime.now(timezone.utc).weekday(), 1.0)
+        dow_mult = DAY_OF_WEEK_MULTIPLIERS.get(datetime.now(UTC).weekday(), 1.0)
         adjusted_size *= dow_mult
         if dow_mult != 1.0:
             adjustments.append(f"Day of week ({dow_mult:.1f}x)")
@@ -636,7 +636,7 @@ class PositionSizer:
         warnings = self._generate_warnings(actual_size_pct, request)
 
         return PositionSizeRecommendation(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             position_size_pct=actual_size_pct,
             position_size_units=units,
             dollar_amount=actual_dollar_amount,
@@ -655,7 +655,7 @@ class PositionSizer:
     def _create_rejected_recommendation(self, reason: str) -> PositionSizeRecommendation:
         """Create rejected recommendation."""
         return PositionSizeRecommendation(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             position_size_pct=0,
             position_size_units=0,
             dollar_amount=0,
@@ -766,7 +766,7 @@ class PositionSizer:
             max_drawdown=max_dd,
             current_streak=streak,
             kelly_fraction=self._calculate_kelly_fraction(win_rate, avg_win, avg_loss),
-            last_updated=datetime.now(timezone.utc)
+            last_updated=datetime.now(UTC)
         )
 
     def _calculate_current_streak(self, trades: list[dict]) -> int:
@@ -937,7 +937,7 @@ if __name__ == "__main__":
 
     # Create test market conditions
     market_conditions = MarketConditions(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         spy_price=400.0,
         vix_level=18.0,
         spy_atr_14=5.0,
@@ -993,7 +993,7 @@ if __name__ == "__main__":
 
     # Test different market conditions
     high_vol_conditions = MarketConditions(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         spy_price=380.0,
         vix_level=35.0,
         spy_atr_14=10.0,

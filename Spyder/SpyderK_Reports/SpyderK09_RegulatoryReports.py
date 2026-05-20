@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, date, timezone
+from datetime import datetime, timedelta, date, UTC
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -352,7 +352,7 @@ class RegulatoryReports:
         """
         try:
             checks = []
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
 
             # Get current positions
             positions = self.account_manager.get_all_positions()
@@ -491,7 +491,7 @@ class RegulatoryReports:
             if daily_pnl < -RISK_LIMITS['MAX_LOSS_DAILY']:
                 breach = RiskLimitBreach(
                     breach_id=str(uuid.uuid4()),
-                    breach_time=datetime.now(timezone.utc),
+                    breach_time=datetime.now(UTC),
                     limit_type='MAX_LOSS_DAILY',
                     limit_value=RISK_LIMITS['MAX_LOSS_DAILY'],
                     actual_value=abs(daily_pnl),
@@ -509,7 +509,7 @@ class RegulatoryReports:
             if abs(drawdown) > RISK_LIMITS['MAX_DRAWDOWN']:
                 breach = RiskLimitBreach(
                     breach_id=str(uuid.uuid4()),
-                    breach_time=datetime.now(timezone.utc),
+                    breach_time=datetime.now(UTC),
                     limit_type='MAX_DRAWDOWN',
                     limit_value=RISK_LIMITS['MAX_DRAWDOWN'],
                     actual_value=abs(drawdown),
@@ -527,7 +527,7 @@ class RegulatoryReports:
             if var_95 > RISK_LIMITS['VAR_LIMIT']:
                 breach = RiskLimitBreach(
                     breach_id=str(uuid.uuid4()),
-                    breach_time=datetime.now(timezone.utc),
+                    breach_time=datetime.now(UTC),
                     limit_type='VAR_LIMIT',
                     limit_value=RISK_LIMITS['VAR_LIMIT'],
                     actual_value=var_95,
@@ -545,7 +545,7 @@ class RegulatoryReports:
             if margin_usage > RISK_LIMITS['MARGIN_USAGE']:
                 breach = RiskLimitBreach(
                     breach_id=str(uuid.uuid4()),
-                    breach_time=datetime.now(timezone.utc),
+                    breach_time=datetime.now(UTC),
                     limit_type='MARGIN_USAGE',
                     limit_value=RISK_LIMITS['MARGIN_USAGE'],
                     actual_value=margin_usage,
@@ -927,7 +927,7 @@ class RegulatoryReports:
         """Create audit trail entry."""
         entry = AuditTrailEntry(
             audit_id=str(uuid.uuid4()),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             event_type=event_type,
             user_id='system',  # Would be actual user in production
             system_id='spyder_trading',

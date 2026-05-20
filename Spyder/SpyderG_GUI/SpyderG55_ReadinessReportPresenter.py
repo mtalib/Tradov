@@ -9,7 +9,8 @@ Purpose: Pure helpers for readiness report and audit export naming/payloads
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 
 def build_readiness_report_filename(

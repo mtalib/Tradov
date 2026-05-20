@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Coroutine, TypeVar
+from typing import Any
+from collections.abc import Coroutine
 
-T = TypeVar("T")
 _logger = logging.getLogger(__name__)
 
 
-def run_coro_in_thread(coro: Coroutine[Any, Any, T], timeout: float | None = None) -> T:
+def run_coro_in_thread[T](coro: Coroutine[Any, Any, T], timeout: float | None = None) -> T:
     """Run ``coro`` to completion from a synchronous thread context.
 
     Behavior:

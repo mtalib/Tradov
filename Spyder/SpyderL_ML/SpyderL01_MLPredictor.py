@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from dataclasses import field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from enum import Enum
 import json
 from collections import deque
@@ -475,7 +475,7 @@ class MLPredictor:
 
             # Create prediction object
             pred = Prediction(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 model_type=config.model_type,
                 target=config.target,
                 value=prediction[0] if len(prediction) == 1 else prediction,
@@ -535,7 +535,7 @@ class MLPredictor:
             ensemble_pred = np.average(predictions, weights=weights)
 
         return Prediction(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             model_type=ModelType.SIGNAL,
             target=PredictionTarget.NEXT_CANDLE,
             value=ensemble_pred,

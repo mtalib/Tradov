@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import time
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, UTC
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
@@ -619,7 +619,7 @@ class TestPendingQueueDurability:
         bot._pending_max_rows = 2
         bot._pending_max_age_hours = 1
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         rows = [
             {
                 "content": "expired",

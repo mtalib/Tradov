@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta, UTC
 from enum import Enum, auto
 from typing import Any
 
@@ -269,7 +269,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
         calendar = defaultdict(list)
 
         # Example events
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         if today.weekday() == 4:  # Friday
             calendar[today].append("NFP")
 
@@ -840,7 +840,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             strength = SignalStrength.WEAK
 
         signal = TradingSignal(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             signal_type=SignalType.ENTRY,
             strength=strength,
             confidence=setup.probability_profit,
@@ -1058,7 +1058,7 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
     ) -> TradingSignal:
         """Create exit signal for position"""
         signal = TradingSignal(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             signal_type=SignalType.EXIT,
             strength=SignalStrength.STRONG,
             confidence=0.95,
@@ -1068,13 +1068,13 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
                 "pnl": metrics.pnl,
                 "pnl_percentage": metrics.pnl_percentage,
                 "final_metrics": metrics.__dict__,
-                "hold_time": (datetime.now(timezone.utc) - position.setup.entry_time).seconds / 60,  # minutes
+                "hold_time": (datetime.now(UTC) - position.setup.entry_time).seconds / 60,  # minutes
             },
         )
 
         # Update position state
         position.state = ZeroDTEState.CLOSING
-        position.exit_time = datetime.now(timezone.utc)
+        position.exit_time = datetime.now(UTC)
         position.exit_reason = reason
 
         # Update daily stats
@@ -1107,8 +1107,8 @@ class SpecializedZeroDTEStrategy(BaseStrategy):
             "active_positions": len(self.active_positions),
             "daily_pnl": self.daily_pnl,
             "strategy_stats": self.strategy_stats.copy(),
-            "fed_day": self._is_fed_day(datetime.now(timezone.utc)),
-            "economic_events": self.economic_calendar.get(datetime.now(timezone.utc).date(), []),
+            "fed_day": self._is_fed_day(datetime.now(UTC)),
+            "economic_events": self.economic_calendar.get(datetime.now(UTC).date(), []),
         }
 
     def reset_daily_stats(self):

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import timezone
+from datetime import timezone, UTC
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -80,7 +80,7 @@ def test_collect_startup_readiness_state_uses_envelope_helpers(monkeypatch) -> N
     monkeypatch.setattr(g05, "build_startup_readiness_base_state", _base_state)
     monkeypatch.setattr(g05, "build_startup_readiness_state_plan", _state_plan)
     monkeypatch.setattr(g05, "build_startup_readiness_success_state_payload", _payload)
-    monkeypatch.setattr(g05, "_get_eastern_timezone", lambda: timezone.utc)
+    monkeypatch.setattr(g05, "_get_eastern_timezone", lambda: UTC)
     monkeypatch.setattr(g05, "is_market_hours", lambda current_et: False)
     monkeypatch.setattr(g05, "_is_preconnect_idle_window", lambda current_et=None: False)
 

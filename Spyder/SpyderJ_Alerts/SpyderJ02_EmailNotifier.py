@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from dataclasses import field
 from enum import Enum, auto
@@ -286,7 +286,7 @@ class EmailNotifier:
 
         context = {
             'trade': trade_data,
-            'timestamp': datetime.now(timezone.utc),
+            'timestamp': datetime.now(UTC),
             'system_name': 'Spyder Trading System'
         }
 
@@ -326,7 +326,7 @@ class EmailNotifier:
         context = {
             'position': position_data,
             'alert_type': alert_type,
-            'timestamp': datetime.now(timezone.utc)
+            'timestamp': datetime.now(UTC)
         }
 
         body_html = self._render_template('position_alert.html', context)
@@ -357,7 +357,7 @@ class EmailNotifier:
 
         context = {
             'risk': risk_data,
-            'timestamp': datetime.now(timezone.utc),
+            'timestamp': datetime.now(UTC),
             'recommended_actions': risk_data.get('recommended_actions', [])
         }
 
@@ -386,13 +386,13 @@ class EmailNotifier:
         if not recipients:
             return
 
-        date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        date_str = datetime.now(UTC).strftime('%Y-%m-%d')
         subject = f"Daily Trading Summary - {date_str}"
 
         context = {
             'summary': summary_data,
             'date': date_str,
-            'timestamp': datetime.now(timezone.utc)
+            'timestamp': datetime.now(UTC)
         }
 
         body_html = self._render_template('daily_summary.html', context)
@@ -424,7 +424,7 @@ class EmailNotifier:
 
         context = {
             'alert': alert_data,
-            'timestamp': datetime.now(timezone.utc)
+            'timestamp': datetime.now(UTC)
         }
 
         body_html = self._render_template('system_alert.html', context)
@@ -499,7 +499,7 @@ class EmailNotifier:
                 # Check if retry needed
                 if item.status == EmailStatus.FAILED and item.attempts < MAX_RETRIES:
                     if item.last_attempt:
-                        time_since_attempt = (datetime.now(timezone.utc) - item.last_attempt).seconds
+                        time_since_attempt = (datetime.now(UTC) - item.last_attempt).seconds
                         if time_since_attempt < RETRY_DELAY:
                             # Re-queue for later
                             self.email_queue.put(item)
@@ -514,7 +514,7 @@ class EmailNotifier:
                     self.logger.info("Email sent: %s", item.message.subject)
                 else:
                     item.attempts += 1
-                    item.last_attempt = datetime.now(timezone.utc)
+                    item.last_attempt = datetime.now(UTC)
 
                     if item.attempts >= MAX_RETRIES:
                         item.status = EmailStatus.FAILED

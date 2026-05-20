@@ -37,7 +37,7 @@ References:
 # ==============================================================================
 from typing import Optional, Any
 from enum import Enum
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, timedelta, UTC
 from dataclasses import dataclass, field
 import math
 
@@ -383,7 +383,7 @@ class VIXHedgingStrategy:
         # Check cache
         if use_cache and self._snapshot_cache:
             cached_snapshot, cache_time = self._snapshot_cache
-            if (datetime.now(timezone.utc) - cache_time).seconds < 60:
+            if (datetime.now(UTC) - cache_time).seconds < 60:
                 return cached_snapshot
 
         try:
@@ -406,7 +406,7 @@ class VIXHedgingStrategy:
             correlation = self._estimate_correlation()
 
             snapshot = VIXSnapshot(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 vix_spot=vix_spot,
                 vix_m1=vix_m1,
                 vix_m2=vix_m2,
@@ -420,7 +420,7 @@ class VIXHedgingStrategy:
             )
 
             # Cache
-            self._snapshot_cache = (snapshot, datetime.now(timezone.utc))
+            self._snapshot_cache = (snapshot, datetime.now(UTC))
 
             logger.info(
                 f"VIX Snapshot: {vix_spot:.2f} ({regime.value}), "
@@ -500,7 +500,7 @@ class VIXHedgingStrategy:
     def _default_snapshot(self) -> VIXSnapshot:
         """Return default snapshot for error cases."""
         return VIXSnapshot(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             vix_spot=20.0,
             vix_m1=21.0,
             vix_m2=22.0,
@@ -835,7 +835,7 @@ class VIXHedgingStrategy:
             confidence = min(0.90, 0.50 + (snapshot.vix_spot - VIX_SPIKE_THRESHOLD) * 0.01)
 
             return MeanReversionSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_vix=snapshot.vix_spot,
                 target_vix=self.vix_mean,
                 expected_days_to_mean=days_to_mean,
@@ -850,7 +850,7 @@ class VIXHedgingStrategy:
             days_to_mean = self._estimate_days_to_mean(snapshot.vix_spot)
 
             return MeanReversionSignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_vix=snapshot.vix_spot,
                 target_vix=self.vix_mean,
                 expected_days_to_mean=days_to_mean,
@@ -911,7 +911,7 @@ class VIXHedgingStrategy:
             profit = 0
 
         return VolatilityPremiumOpportunity(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             implied_volatility=snapshot.vix_spot,
             realized_volatility=realized_vol,
             premium_percent=premium_pct,

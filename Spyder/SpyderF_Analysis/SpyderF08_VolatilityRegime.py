@@ -24,7 +24,7 @@ Change Log:
 # ==============================================================================
 from typing import Any
 from enum import Enum
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from dataclasses import dataclass, field
 import threading
 from collections import defaultdict
@@ -204,7 +204,7 @@ class VolatilityRegimeAnalyzer:
         Returns:
             Complete regime analysis
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         try:
             # Check if retraining needed
@@ -249,7 +249,7 @@ class VolatilityRegimeAnalyzer:
             )
 
             # Record metrics
-            elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
             self.monitor.record_metric('regime_analysis.execution_ms', elapsed_ms)
             self.monitor.record_metric('regime_analysis.current_regime', self.current_regime.value if self.current_regime else 0)  # noqa: E501
 
@@ -350,7 +350,7 @@ class VolatilityRegimeAnalyzer:
             return True
 
         # Check interval
-        days_since_retrain = (datetime.now(timezone.utc) - self.last_retrain_date).days
+        days_since_retrain = (datetime.now(UTC) - self.last_retrain_date).days
         if days_since_retrain >= self.retrain_interval_days:
             return True
 
@@ -393,7 +393,7 @@ class VolatilityRegimeAnalyzer:
                 self.regime_model.fit(X_scaled)
 
                 # Update model metadata
-                self.last_retrain_date = datetime.now(timezone.utc)
+                self.last_retrain_date = datetime.now(UTC)
                 self.model_version += 1
 
                 # Save model
@@ -591,7 +591,7 @@ class VolatilityRegimeAnalyzer:
                 percentile=percentile,
                 trend=trend,
                 duration_hours=duration_hours,
-                start_time=datetime.now(timezone.utc) - timedelta(hours=duration_hours),
+                start_time=datetime.now(UTC) - timedelta(hours=duration_hours),
                 features=dict(features)
             )
 
@@ -627,7 +627,7 @@ class VolatilityRegimeAnalyzer:
             percentile=percentile,
             trend=self._determine_volatility_trend(features),
             duration_hours=24,  # Default
-            start_time=datetime.now(timezone.utc) - timedelta(hours=24),
+            start_time=datetime.now(UTC) - timedelta(hours=24),
             features=dict(features)
         )
 
@@ -676,7 +676,7 @@ class VolatilityRegimeAnalyzer:
                 transition = RegimeTransition(
                     from_regime=self.current_regime,
                     to_regime=current_state.regime,
-                    transition_time=datetime.now(timezone.utc),
+                    transition_time=datetime.now(UTC),
                     confidence=current_state.probability,
                     trigger=self._identify_transition_trigger(current_state)
                 )
@@ -887,7 +887,7 @@ class VolatilityRegimeAnalyzer:
             percentile=50.0,
             trend='stable',
             duration_hours=0,
-            start_time=datetime.now(timezone.utc)
+            start_time=datetime.now(UTC)
         )
 
         return RegimeAnalysis(
@@ -952,7 +952,7 @@ if __name__ == "__main__":
                 'version': version,
                 'config': config,
                 'metrics': performance_metrics,
-                'trained_at': datetime.now(timezone.utc)
+                'trained_at': datetime.now(UTC)
             }
 
         def get_model(self, name):
@@ -993,7 +993,7 @@ if __name__ == "__main__":
 
     # Test auto-retraining
     # Simulate time passing
-    analyzer.last_retrain_date = datetime.now(timezone.utc) - timedelta(days=31)
+    analyzer.last_retrain_date = datetime.now(UTC) - timedelta(days=31)
 
     # This should trigger retrain
     analysis2 = analyzer.analyze_regime(data)

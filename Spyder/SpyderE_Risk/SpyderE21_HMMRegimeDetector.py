@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 import warnings
 from collections import deque  # v27 SPEC-18: bounded histories
 
@@ -426,8 +426,8 @@ class HMMRegimeDetector:
             model = best_model
 
             # Train model
-            start_time = datetime.now(timezone.utc)
-            training_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+            start_time = datetime.now(UTC)
+            training_time = (datetime.now(UTC) - start_time).total_seconds()
 
             # Calculate model metrics
             log_likelihood = model.score(features)
@@ -558,7 +558,7 @@ class HMMRegimeDetector:
         prediction_accuracy = None
 
         return HMMModelMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             model_type=f"{self.n_states}-state HMM",
             n_states=self.n_states,
             n_params=training_result.n_params,
@@ -592,7 +592,7 @@ class HMMRegimeDetector:
         if not self.is_trained:
             self.logger.warning("Model not trained - returning unknown prediction")
             return RegimePrediction(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_regime=MarketRegime.UNKNOWN,
                 regime_probabilities={},
                 confidence=0.0,
@@ -655,7 +655,7 @@ class HMMRegimeDetector:
             expected_duration = self._calculate_expected_duration(regime)
 
             prediction = RegimePrediction(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_regime=regime,
                 regime_probabilities=probabilities,
                 confidence=confidence,
@@ -678,7 +678,7 @@ class HMMRegimeDetector:
         except Exception as e:
             self.error_handler.handle_error(e, "HMMRegimeDetector.predict")
             return RegimePrediction(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_regime=MarketRegime.UNKNOWN,
                 regime_probabilities={},
                 confidence=0.0,
@@ -765,7 +765,7 @@ class HMMRegimeDetector:
 
         if not regime_info:
             return RegimeGatedStrategySignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_regime=regime,
                 recommended_strategy="neutral",
                 confidence=confidence,
@@ -778,7 +778,7 @@ class HMMRegimeDetector:
         if confidence < self.regime_switch_threshold:
             # Not confident enough - recommend neutral
             return RegimeGatedStrategySignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_regime=regime,
                 recommended_strategy="neutral",
                 confidence=confidence,
@@ -805,7 +805,7 @@ class HMMRegimeDetector:
             reason = f"Regime {regime.value} detected - use {optimal_strategy}"
 
         return RegimeGatedStrategySignal(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_regime=regime,
                 recommended_strategy=optimal_strategy,
                 confidence=confidence,
@@ -953,7 +953,7 @@ def create_sample_data(n_periods: int = 252,
     np.random.seed(42)
 
     # Generate returns with regime-dependent characteristics
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=n_periods, freq='D')
+    dates = pd.date_range(end=datetime.now(UTC), periods=n_periods, freq='D')
 
     # Simulate regime changes
     regimes = []

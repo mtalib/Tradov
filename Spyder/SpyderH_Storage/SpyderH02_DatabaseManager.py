@@ -37,7 +37,7 @@ import math
 import shutil
 import threading
 import queue
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, asdict
@@ -745,7 +745,7 @@ class DatabaseManager:
 
     def backup_database(self) -> Path:
         """Create database backup"""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         backup_file = self.backup_path / f"spyder_backup_{timestamp}.db"
 
         with self.lock:
@@ -757,7 +757,7 @@ class DatabaseManager:
 
             backup_file.unlink()  # Remove uncompressed file
 
-            self.last_backup = datetime.now(timezone.utc)
+            self.last_backup = datetime.now(UTC)
             self.logger.info("✅ Database backed up: %s.gz", backup_file)
 
             # Cleanup old backups
@@ -779,7 +779,7 @@ class DatabaseManager:
         with self.lock, self._get_connection() as conn:
             conn.execute("VACUUM")
             conn.execute("ANALYZE")
-            self.last_vacuum = datetime.now(timezone.utc)
+            self.last_vacuum = datetime.now(UTC)
             self.logger.info("✅ Database vacuumed and analyzed")
 
     def get_database_stats(self) -> dict[str, Any]:
@@ -889,7 +889,7 @@ if __name__ == "__main__":
 
     # Test trade insertion
     test_trade = Trade(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         symbol="SPY",
         strategy="IronCondor",
         trade_type="BTO",
@@ -907,7 +907,7 @@ if __name__ == "__main__":
 
     # Test market data
     test_data = MarketDataPoint(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         symbol="SPY",
         bid=585.45,
         ask=585.55,
@@ -924,7 +924,7 @@ if __name__ == "__main__":
     latest = db_manager.get_latest_market_data("SPY")
 
     # Calculate performance
-    db_manager.calculate_daily_performance(datetime.now(timezone.utc))
+    db_manager.calculate_daily_performance(datetime.now(UTC))
 
     # Get database stats
     stats = db_manager.get_database_stats()

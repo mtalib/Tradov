@@ -93,8 +93,8 @@ class TestExecutionTelemetryPipeline(unittest.TestCase):
         }
 
         event = {"execution_telemetry": telemetry}
-        
-        with patch.object(self.logger, "info") as mock_log:
+
+        with patch.object(self.logger, "info"):
             self.analytics._handle_execution_telemetry(event)
             # Verify rejection was logged (handler uses self.logger)
 
@@ -186,7 +186,7 @@ class TestExecutionTelemetryPipeline(unittest.TestCase):
     def test_k04_telemetry_persistence(self):
         """Test that multiple telemetry records are accumulated in cache."""
         order_ids = ["ORD-001", "ORD-002", "ORD-003"]
-        
+
         for order_id in order_ids:
             telemetry = {
                 "feed": "execution",
@@ -278,7 +278,7 @@ class TestExecutionTelemetryMetrics(unittest.TestCase):
     def test_slippage_calculation_propagates(self):
         """Test that slippage_bps from telemetry is available for aggregation."""
         slippage_values = [2.5, 5.0, 10.5, 15.0, 8.2]
-        
+
         for i, slippage_bps in enumerate(slippage_values):
             telemetry = {
                 "feed": "execution",
@@ -299,7 +299,7 @@ class TestExecutionTelemetryMetrics(unittest.TestCase):
     def test_fill_latency_calculation_propagates(self):
         """Test that fill_latency_ms from telemetry is available for analysis."""
         latency_values = [50.0, 100.0, 250.0, 500.0, 1000.0]
-        
+
         for i, latency_ms in enumerate(latency_values):
             telemetry = {
                 "feed": "execution",

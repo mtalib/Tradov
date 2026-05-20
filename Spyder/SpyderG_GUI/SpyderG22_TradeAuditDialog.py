@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -18,7 +17,7 @@ Last Updated: 2026-04-17 Time: 00:00:00
 # STANDARD IMPORTS
 # ==============================================================================
 import csv
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
@@ -244,7 +243,7 @@ class TradeAuditDialog(QDialog):
         if not self._closed_trades:
             QMessageBox.information(self, "Export CSV", "No closed trades to export.")
             return
-        default_name = f"spyder_trade_audit_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.csv"
+        default_name = f"spyder_trade_audit_{datetime.now(UTC).strftime('%Y%m%d_%H%M')}.csv"
         path, _ = QFileDialog.getSaveFileName(
             self, "Export trade audit", default_name, "CSV Files (*.csv)"
         )
@@ -272,7 +271,7 @@ class TradeAuditDialog(QDialog):
             flat_rows = [_flatten_pivot(t) for t in self._closed_trades]
             extras: list[str] = []
             for t in flat_rows:
-                for k in t.keys():
+                for k in t:
                     if k not in known and k not in extras:
                         extras.append(k)
             fieldnames = known + extras

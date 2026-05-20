@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 
 _MARKET_CLOSED_WARNING = "Market is closed (outside regular trading hours)"

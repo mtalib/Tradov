@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import json
-from datetime import datetime, date, timezone
+from datetime import datetime, date, UTC
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -105,7 +105,7 @@ class VaRResult:
     expected_shortfall: float  # CVaR
     calculation_method: str
     lookback_days: int
-    calculated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    calculated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -241,7 +241,7 @@ class RiskReportGenerator:
 
                 report = RiskReportData(
                     report_date=date.today(),
-                    report_time=datetime.now(timezone.utc),
+                    report_time=datetime.now(UTC),
                     account_id=account_id,
                     portfolio_value=portfolio_value
                 )

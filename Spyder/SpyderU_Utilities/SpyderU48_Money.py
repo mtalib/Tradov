@@ -39,22 +39,22 @@ class Money:
         object.__setattr__(self, "_amount", _to_decimal(value))
 
     # Arithmetic — every op returns a new Money, preserving immutability.
-    def __add__(self, other: _Numeric) -> "Money":
+    def __add__(self, other: _Numeric) -> Money:
         return Money(self._amount + _to_decimal(other))
 
-    def __radd__(self, other: _Numeric) -> "Money":
+    def __radd__(self, other: _Numeric) -> Money:
         return self.__add__(other)
 
-    def __sub__(self, other: _Numeric) -> "Money":
+    def __sub__(self, other: _Numeric) -> Money:
         return Money(self._amount - _to_decimal(other))
 
-    def __rsub__(self, other: _Numeric) -> "Money":
+    def __rsub__(self, other: _Numeric) -> Money:
         return Money(_to_decimal(other) - self._amount)
 
-    def __neg__(self) -> "Money":
+    def __neg__(self) -> Money:
         return Money(-self._amount)
 
-    def __mul__(self, scalar: _Numeric) -> "Money":
+    def __mul__(self, scalar: _Numeric) -> Money:
         # Multiplication by a scalar (quantity / price) — not by Money.
         if isinstance(scalar, Money):
             raise TypeError("Cannot multiply Money by Money")

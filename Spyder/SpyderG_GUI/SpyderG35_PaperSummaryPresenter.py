@@ -10,7 +10,8 @@ Purpose: Pure presentation helpers for paper summary badges and portfolio rows
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any
+from collections.abc import Mapping, Sequence
 
 from Spyder.SpyderG_GUI.SpyderG34_AccountCapitalMath import BuyingPowerUsage
 

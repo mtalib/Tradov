@@ -24,7 +24,7 @@ import time
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -187,7 +187,7 @@ class StressResult:
     correlation_impact: float = 0.0       # Correlation change impact
 
     # Metadata
-    test_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    test_timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     computation_time: float = 0.0         # Seconds to compute
     passed_thresholds: bool = True        # Whether result passes risk limits
 
@@ -237,7 +237,7 @@ class StressAlert:
     message: str
     portfolio_impact: float
     threshold_breached: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     acknowledged: bool = False
 
     def __post_init__(self):
@@ -368,7 +368,7 @@ class RealTimeStressTesting:
                 self.logger.debug("N04 portfolio_greeks unavailable for snapshot: %s", exc)
 
         return PortfolioSnapshot(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             positions=positions or {},
             portfolio_value=portfolio_value,
             cash_balance=cash_balance,
@@ -616,7 +616,7 @@ class RealTimeStressTesting:
                 except Exception as e:
                     self.logger.error("Error in scenario %s: %s", scenario_id, e)
 
-            self.last_test_time = datetime.now(timezone.utc)
+            self.last_test_time = datetime.now(UTC)
             self.computation_stats['total_tests'] += len(results)
 
             self.logger.info("Completed stress testing: %s scenarios", len(results))
@@ -784,7 +784,7 @@ class RealTimeStressTesting:
             report_lines.append("=" * 80)
             report_lines.append("SPYDER REAL-TIME STRESS TESTING REPORT")
             report_lines.append("=" * 80)
-            report_lines.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
+            report_lines.append(f"Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}")
             report_lines.append("")
 
             # Engine status
@@ -1200,7 +1200,7 @@ class RealTimeStressTesting:
     def _process_alerts(self) -> None:
         """Process pending alerts."""
         # Remove old alerts (older than 1 hour)
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        cutoff_time = datetime.now(UTC) - timedelta(hours=1)
         self.alerts = [a for a in self.alerts if a.timestamp > cutoff_time]
 
         # Count unacknowledged critical alerts
@@ -1476,7 +1476,7 @@ class RealTimeStressTesting:
 def create_default_portfolio_snapshot() -> PortfolioSnapshot:
     """Create a default portfolio snapshot for testing."""
     return PortfolioSnapshot(
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         positions={
             'SPY_CALL_450': {'value': 10000, 'delta': 50, 'gamma': 2, 'vega': 30, 'theta': -5},
             'SPY_PUT_440': {'value': 8000, 'delta': -30, 'gamma': 1.5, 'vega': 25, 'theta': -3}

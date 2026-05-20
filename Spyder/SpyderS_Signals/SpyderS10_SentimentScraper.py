@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -56,8 +55,7 @@ import logging
 import os
 import re
 import threading
-from datetime import date, datetime, timedelta, timezone  # noqa: F401
-from typing import Optional
+from datetime import date, datetime, timedelta, timezone, UTC  # noqa: F401
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -162,10 +160,10 @@ class SentimentScraper:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._aaii_cache: Optional[dict]  = None
-        self._aaii_cache_time: Optional[datetime] = None
-        self._naaim_cache: Optional[dict] = None
-        self._naaim_cache_time: Optional[datetime] = None
+        self._aaii_cache: dict | None  = None
+        self._aaii_cache_time: datetime | None = None
+        self._naaim_cache: dict | None = None
+        self._naaim_cache_time: datetime | None = None
         # Suppress repeated warnings after the first failure per session
         self._aaii_warned: bool = False
         self._naaim_warned: bool = False
@@ -212,11 +210,11 @@ class SentimentScraper:
         """Return cache and availability status for both sources."""
         with self._lock:
             aaii_age = (
-                (datetime.now(timezone.utc) - self._aaii_cache_time).total_seconds()
+                (datetime.now(UTC) - self._aaii_cache_time).total_seconds()
                 if self._aaii_cache_time else None
             )
             naaim_age = (
-                (datetime.now(timezone.utc) - self._naaim_cache_time).total_seconds()
+                (datetime.now(UTC) - self._naaim_cache_time).total_seconds()
                 if self._naaim_cache_time else None
             )
         return {
@@ -234,7 +232,7 @@ class SentimentScraper:
     def _get_aaii(self, force_refresh: bool) -> dict:
         with self._lock:
             if not force_refresh and self._aaii_cache is not None:
-                age = (datetime.now(timezone.utc) - self._aaii_cache_time).total_seconds()
+                age = (datetime.now(UTC) - self._aaii_cache_time).total_seconds()
                 if age < _AAII_CACHE_TTL_SECONDS:
                     return dict(self._aaii_cache)
 
@@ -242,7 +240,7 @@ class SentimentScraper:
 
         with self._lock:
             self._aaii_cache = data
-            self._aaii_cache_time = datetime.now(timezone.utc)
+            self._aaii_cache_time = datetime.now(UTC)
 
         return dict(data)
 
@@ -291,7 +289,7 @@ class SentimentScraper:
             logger.debug("AAII still unavailable — using stub data.")
         return self._aaii_stub()
 
-    def _fetch_aaii_nasdaq(self) -> Optional[dict]:
+    def _fetch_aaii_nasdaq(self) -> dict | None:
         """Fetch AAII sentiment via the official nasdaqdatalink Python SDK.
 
         The SDK reads NASDAQ_DATA_LINK_API_KEY from the environment automatically.
@@ -332,7 +330,7 @@ class SentimentScraper:
                 if (bullish == bullish and bearish == bearish)
                 else float("nan")
             )
-            as_of: Optional[date] = None
+            as_of: date | None = None
             try:
                 as_of = df.index[0].date()
             except Exception:
@@ -350,7 +348,7 @@ class SentimentScraper:
             logger.debug("AAII Nasdaq Data Link failed: %s", exc)
             return None
 
-    def _fetch_aaii_direct(self) -> Optional[dict]:
+    def _fetch_aaii_direct(self) -> dict | None:
         """Download AAII Excel with a browser-simulated session.
 
         A warm-up GET to the AAII sentiment page acquires session cookies
@@ -378,7 +376,7 @@ class SentimentScraper:
             logger.debug("AAII direct download failed: %s", exc)
             return None
 
-    def _parse_aaii_excel(self, content: bytes) -> Optional[dict]:
+    def _parse_aaii_excel(self, content: bytes) -> dict | None:
         """Parse raw bytes of the AAII sentiment Excel/XLS workbook."""
         try:
             df = pd.read_excel(io.BytesIO(content), sheet_name=0, header=None)
@@ -409,7 +407,7 @@ class SentimentScraper:
             date_col = next(
                 (c for c in df.columns if "date" in c or "reported" in c), None
             )
-            as_of: Optional[date] = None
+            as_of: date | None = None
             if date_col:
                 try:
                     as_of = pd.to_datetime(latest[date_col]).date()
@@ -433,7 +431,7 @@ class SentimentScraper:
             logger.debug("AAII Excel parse failed: %s", exc)
             return None
 
-    def _fetch_aaii_fred(self) -> Optional[dict]:
+    def _fetch_aaii_fred(self) -> dict | None:
         """Derive approximate AAII bull/bear from FRED UMCSENT (University of
         Michigan Consumer Sentiment, monthly).
 
@@ -501,7 +499,7 @@ class SentimentScraper:
     def _get_naaim(self, force_refresh: bool) -> dict:
         with self._lock:
             if not force_refresh and self._naaim_cache is not None:
-                age = (datetime.now(timezone.utc) - self._naaim_cache_time).total_seconds()
+                age = (datetime.now(UTC) - self._naaim_cache_time).total_seconds()
                 if age < _NAAIM_CACHE_TTL_SECONDS:
                     return dict(self._naaim_cache)
 
@@ -509,7 +507,7 @@ class SentimentScraper:
 
         with self._lock:
             self._naaim_cache = data
-            self._naaim_cache_time = datetime.now(timezone.utc)
+            self._naaim_cache_time = datetime.now(UTC)
 
         return dict(data)
 
@@ -541,7 +539,7 @@ class SentimentScraper:
             logger.debug("NAAIM still unavailable — using stub data.")
         return self._naaim_stub()
 
-    def _fetch_naaim_from_page(self) -> Optional[dict]:
+    def _fetch_naaim_from_page(self) -> dict | None:
         """Scrape the NAAIM exposure-index page to find the current Excel URL.
 
         NAAIM hosts their data on a WordPress site; the file URL includes a
@@ -579,7 +577,7 @@ class SentimentScraper:
             logger.debug("NAAIM page-discovery failed: %s", exc)
             return None
 
-    def _fetch_naaim_direct(self) -> Optional[dict]:
+    def _fetch_naaim_direct(self) -> dict | None:
         """Try a set of known NAAIM Excel URL patterns.
 
         Tries the canonical URL first, then date-stamped WordPress paths for
@@ -607,7 +605,7 @@ class SentimentScraper:
                 logger.debug("NAAIM URL %s failed: %s", url, exc)
         return None
 
-    def _parse_naaim_excel(self, content: bytes) -> Optional[dict]:
+    def _parse_naaim_excel(self, content: bytes) -> dict | None:
         """Parse raw bytes of the NAAIM Exposure Index Excel workbook."""
         try:
             df = pd.read_excel(io.BytesIO(content), sheet_name=0)
@@ -636,7 +634,7 @@ class SentimentScraper:
                 df = df.sort_values(date_col)
             latest   = df.iloc[-1]
             exposure = float(latest[exposure_col])
-            as_of: Optional[date] = None
+            as_of: date | None = None
             if date_col:
                 try:
                     as_of = latest[date_col].date()
@@ -664,7 +662,7 @@ class SentimentScraper:
 # ==============================================================================
 # MODULE-LEVEL SINGLETON
 # ==============================================================================
-_sentiment_scraper: Optional[SentimentScraper] = None
+_sentiment_scraper: SentimentScraper | None = None
 
 
 def get_sentiment_scraper() -> SentimentScraper:

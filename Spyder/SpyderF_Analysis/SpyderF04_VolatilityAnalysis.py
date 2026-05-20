@@ -22,7 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from enum import Enum, auto
 import warnings
@@ -319,7 +319,7 @@ class VolatilityAnalyzer:
             volatility_percentile=percentile,
             term_structure=term_structure,
             method_used=self.default_method,
-            calculation_time=datetime.now(timezone.utc)
+            calculation_time=datetime.now(UTC)
         )
 
     # ==========================================================================
@@ -760,7 +760,7 @@ class VolatilityAnalyzer:
         )
 
         # Keep only last 252 days
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=252)
+        cutoff_date = datetime.now(UTC) - timedelta(days=252)
         self.volatility_history = [
             (dt, vol) for dt, vol in self.volatility_history
             if dt > cutoff_date
@@ -781,7 +781,7 @@ class VolatilityAnalyzer:
             volatility_percentile=50.0,
             term_structure={20: 1.0},
             method_used=VolatilityMethod.CLOSE_TO_CLOSE,
-            calculation_time=datetime.now(timezone.utc)
+            calculation_time=datetime.now(UTC)
         )
 
         return VolatilityAnalysisResult(
@@ -800,7 +800,7 @@ class VolatilityAnalyzer:
         days: int = 30
     ) -> list[tuple[datetime, VolatilityRegime]]:
         """Get regime history for specified days"""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         return [(dt, regime) for dt, regime in self.regime_history if dt > cutoff]
 
     def get_volatility_cone(

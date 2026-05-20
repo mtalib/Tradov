@@ -59,7 +59,7 @@ import threading
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field, asdict
@@ -231,8 +231,8 @@ class Order:
     liquidity_snapshot: dict[str, Any] | None = None
 
     # Timestamps
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self):
         """Set remaining_quantity from quantity if not set."""
@@ -260,7 +260,7 @@ class OrderResult:
     message: str | None = None
     error_code: str | None = None
     raw_response: dict[str, Any] | None = None
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
@@ -273,7 +273,7 @@ class ExecutionReport:
     quantity: int = 0
     price: float = 0.0
     execution_id: str = ""
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     commission: float | None = None
 
 # ==============================================================================
@@ -347,7 +347,7 @@ class OrderManager:
             "orders_rejected": 0,
             "total_volume": 0.0,
             "total_commission": 0.0,
-            "start_time": datetime.now(timezone.utc),
+            "start_time": datetime.now(UTC),
         }
 
         # Execution telemetry feed envelope cache (newest last).
@@ -409,8 +409,8 @@ class OrderManager:
                         error_code="DUPLICATE_ORDER_ID",
                     )
 
-                order.submitted_time = datetime.now(timezone.utc)
-                order.updated_at = datetime.now(timezone.utc)
+                order.submitted_time = datetime.now(UTC)
+                order.updated_at = datetime.now(UTC)
                 self._orders[order.order_id] = order
 
             self.logger.info(
@@ -424,7 +424,7 @@ class OrderManager:
                 with self._order_lock:
                     order.state = OrderState.REJECTED
                     order.error_message = "; ".join(reasons)
-                    order.updated_at = datetime.now(timezone.utc)
+                    order.updated_at = datetime.now(UTC)
                     self.metrics["orders_rejected"] += 1
 
                 self._record_liquidity_feed(order, gate_passed=False, reasons=reasons)
@@ -448,7 +448,7 @@ class OrderManager:
                 with self._order_lock:
                     order.state = OrderState.REJECTED
                     order.error_message = "; ".join(reasons)
-                    order.updated_at = datetime.now(timezone.utc)
+                    order.updated_at = datetime.now(UTC)
                     self.metrics["orders_rejected"] += 1
 
                 self._record_execution_feed(
@@ -493,7 +493,7 @@ class OrderManager:
                     order.error_message = "No order ID in response"
                     self.metrics["orders_rejected"] += 1
 
-                order.updated_at = datetime.now(timezone.utc)
+                order.updated_at = datetime.now(UTC)
 
             success = tradier_id is not None
             if success:
@@ -566,7 +566,7 @@ class OrderManager:
                     )
 
                 order.state = OrderState.PENDING_CANCEL
-                order.updated_at = datetime.now(timezone.utc)
+                order.updated_at = datetime.now(UTC)
 
             self.logger.info("Cancelling order %s (Tradier #%s)", order_id, order.tradier_order_id)
 
@@ -574,7 +574,7 @@ class OrderManager:
 
             with self._order_lock:
                 order.state = OrderState.CANCELLED
-                order.updated_at = datetime.now(timezone.utc)
+                order.updated_at = datetime.now(UTC)
                 self.metrics["orders_cancelled"] += 1
 
             self._record_execution_feed(
@@ -678,7 +678,7 @@ class OrderManager:
                     order.order_type = order_type
                 if duration:
                     order.duration = duration
-                order.updated_at = datetime.now(timezone.utc)
+                order.updated_at = datetime.now(UTC)
 
             return OrderResult(
                 success=True,
@@ -783,7 +783,7 @@ class OrderManager:
 
         try:
             with self._order_lock:
-                order.submitted_time = datetime.now(timezone.utc)
+                order.submitted_time = datetime.now(UTC)
                 self._orders[order.order_id] = order
 
             self.logger.info(
@@ -810,7 +810,7 @@ class OrderManager:
                 else:
                     order.state = OrderState.REJECTED
                     self.metrics["orders_rejected"] += 1
-                order.updated_at = datetime.now(timezone.utc)
+                order.updated_at = datetime.now(UTC)
 
             return OrderResult(
                 success=tradier_id is not None,
@@ -875,7 +875,7 @@ class OrderManager:
 
         try:
             with self._order_lock:
-                order.submitted_time = datetime.now(timezone.utc)
+                order.submitted_time = datetime.now(UTC)
                 self._orders[order.order_id] = order
 
             self.logger.info(
@@ -907,7 +907,7 @@ class OrderManager:
                 else:
                     order.state = OrderState.REJECTED
                     self.metrics["orders_rejected"] += 1
-                order.updated_at = datetime.now(timezone.utc)
+                order.updated_at = datetime.now(UTC)
 
             return OrderResult(
                 success=tradier_id is not None,
@@ -972,7 +972,7 @@ class OrderManager:
 
         try:
             with self._order_lock:
-                order.submitted_time = datetime.now(timezone.utc)
+                order.submitted_time = datetime.now(UTC)
                 self._orders[order.order_id] = order
 
             self.logger.info(
@@ -1002,7 +1002,7 @@ class OrderManager:
                 else:
                     order.state = OrderState.REJECTED
                     self.metrics["orders_rejected"] += 1
-                order.updated_at = datetime.now(timezone.utc)
+                order.updated_at = datetime.now(UTC)
 
             return OrderResult(
                 success=tradier_id is not None,
@@ -1137,11 +1137,11 @@ class OrderManager:
 
         result: OrderResult | None = None
         current_order_id: str | None = None
-        walk_start_time = datetime.now(timezone.utc)
+        walk_start_time = datetime.now(UTC)
 
         for tick in range(max_walk_ticks + 1):
             # ── Timeout guard ─────────────────────────────────────────────────
-            elapsed = (datetime.now(timezone.utc) - walk_start_time).total_seconds()
+            elapsed = (datetime.now(UTC) - walk_start_time).total_seconds()
             if elapsed > DEFAULT_ORDER_TIMEOUT:
                 self.logger.warning(
                     f"MidWalk order {current_order_id} timed out after "
@@ -1601,7 +1601,7 @@ class OrderManager:
         with self._order_lock:
             order.state = OrderState.REJECTED
             order.error_message = str(error)
-            order.updated_at = datetime.now(timezone.utc)
+            order.updated_at = datetime.now(UTC)
             self.metrics["orders_rejected"] += 1
 
         self._record_execution_feed(
@@ -1651,7 +1651,7 @@ class OrderManager:
             if last_price is not None:
                 order.last_fill_price = float(last_price)
 
-            order.updated_at = datetime.now(timezone.utc)
+            order.updated_at = datetime.now(UTC)
 
             # Update metrics on terminal transitions
             if new_state.is_terminal and not old_state.is_terminal:
@@ -1701,7 +1701,7 @@ class OrderManager:
             else:
                 order.state = OrderState.PARTIALLY_FILLED
 
-            order.updated_at = datetime.now(timezone.utc)
+            order.updated_at = datetime.now(UTC)
 
             # Volume metrics
             self.metrics["total_volume"] += report.price * report.quantity
@@ -1817,7 +1817,7 @@ class OrderManager:
                     orders_data[oid] = od
 
             self._persistence_dir.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             path = self._persistence_dir / f"orders_{ts}.json"
 
             # Atomic write: write to .tmp then rename to prevent corrupt reads
@@ -1842,7 +1842,7 @@ class OrderManager:
             success_rate = (
                 (self.metrics["orders_filled"] / total * 100) if total > 0 else 0.0
             )
-            uptime = (datetime.now(timezone.utc) - self.metrics["start_time"]).total_seconds()
+            uptime = (datetime.now(UTC) - self.metrics["start_time"]).total_seconds()
 
             return {
                 "orders_submitted": self.metrics["orders_submitted"],
@@ -1946,9 +1946,9 @@ class OrderManager:
                 submitted_ts = order.submitted_time
                 # Accept legacy naive timestamps by interpreting them as UTC.
                 if submitted_ts.tzinfo is None:
-                    submitted_ts = submitted_ts.replace(tzinfo=timezone.utc)
+                    submitted_ts = submitted_ts.replace(tzinfo=UTC)
                 if fill_ts.tzinfo is None:
-                    fill_ts = fill_ts.replace(tzinfo=timezone.utc)
+                    fill_ts = fill_ts.replace(tzinfo=UTC)
                 fill_latency_ms = max(
                     0.0,
                     (fill_ts - submitted_ts).total_seconds() * 1000.0,
@@ -1984,7 +1984,7 @@ class OrderManager:
             "version": EXECUTION_FEED_VERSION,
             "mode": self.tradier.environment.value if self.tradier else "unknown",
             "session_id": self._execution_session_id,
-            "published_ts": datetime.now(timezone.utc).isoformat(),
+            "published_ts": datetime.now(UTC).isoformat(),
             "data": data,
         }
 
@@ -2080,7 +2080,7 @@ class OrderManager:
         if not policy.get("halt_on_quality_breach", False):
             return False, []
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         window_start = now - timedelta(seconds=self._execution_quality_window_seconds)
 
         slippage_limit = float(policy.get("max_slippage_bps", 25.0))
@@ -2139,7 +2139,7 @@ class OrderManager:
             "version": LIQUIDITY_FEED_VERSION,
             "mode": self.tradier.environment.value if self.tradier else "unknown",
             "session_id": self._execution_session_id,
-            "published_ts": datetime.now(timezone.utc).isoformat(),
+            "published_ts": datetime.now(UTC).isoformat(),
             "data": {
                 "order_id": order.order_id,
                 "strategy_id": order.strategy_name,

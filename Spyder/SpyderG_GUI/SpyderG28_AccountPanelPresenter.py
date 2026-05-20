@@ -10,7 +10,8 @@ Purpose: Pure helpers for account-panel money and P&L presentation
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 
 @dataclass(frozen=True)

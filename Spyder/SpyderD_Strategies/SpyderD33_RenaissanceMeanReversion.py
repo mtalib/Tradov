@@ -25,7 +25,7 @@ Change Log:
 import uuid
 from typing import Any
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 
 # ==============================================================================
@@ -128,7 +128,7 @@ class OptionContract:
     @property
     def days_to_expiry(self) -> int:
         """Calculate days to expiration"""
-        return (self.expiry - datetime.now(timezone.utc)).days
+        return (self.expiry - datetime.now(UTC)).days
 
 
 @dataclass
@@ -409,8 +409,8 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
                 stop_loss=stop_loss,
                 take_profit=take_profit,
                 position_size=size_result.num_contracts,
-                timestamp=datetime.now(timezone.utc),
-                expires_at=datetime.now(timezone.utc) + timedelta(seconds=SIGNAL_EXPIRY_SECONDS),
+                timestamp=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(seconds=SIGNAL_EXPIRY_SECONDS),
                 metadata={
                     'contract': contract.symbol,
                     'strike': contract.strike,
@@ -564,7 +564,7 @@ class RenaissanceMeanReversionStrategy(BaseStrategy):
             metadata = position.metadata
             if 'expiry' in metadata:
                 expiry = datetime.fromisoformat(metadata['expiry'])
-                days_remaining = (expiry - datetime.now(timezone.utc)).days
+                days_remaining = (expiry - datetime.now(UTC)).days
                 if days_remaining <= 3:  # Close 3 days before expiration
                     return True, "Approaching expiration"
 
@@ -672,7 +672,7 @@ if __name__ == "__main__":
 
     # Generate sample market data
     np.random.seed(42)
-    dates = pd.date_range(end=datetime.now(timezone.utc), periods=100, freq='D')
+    dates = pd.date_range(end=datetime.now(UTC), periods=100, freq='D')
 
     # Simulate SPY price with mean reversion
     price = 450
@@ -701,7 +701,7 @@ if __name__ == "__main__":
                 symbol=f"SPY250117{opt_type.value[0].upper()}{int(strike)}",
                 underlying="SPY",
                 strike=strike,
-                expiry=datetime.now(timezone.utc) + timedelta(days=30),
+                expiry=datetime.now(UTC) + timedelta(days=30),
                 option_type=opt_type,
                 bid=max(0.5, 5 - abs(i) * 0.5),
                 ask=max(0.6, 5.2 - abs(i) * 0.5),

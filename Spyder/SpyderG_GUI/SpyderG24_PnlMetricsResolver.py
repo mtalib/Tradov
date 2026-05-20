@@ -10,8 +10,9 @@ Purpose: Pure helpers for dashboard P&L metric normalization and aggregation
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, tzinfo, timezone
-from typing import Any, Iterable
+from datetime import date, datetime, tzinfo, UTC
+from typing import Any
+from collections.abc import Iterable
 
 
 def overlay_period_pnl_summary(
@@ -199,11 +200,11 @@ def _coerce_trade_datetime(value: Any, display_tz: tzinfo) -> datetime | None:
             trade_dt = datetime.fromisoformat(text)
         except ValueError:
             try:
-                trade_dt = datetime.fromtimestamp(float(value), tz=timezone.utc)
+                trade_dt = datetime.fromtimestamp(float(value), tz=UTC)
             except (TypeError, ValueError, OSError, OverflowError):
                 return None
     if trade_dt.tzinfo is None:
-        trade_dt = trade_dt.replace(tzinfo=timezone.utc)
+        trade_dt = trade_dt.replace(tzinfo=UTC)
     return trade_dt.astimezone(display_tz)
 
 

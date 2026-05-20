@@ -4,7 +4,7 @@
 import importlib
 from unittest.mock import MagicMock
 from types import SimpleNamespace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 import pandas as pd
 
@@ -170,7 +170,7 @@ def test_d31_evolved_credit_spread_adapter_maps_native_signal_to_base_signal():
     native_signal = SimpleNamespace(
         signal_id="ENTRY_TEST_1",
         action="ENTER_CREDIT_SPREAD",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         ai_confidence=0.82,
         signal_strength=0.74,
         position_details={"estimated_credit": 1.25, "max_loss": 3.75, "contracts": 2},

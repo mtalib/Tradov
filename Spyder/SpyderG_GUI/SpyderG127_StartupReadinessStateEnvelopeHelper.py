@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 
 def build_startup_readiness_base_state() -> dict[str, object]:

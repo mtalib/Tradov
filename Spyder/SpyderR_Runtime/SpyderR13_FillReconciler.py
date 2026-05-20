@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -43,9 +42,9 @@ import json
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -123,7 +122,7 @@ class FillReconciler:
         self._orphaned: dict[str, _TrackedOrder] = {}  # A9 (v14): retry-recoverable orphans
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
         # Prometheus metrics — soft-import; silently disabled if unavailable.
         self._prom: Any = None
@@ -364,7 +363,7 @@ class FillReconciler:
     # --------------------------------------------------------------------------
 
     def _reschedule(
-        self, entry: _TrackedOrder, next_in: Optional[float] = None
+        self, entry: _TrackedOrder, next_in: float | None = None
     ) -> None:
         """Update the next-poll time for a still-live order."""
         with self._lock:
@@ -488,7 +487,7 @@ class FillReconciler:
             "broker_order_id": entry.tradier_order_id,
             "last_error": last_error,
             "consecutive_errors": entry.consecutive_errors,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         }
         self.logger.error(
             "Reconciler: orphaning order_id=%s tradier_id=%s after %d errors",

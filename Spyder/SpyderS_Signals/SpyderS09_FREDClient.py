@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -55,8 +54,7 @@ Usage
 import logging
 import os
 import threading
-from datetime import datetime, timedelta, timezone  # noqa: F401
-from typing import Optional
+from datetime import datetime, timedelta, timezone, UTC  # noqa: F401
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -117,7 +115,7 @@ class FREDClient:
         _cache_time (datetime | None): Timestamp of the cached snapshot.
     """
 
-    def __init__(self, api_key: Optional[str] = None) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         """
         Initialise the FRED client.
 
@@ -126,10 +124,10 @@ class FREDClient:
                 environment.  If neither is available, the client runs in
                 stub/offline mode (returns NaN placeholders).
         """
-        self.api_key: Optional[str] = api_key or os.getenv("FRED_API_KEY")
-        self._fred: Optional[Fred] = None
-        self._cache: Optional[dict] = None
-        self._cache_time: Optional[datetime] = None
+        self.api_key: str | None = api_key or os.getenv("FRED_API_KEY")
+        self._fred: Fred | None = None
+        self._cache: dict | None = None
+        self._cache_time: datetime | None = None
         self._lock = threading.Lock()
 
         if not FREDAPI_AVAILABLE:
@@ -177,7 +175,7 @@ class FREDClient:
         """
         with self._lock:
             if not force_refresh and self._cache is not None:
-                age = (datetime.now(timezone.utc) - self._cache_time).total_seconds()
+                age = (datetime.now(UTC) - self._cache_time).total_seconds()
                 if age < _CACHE_TTL_SECONDS:
                     return dict(self._cache)
 
@@ -185,7 +183,7 @@ class FREDClient:
 
         with self._lock:
             self._cache = snapshot
-            self._cache_time = datetime.now(timezone.utc)
+            self._cache_time = datetime.now(UTC)
 
         return dict(snapshot)
 
@@ -240,7 +238,7 @@ class FREDClient:
         """
         with self._lock:
             age = (
-                (datetime.now(timezone.utc) - self._cache_time).total_seconds()
+                (datetime.now(UTC) - self._cache_time).total_seconds()
                 if self._cache_time
                 else None
             )
@@ -290,7 +288,7 @@ class FREDClient:
         from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: PLC0415
 
         result: dict = {}
-        as_of: Optional[datetime] = None
+        as_of: datetime | None = None
 
         with ThreadPoolExecutor(max_workers=len(_SERIES)) as executor:
             futures = {
@@ -315,21 +313,21 @@ class FREDClient:
             if result.get("spread_10y_2y") == result.get("spread_10y_2y")  # NaN guard
             else False
         )
-        result["as_of"] = as_of or datetime.now(timezone.utc)
+        result["as_of"] = as_of or datetime.now(UTC)
         return result
 
     def _stub_snapshot(self) -> dict:
         """Return a NaN-filled stub when FRED is unavailable."""
         stub = {k: float("nan") for k in _SERIES}
         stub["yield_curve_inverted"] = False
-        stub["as_of"] = datetime.now(timezone.utc)
+        stub["as_of"] = datetime.now(UTC)
         return stub
 
 
 # ==============================================================================
 # MODULE-LEVEL SINGLETON
 # ==============================================================================
-_fred_client: Optional[FREDClient] = None
+_fred_client: FREDClient | None = None
 
 
 def get_fred_client() -> FREDClient:

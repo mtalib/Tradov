@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
@@ -175,7 +175,7 @@ class EntitySentiment:
     entity_type: str
     sentiment_scores: deque = field(default_factory=lambda: deque(maxlen=100))
     mention_count: int = 0
-    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def current_sentiment(self) -> float:
@@ -648,7 +648,7 @@ class EnhancedSentimentAnalysisAgent:
                 "rate_implications": rate_implications,
                 "key_phrases": self._extract_policy_phrases(text),
                 "confidence": sentiment.confidence,
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": datetime.now(UTC),
             }
 
             # Create market event if significant
@@ -660,7 +660,7 @@ class EnhancedSentimentAnalysisAgent:
                     sentiment=policy_stance,
                     entities=["Federal Reserve"] + ([speaker] if speaker else []),
                     source="federal_reserve",
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     predicted_duration=timedelta(days=2),
                     confidence=sentiment.confidence,
                 )
@@ -869,7 +869,7 @@ class EnhancedSentimentAnalysisAgent:
                 "overall_sentiment": overall_sentiment,
                 "platform_sentiments": results,
                 "trending_topics": self._merge_trending_topics(results),
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": datetime.now(UTC),
             }
 
         return {}
@@ -1019,13 +1019,13 @@ class EnhancedSentimentAnalysisAgent:
             confidence=0.8,
             source=source,
             text_snippet="",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             entities=[entity],
         )
 
         self.entity_sentiments[entity].sentiment_scores.append(score)
         self.entity_sentiments[entity].mention_count += 1
-        self.entity_sentiments[entity].last_updated = datetime.now(timezone.utc)
+        self.entity_sentiments[entity].last_updated = datetime.now(UTC)
 
     # ==========================================================================
     # CORE SENTIMENT ANALYSIS
@@ -1038,7 +1038,7 @@ class EnhancedSentimentAnalysisAgent:
             text = self._clean_text(text)
 
             if not text:
-                return SentimentScore(0.0, 0.0, source, "", datetime.now(timezone.utc))
+                return SentimentScore(0.0, 0.0, source, "", datetime.now(UTC))
 
             # Choose model based on source
             if source in ["federal_reserve", "earnings_call", "news"]:
@@ -1052,14 +1052,14 @@ class EnhancedSentimentAnalysisAgent:
                 sentiment = TextBlob(text).sentiment.polarity
                 confidence = min(abs(sentiment), 1.0)
                 sentiment = SentimentScore(
-                    sentiment, confidence, source, text[:100], datetime.now(timezone.utc)
+                    sentiment, confidence, source, text[:100], datetime.now(UTC)
                 )
 
             return sentiment
 
         except Exception as e:
             self.logger.error("Sentiment analysis error: %s", e)
-            return SentimentScore(0.0, 0.0, source, "", datetime.now(timezone.utc))
+            return SentimentScore(0.0, 0.0, source, "", datetime.now(UTC))
 
     async def _finbert_sentiment(self, text: str) -> SentimentScore:
         """Analyze sentiment using FinBERT"""
@@ -1096,7 +1096,7 @@ class EnhancedSentimentAnalysisAgent:
                 confidence=confidence,
                 source="finbert",
                 text_snippet=text[:100],
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
 
     async def _roberta_sentiment(self, text: str) -> SentimentScore:
@@ -1114,7 +1114,7 @@ class EnhancedSentimentAnalysisAgent:
             confidence=confidence,
             source="roberta",
             text_snippet=text[:100],
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     def _clean_text(self, text: str) -> str:
@@ -1192,7 +1192,7 @@ class EnhancedSentimentAnalysisAgent:
                 sentiment=sentiment,
                 entities=[analysis["company"]],
                 source="earnings_call",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 predicted_duration=timedelta(days=1),
                 confidence=analysis["confidence"],
             )

@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 import threading
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, timedelta, UTC
 from typing import Any
 
 # ==============================================================================
@@ -369,7 +369,7 @@ class PerformanceDashboard:
 
                 # Get recent trades
                 self.data_cache['trades'] = self.dal.query_trades(
-                    start_date=datetime.now(timezone.utc) - timedelta(days=365)
+                    start_date=datetime.now(UTC) - timedelta(days=365)
                 )
 
                 # Get current positions
@@ -391,7 +391,7 @@ class PerformanceDashboard:
                         'win_rate': self._calculate_win_rate(self.data_cache['trades'])
                     }
 
-                self.data_cache['last_update'] = datetime.now(timezone.utc)
+                self.data_cache['last_update'] = datetime.now(UTC)
 
         except Exception as e:
             self.logger.error("Cache update failed: %s", e)
@@ -404,10 +404,10 @@ class PerformanceDashboard:
             return filtered
 
         if period == 'YTD':
-            start_date = datetime(datetime.now(timezone.utc).year, 1, 1)
+            start_date = datetime(datetime.now(UTC).year, 1, 1)
         else:
             days = LOOKBACK_PERIODS.get(period, 30)
-            start_date = datetime.now(timezone.utc) - timedelta(days=days)
+            start_date = datetime.now(UTC) - timedelta(days=days)
 
         # Filter equity curve
         if not filtered['equity_curve'].empty:

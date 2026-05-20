@@ -43,7 +43,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 import signal
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -358,7 +358,7 @@ class AgentScheduler:
                 "total_llm_calls": total_llm_calls,
                 "total_messages": total_messages,
                 "total_errors": total_errors,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
             "agents": agents_status,
         }

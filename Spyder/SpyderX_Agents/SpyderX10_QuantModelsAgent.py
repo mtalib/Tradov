@@ -27,7 +27,7 @@ import json
 import logging
 import threading
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -133,7 +133,7 @@ class ModelOutput:
     confidence_interval: tuple[float, float]
     model_metrics: dict[str, float]
     ai_insights: dict[str, Any]
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 @dataclass
 class VolatilityForecast:
@@ -1079,7 +1079,7 @@ Provide a JSON response:
             contract = OptionContract(
                 symbol='SPY',
                 strike=row.get('strike', row.get('close', 450) * 1.02),
-                expiry=datetime.now(timezone.utc) + timedelta(days=30),
+                expiry=datetime.now(UTC) + timedelta(days=30),
                 option_type='call' if i % 2 == 0 else 'put',
                 spot_price=row.get('close', 450),
                 volatility=row.get('volatility', 0.2),
@@ -1179,7 +1179,7 @@ Provide a JSON response:
         crash_contract = OptionContract(
             symbol='SPY',
             strike=450,
-            expiry=datetime.now(timezone.utc) + timedelta(days=30),
+            expiry=datetime.now(UTC) + timedelta(days=30),
             option_type='put',
             spot_price=400,  # 11% crash
             volatility=0.5,  # High volatility
@@ -1198,7 +1198,7 @@ Provide a JSON response:
         vol_spike_contract = OptionContract(
             symbol='SPY',
             strike=450,
-            expiry=datetime.now(timezone.utc) + timedelta(days=7),
+            expiry=datetime.now(UTC) + timedelta(days=7),
             option_type='call',
             spot_price=450,
             volatility=0.8,  # Extreme volatility
@@ -1217,7 +1217,7 @@ Provide a JSON response:
         near_expiry_contract = OptionContract(
             symbol='SPY',
             strike=450,
-            expiry=datetime.now(timezone.utc) + timedelta(hours=1),
+            expiry=datetime.now(UTC) + timedelta(hours=1),
             option_type='call',
             spot_price=451,
             volatility=0.2,
@@ -1297,7 +1297,7 @@ Provide a JSON response:
 
     def _time_to_expiry(self, expiry: datetime) -> float:
         """Calculate time to expiry in years."""
-        time_diff = expiry - datetime.now(timezone.utc)
+        time_diff = expiry - datetime.now(UTC)
         return max(0, time_diff.total_seconds() / (365.25 * 24 * 60 * 60))
 
     def _calculate_implied_volatility(self, contract: OptionContract,
@@ -1452,7 +1452,7 @@ async def test_quant_models():
     contract = OptionContract(
         symbol="SPY",
         strike=455.0,
-        expiry=datetime.now(timezone.utc) + timedelta(days=30),
+        expiry=datetime.now(UTC) + timedelta(days=30),
         option_type="call",
         spot_price=450.0,
         volatility=0.20,

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -40,7 +39,7 @@ import uuid
 from dataclasses import dataclass, field  # noqa: F401
 from datetime import date, datetime, timedelta, timezone  # noqa: F401
 from enum import Enum  # noqa: F401
-from typing import Any, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 # ==============================================================================
@@ -155,7 +154,7 @@ class DailyPivots:
         }
 
     @staticmethod
-    def from_ohlc(prev_high: float, prev_low: float, prev_close: float) -> "DailyPivots":
+    def from_ohlc(prev_high: float, prev_low: float, prev_close: float) -> DailyPivots:
         P  = (prev_high + prev_low + prev_close) / 3.0
         R1 = 2 * P - prev_low
         S1 = 2 * P - prev_high
@@ -199,7 +198,7 @@ class OpenTradeState:
         """Update the most-recent bar close used by check_underlying_stop."""
         self._five_min_bar_close = close
 
-    def check_time_stop(self, current_price: float, now: datetime) -> Optional[str]:
+    def check_time_stop(self, current_price: float, now: datetime) -> str | None:
         """Return exit reason if time stop triggered, else None."""
         if now >= self.time_limit:
             pnl_sign = 1 if self.direction == PivotDirection.FADE_SUPPORT else -1
@@ -208,7 +207,7 @@ class OpenTradeState:
                 return "time_stop_12min"
         return None
 
-    def check_underlying_stop(self) -> Optional[str]:
+    def check_underlying_stop(self) -> str | None:
         """Return exit reason if underlying price stop triggered, else None."""
         if self._five_min_bar_close == 0.0:
             return None
@@ -224,7 +223,7 @@ class OpenTradeState:
                 return "underlying_stop_below_pivot"
         return None
 
-    def check_vwap_target(self, current_spot: float, current_vwap: float) -> Optional[str]:
+    def check_vwap_target(self, current_spot: float, current_vwap: float) -> str | None:
         """Return exit reason when SPY crosses the intraday VWAP (take-profit).
 
         Returns None (hold) when current_vwap is NaN — prevents a spurious
@@ -412,22 +411,22 @@ class PivotMeanReversionStrategy(BaseStrategy):
         name: str,
         event_manager: EventManager,
         risk_profile: RiskProfile,
-        config: Optional[dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(name, event_manager, risk_profile, config or {})
 
         # --- State ---
         self._bar_buffer: list[IntradayBar] = []
         self._rsi_cache: np.ndarray = np.array([], dtype=float)  # pre-computed RSI series
-        self._daily_pivots: Optional[DailyPivots] = None
+        self._daily_pivots: DailyPivots | None = None
         self._open_trade_states: dict[str, OpenTradeState] = {}
         self._trade_lock = threading.Lock()
 
         # Injected intraday context (updated each bar by the caller)
-        self._ctx_tick:    Optional[float] = None
-        self._ctx_vix:     Optional[float] = None
+        self._ctx_tick:    float | None = None
+        self._ctx_vix:     float | None = None
         self._ctx_regime:  str = ""
-        self._ctx_net_gex: Optional[float] = None
+        self._ctx_net_gex: float | None = None
 
         # Scorer (stateless)
         self._scorer = PivotMeanReversionSignal()
@@ -468,7 +467,7 @@ class PivotMeanReversionStrategy(BaseStrategy):
                 )
                 del self._open_trade_states[pid]
 
-    def _resolve_position_id(self, position: Any) -> Optional[str]:
+    def _resolve_position_id(self, position: Any) -> str | None:
         """Resolve a strategy position identifier across runtime adapters."""
         position_id = getattr(position, "position_id", None)
         if position_id:
@@ -499,10 +498,10 @@ class PivotMeanReversionStrategy(BaseStrategy):
 
     def update_context(
         self,
-        tick: Optional[float] = None,
-        vix: Optional[float] = None,
+        tick: float | None = None,
+        vix: float | None = None,
         regime: str = "",
-        net_gex: Optional[float] = None,
+        net_gex: float | None = None,
     ) -> None:
         """Inject live intraday context that cannot be derived from OHLCV bars.
 

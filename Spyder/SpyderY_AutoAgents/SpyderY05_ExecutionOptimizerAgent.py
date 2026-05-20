@@ -32,7 +32,7 @@ License: All dependencies are MIT/BSD/Apache — AGPL-free.
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
@@ -97,7 +97,7 @@ class ExecutionPlan:
     kelly_fraction: float = 0.0   # Position size from Kelly
     reasoning: str = ""
     status: str = "planned"       # planned | submitted | filled | cancelled | failed
-    created: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created: datetime = field(default_factory=lambda: datetime.now(UTC))
     filled_price: float | None = None
     slippage_bps: float = 0.0
 
@@ -300,7 +300,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
         ) or f"Kelly={kelly_f:.3f}, {contracts} contracts, {order_type} order"
 
         plan = ExecutionPlan(
-            plan_id=f"EP_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{signal_type}",
+            plan_id=f"EP_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{signal_type}",
             signal_id=payload.get("validation", {}).get("signal_id", ""),
             strategy=signal_type,
             direction="buy" if direction == "bullish" else "sell",
@@ -439,7 +439,7 @@ class SpyderY05_ExecutionOptimizerAgent(BaseAutoAgent):
                 "plan_id": plan.plan_id,
                 "filled_price": plan.filled_price,
                 "slippage_bps": plan.slippage_bps,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             })
 
             self.publish(AgentOutput(

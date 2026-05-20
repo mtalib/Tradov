@@ -256,7 +256,7 @@ def test_f09_liquidity_gate_custom_thresholds():
         "min_volume": 500,
         "min_oi_change_pct": -0.10,
     }
-    
+
     # This snapshot would pass with defaults but fail with strict thresholds
     ok, reasons = ef.evaluate_liquidity_gate(
         {
@@ -277,7 +277,7 @@ def test_f09_liquidity_gate_custom_thresholds():
 def test_f09_liquidity_gate_missing_fields():
     """Missing required fields should be handled gracefully."""
     ef = EntryFilters(_MockConfigManager())
-    
+
     # Missing spread_pct
     ok, reasons = ef.evaluate_liquidity_gate(
         {

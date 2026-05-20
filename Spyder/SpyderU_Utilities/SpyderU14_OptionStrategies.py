@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 
 # ==============================================================================
@@ -789,7 +789,7 @@ if __name__ == "__main__":
 
 
     # Test bull call spread
-    expiry = datetime.now(timezone.utc) + timedelta(days=30)
+    expiry = datetime.now(UTC) + timedelta(days=30)
     bull_call = strategies.create_bull_call_spread(
         long_strike=450,
         short_strike=460,

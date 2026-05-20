@@ -34,7 +34,7 @@ Key Features:
 import json
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict, deque
@@ -170,7 +170,7 @@ class StrategyMetrics:
     kelly_fraction: float = 0.0
     current_positions: int = 0
     capital_allocated: float = 0.0
-    last_update: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_update: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 @dataclass
 class AllocationResult:
@@ -184,7 +184,7 @@ class AllocationResult:
     max_drawdown_estimate: float
     diversification_ratio: float
     effective_strategies: int
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     constraints_satisfied: bool = True
     warnings: list[str] = field(default_factory=list)
 
@@ -401,11 +401,11 @@ class MultiStrategyAllocator:
                     strategy.profit_factor = metrics.get('profit_factor', 1.0)
 
                 strategy.current_positions = positions
-                strategy.last_update = datetime.now(timezone.utc)
+                strategy.last_update = datetime.now(UTC)
 
             # Trigger correlation update if needed
             if (self.last_correlation_update is None or
-                (datetime.now(timezone.utc) - self.last_correlation_update).days >= 7):
+                (datetime.now(UTC) - self.last_correlation_update).days >= 7):
                 self._update_correlation_matrix()
 
     def _update_correlation_matrix(self):
@@ -433,7 +433,7 @@ class MultiStrategyAllocator:
             lw = LedoitWolf()
             self.covariance_matrix, _ = lw.fit(df.values)
 
-            self.last_correlation_update = datetime.now(timezone.utc)
+            self.last_correlation_update = datetime.now(UTC)
 
             # Check for high correlations
             self._check_correlation_breaches()
@@ -1148,7 +1148,7 @@ class MultiStrategyAllocator:
 
             # Create rebalance event
             event = RebalanceEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 reason=reason,
                 old_allocations=self.current_allocations.copy(),
                 new_allocations=target_allocations,
@@ -1208,7 +1208,7 @@ class MultiStrategyAllocator:
 
         # Get last rebalance
         last_rebalance = (self.rebalance_history[-1].timestamp
-                         if self.rebalance_history else datetime.now(timezone.utc))
+                         if self.rebalance_history else datetime.now(UTC))
 
         return PortfolioState(
             total_capital=self.total_capital,
@@ -1244,7 +1244,7 @@ class MultiStrategyAllocator:
                 })
 
         return {
-            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'timestamp': datetime.now(UTC).isoformat(),
             'portfolio_state': asdict(state),
             'strategy_allocations': strategy_details,
             'metrics': {
@@ -1277,7 +1277,7 @@ class MultiStrategyAllocator:
                 json.dump({
                     'allocations': list(self.allocation_history),
                     'rebalances': list(self.rebalance_history),
-                    'timestamp': datetime.now(timezone.utc)
+                    'timestamp': datetime.now(UTC)
                 }, f, default=_json_default, indent=2)
 
             self.logger.info("Allocation history saved")

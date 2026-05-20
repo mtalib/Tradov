@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, UTC
 
 import Spyder.SpyderG_GUI.SpyderG05_TradingDashboard as g05
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
@@ -60,7 +60,7 @@ def test_update_chart_passes_today_date_when_filtering_current_session(monkeypat
 
     monkeypatch.setattr(dash, "_load_chart_candles_from_cache", lambda: (candles, True))
     monkeypatch.setattr(g05, "datetime", _FrozenDateTime)
-    monkeypatch.setattr(g05, "_get_eastern_timezone", lambda: timezone.utc)
+    monkeypatch.setattr(g05, "_get_eastern_timezone", lambda: UTC)
     monkeypatch.setattr(
         g05,
         "build_cached_chart_bar_series",

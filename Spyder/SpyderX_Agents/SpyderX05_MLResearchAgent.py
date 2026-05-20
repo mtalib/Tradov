@@ -28,7 +28,7 @@ import logging
 import os
 from typing import Any
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from collections import defaultdict, deque
 from pathlib import Path
@@ -298,7 +298,7 @@ class SpyderX05_MLResearchAgent:
         Returns:
             Prediction result with confidence and explanation
         """
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
 
         # Engineer features
         features = await self._engineer_features(market_data, task, context)
@@ -334,7 +334,7 @@ class SpyderX05_MLResearchAgent:
             )
 
             prediction = Prediction(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 task=task,
                 prediction=prediction_value,
                 probability=probability,
@@ -351,7 +351,7 @@ class SpyderX05_MLResearchAgent:
         self.prediction_buffer.append(prediction)
 
         # Log performance
-        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        elapsed = (datetime.now(UTC) - start_time).total_seconds()
         self.logger.info(
             f"Prediction for {task.value} completed in {elapsed:.2f} seconds. "
             f"Confidence: {prediction.confidence:.2%}"
@@ -375,7 +375,7 @@ class SpyderX05_MLResearchAgent:
             Research results with insights and recommendations
         """
         experiment_id = hashlib.md5(
-            f"{hypothesis}_{datetime.now(timezone.utc)}".encode(), usedforsecurity=False
+            f"{hypothesis}_{datetime.now(UTC)}".encode(), usedforsecurity=False
         ).hexdigest()[:8]
 
         self.logger.info("Starting research experiment %s: %s", experiment_id, hypothesis)
@@ -387,7 +387,7 @@ class SpyderX05_MLResearchAgent:
         if data.empty:
             return ResearchResult(
                 experiment_id=experiment_id,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 hypothesis=hypothesis,
                 models_tested=[],
                 best_model="none",
@@ -441,7 +441,7 @@ class SpyderX05_MLResearchAgent:
         # Create research result
         research_result = ResearchResult(
             experiment_id=experiment_id,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             hypothesis=hypothesis,
             models_tested=list(results.keys()),
             best_model=best_model,
@@ -617,7 +617,7 @@ class SpyderX05_MLResearchAgent:
         }
 
         return FeatureSet(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             features=features_df,
             feature_names=feature_names,
             feature_importance=feature_importance,
@@ -668,7 +668,7 @@ class SpyderX05_MLResearchAgent:
         features = {}
 
         # Time-based features
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         features['hour'] = now.hour
         features['day_of_week'] = now.weekday()
         features['minutes_since_open'] = (now.hour - 9.5) * 60 + now.minute
@@ -775,7 +775,7 @@ class SpyderX05_MLResearchAgent:
             model.fit(X_train, y_train)
 
             # Generate model ID
-            model_id = f"{task.value}_{model_type.value}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+            model_id = f"{task.value}_{model_type.value}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
 
             # Store model
             self.active_models[model_id] = model
@@ -801,7 +801,7 @@ class SpyderX05_MLResearchAgent:
                 f1_score=0.5,
                 sharpe_ratio=0.0,
                 max_drawdown=0.0,
-                last_updated=datetime.now(timezone.utc)
+                last_updated=datetime.now(UTC)
             )
 
             self.logger.info("Trained new model %s", model_id)
@@ -912,7 +912,7 @@ class SpyderX05_MLResearchAgent:
             prediction = 0
 
         return Prediction(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             task=task,
             prediction=prediction,
             probability=None,
@@ -937,7 +937,7 @@ class SpyderX05_MLResearchAgent:
             return False
 
         # Check time since last update
-        hours_since_update = (datetime.now(timezone.utc) - perf.last_updated).total_seconds() / 3600
+        hours_since_update = (datetime.now(UTC) - perf.last_updated).total_seconds() / 3600
         if hours_since_update > config.retrain_frequency:
             return True
 
@@ -954,7 +954,7 @@ class SpyderX05_MLResearchAgent:
             return pd.DataFrame()
 
         # Filter to recent data
-        cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+        cutoff = datetime.now(UTC) - timedelta(days=window_days)
 
         # Assuming training_data has a timestamp column
         if 'timestamp' in self.training_data.columns:
@@ -993,7 +993,7 @@ class SpyderX05_MLResearchAgent:
 
             # Update performance
             self.model_performance[model_id].accuracy = accuracy
-            self.model_performance[model_id].last_updated = datetime.now(timezone.utc)
+            self.model_performance[model_id].last_updated = datetime.now(UTC)
             self.model_performance[model_id].decay_factor = 1.0
 
             return {'accuracy': accuracy}
@@ -1008,12 +1008,12 @@ class SpyderX05_MLResearchAgent:
             perf = self.model_performance[model_id]
 
             # Apply time decay
-            hours_since_update = (datetime.now(timezone.utc) - perf.last_updated).total_seconds() / 3600
+            hours_since_update = (datetime.now(UTC) - perf.last_updated).total_seconds() / 3600
             decay_rate = 0.99  # 1% decay per hour
             perf.decay_factor *= (decay_rate ** hours_since_update)
 
             # Update timestamp
-            perf.last_updated = datetime.now(timezone.utc)
+            perf.last_updated = datetime.now(UTC)
 
     def _identify_underperforming_models(self) -> list[str]:
         """Identify models that should be removed."""
@@ -1412,7 +1412,7 @@ if __name__ == "__main__":
 
         # Create sample market data
         market_data = MarketData(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             open=549.50,
             high=551.00,
             low=548.00,
@@ -1440,7 +1440,7 @@ if __name__ == "__main__":
         # Test research
 
         # Create sample training data
-        dates = pd.date_range(end=datetime.now(timezone.utc), periods=1000, freq='5min')
+        dates = pd.date_range(end=datetime.now(UTC), periods=1000, freq='5min')
         sample_data = pd.DataFrame({
             'timestamp': dates,
             'close': np.random.randn(1000).cumsum() + 550,

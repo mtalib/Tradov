@@ -25,7 +25,7 @@ import time
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta, time as dt_time, timezone
+from datetime import datetime, timedelta, time as dt_time, UTC
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -987,7 +987,7 @@ class MarketMicrostructureEngine:
             report_lines.append("=" * 100)
             report_lines.append("SPYDER MARKET MICROSTRUCTURE ANALYSIS REPORT")
             report_lines.append("=" * 100)
-            report_lines.append(f"Report Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
+            report_lines.append(f"Report Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}")
             report_lines.append(f"Symbol: {symbol}")
             report_lines.append(f"Analysis Period: {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {end_time.strftime('%Y-%m-%d %H:%M:%S')}")  # noqa: E501
             report_lines.append(f"Duration: {end_time - start_time}")
@@ -1223,7 +1223,7 @@ class MarketMicrostructureEngine:
 
         while self._processing_active:
             try:
-                current_time = datetime.now(timezone.utc)
+                current_time = datetime.now(UTC)
 
                 # Process each symbol's tick buffer
                 for symbol in list(self.tick_buffer.keys()):
@@ -1300,7 +1300,7 @@ def create_sample_tick_data(symbol: str = "SPY", n_ticks: int = 1000) -> list[Ti
     np.random.seed(42)
 
     ticks = []
-    base_time = datetime.now(timezone.utc).replace(hour=9, minute=30, second=0, microsecond=0)
+    base_time = datetime.now(UTC).replace(hour=9, minute=30, second=0, microsecond=0)
     base_price = 400.0
 
     for i in range(n_ticks):

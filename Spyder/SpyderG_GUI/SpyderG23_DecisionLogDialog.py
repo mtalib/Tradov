@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SPYDER - Autonomous Options Trading System v1.0
 
@@ -398,7 +397,7 @@ class DecisionLogDialog(QDialog):
         ]
         extras: list[str] = []
         for rec in self._records:
-            for k in rec.keys():
+            for k in rec:
                 if k not in known and k not in extras:
                     extras.append(k)
         fieldnames = known + extras

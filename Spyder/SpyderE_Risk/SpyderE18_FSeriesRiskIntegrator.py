@@ -48,7 +48,7 @@ import asyncio
 import logging
 import traceback
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -120,7 +120,7 @@ class FSeriesRiskMetrics:
     microstructure_impact: float = 0.0
     backtest_stability: float = 0.0
     overall_risk_score: float = 0.0
-    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 @dataclass
 class GreeksRiskProfile:
@@ -244,7 +244,7 @@ class FSeriesRiskIntegrator:
             logger.addHandler(console_handler)
 
             # Risk-specific file handler
-            log_file = Path("logs") / f"f_series_risk_{datetime.now(timezone.utc).strftime('%Y%m%d')}.log"
+            log_file = Path("logs") / f"f_series_risk_{datetime.now(UTC).strftime('%Y%m%d')}.log"
             log_file.parent.mkdir(exist_ok=True)
 
             file_handler = logging.FileHandler(log_file)
@@ -475,7 +475,7 @@ class FSeriesRiskIntegrator:
 
             # Update all timestamps
             for metrics in self.f_series_metrics.values():
-                metrics.last_updated = datetime.now(timezone.utc)
+                metrics.last_updated = datetime.now(UTC)
 
         except Exception as e:
             self.logger.error("F-series risk metrics update failed: %s", e, exc_info=True)
@@ -555,7 +555,7 @@ class FSeriesRiskIntegrator:
         """Create and process risk alert"""
         try:
             # Check for alert cooldown
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if (limit.last_breach and
                 (now - limit.last_breach).total_seconds() < self.config["alert_cooldown_s"]):
                 return
@@ -645,7 +645,7 @@ class FSeriesRiskIntegrator:
 
             # Store in history
             self.greeks_history.append({
-                "timestamp": datetime.now(timezone.utc),
+                "timestamp": datetime.now(UTC),
                 "delta": self.greeks_profile.delta_exposure,
                 "gamma": self.greeks_profile.gamma_exposure,
                 "theta": self.greeks_profile.theta_exposure,
@@ -983,7 +983,7 @@ class FSeriesRiskIntegrator:
             for callback in self.alert_callbacks:
                 emergency_alert = RiskAlert(
                     alert_id=f"HALT_{int(time.time())}",
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     severity=RiskSeverity.EMERGENCY,
                     risk_type=RiskMetricType.OPERATIONAL_RISK,
                     module_source="RISK_INTEGRATOR",
@@ -1004,7 +1004,7 @@ class FSeriesRiskIntegrator:
         """Process and manage risk alerts"""
         try:
             # Remove old alerts (older than 1 hour)
-            current_time = datetime.now(timezone.utc)
+            current_time = datetime.now(UTC)
             self.risk_alerts = [
                 alert for alert in self.risk_alerts
                 if (current_time - alert.timestamp).total_seconds() < 3600
@@ -1215,12 +1215,12 @@ class FSeriesRiskIntegrator:
         """Export comprehensive risk report"""
         try:
             if output_file is None:
-                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
                 output_file = f"f_series_risk_report_{timestamp}.json"
 
             # Generate comprehensive risk report
             risk_report = {
-                "report_timestamp": datetime.now(timezone.utc).isoformat(),
+                "report_timestamp": datetime.now(UTC).isoformat(),
                 "risk_status": self.get_risk_status(),
                 "f_series_metrics": {
                     name: {

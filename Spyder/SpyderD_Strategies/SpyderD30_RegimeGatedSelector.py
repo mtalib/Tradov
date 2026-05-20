@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 import warnings
 
 # ==============================================================================
@@ -943,7 +943,7 @@ class RegimeGatedSelector:
                 )
 
         selection = StrategySelection(
-            timestamp=getattr(consensus, "timestamp", datetime.now(timezone.utc)),
+            timestamp=getattr(consensus, "timestamp", datetime.now(UTC)),
             current_regime=current_regime,
             selected_strategy=strategy,
             previous_strategy=self.current_strategy,
@@ -1061,7 +1061,7 @@ class RegimeGatedSelector:
                                  reason: str) -> StrategySelection:
         """Create selection for stable state (no change needed)."""
         return StrategySelection(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             current_regime=regime,
             selected_strategy=self.current_strategy,
             previous_strategy=self.previous_strategy,
@@ -1078,7 +1078,7 @@ class RegimeGatedSelector:
                                   reason: str) -> StrategySelection:
         """Create selection for neutral strategy."""
         return StrategySelection(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             current_regime=regime,
             selected_strategy=StrategyType.NEUTRAL,
             previous_strategy=self.current_strategy,
@@ -1115,7 +1115,7 @@ class RegimeGatedSelector:
 
         # Create selection
         selection = StrategySelection(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             current_regime=regime,
             selected_strategy=new_strategy,
             previous_strategy=self.previous_strategy,
@@ -1157,7 +1157,7 @@ class RegimeGatedSelector:
             self.days_in_transition = 0
 
             selection = StrategySelection(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 current_regime=self.current_regime,
                 selected_strategy=self.current_strategy,
                 previous_strategy=self.previous_strategy,
@@ -1210,7 +1210,7 @@ class RegimeGatedSelector:
             avg_return=avg_return,
             sharpe_ratio=sharpe_ratio,
             max_drawdown=max_drawdown,
-            last_updated=datetime.now(timezone.utc)
+            last_updated=datetime.now(UTC)
         )
 
         self.performance_history[strategy_type].append(performance)
@@ -1407,7 +1407,7 @@ def create_sample_regime_predictions(n_predictions: int = 30) -> list[RegimePred
 
         # Create prediction
         prediction = RegimePrediction(
-            timestamp=datetime.now(timezone.utc) - timedelta(days=n_predictions - i),
+            timestamp=datetime.now(UTC) - timedelta(days=n_predictions - i),
             current_regime=current_regime,
             regime_probabilities={
                 MarketRegime.BULL: 0.30 if current_regime != MarketRegime.BULL else 0.70,

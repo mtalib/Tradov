@@ -9,7 +9,8 @@ Purpose: Pure helper for choosing which account snapshots G05 may restore
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any
+from collections.abc import Mapping
 
 
 def get_restorable_account_snapshot(

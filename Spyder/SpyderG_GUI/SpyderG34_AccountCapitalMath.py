@@ -10,7 +10,8 @@ Purpose: Pure helpers for account capital baselines and buying-power math
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any
+from collections.abc import Mapping, Sequence
 
 from Spyder.SpyderG_GUI.SpyderG28_AccountPanelPresenter import parse_money_text
 

@@ -46,7 +46,7 @@ import time
 import math
 import threading
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Optional, Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -729,11 +729,11 @@ class DataFeedManager:
             try:
                 timestamp = datetime.fromisoformat(timestamp_raw)
             except ValueError:
-                timestamp = datetime.now(timezone.utc)
+                timestamp = datetime.now(UTC)
         elif isinstance(timestamp_raw, datetime):
             timestamp = timestamp_raw
         else:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
         def _as_float(value: Any) -> float | None:
             if value is None:
@@ -919,10 +919,10 @@ class DataFeedManager:
             with self._lock:
                 self.current_data[symbol] = tick
                 self.data_buffers[symbol].append(tick)
-                self.last_update = datetime.now(timezone.utc)
+                self.last_update = datetime.now(UTC)
 
                 if symbol in self.symbol_status:
-                    self.symbol_status[symbol]['last_update'] = datetime.now(timezone.utc)
+                    self.symbol_status[symbol]['last_update'] = datetime.now(UTC)
 
             # Store in cache
             if self.market_cache:
@@ -968,7 +968,7 @@ class DataFeedManager:
 
             tick = MarketTick(
                 symbol=symbol,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 price=value,
                 size=0,
                 source=DataSource.CUSTOM,
@@ -1107,7 +1107,7 @@ class DataFeedManager:
             return
         self._last_quote_poll_monotonic = now_mono
 
-        symbols = [s for s in self.symbol_status.keys() if s]
+        symbols = [s for s in self.symbol_status if s]
         if not symbols:
             return
 
@@ -1160,7 +1160,7 @@ class DataFeedManager:
 
             tick = MarketTick(
                 symbol=symbol,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 price=price,
                 size=0,
                 bid=_to_float(bid),
@@ -1198,7 +1198,7 @@ class DataFeedManager:
 
     def _check_stale_data(self) -> None:
         """Check for stale market data."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stale_threshold = timedelta(seconds=30)
 
         with self._lock:
@@ -1236,7 +1236,7 @@ class DataFeedManager:
                     "provider": self._provider.__class__.__name__,
                     "provider_connected": bool(self._provider.is_connected),
                     "active_symbols": len(self.current_data),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
             )
         except Exception as e:
@@ -1245,7 +1245,7 @@ class DataFeedManager:
     def _cleanup_old_data(self) -> None:
         """Remove stale entries from data buffers for symbols no longer receiving updates."""
         try:
-            cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+            cutoff = datetime.now(UTC) - timedelta(minutes=10)
             with self._lock:
                 stale_symbols = [
                     sym for sym, status in self.symbol_status.items()
