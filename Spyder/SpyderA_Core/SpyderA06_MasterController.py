@@ -151,7 +151,7 @@ class SystemConfig:
     enable_paper_trading: bool
     enable_ml_predictions: bool
     enable_risk_management: bool
-    autonomous_session: dict[str, Any]
+    autonomous_session: dict[str, Any] = field(default_factory=dict)
     enable_x16_veto: bool = True
     enable_y03_trade_veto: bool = True
     enable_y05_veto_consumption: bool = True
