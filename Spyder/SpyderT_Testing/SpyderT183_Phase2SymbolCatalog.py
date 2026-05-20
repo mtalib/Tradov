@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -156,6 +157,73 @@ def test_fetch_balance_only_has_no_tradier_fallback_when_local_missing(
 
     worker.ThreadSafeMarketDataWorker._fetch_balance_only(_WorkerStub())
 
+    assert emitted == []
+
+
+def test_fetch_balance_only_runs_during_quiet_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Quiet launch prewarm should still attempt balance hydration."""
+    pytest.importorskip("PySide6")
+    from Spyder.SpyderG_GUI import SpyderG18_MarketDataWorker as worker
+
+    emitted: list[tuple[float, float]] = []
+
+    class _SignalStub:
+        def emit(self, equity: float, buying_power: float) -> None:
+            emitted.append((equity, buying_power))
+
+    class _WorkerStub:
+        balance_updated = _SignalStub()
+        _quiet_startup = True
+
+    monkeypatch.setenv("TRADING_MODE", "paper")
+    monkeypatch.setenv("SPYDER_PAPER_ACCOUNT_SOURCE", "spyderbox_local")
+    monkeypatch.setattr(worker, "_load_spyderbox_paper_account_snapshot", lambda: (101000.0, 99000.0))
+    monkeypatch.setattr(worker, "TRADIER_AVAILABLE", False)
+
+    worker.ThreadSafeMarketDataWorker._fetch_balance_only(_WorkerStub())
+
+    assert emitted == [(101000.0, 99000.0)]
+
+
+def test_market_data_worker_no_longer_seeds_or_emits_synthetic_quotes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dashboard worker should not fabricate market quotes when Tradier is absent."""
+    pytest.importorskip("PySide6")
+    from Spyder.SpyderG_GUI import SpyderG18_MarketDataWorker as worker
+
+    emitted: list[dict] = []
+
+    class _SignalStub:
+        def emit(self, payload: dict) -> None:
+            emitted.append(dict(payload))
+
+    class _Locker:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    worker_state = SimpleNamespace(
+        data_mutex=object(),
+        market_data={},
+        last_data_update={},
+        data_updated=_SignalStub(),
+    )
+
+    worker.ThreadSafeMarketDataWorker._init_simulation_data(worker_state)
+
+    monkeypatch.setattr(worker, "QMutexLocker", _Locker)
+    worker.ThreadSafeMarketDataWorker._emit_data(worker_state)
+
+    assert worker_state.market_data == {}
+    assert worker_state.last_data_update == {}
     assert emitted == []
 
 

@@ -23,7 +23,7 @@ Change Log:
 # STANDARD IMPORTS
 # ==============================================================================
 from enum import Enum
-from datetime import time, datetime, timedelta, date, timezone
+from datetime import time, datetime, timedelta, date
 from typing import Any
 
 # ==============================================================================
@@ -34,6 +34,7 @@ import pytz
 
 US_EASTERN = "US/Eastern"
 UTC = "UTC"
+ET_TZ = pytz.timezone(US_EASTERN)
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -50,7 +51,14 @@ PRE_MARKET_OPEN = time(4, 0)  # 4:00 AM ET
 AFTER_HOURS_CLOSE = time(20, 0)  # 8:00 PM ET
 
 # Trading time windows (from research)
-OPTIMAL_ENTRY_WINDOW = (time(10, 15), time(11, 40))  # 10:15 AM - 11:40 AM
+OPTIMAL_ENTRY_WINDOW = (time(10, 15), time(11, 30))  # 10:15 AM - 11:30 AM (primary session)
+OPENING_OBSERVATION_WINDOW = (time(9, 30), time(9, 45))
+POST_OPEN_FADE_WINDOW = (time(9, 45), time(10, 15))
+PRIMARY_SESSION_WINDOW = OPTIMAL_ENTRY_WINDOW
+LUNCH_DRIFT_WINDOW = (time(11, 30), time(13, 0))
+AFTERNOON_CONTINUATION_WINDOW = (time(13, 0), time(14, 30))
+PRE_MOC_WINDOW = (time(14, 30), time(15, 0))
+MOC_CLOSE_WINDOW = (time(15, 0), time(16, 0))
 TIME_BASED_EXIT = time(12, 0)  # 12:00 PM
 MARKET_OPEN = time(9, 30)
 MARKET_CLOSE = time(16, 0)
@@ -78,37 +86,50 @@ TRADIER_CONNECT_TIME = time(9, 20)
 TRADIER_DISCONNECT_TIME = time(16, 30)
 
 
+def _current_et_datetime() -> datetime:
+    """Return the current Eastern Time as a timezone-aware datetime."""
+    return datetime.now(ET_TZ)
+
+
+def _coerce_et_datetime(value: datetime | None = None) -> datetime:
+    """Normalize datetimes for decision-time checks to Eastern Time.
+
+    Naive datetimes are treated as already representing ET clock time so
+    callers and tests can pass `datetime(2026, 1, 5, 10, 30)` without the
+    local workstation timezone changing the decision.
+    """
+    if value is None:
+        return _current_et_datetime()
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(ET_TZ)
+
+
+def _combine_et_datetime(trading_date: date, clock_time: time) -> datetime:
+    """Build an ET-aware datetime from a trading date and ET clock time."""
+    return ET_TZ.localize(datetime.combine(trading_date, clock_time))
+
+
 def is_dashboard_session(now_et: datetime | None = None) -> bool:
     """Return True if current ET time is inside the dashboard polling window."""
-    try:
-        import pytz
-        eastern = pytz.timezone("US/Eastern")
-        current = (now_et or datetime.now(eastern)).time()
-    except Exception:
-        current = (now_et or datetime.now()).time()
+    current = _coerce_et_datetime(now_et).time()
     return DASHBOARD_SESSION_OPEN <= current <= DASHBOARD_SESSION_CLOSE
 
 
 def is_tradier_active_window(now_et: datetime | None = None) -> bool:
     """Return True only during the Tradier active window (9:20 AM – 4:30 PM ET)."""
-    try:
-        import pytz
-        eastern = pytz.timezone("US/Eastern")
-        current = (now_et or datetime.now(eastern)).time()
-    except Exception:
-        current = (now_et or datetime.now()).time()
+    current = _coerce_et_datetime(now_et).time()
     return TRADIER_CONNECT_TIME <= current <= TRADIER_DISCONNECT_TIME
 
 
 def now_utc() -> datetime:
     """Return the current UTC time as a timezone-aware datetime."""
-    return datetime.now(timezone.utc)
+    return datetime.now(datetime.UTC)
 
 
 def now_et() -> datetime:
     """Return the current US/Eastern time as a timezone-aware datetime."""
-    eastern = pytz.timezone(US_EASTERN)
-    return datetime.now(eastern)
+    return _current_et_datetime()
 
 
 class LogThrottle:
@@ -907,7 +928,7 @@ class DateTimeUtils:
     @staticmethod
     def is_optimal_entry_time(current_time: datetime | None = None) -> bool:
         """
-        Check if current time is within optimal entry window (10:15 AM - 11:40 AM).
+        Check if current time is within optimal entry window (10:15 AM - 11:30 AM).
 
         Args:
             current_time: Time to check (default: now)
@@ -915,8 +936,7 @@ class DateTimeUtils:
         Returns:
             bool: True if within optimal entry window
         """
-        if current_time is None:
-            current_time = datetime.now()
+        current_time = _coerce_et_datetime(current_time)
 
         time_only = current_time.time()
         return OPTIMAL_ENTRY_WINDOW[0] <= time_only <= OPTIMAL_ENTRY_WINDOW[1]
@@ -932,8 +952,7 @@ class DateTimeUtils:
         Returns:
             bool: True if past exit time
         """
-        if current_time is None:
-            current_time = datetime.now()
+        current_time = _coerce_et_datetime(current_time)
 
         return current_time.time() >= TIME_BASED_EXIT
 
@@ -945,21 +964,22 @@ class DateTimeUtils:
         Returns:
             timedelta or None if already in window
         """
-        current_time = datetime.now().time()
+        current_time = _current_et_datetime()
+        current_clock = current_time.time()
 
-        if current_time < OPTIMAL_ENTRY_WINDOW[0]:
+        if current_clock < OPTIMAL_ENTRY_WINDOW[0]:
             # Before window - calculate time until open
-            today = datetime.now().date()
-            window_open = datetime.combine(today, OPTIMAL_ENTRY_WINDOW[0])
-            return window_open - datetime.now()
-        elif current_time <= OPTIMAL_ENTRY_WINDOW[1]:
+            today = current_time.date()
+            window_open = _combine_et_datetime(today, OPTIMAL_ENTRY_WINDOW[0])
+            return window_open - current_time
+        elif current_clock <= OPTIMAL_ENTRY_WINDOW[1]:
             # In window
             return None
         else:
             # After window - calculate time until tomorrow's window
-            tomorrow = datetime.now().date() + timedelta(days=1)
-            window_open = datetime.combine(tomorrow, OPTIMAL_ENTRY_WINDOW[0])
-            return window_open - datetime.now()
+            tomorrow = current_time.date() + timedelta(days=1)
+            window_open = _combine_et_datetime(tomorrow, OPTIMAL_ENTRY_WINDOW[0])
+            return window_open - current_time
 
     @staticmethod
     def get_time_remaining_in_window() -> timedelta | None:
@@ -969,10 +989,10 @@ class DateTimeUtils:
         Returns:
             timedelta or None if not in window
         """
-        current_time = datetime.now()
+        current_time = _current_et_datetime()
         if DateTimeUtils.is_optimal_entry_time(current_time):
             today = current_time.date()
-            window_close = datetime.combine(today, OPTIMAL_ENTRY_WINDOW[1])
+            window_close = _combine_et_datetime(today, OPTIMAL_ENTRY_WINDOW[1])
             return window_close - current_time
         return None
 
@@ -986,9 +1006,16 @@ class DateTimeUtils:
         """
         return {
             "market_hours": (MARKET_OPEN, MARKET_CLOSE),
+            "opening_observation": OPENING_OBSERVATION_WINDOW,
+            "post_open_fade": POST_OPEN_FADE_WINDOW,
             "optimal_entry": OPTIMAL_ENTRY_WINDOW,
+            "primary_session": PRIMARY_SESSION_WINDOW,
             "morning_session": (MARKET_OPEN, TIME_BASED_EXIT),
+            "lunch_drift": LUNCH_DRIFT_WINDOW,
+            "afternoon_continuation": AFTERNOON_CONTINUATION_WINDOW,
             "afternoon_session": (TIME_BASED_EXIT, MARKET_CLOSE),
+            "pre_moc": PRE_MOC_WINDOW,
+            "moc_close": MOC_CLOSE_WINDOW,
             "pre_market": (PRE_MARKET_OPEN, MARKET_OPEN),
             "after_hours": (MARKET_CLOSE, AFTER_HOURS_CLOSE),
         }
@@ -1017,9 +1044,9 @@ class DateTimeUtils:
         Returns:
             bool: True if within threshold of market close
         """
-        current_time = datetime.now()
+        current_time = _current_et_datetime()
         today = current_time.date()
-        market_close_time = datetime.combine(today, MARKET_CLOSE)
+        market_close_time = _combine_et_datetime(today, MARKET_CLOSE)
 
         time_until_close = market_close_time - current_time
         return 0 <= time_until_close.total_seconds() <= (minutes_before_close * 60)
@@ -1037,12 +1064,12 @@ class DateTimeUtils:
             3: "Thursday",
             4: "Friday",
         }
-        return day_names.get(datetime.now().weekday(), "Weekend")
+        return day_names.get(_current_et_datetime().weekday(), "Weekend")
 
     @staticmethod
     def is_monday() -> bool:
         """Check if today is Monday"""
-        return datetime.now().weekday() == 0
+        return _current_et_datetime().weekday() == 0
 
     @staticmethod
     def get_day_quality_score() -> float:
@@ -1059,7 +1086,7 @@ class DateTimeUtils:
             3: 0.4,  # Thursday
             4: 0.3,  # Friday - worst
         }
-        return day_scores.get(datetime.now().weekday(), 0.0)
+        return day_scores.get(_current_et_datetime().weekday(), 0.0)
 
     @staticmethod
     def get_trading_session_info() -> dict[str, Any]:
@@ -1069,7 +1096,7 @@ class DateTimeUtils:
         Returns:
             Dict with current session details
         """
-        current_time = datetime.now()
+        current_time = _current_et_datetime()
         current_date = current_time.date()
         trading_hours = TradingHours()
 

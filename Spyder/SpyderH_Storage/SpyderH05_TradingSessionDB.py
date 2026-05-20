@@ -29,7 +29,7 @@ Key Features:
     • record_account_snapshot() — periodic equity/cash snapshot
     • upsert_position()         — insert or update an open/closed position
     • get_latest_snapshot()     — most recent account state
-    • get_trades_today()        — all trades from today (UTC)
+    • get_trades_today()        — all trades from today (ET)
     • get_open_positions()      — all open positions
     • Thread-safe via RLock + per-call connections (WAL mode)
 """
@@ -37,12 +37,15 @@ Key Features:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import json
+import os
 import sqlite3
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -63,6 +66,10 @@ LIVE_DB_PATH = Path("data/spyder_live.db")
 
 #: Path to the paper-trading SQLite database.
 PAPER_DB_PATH = Path("data/spyder_paper.db")
+
+_PAPER_STATE_SUFFIX = ".paper_state.json"
+_PAPER_ACTIVE_SESSION_SUFFIX = ".active_session.json"
+_EASTERN_TIMEZONE = ZoneInfo("America/New_York")
 
 # ==============================================================================
 # SCHEMA
@@ -165,7 +172,8 @@ class TradingSessionDB:
         self._lock = threading.RLock()
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
-        self.logger.info("TradingSessionDB ready: %s", db_path)
+        self._warn_if_unexpected_paper_reset()
+        self.logger.debug("TradingSessionDB ready: %s", db_path)
 
     # ------------------------------------------------------------------
     # Factory methods
@@ -193,6 +201,10 @@ class TradingSessionDB:
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
+    def _is_paper_db(self) -> bool:
+        """Return True when this DB is the paper-trading ledger."""
+        return "paper" in self.db_path.stem.lower()
+
     def _init_schema(self) -> None:
         """Create tables and indexes if they do not exist."""
         with self._lock:
@@ -201,6 +213,446 @@ class TradingSessionDB:
                 for idx_sql in _INDEXES_SQL:
                     conn.execute(idx_sql)
                 conn.commit()
+
+    def _paper_state_path(self) -> Path:
+        """Return the sidecar file storing paper DB audit state."""
+        return self.db_path.with_suffix(_PAPER_STATE_SUFFIX)
+
+    def _paper_active_session_path(self) -> Path:
+        """Return the sidecar file marking an active paper session."""
+        return self.db_path.with_suffix(_PAPER_ACTIVE_SESSION_SUFFIX)
+
+    def _load_sidecar_json(self, path: Path, *, label: str) -> dict[str, Any]:
+        """Load a small JSON sidecar file, returning an empty dict on failure."""
+        if not path.exists():
+            return {}
+
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            self.logger.warning("Could not read %s %s: %s", label, path, exc)
+            return {}
+
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def _write_sidecar_json(self, path: Path, payload: dict[str, Any]) -> None:
+        """Write a JSON sidecar file atomically."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(path)
+
+    def _get_primary_table_counts(self) -> dict[str, int]:
+        """Return row counts for the primary paper-session tables."""
+        with self._connect() as conn:
+            return {
+                "trades": int(conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]),
+                "positions": int(conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0]),
+                "account_snapshots": int(
+                    conn.execute("SELECT COUNT(*) FROM account_snapshots").fetchone()[0]
+                ),
+            }
+
+    def _record_paper_activity(self, activity: str) -> None:
+        """Persist the last observed paper DB write so surprise wipes are detectable."""
+        if not self._is_paper_db():
+            return
+
+        state = self._load_sidecar_json(self._paper_state_path(), label="paper DB state")
+        state.update(
+            {
+                "schema": 1,
+                "db_path": str(self.db_path),
+                "expected_empty": False,
+                "last_activity": str(activity or "write"),
+                "last_activity_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        self._write_sidecar_json(self._paper_state_path(), state)
+
+    def _mark_expected_paper_reset(
+        self,
+        *,
+        reason: str,
+        actor: str,
+        cleared_counts: dict[str, int],
+    ) -> None:
+        """Persist metadata for an intentional paper DB reset."""
+        if not self._is_paper_db():
+            return
+
+        state = self._load_sidecar_json(self._paper_state_path(), label="paper DB state")
+        state.update(
+            {
+                "schema": 1,
+                "db_path": str(self.db_path),
+                "expected_empty": True,
+                "last_reset_at": datetime.now(timezone.utc).isoformat(),
+                "last_reset_reason": str(reason or "unspecified"),
+                "last_reset_actor": str(actor or "unknown"),
+                "last_reset_cleared_counts": dict(cleared_counts),
+            }
+        )
+        self._write_sidecar_json(self._paper_state_path(), state)
+
+    def _load_active_paper_session(self) -> dict[str, Any]:
+        """Return the last active paper-session marker payload, if any."""
+        if not self._is_paper_db():
+            return {}
+        return self._load_sidecar_json(
+            self._paper_active_session_path(),
+            label="paper active-session marker",
+        )
+
+    def _warn_if_unexpected_paper_reset(self) -> None:
+        """Log when a paper DB is suddenly empty after prior recorded activity."""
+        if not self._is_paper_db():
+            return
+
+        state = self._load_sidecar_json(self._paper_state_path(), label="paper DB state")
+        if not state or state.get("expected_empty"):
+            return
+
+        last_activity_at = str(state.get("last_activity_at") or "").strip()
+        if not last_activity_at:
+            return
+
+        counts = self._get_primary_table_counts()
+        if any(counts.values()):
+            return
+
+        self.logger.warning(
+            "Paper session DB %s is empty on startup after prior activity at %s without an explicit reset marker; it may have been cleared outside TradingSessionDB",
+            self.db_path,
+            last_activity_at,
+        )
+
+    def _carryover_manifest_path(self) -> Path:
+        """Return the companion manifest path used for paper restart carryover."""
+        return self.db_path.with_suffix(".carryover_manifest.json")
+
+    def _load_paper_carryover_manifest(self) -> list[dict[str, Any]]:
+        """Load the last graceful-shutdown paper carryover manifest."""
+        if "paper" not in self.db_path.stem.lower():
+            return []
+
+        manifest_path = self._carryover_manifest_path()
+        if not manifest_path.exists():
+            return []
+
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            self.logger.warning("Could not read paper carryover manifest %s: %s", manifest_path, exc)
+            return []
+
+        positions = payload.get("positions") if isinstance(payload, dict) else []
+        if not isinstance(positions, list):
+            return []
+        return [dict(row) for row in positions if isinstance(row, dict)]
+
+    def save_paper_carryover_manifest(
+        self,
+        positions: list[dict[str, Any]],
+        *,
+        session_id: str = "",
+    ) -> None:
+        """Persist which paper positions were actually active at shutdown."""
+        if "paper" not in self.db_path.stem.lower():
+            return
+
+        manifest_rows: list[dict[str, Any]] = []
+        for raw_position in positions:
+            if not isinstance(raw_position, dict):
+                continue
+            symbol = str(raw_position.get("symbol") or "").strip()
+            strategy = str(raw_position.get("strategy") or "").strip()
+            position_id = str(raw_position.get("position_id") or "").strip()
+            opened_at = str(raw_position.get("opened_at") or "").strip()
+            try:
+                quantity = int(raw_position.get("quantity") or 0)
+            except (TypeError, ValueError):
+                quantity = 0
+            if not symbol or quantity == 0:
+                continue
+            manifest_rows.append(
+                {
+                    "symbol": symbol,
+                    "position_id": position_id,
+                    "strategy": strategy,
+                    "quantity": quantity,
+                    "opened_at": opened_at,
+                }
+            )
+
+        if not manifest_rows:
+            self.clear_paper_carryover_manifest()
+            return
+
+        manifest_path = self._carryover_manifest_path()
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": 1,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+            "session_id": str(session_id or ""),
+            "positions": manifest_rows,
+        }
+        tmp_path = manifest_path.with_suffix(".tmp")
+        tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp_path.replace(manifest_path)
+
+    def clear_paper_carryover_manifest(self) -> None:
+        """Remove the last graceful-shutdown paper carryover manifest."""
+        manifest_path = self._carryover_manifest_path()
+        try:
+            if manifest_path.exists():
+                manifest_path.unlink()
+        except Exception as exc:
+            self.logger.warning("Could not clear paper carryover manifest %s: %s", manifest_path, exc)
+
+    def mark_paper_session_active(self, session_id: str, *, owner: str = "") -> None:
+        """Record that a paper trading session is currently active.
+
+        Args:
+            session_id: Runtime session identifier.
+            owner: Optional component label marking the session active.
+        """
+        if not self._is_paper_db():
+            return
+
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return
+
+        payload = {
+            "schema": 1,
+            "session_id": normalized_session_id,
+            "owner": str(owner or ""),
+            "pid": os.getpid(),
+            "marked_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._write_sidecar_json(self._paper_active_session_path(), payload)
+
+    def clear_paper_session_active(self, *, reason: str = "") -> None:
+        """Clear the active paper-session marker.
+
+        Args:
+            reason: Optional operator or lifecycle reason for clearing the marker.
+        """
+        if not self._is_paper_db():
+            return
+
+        marker_path = self._paper_active_session_path()
+        try:
+            if marker_path.exists():
+                marker_path.unlink()
+        except Exception as exc:
+            self.logger.warning("Could not clear paper active-session marker %s: %s", marker_path, exc)
+            return
+
+        if reason:
+            state = self._load_sidecar_json(self._paper_state_path(), label="paper DB state")
+            state.update(
+                {
+                    "schema": 1,
+                    "last_session_clear_reason": str(reason),
+                    "last_session_cleared_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            self._write_sidecar_json(self._paper_state_path(), state)
+
+    def has_active_paper_session_marker(self) -> bool:
+        """Return True when the paper DB currently has an active-session marker."""
+        if not self._is_paper_db():
+            return False
+
+        active_session = self._load_active_paper_session()
+        return bool(str(active_session.get("session_id") or "").strip())
+
+    @classmethod
+    def _parse_iso_timestamp_utc(cls, value: Any) -> datetime | None:
+        """Return an aware UTC datetime parsed from an ISO timestamp string."""
+        normalized_value = str(value or "").strip()
+        if not normalized_value:
+            return None
+
+        try:
+            parsed = datetime.fromisoformat(normalized_value)
+        except ValueError:
+            return None
+
+        return cls._normalize_reference_time(parsed)
+
+    def purge_stale_paper_open_positions(self, *, actor: str = "") -> dict[str, Any]:
+        """Delete stale paper OPEN rows that predate the current active session.
+
+        Only rows older than the current paper active-session marker are removed,
+        and only when no carryover manifest exists. This preserves legitimate
+        carryover rows and current-session positions while cleaning orphaned
+        pre-session state that can otherwise linger in H05 indefinitely.
+        """
+        if not self._is_paper_db():
+            raise RuntimeError("purge_stale_paper_open_positions() is only valid for the paper DB")
+
+        manifest_rows = self._load_paper_carryover_manifest()
+        if manifest_rows:
+            return {
+                "deleted_positions": 0,
+                "cutoff": "",
+                "session_id": "",
+            }
+
+        active_session = self._load_active_paper_session()
+        cutoff = self._parse_iso_timestamp_utc(active_session.get("marked_at"))
+        session_id = str(active_session.get("session_id") or "").strip()
+        if cutoff is None:
+            return {
+                "deleted_positions": 0,
+                "cutoff": "",
+                "session_id": session_id,
+            }
+
+        stale_position_ids: list[str] = []
+        for row in self.get_open_positions():
+            position_id = str(row.get("position_id") or "").strip()
+            opened_at = self._parse_iso_timestamp_utc(row.get("opened_at"))
+            if not position_id or opened_at is None:
+                continue
+            if opened_at < cutoff:
+                stale_position_ids.append(position_id)
+
+        if not stale_position_ids:
+            return {
+                "deleted_positions": 0,
+                "cutoff": cutoff.isoformat(),
+                "session_id": session_id,
+            }
+
+        with self._lock, self._connect() as conn:
+            conn.executemany(
+                "DELETE FROM positions WHERE position_id = ?",
+                [(position_id,) for position_id in stale_position_ids],
+            )
+            conn.commit()
+            self._record_paper_activity("purge_stale_paper_open_positions")
+
+        self.logger.warning(
+            "Purged stale paper OPEN rows before active session: path=%s actor=%s session_id=%s cutoff=%s deleted=%s",
+            self.db_path,
+            actor or "unknown",
+            session_id or "unknown",
+            cutoff.isoformat(),
+            len(stale_position_ids),
+        )
+        return {
+            "deleted_positions": len(stale_position_ids),
+            "cutoff": cutoff.isoformat(),
+            "session_id": session_id,
+        }
+
+    def reset_paper_ledger(
+        self,
+        *,
+        reason: str,
+        actor: str = "",
+        allow_if_session_active: bool = False,
+    ) -> dict[str, int]:
+        """Clear paper-session tables with an audit marker and active-session guard.
+
+        Args:
+            reason: Human-readable reason for the reset.
+            actor: Optional caller or operator label.
+            allow_if_session_active: When True, bypass the active-session guard.
+
+        Returns:
+            A map of row counts that were cleared from each primary table.
+
+        Raises:
+            RuntimeError: If called for a non-paper DB or while a paper session is active.
+        """
+        if not self._is_paper_db():
+            raise RuntimeError("reset_paper_ledger() is only valid for the paper DB")
+
+        active_session = self._load_active_paper_session()
+        active_session_id = str(active_session.get("session_id") or "").strip()
+        if active_session_id and not allow_if_session_active:
+            raise RuntimeError(
+                f"Cannot reset paper DB while session {active_session_id} is marked active"
+            )
+
+        with self._lock:
+            with self._connect() as conn:
+                cleared_counts = {
+                    "trades": int(conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]),
+                    "positions": int(conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0]),
+                    "account_snapshots": int(
+                        conn.execute("SELECT COUNT(*) FROM account_snapshots").fetchone()[0]
+                    ),
+                }
+                conn.execute("DELETE FROM trades")
+                conn.execute("DELETE FROM positions")
+                conn.execute("DELETE FROM account_snapshots")
+                conn.execute("DELETE FROM sqlite_sequence WHERE name = 'account_snapshots'")
+                conn.commit()
+            self.clear_paper_carryover_manifest()
+            self._mark_expected_paper_reset(
+                reason=reason,
+                actor=actor,
+                cleared_counts=cleared_counts,
+            )
+
+        self.logger.warning(
+            "Paper session DB reset: path=%s actor=%s reason=%s cleared=%s",
+            self.db_path,
+            actor or "unknown",
+            reason,
+            cleared_counts,
+        )
+        return cleared_counts
+
+    @staticmethod
+    def _matches_carryover_manifest(
+        position_row: dict[str, Any],
+        manifest_row: dict[str, Any],
+    ) -> bool:
+        """Return True when an H05 position row matches the last active manifest row."""
+        if str(position_row.get("symbol") or "").strip() != str(manifest_row.get("symbol") or "").strip():
+            return False
+
+        row_position_id = str(position_row.get("position_id") or "").strip()
+        manifest_position_id = str(manifest_row.get("position_id") or "").strip()
+        if manifest_position_id and row_position_id and row_position_id != manifest_position_id:
+            return False
+
+        try:
+            row_quantity = int(position_row.get("quantity") or 0)
+            manifest_quantity = int(manifest_row.get("quantity") or 0)
+        except (TypeError, ValueError):
+            return False
+        if row_quantity != manifest_quantity:
+            return False
+
+        row_strategy = str(position_row.get("strategy") or "").strip()
+        manifest_strategy = str(manifest_row.get("strategy") or "").strip()
+        if manifest_strategy and row_strategy and row_strategy != manifest_strategy:
+            return False
+
+        row_opened_at = str(position_row.get("opened_at") or "").strip()
+        manifest_opened_at = str(manifest_row.get("opened_at") or "").strip()
+        if manifest_opened_at:
+            if not row_opened_at:
+                return False
+            try:
+                row_opened_dt = datetime.fromisoformat(row_opened_at)
+                manifest_opened_dt = datetime.fromisoformat(manifest_opened_at)
+            except ValueError:
+                if row_opened_at != manifest_opened_at:
+                    return False
+            else:
+                if row_opened_dt != manifest_opened_dt:
+                    return False
+
+        return True
 
     # ------------------------------------------------------------------
     # Write API
@@ -268,6 +720,7 @@ class TradingSessionDB:
                     ),
                 )
                 conn.commit()
+                self._record_paper_activity("record_trade")
         return trade_id
 
     def record_account_snapshot(
@@ -317,6 +770,7 @@ class TradingSessionDB:
                     ),
                 )
                 conn.commit()
+                self._record_paper_activity("record_account_snapshot")
 
     def upsert_position(
         self,
@@ -383,6 +837,17 @@ class TradingSessionDB:
                             WHEN excluded.entry_price > 0 THEN excluded.entry_price
                             ELSE positions.entry_price
                         END,
+                        opened_at      = CASE
+                            WHEN upper(COALESCE(excluded.status, '')) = 'OPEN'
+                                 AND upper(COALESCE(positions.status, '')) != 'OPEN'
+                            THEN excluded.opened_at
+                            WHEN upper(COALESCE(excluded.status, '')) = 'OPEN'
+                                 AND upper(COALESCE(positions.status, '')) = 'OPEN'
+                                 AND COALESCE(julianday(excluded.opened_at), 0.0)
+                                     > COALESCE(julianday(positions.updated_at), 0.0)
+                            THEN excluded.opened_at
+                            ELSE positions.opened_at
+                        END,
                         current_price  = excluded.current_price,
                         unrealized_pnl = excluded.unrealized_pnl,
                         realized_pnl   = excluded.realized_pnl,
@@ -392,6 +857,9 @@ class TradingSessionDB:
                         gamma          = excluded.gamma,
                         theta          = excluded.theta,
                         vega           = excluded.vega,
+                        expiration     = COALESCE(excluded.expiration, positions.expiration),
+                        strike         = COALESCE(excluded.strike, positions.strike),
+                        option_type    = COALESCE(excluded.option_type, positions.option_type),
                         updated_at     = excluded.updated_at
                     """,
                     (
@@ -402,6 +870,89 @@ class TradingSessionDB:
                     ),
                 )
                 conn.commit()
+                self._record_paper_activity("upsert_position")
+
+    def rekey_open_position(
+        self,
+        *,
+        old_position_id: str,
+        new_position_id: str,
+        new_symbol: str,
+        expiration: str | None = None,
+        strike: float | None = None,
+        option_type: str | None = None,
+    ) -> bool:
+        """Rename an OPEN position row after repairing an internal paper option symbol."""
+        old_position_id = str(old_position_id or "").strip()
+        new_position_id = str(new_position_id or "").strip()
+        new_symbol = str(new_symbol or "").strip()
+        if not old_position_id or not new_position_id or not new_symbol:
+            return False
+
+        updated_at = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            with self._connect() as conn:
+                existing = conn.execute(
+                    "SELECT position_id FROM positions WHERE position_id = ? AND status = 'OPEN'",
+                    (old_position_id,),
+                ).fetchone()
+                if existing is None:
+                    return False
+
+                conflict = conn.execute(
+                    "SELECT position_id FROM positions WHERE position_id = ? AND position_id != ? LIMIT 1",
+                    (new_position_id, old_position_id),
+                ).fetchone()
+                if conflict is not None:
+                    raise RuntimeError(
+                        f"Cannot rekey OPEN position to existing position_id {new_position_id}"
+                    )
+
+                conn.execute(
+                    """
+                    UPDATE positions
+                    SET position_id = ?,
+                        symbol = ?,
+                        expiration = COALESCE(?, expiration),
+                        strike = COALESCE(?, strike),
+                        option_type = COALESCE(?, option_type),
+                        updated_at = ?
+                    WHERE position_id = ?
+                      AND status = 'OPEN'
+                    """,
+                    (
+                        new_position_id,
+                        new_symbol,
+                        expiration,
+                        strike,
+                        option_type,
+                        updated_at,
+                        old_position_id,
+                    ),
+                )
+                conn.commit()
+                self._record_paper_activity("rekey_open_position")
+
+        return True
+
+    def delete_open_position(self, *, position_id: str) -> bool:
+        """Delete one OPEN position row by id."""
+        normalized_position_id = str(position_id or "").strip()
+        if not normalized_position_id:
+            return False
+
+        with self._lock:
+            with self._connect() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM positions WHERE position_id = ? AND status = 'OPEN'",
+                    (normalized_position_id,),
+                )
+                conn.commit()
+                deleted = int(getattr(cursor, "rowcount", 0) or 0) > 0
+                if deleted:
+                    self._record_paper_activity("delete_open_position")
+
+        return deleted
 
     # ------------------------------------------------------------------
     # Read API
@@ -421,19 +972,65 @@ class TradingSessionDB:
                 ).fetchone()
         return dict(row) if row else None
 
+    @staticmethod
+    def _normalize_reference_time(reference_time: datetime | None = None) -> datetime:
+        """Return an aware UTC datetime for date-bucket calculations."""
+        current = reference_time or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            return current.replace(tzinfo=timezone.utc)
+        return current.astimezone(timezone.utc)
+
+    @classmethod
+    def _eastern_day_window_utc(
+        cls,
+        reference_time: datetime | None = None,
+    ) -> tuple[datetime, datetime]:
+        """Return UTC bounds for the Eastern trading day containing reference_time."""
+        current_utc = cls._normalize_reference_time(reference_time)
+        current_et = current_utc.astimezone(_EASTERN_TIMEZONE)
+        start_et = current_et.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_et = start_et + timedelta(days=1)
+        return start_et.astimezone(timezone.utc), end_et.astimezone(timezone.utc)
+
+    @classmethod
+    def _eastern_period_start_utc(
+        cls,
+        period: str,
+        reference_time: datetime | None = None,
+    ) -> datetime:
+        """Return the UTC timestamp for the Eastern start of the requested period."""
+        current_utc = cls._normalize_reference_time(reference_time)
+        current_et = current_utc.astimezone(_EASTERN_TIMEZONE)
+        if period == "day":
+            start_et = current_et.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == "week":
+            start_of_day = current_et.replace(hour=0, minute=0, second=0, microsecond=0)
+            start_et = start_of_day - timedelta(days=start_of_day.weekday())
+        elif period == "month":
+            start_et = current_et.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        elif period == "year":
+            start_et = current_et.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        else:
+            raise ValueError(f"Unsupported period for ET bucket: {period}")
+        return start_et.astimezone(timezone.utc)
+
     def get_trades_today(self) -> list[dict[str, Any]]:
         """
-        Return all trades whose timestamp falls on today (UTC date).
+        Return all trades whose timestamp falls on today's ET date up to now.
 
         Returns:
             List of trade dicts ordered by ascending timestamp.
         """
-        today = datetime.now(timezone.utc).date().isoformat()
+        now_utc = self._normalize_reference_time()
+        start_utc, _ = self._eastern_day_window_utc(now_utc)
         with self._lock:
             with self._connect() as conn:
                 rows = conn.execute(
-                    "SELECT * FROM trades WHERE date(timestamp) = ? ORDER BY timestamp",
-                    (today,),
+                    "SELECT * FROM trades "
+                    "WHERE datetime(timestamp) >= datetime(?) "
+                    "AND datetime(timestamp) <= datetime(?) "
+                    "ORDER BY datetime(timestamp), timestamp",
+                    (start_utc.isoformat(), now_utc.isoformat()),
                 ).fetchall()
         return [dict(r) for r in rows]
 
@@ -456,6 +1053,20 @@ class TradingSessionDB:
                 ).fetchall()
         return [dict(r) for r in rows]
 
+    def has_trade_history_for_symbol(self, symbol: str) -> bool:
+        """Return True when at least one trade exists for the symbol."""
+        normalized_symbol = str(symbol or "").strip()
+        if not normalized_symbol:
+            return False
+
+        with self._lock:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT 1 FROM trades WHERE symbol = ? LIMIT 1",
+                    (normalized_symbol,),
+                ).fetchone()
+        return row is not None
+
     def get_open_positions(self) -> list[dict[str, Any]]:
         """
         Return all positions with status = 'OPEN', ordered by open time.
@@ -470,31 +1081,117 @@ class TradingSessionDB:
                 ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_active_paper_open_positions(self) -> list[dict[str, Any]]:
+        """Return paper OPEN rows attributable to carryover or the active session.
+
+        During an active paper session the dashboard should show two classes of
+        persisted OPEN rows:
+        - manifest-backed carryover positions from the prior graceful shutdown
+        - positions opened during the current active session
+
+        Raw pre-session leftovers that predate the current active-session marker
+        are excluded so stale H05 rows do not reappear as ghost paper trades.
+        Returned rows are copied and annotated with `_paper_open_origin` so the
+        GUI can present current-session and carryover rows with truthful labels.
+        """
+        open_rows = self.get_open_positions()
+        if not self._is_paper_db():
+            return open_rows
+
+        selected_rows: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+
+        def _row_key(row: dict[str, Any]) -> str:
+            position_id = str(row.get("position_id") or "").strip()
+            if position_id:
+                return position_id
+            return (
+                f"{row.get('symbol', '')}:{row.get('opened_at', '')}:{row.get('quantity', '')}"
+            )
+
+        def _append(row: dict[str, Any], *, origin: str) -> None:
+            row_copy = dict(row)
+            key = _row_key(row_copy)
+            if key in seen_keys:
+                return
+            seen_keys.add(key)
+            row_copy["_paper_open_origin"] = origin
+            selected_rows.append(row_copy)
+
+        for row in self.get_resume_eligible_open_positions():
+            _append(row, origin="carryover")
+
+        active_session = self._load_active_paper_session()
+        cutoff = self._parse_iso_timestamp_utc(active_session.get("marked_at"))
+        if cutoff is None:
+            for row in open_rows:
+                _append(row, origin="active_session")
+            return selected_rows
+
+        for row in open_rows:
+            opened_at = self._parse_iso_timestamp_utc(row.get("opened_at"))
+            updated_at = self._parse_iso_timestamp_utc(row.get("updated_at"))
+            if (
+                opened_at is None
+                or opened_at >= cutoff
+                or (updated_at is not None and updated_at >= cutoff)
+            ):
+                _append(row, origin="active_session")
+
+        return selected_rows
+
+    def get_resume_eligible_open_positions(self) -> list[dict[str, Any]]:
+        """Return paper open positions that were confirmed active at last shutdown."""
+        open_rows = self.get_open_positions()
+        if "paper" not in self.db_path.stem.lower():
+            return open_rows
+
+        manifest_rows = self._load_paper_carryover_manifest()
+        if not manifest_rows:
+            return []
+
+        manifest_by_symbol = {
+            str(row.get("symbol") or "").strip(): row
+            for row in manifest_rows
+            if str(row.get("symbol") or "").strip()
+        }
+        eligible: list[dict[str, Any]] = []
+        for row in open_rows:
+            symbol = str(row.get("symbol") or "").strip()
+            manifest_row = manifest_by_symbol.get(symbol)
+            if manifest_row is None:
+                continue
+            if self._matches_carryover_manifest(row, manifest_row):
+                eligible.append(row)
+
+        return eligible
+
     def get_pnl_summary(self) -> dict[str, float]:
         """
-        Compute realized P&L totals grouped by TODAY / WEEK / MONTH / YEAR.
+        Compute realized P&L totals grouped by TODAY / WEEK / MONTH / YEAR in ET.
 
         Returns:
             Dict with keys: today, week, month, year (all floats).
         """
-        now = datetime.now(timezone.utc)
-        today_str = now.date().isoformat()
-        week_start = (now.date() - timedelta(days=now.weekday())).isoformat()
-        month_start = now.date().replace(day=1).isoformat()
-        year_start = now.date().replace(month=1, day=1).isoformat()
+        now_utc = self._normalize_reference_time()
+        today_start = self._eastern_period_start_utc("day", now_utc)
+        week_start = self._eastern_period_start_utc("week", now_utc)
+        month_start = self._eastern_period_start_utc("month", now_utc)
+        year_start = self._eastern_period_start_utc("year", now_utc)
 
         with self._lock:
             with self._connect() as conn:
-                def _sum(since: str) -> float:
+                def _sum(since: datetime) -> float:
                     row = conn.execute(
                         "SELECT COALESCE(SUM(realized_pnl), 0.0) FROM trades "
-                        "WHERE date(timestamp) >= ?",
-                        (since,),
+                        "WHERE datetime(timestamp) >= datetime(?) "
+                        "AND datetime(timestamp) <= datetime(?)",
+                        (since.isoformat(), now_utc.isoformat()),
                     ).fetchone()
                     return float(row[0]) if row else 0.0
 
                 return {
-                    "today": _sum(today_str),
+                    "today": _sum(today_start),
                     "week": _sum(week_start),
                     "month": _sum(month_start),
                     "year": _sum(year_start),

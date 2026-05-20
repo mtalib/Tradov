@@ -97,3 +97,44 @@ def test_dispatch_approved_signal_preserves_wrapped_iron_condor_payload(monkeypa
         "sell_to_open",
         "buy_to_open",
     ]
+
+
+def test_dispatch_approved_signal_keeps_option_leg_close_off_condor_builder(monkeypatch):
+    orch = _make_orchestrator()
+    orch.set_decision_audit_context(run_mode="paper", source_context="session_supervisor")
+
+    captured_order: dict[str, object] = {}
+
+    class _EngineStub:
+        def execute_order(self, order):
+            captured_order.update(order)
+            return {"status": "accepted", "order_id": "ORD_CLOSE_1"}
+
+    orch._live_engine = _EngineStub()
+    orch._order_manager = None
+    monkeypatch.setattr(orch, "_get_duplicate_open_position_source", lambda *a, **k: None)
+
+    condor_dispatch_called = {"value": False}
+
+    def _unexpected_condor_dispatch(**kwargs):
+        condor_dispatch_called["value"] = True
+
+    monkeypatch.setattr(orch, "_dispatch_paper_iron_condor", _unexpected_condor_dispatch)
+
+    orch._dispatch_approved_signal(
+        {
+            "strategy_id": "iron_condor",
+            "strategy_type": "iron_condor",
+            "symbol": "SPY260618P00699000",
+            "action": "close",
+            "side": "buy",
+            "quantity": 1,
+            "price": 4.21,
+            "confidence": 0.8,
+        }
+    )
+
+    assert condor_dispatch_called["value"] is False
+    assert captured_order["symbol"] == "SPY260618P00699000"
+    assert captured_order["side"] == "close"
+    assert captured_order["quantity"] == 1

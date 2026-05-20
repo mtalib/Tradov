@@ -3,11 +3,17 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import numpy as np
 import pandas as pd
 
 from Spyder.SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
+    MarketCondition,
+    MarketEnvironmentAnalysis,
+    MultiLegStrategyConstructor,
     MultiLegMarketAnalyzer,
+    VolatilityEnvironment,
 )
 
 
@@ -70,3 +76,51 @@ def test_calculate_iv_rank_warns_when_falling_back_to_proxy(monkeypatch) -> None
 
     assert 0.0 <= iv_rank <= 1.0
     assert any("realized volatility proxy" in message.lower() for message in logged)
+
+
+def test_construct_iron_condor_aligns_to_live_chain(monkeypatch) -> None:
+    constructor = MultiLegStrategyConstructor(config={"underlying_symbol": "SPY"})
+    market_analysis = MarketEnvironmentAnalysis(
+        timestamp=datetime(2026, 5, 19, tzinfo=UTC),
+        underlying_price=734.5,
+        volatility_environment=VolatilityEnvironment.NORMAL_VOL,
+        market_condition=MarketCondition.RANGE_BOUND,
+        implied_volatility=0.25,
+        vix_level=20.0,
+        iv_rank=0.5,
+        iv_percentile=0.5,
+        volatility_skew=0.0,
+        term_structure_slope=0.0,
+        support_resistance_range=15.0,
+        expected_move=35.0,
+        trend_strength=0.0,
+        momentum_score=0.0,
+    )
+
+    monkeypatch.setattr(constructor, "_calculate_optimal_wing_width", lambda _analysis: 10.0)
+    monkeypatch.setattr(
+        constructor,
+        "_estimate_legs_pricing_and_greeks",
+        lambda legs, *_args: None,
+    )
+    monkeypatch.setattr(constructor, "_calculate_net_credit", lambda _legs: 1.5)
+    monkeypatch.setattr(
+        constructor,
+        "_estimate_probability_profit",
+        lambda *_args: 0.73,
+    )
+    monkeypatch.setattr(
+        constructor,
+        "_get_live_option_chain_strikes",
+        lambda symbol, expiration: {
+            "put": [689.0, 690.0, 699.0, 700.0],
+            "call": [770.0, 780.0],
+        },
+    )
+
+    structure = constructor._construct_iron_condor(market_analysis, dte=30)
+
+    assert structure is not None
+    assert [leg.strike for leg in structure.legs] == [689.0, 699.0, 770.0, 780.0]
+    assert structure.body_width == 71.0
+    assert structure.wing_width == 10.0

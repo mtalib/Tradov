@@ -48,7 +48,8 @@ import threading
 import time
 import uuid
 import asyncio
-from typing import Any, Literal
+from collections.abc import Callable
+from typing import Any, Literal, cast
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -142,6 +143,7 @@ class SessionSupervisor:
         self._startup_profile_started_at: float | None = None
         self._deferred_l09_cancel = threading.Event()
         self._deferred_l09_thread: threading.Thread | None = None
+        self._spyder_paper_start_authorized: bool = False
 
     # --------------------------------------------------------------------------
     # PUBLIC API
@@ -169,6 +171,27 @@ class SessionSupervisor:
         self._begin_startup_profile()
         if self.dry_run:
             self.logger.warning("⚠️  DRY-RUN MODE — order submission is suppressed; no orders will reach the broker")  # noqa: E501
+
+        paper_start_authorized, paper_start_reason = (
+            self._consume_paper_start_authorization()
+        )
+        if paper_start_reason is not None:
+            paper_start_status = "allowed" if paper_start_authorized else "blocked"
+            log_gate_decision = self.logger.debug
+            if not paper_start_authorized:
+                log_gate_decision = self.logger.critical
+            elif paper_start_reason == "env_override":
+                log_gate_decision = self.logger.warning
+            log_gate_decision(
+                "R12_PAPER_START_GATE %s reason=%s mode=%s session_id=%s",
+                paper_start_status,
+                paper_start_reason,
+                self.mode,
+                self.session_id,
+            )
+
+        if not paper_start_authorized:
+            return False
 
         policy_ok, policy_violation = self._validate_live_only_tradier_policy()
         if not policy_ok:
@@ -276,6 +299,11 @@ class SessionSupervisor:
         # operator (or the Q24 watchdog) can pinpoint where a shutdown hung.
         self.logger.info("SessionSupervisor.stop() — flatten=%s", flatten)
 
+        try:
+            self._persist_paper_carryover_manifest(flatten=flatten)
+        except Exception as exc:
+            self.logger.warning("Paper carryover manifest update failed during shutdown: %s", exc)
+
         # ---- Phase 1/4 — flatten (optional) ----
         self.logger.info("SHUTDOWN_PHASE_1_FLATTEN_BEGIN")
         if flatten and self.engine is not None:
@@ -291,6 +319,14 @@ class SessionSupervisor:
                 self.logger.info("  stopped %s", name)
             except Exception as exc:
                 self.logger.warning("  stop %s raised: %s", name, exc)
+        if self.mode == "paper":
+            session_db = getattr(self.engine, "_session_db", None) if self.engine is not None else None
+            clear_active = getattr(session_db, "clear_paper_session_active", None)
+            if callable(clear_active):
+                try:
+                    cast(Callable[..., Any], clear_active)(reason="SessionSupervisor.stop")
+                except Exception as exc:
+                    self.logger.warning("Paper active-session marker clear failed: %s", exc)
         self.logger.info("SHUTDOWN_PHASE_2_COMPONENTS_END")
 
         # ---- Phase 3/4 — broker disconnect (already handled in component loop) ----
@@ -407,17 +443,62 @@ class SessionSupervisor:
     def _start_freshness_monitor(self) -> bool:
         try:
             from Spyder.SpyderE_Risk.SpyderE24_DataFreshnessMonitor import create_freshness_monitor
+            rth_threshold_s, ooh_threshold_s = self._resolve_freshness_monitor_thresholds()
             self.freshness_monitor = create_freshness_monitor(
                 symbols=self.symbols, event_manager=self.em,
-                startup_grace_s=30.0,  # suppress DATA_STALE for 30s on startup
+                rth_threshold_s=rth_threshold_s,
+                ooh_threshold_s=ooh_threshold_s,
+                startup_grace_s=0.0,
             )
             self.freshness_monitor.start()
             self._components.append(self.freshness_monitor)
-            self.logger.debug("✅ DataFreshnessMonitor started (startup_grace=30s)")
+            self.logger.debug("✅ DataFreshnessMonitor started (startup_grace=0s)")
             return True
         except Exception as exc:
             self.logger.error("❌ DataFreshnessMonitor failed: %s", exc)
             return False
+
+    def _resolve_freshness_monitor_thresholds(self) -> tuple[float, float]:
+        """Resolve provider-aware data freshness thresholds for the session."""
+        rth_threshold_raw = os.environ.get("SPYDER_DATA_FRESHNESS_RTH_THRESHOLD_S")
+        try:
+            rth_threshold_s = float(rth_threshold_raw) if rth_threshold_raw is not None else 3.0
+        except (TypeError, ValueError):
+            rth_threshold_s = 3.0
+
+        ooh_threshold_raw = os.environ.get("SPYDER_DATA_FRESHNESS_OOH_THRESHOLD_S")
+        try:
+            ooh_threshold_s = float(ooh_threshold_raw) if ooh_threshold_raw is not None else 30.0
+        except (TypeError, ValueError):
+            ooh_threshold_s = 30.0
+
+        feed_status = str(
+            getattr(getattr(self.feed, "status", None), "value", getattr(self.feed, "status", ""))
+        ).strip().lower()
+        quote_poll_interval_s = getattr(self.feed, "_quote_poll_interval_s", None)
+        try:
+            quote_poll_interval_s = float(quote_poll_interval_s) if quote_poll_interval_s is not None else None
+        except (TypeError, ValueError):
+            quote_poll_interval_s = None
+
+        if feed_status == "degraded" and quote_poll_interval_s is not None and quote_poll_interval_s > 0.0:
+            # REST quote fallback is bursty compared with a true stream. Keep
+            # the existing cadence-based widening for all modes, and apply a
+            # safer floor only to paper mode where the REST fallback is the
+            # steady-state market-data path.
+            degraded_rth_threshold_s = (quote_poll_interval_s * 5.0) + 1.0
+            if self.mode == "paper":
+                degraded_rth_threshold_s = max(degraded_rth_threshold_s, 10.0)
+            if rth_threshold_raw is None:
+                rth_threshold_s = max(rth_threshold_s, degraded_rth_threshold_s)
+            elif rth_threshold_s < degraded_rth_threshold_s:
+                self.logger.warning(
+                    "Explicit SPYDER_DATA_FRESHNESS_RTH_THRESHOLD_S=%.1fs is below degraded REST quote fallback threshold %.1fs; keeping explicit override.",
+                    rth_threshold_s,
+                    degraded_rth_threshold_s,
+                )
+
+        return rth_threshold_s, ooh_threshold_s
 
     def _start_broker(self) -> bool:
         if self.mode == "live":
@@ -474,6 +555,8 @@ class SessionSupervisor:
             self.position_tracker = create_position_tracker(
                 spyder_client=self.broker,
                 event_manager=self.em,
+                restore_state_on_start=self.mode != "paper",
+                persist_state_on_stop=self.mode != "paper",
             )
             self.position_tracker.start()
             self._components.append(self.position_tracker)
@@ -554,14 +637,29 @@ class SessionSupervisor:
                     else TradingSessionDB.for_paper()
                 )
                 self.engine.set_session_db(_session_db)
-                self.logger.info(
+                self.logger.debug(
                     "✅ Session DB (H05) attached to LiveEngine (mode=%s)",
                     self.mode,
                 )
             except Exception as _h05_err:
                 self.logger.warning("H05 session DB unavailable: %s", _h05_err)
 
-            self.engine.start_trading()
+            if not self.engine.start_trading():
+                self.logger.error(
+                    "❌ LiveEngine.start_trading() returned False (mode=%s)",
+                    self.mode,
+                )
+                return False
+            if self.mode == "paper":
+                session_db = getattr(self.engine, "_session_db", None)
+                mark_active = getattr(session_db, "mark_paper_session_active", None)
+                current_session = getattr(self.engine, "current_session", None)
+                session_id = str(getattr(current_session, "session_id", "") or "")
+                if session_id and callable(mark_active):
+                    cast(Callable[..., Any], mark_active)(
+                        session_id,
+                        owner="SessionSupervisor.start",
+                    )
             try:
                 from Spyder.SpyderP_PortfolioMgmt import (
                     set_global_portfolio_manager,
@@ -624,7 +722,7 @@ class SessionSupervisor:
                         l09_exc,
                     )
             elif not self.dry_run:
-                self.logger.info(
+                self.logger.debug(
                     "Paper mode: deferring L09 UnifiedRegimeEngine initialization "
                     "until after orchestrator startup"
                 )
@@ -642,6 +740,12 @@ class SessionSupervisor:
                     source_context="session_supervisor",
                     session_id=self.session_id or f"{self.mode}-unknown",
                 )
+            if (
+                self.mode == "paper"
+                and not self.dry_run
+                and hasattr(self.orchestrator, "set_startup_regime_engine_pending")
+            ):
+                self.orchestrator.set_startup_regime_engine_pending(True)
             self.orchestrator.set_live_engine(self.engine)
             # Inject the already-started and (if non-live) force-synced RiskManager so
             # D31's lazy resolver doesn't create a second fresh un-synced instance and
@@ -653,7 +757,7 @@ class SessionSupervisor:
             # This avoids accidental live-endpoint order submissions when
             # OrderManager auto-creates a Tradier client from environment.
             if self.mode == "paper":
-                self.logger.info(
+                self.logger.debug(
                     "Paper mode: skipping OrderManager wiring; "
                     "dispatch will use engine -> PaperBroker path"
                 )
@@ -709,6 +813,7 @@ class SessionSupervisor:
         """Attach L09 to the paper-mode orchestrator after startup returns."""
 
         def _hydrate() -> None:
+            success = False
             try:
                 if self._deferred_l09_cancel.wait(_PAPER_ORCHESTRATOR_L09_DEFER_SECONDS):
                     return
@@ -730,8 +835,9 @@ class SessionSupervisor:
                     orchestrator.set_regime_engine(l09_engine)
                 else:
                     orchestrator._l09_engine = l09_engine
+                success = True
 
-                self.logger.info(
+                self.logger.debug(
                     "✅ L09 UnifiedRegimeEngine attached to StrategyOrchestrator after startup"
                 )
             except Exception as l09_exc:
@@ -740,6 +846,15 @@ class SessionSupervisor:
                     l09_exc,
                 )
             finally:
+                if (
+                    not success
+                    and self.orchestrator is orchestrator
+                    and hasattr(orchestrator, "set_startup_regime_engine_pending")
+                ):
+                    try:
+                        orchestrator.set_startup_regime_engine_pending(False)
+                    except Exception:
+                        pass
                 if self._deferred_l09_thread is threading.current_thread():
                     self._deferred_l09_thread = None
 
@@ -779,9 +894,48 @@ class SessionSupervisor:
                     portfolio_manager = getattr(self.engine, "portfolio_manager", None)
                 return portfolio_manager
 
+            def _resolve_authoritative_positions() -> dict[str, Any] | None:
+                if self.mode != "paper" or self.engine is None:
+                    return None
+
+                market_open_check = getattr(self.engine, "_is_market_open", None)
+                if callable(market_open_check):
+                    try:
+                        if not bool(market_open_check()):
+                            return {}
+                    except Exception:
+                        pass
+
+                active_positions = getattr(self.engine, "active_positions", {}) or {}
+                active_positions_lock = getattr(self.engine, "_active_positions_lock", None)
+                if active_positions_lock is not None:
+                    with active_positions_lock:
+                        raw_positions = dict(active_positions)
+                else:
+                    raw_positions = dict(active_positions)
+
+                authoritative_positions: dict[str, Any] = {}
+                for symbol, position in raw_positions.items():
+                    if not isinstance(position, dict):
+                        continue
+                    normalized = dict(position)
+                    strategy_id = str(
+                        normalized.get("strategy_id")
+                        or normalized.get("strategy")
+                        or normalized.get("strategy_name")
+                        or ""
+                    ).strip()
+                    if strategy_id:
+                        normalized["strategy_id"] = strategy_id
+                    if normalized.get("cost_basis") in (None, ""):
+                        normalized["cost_basis"] = normalized.get("entry_price", 0.0)
+                    authoritative_positions[str(symbol)] = normalized
+
+                return authoritative_positions
+
             portfolio_manager = _resolve_portfolio_manager()
             if portfolio_manager is None:
-                self.logger.info(
+                self.logger.debug(
                     "ℹ️ ExitMonitor starting without PortfolioManager; will adopt one lazily"
                 )
 
@@ -796,6 +950,9 @@ class SessionSupervisor:
                 event_manager=self.em,
                 portfolio_manager_provider=(
                     _resolve_portfolio_manager if portfolio_manager is None else None
+                ),
+                positions_provider=(
+                    _resolve_authoritative_positions if self.mode == "paper" else None
                 ),
             )
             self.exit_monitor.start()
@@ -821,7 +978,7 @@ class SessionSupervisor:
             if self.orchestrator is not None:
                 active = getattr(self.orchestrator, "active_strategies", None) or {}
                 if not active:
-                    self.logger.warning(
+                    self.logger.debug(
                         "⏭ Boot-time orphan sweep skipped — no strategies loaded yet."
                     )
                     self._log_startup_profile("boot_orphan_sweep_skipped_no_strategies")
@@ -931,6 +1088,21 @@ class SessionSupervisor:
     def _is_truthy_env(raw_value: str | None) -> bool:
         """Return ``True`` when an env-var string is an enabled/true token."""
         return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def _consume_paper_start_authorization(self) -> tuple[bool, str | None]:
+        """Require explicit authorization before non-dry-run paper startup."""
+        if self.mode != "paper":
+            return True, None
+        if self.dry_run:
+            return True, "dry_run"
+        if self._is_truthy_env(os.getenv("SPYDER_ALLOW_PAPER_SESSION_START")):
+            return True, "env_override"
+
+        authorized = bool(self._spyder_paper_start_authorized)
+        self._spyder_paper_start_authorized = False
+        if authorized:
+            return True, "explicit_authorization"
+        return False, "explicit_authorization_required"
 
     def _validate_live_only_tradier_policy(self) -> tuple[bool, str]:
         """Reject startup unless all Tradier routes are explicitly live-only."""
@@ -1057,6 +1229,81 @@ class SessionSupervisor:
                 return raw
 
         return []
+
+    def _get_positions_for_paper_carryover_manifest(self) -> list[dict[str, Any]]:
+        """Resolve paper positions that were actually active at graceful shutdown."""
+        if self.mode != "paper":
+            return []
+
+        engine = getattr(self, "engine", None)
+        session_db = getattr(engine, "_session_db", None) if engine is not None else None
+        if session_db is not None and hasattr(session_db, "get_open_positions"):
+            try:
+                raw = self._normalize_position_rows(session_db.get_open_positions())
+            except Exception as exc:
+                self.logger.warning(
+                    "_get_positions_for_paper_carryover_manifest session DB lookup failed: %s",
+                    exc,
+                )
+                raw = []
+            if raw:
+                return raw
+
+        if engine is not None and hasattr(engine, "get_active_positions_snapshot"):
+            try:
+                raw = self._normalize_position_rows(engine.get_active_positions_snapshot())
+            except Exception as exc:
+                self.logger.warning(
+                    "_get_positions_for_paper_carryover_manifest engine lookup failed: %s",
+                    exc,
+                )
+                raw = []
+            if raw:
+                return raw
+
+        tracker = getattr(self, "position_tracker", None)
+        if tracker is not None and hasattr(tracker, "get_positions"):
+            try:
+                raw = self._normalize_position_rows(tracker.get_positions())
+            except Exception as exc:
+                self.logger.warning(
+                    "_get_positions_for_paper_carryover_manifest tracker lookup failed: %s",
+                    exc,
+                )
+                raw = []
+            if raw:
+                return raw
+
+        return []
+
+    def _persist_paper_carryover_manifest(self, *, flatten: bool) -> None:
+        """Persist or clear the graceful-shutdown carryover manifest for paper mode."""
+        if self.mode != "paper":
+            return
+
+        engine = getattr(self, "engine", None)
+        session_db = getattr(engine, "_session_db", None) if engine is not None else None
+        if session_db is None:
+            return
+
+        clear_fn = getattr(session_db, "clear_paper_carryover_manifest", None)
+        save_fn = getattr(session_db, "save_paper_carryover_manifest", None)
+
+        if flatten:
+            if callable(clear_fn):
+                clear_fn()
+            return
+
+        positions = self._get_positions_for_paper_carryover_manifest()
+        if not positions:
+            if callable(clear_fn):
+                clear_fn()
+            return
+
+        if callable(save_fn):
+            current_session = getattr(engine, "current_session", None)
+            session_id = str(getattr(current_session, "session_id", "") or "")
+            save_fn(positions, session_id=session_id)
 
     def _submit_flatten_close(self, symbol: str, qty: int, reason: str) -> dict[str, Any]:
         """Submit a flatten close, carrying signed paper quantity when supported."""
@@ -1363,6 +1610,13 @@ def create_session_supervisor(
     # get_session_supervisor() without a circular import.
     set_session_supervisor(supervisor)
     return supervisor
+
+
+def authorize_paper_session_start(supervisor: "SessionSupervisor | None") -> None:
+    """Mark a paper SessionSupervisor start as explicitly authorized."""
+    if supervisor is None:
+        return
+    supervisor._spyder_paper_start_authorized = True
 
 
 # Module-level reference to the active supervisor instance, set by the caller

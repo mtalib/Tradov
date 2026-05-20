@@ -518,6 +518,28 @@ class TestB03PositionTracker:
 
         assert pt.positions["SPY260515P00570000"]["quantity"] == -1
 
+    def test_record_fill_preserves_strategy_metadata(self):
+        client = MagicMock()
+        em = MagicMock()
+        pt = _b03.PositionTracker(client, event_manager=em)
+        pt.save_state = MagicMock()
+
+        pt.record_fill(
+            {
+                "symbol": "SPY260515P00570000",
+                "side": "sell_to_open",
+                "quantity": 1,
+                "fill_price": 2.34,
+                "strategy_id": "iron_condor",
+            }
+        )
+
+        assert pt.positions["SPY260515P00570000"]["strategy_id"] == "iron_condor"
+        assert pt.positions["SPY260515P00570000"]["strategy"] == "iron_condor"
+        event_data = em.emit.call_args.args[1]
+        assert event_data["strategy_id"] == "iron_condor"
+        assert event_data["position"]["strategy_id"] == "iron_condor"
+
 
 # ===========================================================================
 # B04 — AccountManager

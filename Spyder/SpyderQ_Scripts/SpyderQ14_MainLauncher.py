@@ -28,12 +28,14 @@ Options:
     --module        : Start specific module only
     --status        : Check system status and exit
     --shutdown      : Shutdown running system
+    --reset-paper-state : Back up and clear local paper state through H05
 
 Examples:
     python SpyderQ14_MainLauncher.py --mode paper --gui
     python SpyderQ14_MainLauncher.py --mode live --headless
     python SpyderQ14_MainLauncher.py --status
     python SpyderQ14_MainLauncher.py --module SpyderG05_TradingDashboard
+    python SpyderQ14_MainLauncher.py --mode paper --reset-paper-state
 """
 
 # ==============================================================================
@@ -42,9 +44,10 @@ Examples:
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 # ==============================================================================
@@ -425,7 +428,7 @@ class SpyderLauncher:
             ts = lock_data.get("ts", "unknown")
             account = lock_data.get("account_id", "unknown")
             if clear_requested:
-                cleared_at = datetime.now(timezone.utc).isoformat()
+                cleared_at = datetime.now(UTC).isoformat()
                 self.log_info(
                     "🔓 Clearing kill-lock (reason=%s ts=%s account=%s cleared_at=%s)",
                     reason, ts, account, cleared_at,
@@ -448,7 +451,7 @@ class SpyderLauncher:
         import fcntl
         lock_path = "/tmp/spyder_trading.lock"
         try:
-            self._pid_lock_fh = open(lock_path, "w")  # noqa: WPS515
+            self._pid_lock_fh = open(lock_path, "w")  # noqa: SIM115,WPS515
             fcntl.flock(self._pid_lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self._pid_lock_fh.write(str(os.getpid()))
             self._pid_lock_fh.flush()
@@ -549,11 +552,11 @@ class SpyderLauncher:
                     "⚠️  Kill-switch drill record has no timestamp — run a drill.",
                 )
                 return
-            from datetime import datetime as _dt, timezone as _tz
+            from datetime import UTC as _UTC, datetime as _dt
             last_ts = _dt.fromisoformat(last_ts_str)
             if last_ts.tzinfo is None:
-                last_ts = last_ts.replace(tzinfo=_tz.utc)
-            now = _dt.now(_tz.utc)
+                last_ts = last_ts.replace(tzinfo=_UTC)
+            now = _dt.now(_UTC)
             days_ago = (now - last_ts).total_seconds() / 86400
             if days_ago > STALE_DAYS:
                 self.log_warning(
@@ -599,12 +602,17 @@ class SpyderLauncher:
             if self.args.mode == "live" and not self._live_preflight_checks():
                 return False
 
-            from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import create_session_supervisor
+            from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
+                authorize_paper_session_start,
+                create_session_supervisor,
+            )
             self._supervisor = create_session_supervisor(
                 mode=self.args.mode,
                 dry_run=getattr(self.args, "dry_run", False),        # B11 (v15)
                 skip_orphan_sweep=getattr(self.args, "skip_orphan_sweep", False),
             )
+            if self.args.mode == "paper":
+                authorize_paper_session_start(self._supervisor)
             if not self._supervisor.start():
                 self.log_error("❌ SessionSupervisor failed to start — aborting")
                 return False
@@ -668,6 +676,89 @@ class SpyderLauncher:
         self.state = SystemState.STOPPED
         return True
 
+    def _paper_tracker_state_path(self) -> Path:
+        """Return the persisted paper PositionTracker state path."""
+        try:
+            from Spyder.SpyderB_Broker.SpyderB03_PositionTracker import _default_state_path
+
+            return _default_state_path()
+        except Exception:
+            return Path.home() / ".spyder" / "position_tracker_state.json"
+
+    def _paper_account_state_path(self) -> Path:
+        """Return the persisted paper account snapshot path."""
+        state_file_raw = str(os.environ.get("SPYDER_PAPER_ACCOUNT_STATE_FILE", "")).strip()
+        return (
+            Path(state_file_raw)
+            if state_file_raw
+            else (self.project_root / "market_data" / "paper_trading_state.json")
+        )
+
+    def _backup_paper_reset_artifacts(self, db_path: Path) -> tuple[Path, list[str]]:
+        """Back up the local paper ledger and carryover files before a reset."""
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%SZ")
+        backup_dir = self.project_root / "data" / "backups" / f"paper_reset_{timestamp}"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        artifact_paths = [
+            db_path,
+            Path(f"{db_path}-wal"),
+            Path(f"{db_path}-shm"),
+            db_path.with_suffix(".carryover_manifest.json"),
+            self._paper_tracker_state_path(),
+            self._paper_account_state_path(),
+        ]
+        copied_names: list[str] = []
+        for artifact_path in artifact_paths:
+            if not artifact_path.exists():
+                continue
+            shutil.copy2(artifact_path, backup_dir / artifact_path.name)
+            copied_names.append(artifact_path.name)
+
+        return backup_dir, copied_names
+
+    def _clear_paper_local_state_files(self) -> list[str]:
+        """Clear non-H05 local paper carryover files after a successful reset."""
+        cleared_names: list[str] = []
+        for state_path in [self._paper_tracker_state_path(), self._paper_account_state_path()]:
+            if not state_path.exists():
+                continue
+            state_path.unlink()
+            cleared_names.append(state_path.name)
+        return cleared_names
+
+    def _request_paper_reset(self) -> bool:
+        """Back up and clear local paper state via H05's guarded reset API."""
+        mode = getattr(self.args, "mode", "paper")
+        if mode != "paper":
+            self.log_error("❌ --reset-paper-state is only available in paper mode")
+            return False
+
+        self.log_info("♻️ Paper state reset requested via CLI flag.")
+        try:
+            from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+
+            paper_db = TradingSessionDB.for_paper()
+            backup_dir, copied_names = self._backup_paper_reset_artifacts(paper_db.db_path)
+            cleared_counts = paper_db.reset_paper_ledger(
+                reason="Q14 CLI paper reset",
+                actor="SpyderQ14_MainLauncher",
+            )
+            cleared_local_files = self._clear_paper_local_state_files()
+        except Exception as exc:
+            self.log_error(f"❌ Paper reset failed: {exc}")
+            return False
+
+        self.state = SystemState.STOPPED
+        self.log_info(
+            "✅ Paper reset complete — backup=%s copied=%s cleared=%s local_files=%s",
+            backup_dir,
+            copied_names,
+            cleared_counts,
+            cleared_local_files,
+        )
+        return True
+
     def launch(self) -> bool:
         """Main launch method (S-01)."""
         try:
@@ -681,6 +772,9 @@ class SpyderLauncher:
 
             if self.args.shutdown:
                 return self._request_shutdown()
+
+            if getattr(self.args, "reset_paper_state", False):
+                return self._request_paper_reset()
 
             # 1. Always start the trading backend regardless of GUI flag.
             backend_ok = self._start_backend(self.args.mode)
@@ -748,6 +842,13 @@ Examples:
     parser.add_argument("--module", type=str, help="Start specific module only")
     parser.add_argument("--status", action="store_true", help="Check system status and exit")
     parser.add_argument("--shutdown", action="store_true", help="Shutdown running system")
+    parser.add_argument(
+        "--reset-paper-state",
+        action="store_true",
+        dest="reset_paper_state",
+        help="Back up and clear local paper ledger/tracker state through H05. "
+             "Refuses to run while a paper session is marked active.",
+    )
     parser.add_argument(
         "--clear-kill-lock",
         action="store_true",

@@ -197,6 +197,7 @@ def test_r12_paper_mode_defers_l09_initialization_until_after_startup() -> None:
 
     assert ok is True
     assert orchestrator_cls.call_args.kwargs["regime_engine"] is None
+    fake_orchestrator.set_startup_regime_engine_pending.assert_called_once_with(True)
     deferred_l09_init.assert_called_once_with(fake_orchestrator)
 
 
@@ -254,3 +255,128 @@ def test_r12_deferred_l09_uses_lean_attach_config() -> None:
         }
     )
     orchestrator.set_regime_engine.assert_called_once_with(fake_engine)
+
+
+def test_d31_waits_for_deferred_l09_before_initial_strategy_activation() -> None:
+    mod = importlib.import_module(
+        "Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator"
+    )
+
+    orch = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+    orch.logger = SimpleNamespace(
+        debug=lambda *args, **kwargs: None,
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+        critical=lambda *args, **kwargs: None,
+    )
+    orch.set_decision_audit_context(run_mode="paper", source_context="session_supervisor")
+    orch.set_startup_regime_engine_pending(True)
+    orch.orchestration_active = True
+    orch._initial_strategy_activation_pending = True
+
+    with (
+        patch.object(orch, "_configure_strategies_for_regime") as configure,
+        patch.object(orch, "_perform_initial_allocation") as allocate,
+    ):
+        orch._run_initial_strategy_activation_if_pending()
+
+        configure.assert_not_called()
+        allocate.assert_not_called()
+        assert orch._initial_strategy_activation_pending is True
+
+        orch.set_regime_engine(object())
+
+        configure.assert_called_once_with()
+        allocate.assert_called_once_with()
+        assert orch._initial_strategy_activation_pending is False
+
+
+def test_d31_blocks_opening_signal_while_deferred_paper_l09_pending() -> None:
+    mod = importlib.import_module(
+        "Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator"
+    )
+
+    orch = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+    orch.set_decision_audit_context(run_mode="paper", source_context="session_supervisor")
+    orch.set_startup_regime_engine_pending(True)
+
+    with (
+        patch.object(orch, "_passes_session_window_gate", return_value=(True, "")),
+        patch.object(orch, "_passes_entry_trust_gate", return_value=(True, "")),
+    ):
+        result = orch._evaluate_pre_risk_signal_gates(
+            {
+                "symbol": "SPY",
+                "action": "buy",
+                "strategy_id": "iron_condor",
+            }
+        )
+
+    assert result == (
+        False,
+        "pre_risk",
+        "paper_startup_regime_wait",
+        "paper_startup:waiting_for_l09_regime_engine",
+    )
+
+
+def test_d31_blocks_paper_fallback_iron_condor_selector_output() -> None:
+    mod = importlib.import_module(
+        "Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator"
+    )
+
+    orch = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+    orch.logger = SimpleNamespace(
+        debug=lambda *args, **kwargs: None,
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+        critical=lambda *args, **kwargs: None,
+    )
+    orch.set_decision_audit_context(run_mode="paper", source_context="session_supervisor")
+    orch._build_d30_consensus = MagicMock(return_value=SimpleNamespace())
+    orch._d30_selector_init_attempted = True
+    orch._d30_selector = SimpleNamespace(
+        select_strategy_from_consensus=lambda *_args, **_kwargs: SimpleNamespace(
+            selected_strategy=SimpleNamespace(value="iron_condor"),
+            reason="Range/calm fallback regime - Iron Condor",
+            selector_feature_flag=None,
+        )
+    )
+
+    strategy_name, reason = orch._select_strategy_name_for_regime()
+
+    assert strategy_name is None
+    assert reason.startswith("paper_fail_closed:untyped_selector_iron_condor:")
+    assert "fallback regime" in reason
+
+
+def test_d31_allows_paper_typed_iron_condor_selector_output() -> None:
+    mod = importlib.import_module(
+        "Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator"
+    )
+
+    orch = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+    orch.logger = SimpleNamespace(
+        debug=lambda *args, **kwargs: None,
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+        error=lambda *args, **kwargs: None,
+        critical=lambda *args, **kwargs: None,
+    )
+    orch.set_decision_audit_context(run_mode="paper", source_context="session_supervisor")
+    orch._build_d30_consensus = MagicMock(return_value=SimpleNamespace())
+    orch._d30_selector_init_attempted = True
+    orch._d30_selector = SimpleNamespace(
+        select_strategy_from_consensus=lambda *_args, **_kwargs: SimpleNamespace(
+            selected_strategy=SimpleNamespace(value="iron_condor"),
+            reason="Range/calm - Iron Condor",
+            selector_feature_flag=None,
+        )
+    )
+
+    strategy_name, reason = orch._select_strategy_name_for_regime()
+
+    assert strategy_name == "IronCondor"
+    assert reason == "Range/calm - Iron Condor"

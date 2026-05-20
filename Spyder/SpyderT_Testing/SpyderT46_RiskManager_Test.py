@@ -85,6 +85,10 @@ from Spyder.SpyderE_Risk.SpyderE01_RiskManager import (
     RiskMetrics,
     create_risk_manager,
 )
+from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import (
+    OverlayPretradeVerdict,
+    RiskValidationRequest,
+)
 
 # MessageType is now defined in E01 itself — no __globals__ patching needed.
 def _patch_message_type():
@@ -459,6 +463,97 @@ class TestStatusAndMetrics(unittest.TestCase):
         self.assertEqual(metrics['risk_checks'], 3)
         self.assertGreater(metrics['uptime_seconds'], 0)
         self.assertIn('check_rate', metrics)
+
+
+class TestOverlaySlotValidation(unittest.TestCase):
+    """Tests for the typed overlay-slot verdict API."""
+
+    def setUp(self):
+        _patch_message_type()
+        self.api = _make_connect_api_mock()
+        self.config = RiskConfig(risk_limits=DEFAULT_RISK_LIMITS.copy())
+        self.rm = RiskManager(config=self.config, connect_api=self.api)
+        self.rm.mark_account_synced()
+        self.rm._cached_account_balances = {
+            "net_liquidation": 100000.0,
+            "margin_used": 1000.0,
+            "margin_available": 99000.0,
+            "close_pl": 0.0,
+        }
+
+    def _make_request(self, **metadata_overrides) -> RiskValidationRequest:
+        metadata = {
+            "strategy_type": "pivot_mean_reversion",
+            "daily_risk_used_fraction": 0.25,
+            "event_window_blocked": False,
+            "execution_quality": {
+                "bid_ask_width_ok": True,
+                "expected_slippage_bps": 12.0,
+            },
+            "projected_post_trade_greeks": {
+                "delta": 0.05,
+                "gamma": 0.01,
+                "vega": 0.05,
+                "theta": 0.05,
+            },
+        }
+        metadata.update(metadata_overrides)
+        return RiskValidationRequest(
+            symbol="SPY",
+            quantity=1,
+            strategy_id="pivot_mean_reversion",
+            entry_price=1.25,
+            metadata=metadata,
+        )
+
+    def test_19_validate_overlay_slot_returns_admitted_verdict(self):
+        result = self.rm.validate_overlay_slot(self._make_request())
+
+        self.assertIsInstance(result, OverlayPretradeVerdict)
+        self.assertTrue(result.allow)
+        self.assertEqual(result.reason_code, "admitted")
+        self.assertEqual(
+            result.limits_snapshot["overlay_max_daily_risk_used_fraction"],
+            0.60,
+        )
+
+    def test_20_validate_overlay_slot_denies_daily_risk_threshold_breach(self):
+        result = self.rm.validate_overlay_slot(
+            self._make_request(daily_risk_used_fraction=0.75)
+        )
+
+        self.assertFalse(result.allow)
+        self.assertEqual(result.reason_code, "daily_risk_limit")
+
+    def test_21_validate_overlay_slot_denies_execution_quality_failure(self):
+        result = self.rm.validate_overlay_slot(
+            self._make_request(
+                execution_quality={
+                    "bid_ask_width_ok": False,
+                    "expected_slippage_bps": 12.0,
+                }
+            )
+        )
+
+        self.assertFalse(result.allow)
+        self.assertEqual(result.reason_code, "execution_quality")
+
+    def test_22_validate_overlay_slot_fails_closed_on_missing_inputs(self):
+        result = self.rm.validate_overlay_slot(
+            self._make_request(
+                daily_risk_used_fraction=None,
+                execution_quality={},
+                projected_post_trade_greeks={},
+                event_window_blocked=None,
+            )
+        )
+
+        self.assertFalse(result.allow)
+        self.assertEqual(result.reason_code, "missing_inputs")
+        self.assertIn(
+            "daily_risk_used_fraction",
+            result.computed_values.get("missing_inputs", []),
+        )
 
 
 # ==============================================================================

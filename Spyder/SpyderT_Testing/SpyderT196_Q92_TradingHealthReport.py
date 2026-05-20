@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from Spyder.SpyderQ_Scripts.SpyderQ92_DiagnosticsUtilities import DiagnosticsUtilities
 
@@ -126,12 +126,12 @@ def test_collect_trading_health_surfaces_engine_dispatch_and_drop_artifacts(tmp_
     diag = DiagnosticsUtilities()
     report = diag.collect_trading_health(
         run_mode="paper",
-        now_utc=datetime(2026, 5, 13, 1, 59, 37, tzinfo=timezone.utc),
+        now_utc=datetime(2026, 5, 13, 1, 59, 37, tzinfo=UTC),
         session_window={
             "primary_start_et": "09:20",
             "primary_end_et": "16:15",
-            "first_entry_not_before_et": "09:35",
-            "zero_dte_no_new_risk_cutoff_et": "15:45",
+            "first_entry_not_before_et": "10:15",
+            "zero_dte_no_new_risk_cutoff_et": "14:30",
             "broker_cutoff_et": "16:00",
         },
         recent_event_limit=2,

@@ -111,10 +111,10 @@ STRIKE_THREAT_PCT: float = 0.005        # within 0.5 % of short strike → close
 BP_MIN_DTE_FOR_HOLD: int = 1            # close bull-put if DTE ≤ 1
 
 # Entry windows (US/Eastern, naive — UTC-4 in DST, UTC-5 in EST)
-BP_ENTRY_START_ET = time(10, 0)
+BP_ENTRY_START_ET = time(10, 15)
 BP_ENTRY_END_ET = time(15, 0)
 ZDTE_ENTRY_START_ET = time(10, 30)
-ZDTE_ENTRY_END_ET = time(14, 0)
+ZDTE_ENTRY_END_ET = time(14, 30)
 ZDTE_HARD_CLOSE_ET = time(15, 30)
 
 # Fill modelling

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused tests for G05 recent decision-flow diagnostics rendering."""
 
+import Spyder.SpyderG_GUI.SpyderG05_TradingDashboard as g05
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard, TradingMode
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
@@ -83,3 +84,26 @@ def test_g05_recent_decision_flow_diagnostics_render_dash_when_no_records() -> N
     assert dash.execution_recent_drop_value.text == "-"
     assert dash.execution_recent_dispatch_value.tooltip == "Decision log unavailable"
     assert dash.execution_recent_drop_value.tooltip == "Decision log unavailable"
+
+
+def test_g05_recent_decision_flow_diagnostics_uses_presenter_output(monkeypatch) -> None:
+    dash = _build_dashboard_stub()
+    dash._get_recent_decision_flow_for_panel = lambda: {"dispatch": [], "drops": [], "decision_log": None}
+
+    class _Presentation:
+        dispatch_text = "dispatch-text"
+        drop_text = "drop-text"
+        tooltip = "decision-log-path"
+
+    monkeypatch.setattr(
+        g05,
+        "build_recent_decision_flow_panel_presentation",
+        lambda flow: _Presentation(),
+    )
+
+    dash._update_recent_decision_flow_diagnostics()
+
+    assert dash.execution_recent_dispatch_value.text == "dispatch-text"
+    assert dash.execution_recent_drop_value.text == "drop-text"
+    assert dash.execution_recent_dispatch_value.tooltip == "decision-log-path"
+    assert dash.execution_recent_drop_value.tooltip == "decision-log-path"

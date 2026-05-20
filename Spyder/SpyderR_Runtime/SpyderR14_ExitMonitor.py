@@ -28,6 +28,7 @@ Module Description:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import re
 import threading
 import time
 import uuid
@@ -86,6 +87,8 @@ class ExitMonitor:
             used.
         portfolio_manager_provider: Optional callable used to lazily resolve a
             PortfolioManager after startup if one was not available initially.
+        positions_provider: Optional callable returning authoritative runtime
+            positions for the current sweep.
         sweep_interval_s: Seconds between sweeps.  Default 1.0.
     """
 
@@ -95,12 +98,15 @@ class ExitMonitor:
         strategy_map: dict[str, Any] | None = None,
         event_manager: Any = None,
         portfolio_manager_provider: Callable[[], Any | None] | None = None,
+        positions_provider: Callable[[], dict[str, Any] | None] | None = None,
         sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S,
     ) -> None:
         self.portfolio_manager = portfolio_manager
-        self.strategy_map: dict[str, Any] = strategy_map or {}
+        self.strategy_map: dict[str, Any] = {}
+        self._strategy_aliases_by_primary: dict[str, set[str]] = {}
         self.em = event_manager or get_event_manager()
         self._portfolio_manager_provider = portfolio_manager_provider
+        self._positions_provider = positions_provider
         self.sweep_interval_s = sweep_interval_s
 
         self.logger = SpyderLogger.get_logger(__name__)
@@ -120,6 +126,9 @@ class ExitMonitor:
             self._prom = PrometheusMetrics.get_instance()
         except Exception:
             pass
+
+        for registered_strategy_id, strategy in (strategy_map or {}).items():
+            self.register_strategy(str(registered_strategy_id), strategy)
 
     # ------------------------------------------------------------------
     # Public API
@@ -149,15 +158,90 @@ class ExitMonitor:
 
     def register_strategy(self, strategy_id: str, strategy: Any) -> None:
         """Register (or update) a strategy so positions can be attributed."""
-        self.strategy_map[strategy_id] = strategy
+        primary_id = str(strategy_id or "").strip()
+        if not primary_id:
+            return
+
+        self._clear_strategy_registration(primary_id)
+
+        aliases = self._strategy_lookup_aliases(primary_id, strategy)
+        for alias in aliases:
+            self.strategy_map[alias] = strategy
+        self._strategy_aliases_by_primary[primary_id] = aliases
 
     def unregister_strategy(self, strategy_id: str) -> None:
         """Remove a strategy from the map (positions become orphans)."""
-        self.strategy_map.pop(strategy_id, None)
+        primary_id = str(strategy_id or "").strip()
+        aliases = self._clear_strategy_registration(primary_id)
         # Reset orphan alert cache so a fresh alert fires
         # C5 (v18): acquire lock before mutating the shared set.
         with self._orphan_lock:
-            self._orphan_alerted.discard(strategy_id)
+            for alias in aliases or ({primary_id} if primary_id else set()):
+                self._orphan_alerted.discard(alias)
+
+    @staticmethod
+    def _normalize_strategy_token(value: Any) -> str:
+        """Return a semantic strategy token suitable for cross-component matching."""
+        text = str(value or "").strip()
+        if not text:
+            return ""
+
+        text = re.sub(r"_[0-9a-f]{8,}$", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<!^)(?=[A-Z])", "_", text)
+        text = re.sub(r"[\s\-]+", "_", text)
+        text = re.sub(r"_+", "_", text).strip("_")
+        text = re.sub(r"(_adapter|_strategy)+$", "", text, flags=re.IGNORECASE)
+        return text.lower()
+
+    def _strategy_lookup_aliases(
+        self,
+        primary_id: str,
+        strategy: Any,
+    ) -> set[str]:
+        """Return all lookup keys that should resolve to the same strategy."""
+        aliases: set[str] = set()
+        candidates = [
+            primary_id,
+            getattr(strategy, "strategy_id", None),
+            getattr(strategy, "strategy_type", None),
+            getattr(strategy, "name", None),
+            getattr(getattr(strategy, "__class__", None), "__name__", None),
+        ]
+
+        for candidate in candidates:
+            text = str(candidate or "").strip()
+            if not text:
+                continue
+            aliases.add(text)
+            normalized = self._normalize_strategy_token(text)
+            if normalized:
+                aliases.add(normalized)
+
+        aliases.add(primary_id)
+        return aliases
+
+    def _clear_strategy_registration(self, primary_id: str) -> set[str]:
+        """Remove a strategy's primary and alias keys from the lookup map."""
+        aliases = self._strategy_aliases_by_primary.pop(primary_id, set())
+        aliases.add(primary_id)
+        for alias in aliases:
+            self.strategy_map.pop(alias, None)
+        return aliases
+
+    def _resolve_strategy(self, strategy_id: str) -> Any | None:
+        """Resolve a strategy by exact key or normalized semantic alias."""
+        text = str(strategy_id or "").strip()
+        if not text:
+            return None
+
+        strategy = self.strategy_map.get(text)
+        if strategy is not None:
+            return strategy
+
+        normalized = self._normalize_strategy_token(text)
+        if normalized and normalized != text:
+            return self.strategy_map.get(normalized)
+        return None
 
     # ------------------------------------------------------------------
     # Internal sweep
@@ -174,11 +258,49 @@ class ExitMonitor:
 
     def _sweep_once(self) -> None:
         """Single sweep pass — called from the background thread."""
-        if self.portfolio_manager is None and self._portfolio_manager_provider is not None:
+        positions: dict[str, Any] | None = None
+        if self._positions_provider is not None:
+            try:
+                provided_positions = self._positions_provider()
+            except Exception as exc:
+                self.logger.warning(
+                    "ExitMonitor: could not resolve authoritative positions: %s", exc
+                )
+                provided_positions = None
+
+            if isinstance(provided_positions, dict):
+                positions = provided_positions
+            elif provided_positions is not None:
+                self.logger.warning(
+                    "ExitMonitor: authoritative positions provider returned %s; "
+                    "expected dict or None",
+                    type(provided_positions).__name__,
+                )
+
+        if positions is not None:
+            if not positions:
+                return
+
+            for symbol, raw_pos in list(positions.items()):
+                try:
+                    self._check_position(symbol, raw_pos)
+                except Exception as exc:
+                    self.logger.warning(
+                        "ExitMonitor: error processing position %s: %s", symbol, exc
+                    )
+            return
+
+        if (
+            self.portfolio_manager is None
+            and self._portfolio_manager_provider is not None
+        ):
             try:
                 portfolio_manager = self._portfolio_manager_provider()
             except Exception as exc:
-                self.logger.warning("ExitMonitor: could not resolve PortfolioManager lazily: %s", exc)
+                self.logger.warning(
+                    "ExitMonitor: could not resolve PortfolioManager lazily: %s",
+                    exc,
+                )
                 return
 
             if portfolio_manager is None:
@@ -210,6 +332,8 @@ class ExitMonitor:
         strategy_id: str = (
             getattr(raw_pos, "strategy_id", None)
             or (raw_pos.get("strategy_id") if isinstance(raw_pos, dict) else None)
+            or (raw_pos.get("strategy") if isinstance(raw_pos, dict) else None)
+            or (raw_pos.get("strategy_name") if isinstance(raw_pos, dict) else None)
             or ""
         )
 
@@ -223,6 +347,7 @@ class ExitMonitor:
             cost_basis=float(
                 getattr(raw_pos, "cost_basis", None)
                 or (raw_pos.get("cost_basis", 0.0) if isinstance(raw_pos, dict) else 0.0)
+                or (raw_pos.get("entry_price", 0.0) if isinstance(raw_pos, dict) else 0.0)
             ),
             current_price=float(
                 getattr(raw_pos, "current_price", None)
@@ -235,7 +360,7 @@ class ExitMonitor:
             raw=raw_pos if isinstance(raw_pos, dict) else {},
         )
 
-        strategy = self.strategy_map.get(strategy_id) if strategy_id else None
+        strategy = self._resolve_strategy(strategy_id)
 
         if strategy is None:
             self._handle_orphan(symbol, strategy_id, view)
@@ -337,6 +462,7 @@ def create_exit_monitor(
     strategy_map: dict[str, Any] | None = None,
     event_manager: Any = None,
     portfolio_manager_provider: Callable[[], Any | None] | None = None,
+    positions_provider: Callable[[], dict[str, Any] | None] | None = None,
     sweep_interval_s: float = _DEFAULT_SWEEP_INTERVAL_S,
 ) -> ExitMonitor:
     """Factory function for :class:`ExitMonitor`.
@@ -347,6 +473,9 @@ def create_exit_monitor(
         event_manager: Shared EventManager (uses singleton if omitted).
         portfolio_manager_provider: Optional callable used to lazily resolve a
             PortfolioManager after startup.
+        positions_provider: Optional callable returning authoritative runtime
+            positions. When it returns a dict, that snapshot takes precedence
+            over the portfolio-manager view for the current sweep.
         sweep_interval_s: Seconds between position sweeps.
 
     Returns:
@@ -357,9 +486,10 @@ def create_exit_monitor(
         strategy_map=strategy_map,
         event_manager=event_manager,
         portfolio_manager_provider=portfolio_manager_provider,
+        positions_provider=positions_provider,
         sweep_interval_s=sweep_interval_s,
     )
-    SpyderLogger.get_logger(__name__).info(
+    SpyderLogger.get_logger(__name__).debug(
         "ExitMonitor created (interval=%.1fs)", sweep_interval_s
     )
     return monitor

@@ -40,7 +40,7 @@ Change Log:
 import os  # noqa: F401
 import threading
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -58,6 +58,7 @@ from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import now_et  # P2-5: tz-aware ET timestamps
 from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventType
 from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import (
+    OverlayPretradeVerdict,
     RiskValidationRequest,
     RiskValidationResult,
 )
@@ -105,7 +106,13 @@ DEFAULT_RISK_LIMITS = {
     'max_orders_per_minute': 10,
     'max_concentration_ratio': 0.3,  # Max 30% in any single symbol
     'max_options_exposure': 50000.0,
-    'max_margin_usage': 0.8  # Max 80% of available margin
+    'max_margin_usage': 0.8,  # Max 80% of available margin
+    'overlay_max_daily_risk_used_fraction': 0.60,
+    'overlay_max_expected_slippage_bps': 25.0,
+    'overlay_max_projected_delta': 0.10,
+    'overlay_max_projected_gamma': 0.02,
+    'overlay_max_projected_vega': 0.10,
+    'overlay_max_projected_theta': 0.10,
 }
 
 # ==============================================================================
@@ -152,7 +159,7 @@ class Position:
     expiry: str | None = None
     strike: float | None = None
     right: str | None = None  # CALL/PUT
-    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 @dataclass
 class RiskMetrics:
@@ -185,7 +192,7 @@ class RiskCheckResponse:
     order_id: str | None = None
     reason: str | None = None
     risk_metrics: RiskMetrics | None = None
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 # ==============================================================================
 # MAIN CLASS
@@ -449,7 +456,7 @@ class RiskManager:
         """
         with self._risk_lock:
             self._account_state_synced = True
-        self.logger.info("RiskManager: account state force-synced (paper/test mode)")
+        self.logger.debug("RiskManager: account state force-synced (paper/test mode)")
 
     async def start(self) -> bool:
         """
@@ -1113,6 +1120,270 @@ class RiskManager:
         """
         with self._risk_lock:
             return self._risk_metrics
+
+    @staticmethod
+    def _coerce_overlay_float(value: Any) -> float | None:
+        """Return a float for overlay metadata values when possible."""
+        if value is None:
+            return None
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        try:
+            return float(text)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_overlay_bool(value: Any) -> bool | None:
+        """Return a bool for overlay metadata values when possible."""
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return None
+
+        text = str(value).strip().lower()
+        if not text:
+            return None
+        if text in {"1", "true", "yes", "on", "blocked"}:
+            return True
+        if text in {"0", "false", "no", "off", "clear"}:
+            return False
+        return None
+
+    def _build_overlay_verdict(
+        self,
+        *,
+        allow: bool,
+        reason_code: str,
+        limits_snapshot: dict[str, Any],
+        computed_values: dict[str, Any],
+    ) -> OverlayPretradeVerdict:
+        """Build a stable typed overlay-slot verdict."""
+        return OverlayPretradeVerdict(
+            allow=bool(allow),
+            reason_code=str(reason_code or ""),
+            limits_snapshot=dict(limits_snapshot),
+            computed_values=dict(computed_values),
+        )
+
+    def validate_overlay_slot(self, request: RiskValidationRequest) -> OverlayPretradeVerdict:
+        """Run the overlay-slot pre-trade risk gate.
+
+        Args:
+            request: Overlay-slot request passed across the E↔D boundary.
+
+        Returns:
+            OverlayPretradeVerdict with the allow/deny decision, thresholds,
+            and computed values used by the check.
+
+        Raises:
+            TypeError: If request is not a RiskValidationRequest instance.
+        """
+        if not isinstance(request, RiskValidationRequest):
+            raise TypeError(
+                f"validate_overlay_slot expects RiskValidationRequest, got {type(request).__name__}"
+            )
+
+        metadata = request.metadata if isinstance(request.metadata, dict) else {}
+        projected_greeks = (
+            metadata.get("projected_post_trade_greeks")
+            if isinstance(metadata.get("projected_post_trade_greeks"), dict)
+            else {}
+        )
+        execution_quality = (
+            metadata.get("execution_quality")
+            if isinstance(metadata.get("execution_quality"), dict)
+            else {}
+        )
+        limits_snapshot = {
+            "overlay_max_daily_risk_used_fraction": float(
+                self.config.risk_limits.get("overlay_max_daily_risk_used_fraction", 0.60)
+            ),
+            "overlay_max_expected_slippage_bps": float(
+                self.config.risk_limits.get("overlay_max_expected_slippage_bps", 25.0)
+            ),
+            "overlay_max_projected_delta": float(
+                self.config.risk_limits.get("overlay_max_projected_delta", 0.10)
+            ),
+            "overlay_max_projected_gamma": float(
+                self.config.risk_limits.get("overlay_max_projected_gamma", 0.02)
+            ),
+            "overlay_max_projected_vega": float(
+                self.config.risk_limits.get("overlay_max_projected_vega", 0.10)
+            ),
+            "overlay_max_projected_theta": float(
+                self.config.risk_limits.get("overlay_max_projected_theta", 0.10)
+            ),
+            "max_daily_loss": float(self.config.risk_limits.get("max_daily_loss", 0.0)),
+        }
+
+        try:
+            with self._risk_lock:
+                if len(self._positions) == 0 and not self._account_state_synced:
+                    return self._build_overlay_verdict(
+                        allow=False,
+                        reason_code="risk_state_cold",
+                        limits_snapshot=limits_snapshot,
+                        computed_values={"symbol": request.symbol},
+                    )
+
+                if self._data_stale:
+                    return self._build_overlay_verdict(
+                        allow=False,
+                        reason_code="data_stale",
+                        limits_snapshot=limits_snapshot,
+                        computed_values={"symbol": request.symbol},
+                    )
+
+                if self._y03_veto_state in ("warning", "halt") and not self._observe_only_agents:
+                    return self._build_overlay_verdict(
+                        allow=False,
+                        reason_code="agent_veto",
+                        limits_snapshot=limits_snapshot,
+                        computed_values={
+                            "symbol": request.symbol,
+                            "circuit_breaker": self._y03_veto_state,
+                        },
+                    )
+
+                risk_metrics = self._calculate_risk_metrics()
+                strategy_type = str(metadata.get("strategy_type") or "").strip().lower()
+                daily_risk_used_fraction = self._coerce_overlay_float(
+                    metadata.get("daily_risk_used_fraction")
+                )
+                event_window_blocked = self._coerce_overlay_bool(
+                    metadata.get("event_window_blocked")
+                )
+                bid_ask_width_ok = self._coerce_overlay_bool(
+                    execution_quality.get("bid_ask_width_ok")
+                )
+                expected_slippage_bps = self._coerce_overlay_float(
+                    execution_quality.get("expected_slippage_bps")
+                )
+
+                computed_values: dict[str, Any] = {
+                    "symbol": request.symbol,
+                    "strategy_type": strategy_type,
+                    "daily_risk_used_fraction": daily_risk_used_fraction,
+                    "projected_post_trade_greeks": {},
+                    "execution_quality": {
+                        "bid_ask_width_ok": bid_ask_width_ok,
+                        "expected_slippage_bps": expected_slippage_bps,
+                    },
+                    "event_window_blocked": event_window_blocked,
+                    "current_total_exposure": risk_metrics.total_exposure,
+                    "current_daily_pnl": risk_metrics.daily_pnl,
+                }
+                missing_inputs: list[str] = []
+
+                if not strategy_type:
+                    missing_inputs.append("strategy_type")
+                elif strategy_type != "pivot_mean_reversion":
+                    return self._build_overlay_verdict(
+                        allow=False,
+                        reason_code="not_overlay_candidate",
+                        limits_snapshot=limits_snapshot,
+                        computed_values=computed_values,
+                    )
+
+                if daily_risk_used_fraction is None:
+                    missing_inputs.append("daily_risk_used_fraction")
+                if event_window_blocked is None:
+                    missing_inputs.append("event_window_blocked")
+                if bid_ask_width_ok is None:
+                    missing_inputs.append("execution_quality.bid_ask_width_ok")
+                if expected_slippage_bps is None:
+                    missing_inputs.append("execution_quality.expected_slippage_bps")
+
+                greek_limits = {
+                    "delta": limits_snapshot["overlay_max_projected_delta"],
+                    "gamma": limits_snapshot["overlay_max_projected_gamma"],
+                    "vega": limits_snapshot["overlay_max_projected_vega"],
+                    "theta": limits_snapshot["overlay_max_projected_theta"],
+                }
+                greek_values: dict[str, float] = {}
+                for greek_name in ("delta", "gamma", "vega", "theta"):
+                    greek_value = self._coerce_overlay_float(projected_greeks.get(greek_name))
+                    if greek_value is None:
+                        missing_inputs.append(f"projected_post_trade_greeks.{greek_name}")
+                        continue
+                    greek_values[greek_name] = greek_value
+
+                computed_values["projected_post_trade_greeks"] = dict(greek_values)
+
+                if missing_inputs:
+                    computed_values["missing_inputs"] = missing_inputs
+                    return self._build_overlay_verdict(
+                        allow=False,
+                        reason_code="missing_inputs",
+                        limits_snapshot=limits_snapshot,
+                        computed_values=computed_values,
+                    )
+
+                if event_window_blocked:
+                    return self._build_overlay_verdict(
+                        allow=False,
+                        reason_code="event_window",
+                        limits_snapshot=limits_snapshot,
+                        computed_values=computed_values,
+                    )
+
+                if not bid_ask_width_ok:
+                    computed_values["execution_quality_failure"] = "bid_ask_width"
+                    return self._build_overlay_verdict(
+                        allow=False,
+                        reason_code="execution_quality",
+                        limits_snapshot=limits_snapshot,
+                        computed_values=computed_values,
+                    )
+
+                if expected_slippage_bps > limits_snapshot["overlay_max_expected_slippage_bps"]:
+                    computed_values["execution_quality_failure"] = "expected_slippage_bps"
+                    return self._build_overlay_verdict(
+                        allow=False,
+                        reason_code="execution_quality",
+                        limits_snapshot=limits_snapshot,
+                        computed_values=computed_values,
+                    )
+
+                if daily_risk_used_fraction > limits_snapshot["overlay_max_daily_risk_used_fraction"]:
+                    return self._build_overlay_verdict(
+                        allow=False,
+                        reason_code="daily_risk_limit",
+                        limits_snapshot=limits_snapshot,
+                        computed_values=computed_values,
+                    )
+
+                for greek_name, greek_limit in greek_limits.items():
+                    if abs(greek_values[greek_name]) > greek_limit:
+                        computed_values["risk_limit_failure"] = greek_name
+                        return self._build_overlay_verdict(
+                            allow=False,
+                            reason_code="risk_limit",
+                            limits_snapshot=limits_snapshot,
+                            computed_values=computed_values,
+                        )
+
+                return self._build_overlay_verdict(
+                    allow=True,
+                    reason_code="admitted",
+                    limits_snapshot=limits_snapshot,
+                    computed_values=computed_values,
+                )
+        except Exception as exc:
+            self.logger.error("validate_overlay_slot error: %s", exc, exc_info=True)
+            return self._build_overlay_verdict(
+                allow=False,
+                reason_code="internal_error",
+                limits_snapshot=limits_snapshot,
+                computed_values={
+                    "symbol": request.symbol,
+                    "error": str(exc),
+                },
+            )
 
     def validate_signal(self, request: RiskValidationRequest) -> RiskValidationResult:
         """Satisfies RiskManagerProtocol.validate_signal().

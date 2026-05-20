@@ -572,7 +572,7 @@ class SignalRegimeDetector:
         if SIGNALS_AVAILABLE:
             try:
                 self.metrics_orchestrator = get_metrics_orchestrator()
-                self.logger.info("Connected to CustomMetricsOrchestrator")
+                self.logger.debug("Connected to CustomMetricsOrchestrator")
             except Exception as e:
                 self.logger.warning("Could not connect to MetricsOrchestrator: %s", e, exc_info=True)  # noqa: E501
 
@@ -1289,14 +1289,14 @@ class UnifiedRegimeEngine:
         if QUANT_MODELS_AVAILABLE:
             try:
                 self.quant_engine = create_advanced_models_engine()
-                self.logger.info("Integrated with V07 Advanced Models")
+                self.logger.debug("Integrated with V07 Advanced Models")
             except Exception as e:
                 self.logger.warning("Could not integrate V07: %s", e, exc_info=True)
 
         if ATTRIBUTION_AVAILABLE:
             try:
                 self.attribution_engine = create_attribution_engine()
-                self.logger.info("Integrated with F15 Attribution")
+                self.logger.debug("Integrated with F15 Attribution")
             except Exception as e:
                 self.logger.warning("Could not integrate F15: %s", e, exc_info=True)
 
@@ -1305,7 +1305,7 @@ class UnifiedRegimeEngine:
         if HMM_AVAILABLE:
             try:
                 self.hmm_detector = E21HMMDetector()
-                self.logger.info("Integrated with E21 HMM Regime Detector")
+                self.logger.debug("Integrated with E21 HMM Regime Detector")
             except Exception as e:
                 self.logger.warning("Could not integrate E21 HMM: %s", e, exc_info=True)
 
@@ -1339,10 +1339,10 @@ class UnifiedRegimeEngine:
         # Initialize performance tracking
         self._initialize_performance_tracking()
 
-        self.logger.info("UnifiedRegimeEngine initialized successfully")
-        self.logger.info("  ✅ Composite State Detector (VIX+Price)")
-        self.logger.info("  ✅ Simple Markov Trader (rolling window)")
-        self.logger.info("  ✅ Greeks-Aware Signal Generator")
+        self.logger.debug("UnifiedRegimeEngine initialized successfully")
+        self.logger.debug("  ✅ Composite State Detector (VIX+Price)")
+        self.logger.debug("  ✅ Simple Markov Trader (rolling window)")
+        self.logger.debug("  ✅ Greeks-Aware Signal Generator")
 
     def _initialize_performance_tracking(self):
         """Initialize performance tracking for all regimes"""
@@ -1705,8 +1705,10 @@ class UnifiedRegimeEngine:
         # Check for regime change
         if consensus.regime != self.current_regime:
             if consensus.transition_state == RegimeTransition.JUST_CHANGED:
-                self.logger.info(f"Regime change detected: {self.current_regime} -> {consensus.regime} "  # noqa: E501
-                               f"(confidence: {consensus.confidence:.2%})")
+                _prev = self.current_regime
+                _log = self.logger.info if _prev is not None else self.logger.debug
+                _log(f"Regime change detected: {_prev} -> {consensus.regime} "  # noqa: E501
+                     f"(confidence: {consensus.confidence:.2%})")
 
                 # Update state
                 self.current_regime = consensus.regime
@@ -1732,7 +1734,7 @@ class UnifiedRegimeEngine:
             'timestamp': consensus.timestamp.isoformat()
         }
 
-        self.logger.info("Regime change event: %s", event_data)
+        self.logger.debug("Regime change event: %s", event_data)
 
     def _get_quantitative_regime(self, market_conditions: MarketConditions) -> RegimeDetectionResult:  # noqa: E501
         """Get regime from quantitative models (V07 integration)"""

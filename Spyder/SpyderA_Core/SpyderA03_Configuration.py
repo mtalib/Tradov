@@ -271,7 +271,7 @@ class ConfigManager:
         if self.auto_reload:
             self._start_file_observer()
 
-        self.logger.info("ConfigManager initialized for environment: %s", environment)
+        self.logger.debug("ConfigManager initialized for environment: %s", environment)
 
     def _init_encryption(self):
         """Initialize encryption for sensitive data"""
@@ -300,7 +300,7 @@ class ConfigManager:
                 except Exception:
                     pass
 
-            self.logger.info("Encryption initialized")
+            self.logger.debug("Encryption initialized")
 
         except Exception as e:
             self.logger.error("Encryption initialization failed: %s", e)
@@ -329,7 +329,7 @@ class ConfigManager:
             # 5. Create initial backup
             self._backup_configuration()
 
-            self.logger.info("All configurations loaded successfully")
+            self.logger.debug("All configurations loaded successfully")
 
         except Exception as e:
             self.logger.error("Configuration loading failed: %s", e)
@@ -424,8 +424,8 @@ class ConfigManager:
                 "session_window": {
                     "primary_start_et": "09:30",
                     "primary_end_et": "16:15",
-                    "first_entry_not_before_et": "09:40",
-                    "zero_dte_no_new_risk_cutoff_et": "15:45",
+                    "first_entry_not_before_et": "10:15",
+                    "zero_dte_no_new_risk_cutoff_et": "14:30",
                     "broker_cutoff_et": "16:00",
                     "broker_cutoff_buffer_minutes": 10,
                     "pin_risk_monitor_end_et": "17:30",
@@ -587,7 +587,7 @@ class ConfigManager:
                 ConfigSource.FILE,
             )
             self.watched_files.add(repo_policy_path)
-            self.logger.info("Loaded regime policy from: %s", repo_policy_path)
+            self.logger.debug("Loaded regime policy from: %s", repo_policy_path)
         except Exception as e:
             self.logger.warning("Failed to load repo regime policy: %s", e)
 
@@ -611,7 +611,7 @@ class ConfigManager:
                 ConfigSource.FILE,
             )
             self.watched_files.add(repo_policy_path)
-            self.logger.info("Loaded agent handoff policy from: %s", repo_policy_path)
+            self.logger.debug("Loaded agent handoff policy from: %s", repo_policy_path)
         except Exception as e:
             self.logger.warning("Failed to load repo agent handoff policy: %s", e)
 
@@ -1172,7 +1172,7 @@ class ConfigManager:
                 + "; ".join(readiness_result["errors"])
             )
 
-        self.logger.info(
+        self.logger.debug(
             "Autonomous readiness startup report | mode=%s ok=%s warnings=%s errors=%s",
             mode,
             readiness_result["ok"],
@@ -1188,7 +1188,7 @@ class ConfigManager:
             for error in errors:
                 self.logger.warning("  - %s", error)
         else:
-            self.logger.info("Configuration validation passed")
+            self.logger.debug("Configuration validation passed")
 
     def validate_autonomous_readiness_config(
         self,
@@ -1265,11 +1265,11 @@ class ConfigManager:
                 start_et = datetime.strptime(str(session_cfg.get("primary_start_et", "09:30")), "%H:%M").time()
                 end_et = datetime.strptime(str(session_cfg.get("primary_end_et", "16:15")), "%H:%M").time()
                 first_entry_et = datetime.strptime(
-                    str(session_cfg.get("first_entry_not_before_et", "09:40")),
+                    str(session_cfg.get("first_entry_not_before_et", "10:15")),
                     "%H:%M",
                 ).time()
                 no_new_risk_et = datetime.strptime(
-                    str(session_cfg.get("zero_dte_no_new_risk_cutoff_et", "15:45")),
+                    str(session_cfg.get("zero_dte_no_new_risk_cutoff_et", "14:30")),
                     "%H:%M",
                 ).time()
                 broker_cutoff_et = datetime.strptime(
@@ -1674,7 +1674,7 @@ class ConfigManager:
             self.file_observer.schedule(handler, str(self.config_dir), recursive=False)
 
             self.file_observer.start()
-            self.logger.info("Configuration file monitoring started")
+            self.logger.debug("Configuration file monitoring started")
 
         except Exception as e:
             self.logger.error("Failed to start file observer: %s", e)

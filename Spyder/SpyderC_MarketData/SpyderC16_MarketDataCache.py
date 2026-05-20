@@ -768,7 +768,7 @@ class MarketDataCache:
                     latest = df.iloc[-1].to_dict()
                     self.put(symbol, latest, priority=CACHE_PRIORITY['HIGH'])
 
-                    self.logger.info("Preloaded %s with %s data points", symbol, len(df))
+                    self.logger.debug("Preloaded %s with %s data points", symbol, len(df))
 
             except Exception as e:
                 self.logger.error("Failed to preload %s: %s", symbol, e, exc_info=True)

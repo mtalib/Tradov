@@ -49,11 +49,20 @@ class PositionTracker:
     all commissions and fees.
     """
 
-    def __init__(self, spyder_client, event_manager=None, update_interval=1.0):
+    def __init__(
+        self,
+        spyder_client,
+        event_manager=None,
+        update_interval=1.0,
+        restore_state_on_start: bool = True,
+        persist_state_on_stop: bool = True,
+    ):
         """Initialize the PositionTracker."""
         self.spyder_client = spyder_client
         self.event_manager = event_manager
         self.update_interval = update_interval
+        self._restore_state_on_start = restore_state_on_start
+        self._persist_state_on_stop = persist_state_on_stop
         self.greeks_calculator = None  # Optional Greeks calculator
 
         # Logging
@@ -139,7 +148,16 @@ class PositionTracker:
         if self._running:
             self.logger.warning("PositionTracker already running")
             return
-        self.load_state(self._state_path)
+        if self._restore_state_on_start:
+            self.load_state(self._state_path)
+        else:
+            with self._position_lock:
+                self.positions = {}
+            try:
+                if self._state_path.exists():
+                    self._state_path.unlink()
+            except Exception as exc:
+                self.logger.warning("Failed to discard persisted tracker state %s: %s", self._state_path, exc)
         self.reconcile_with_broker(tolerance=0.01)
         self._running = True
         self._shutdown_event.clear()
@@ -152,7 +170,8 @@ class PositionTracker:
             return
         self._running = False
         self._stop_background_threads()
-        self.save_state(self._state_path)
+        if self._persist_state_on_stop:
+            self.save_state(self._state_path)
         self.logger.info("PositionTracker stopped")
 
     def get_positions(self) -> dict[str, dict[str, object]]:
@@ -384,6 +403,18 @@ class PositionTracker:
         qty      = int(fill.get("quantity") or fill.get("exec_quantity") or 0)
         price    = float(fill.get("fill_price") or fill.get("avg_fill_price") or 0.0)
         order_id = fill.get("order_id", "")
+        strategy_id = str(
+            fill.get("strategy_id")
+            or fill.get("strategy")
+            or fill.get("strategy_name")
+            or ""
+        ).strip()
+        strategy_name = str(
+            fill.get("strategy_name")
+            or fill.get("strategy")
+            or strategy_id
+            or ""
+        ).strip()
 
         if not symbol or qty == 0:
             self.logger.warning("record_fill: incomplete fill data — %s", fill)
@@ -413,12 +444,30 @@ class PositionTracker:
                         existing.quantity = new_qty
                     except (AttributeError, TypeError):
                         self.positions[symbol]["quantity"] = new_qty
+                    if strategy_id:
+                        if isinstance(existing, dict):
+                            existing["strategy_id"] = strategy_id
+                            existing["strategy"] = strategy_name or strategy_id
+                            existing["strategy_name"] = strategy_name or strategy_id
+                        else:
+                            for attr_name, attr_value in (
+                                ("strategy_id", strategy_id),
+                                ("strategy", strategy_name or strategy_id),
+                                ("strategy_name", strategy_name or strategy_id),
+                            ):
+                                try:
+                                    setattr(existing, attr_name, attr_value)
+                                except (AttributeError, TypeError):
+                                    pass
             else:
                 # New position entry
                 self.positions[symbol] = {
                     "symbol":            symbol,
                     "quantity":          signed_qty,
                     "average_fill_price": price,
+                    "strategy_id":       strategy_id,
+                    "strategy":          strategy_name or strategy_id,
+                    "strategy_name":     strategy_name or strategy_id,
                 }
 
             snapshot = dict(self.positions.get(symbol) or {"symbol": symbol, "quantity": 0})
@@ -432,6 +481,7 @@ class PositionTracker:
                     {
                         "symbol":   symbol,
                         "quantity": snapshot.get("quantity", 0),
+                        "strategy_id": snapshot.get("strategy_id") or snapshot.get("strategy") or "",
                         "fill_price": price,
                         "order_id": order_id,
                         "position": snapshot,
@@ -445,7 +495,9 @@ class PositionTracker:
             "record_fill: %s qty=%+d @%.4f → net=%s",
             symbol, signed_qty, price, snapshot.get("quantity", 0),
         )
-        self.save_state(self._state_path)
+        # In paper mode H05/R04 own restart truth; avoid reviving tracker JSON.
+        if self._persist_state_on_stop:
+            self.save_state(self._state_path)
 
     # ==========================================================================
     # BACKGROUND LOOP METHODS
@@ -663,7 +715,11 @@ class PositionTracker:
 
 
 def create_position_tracker(
-    spyder_client, greeks_calculator=None, event_manager=None
+    spyder_client,
+    greeks_calculator=None,
+    event_manager=None,
+    restore_state_on_start: bool = True,
+    persist_state_on_stop: bool = True,
 ) -> PositionTracker:
     """
     Create PositionTracker instance.
@@ -672,11 +728,18 @@ def create_position_tracker(
         spyder_client: SpyderClient instance
         greeks_calculator: Greeks calculator (optional)
         event_manager: Event manager (optional)
+        restore_state_on_start: Restore persisted JSON state on start.
+        persist_state_on_stop: Persist JSON state on clean stop.
 
     Returns:
         PositionTracker instance
     """
-    tracker = PositionTracker(spyder_client, event_manager)
+    tracker = PositionTracker(
+        spyder_client,
+        event_manager,
+        restore_state_on_start=restore_state_on_start,
+        persist_state_on_stop=persist_state_on_stop,
+    )
     if greeks_calculator:
         tracker.greeks_calculator = greeks_calculator
     return tracker

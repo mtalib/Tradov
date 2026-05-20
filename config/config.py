@@ -216,7 +216,7 @@ STRATEGY_CONFIG = {
     },
     "zero_dte_scalping": {
         "enabled": True,
-        "entry_window": ["09:45", "11:00"],
+        "entry_window": ["10:15", "11:30"],
         "scalp_target": 0.10,
         "max_contracts": 5,
         "momentum_period": 5,

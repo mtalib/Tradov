@@ -30,7 +30,7 @@ import importlib
 import platform
 import pkg_resources
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, field
@@ -79,12 +79,12 @@ MARKET_DATA_DIR = Path(SPYDER_HOME) / "market_data"
 try:
     ET_ZONE = ZoneInfo("America/New_York")
 except Exception:
-    ET_ZONE = timezone.utc
+    ET_ZONE = UTC
 DEFAULT_SESSION_WINDOW = {
     "primary_start_et": "09:30",
     "primary_end_et": "16:15",
-    "first_entry_not_before_et": "09:35",
-    "zero_dte_no_new_risk_cutoff_et": "15:45",
+    "first_entry_not_before_et": "10:15",
+    "zero_dte_no_new_risk_cutoff_et": "14:30",
     "broker_cutoff_et": "16:00",
 }
 DEFAULT_MAX_DAILY_TRADES = 100
@@ -187,7 +187,7 @@ class DiagnosticResult:
     message: str
     details: dict[str, Any] = field(default_factory=dict)
     duration_ms: float = 0.0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 @dataclass
 class SystemInfo:
@@ -294,7 +294,7 @@ class DiagnosticsUtilities:
         total_duration = (time.time() - start_time) * 1000
 
         report = DiagnosticReport(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             system_info=system_info,
             test_results=self.results,
             summary=summary,
@@ -319,7 +319,7 @@ class DiagnosticsUtilities:
         session_db: Any | None = None,
     ) -> dict[str, Any]:
         """Collect a one-shot trading workflow health report from persisted artifacts."""
-        report_time_utc = now_utc or datetime.now(timezone.utc)
+        report_time_utc = now_utc or datetime.now(UTC)
         config_payload = self._load_trading_health_config()
 
         resolved_session_window = dict(DEFAULT_SESSION_WINDOW)
@@ -511,7 +511,7 @@ class DiagnosticsUtilities:
         dashboard_snapshot_path: Path | None = None,
     ) -> dict[str, Any]:
         """Collect the most recent D31 dispatch/drop events without full health scanning."""
-        report_time_utc = now_utc or datetime.now(timezone.utc)
+        report_time_utc = now_utc or datetime.now(UTC)
         resolved_run_mode = self._resolve_trading_health_run_mode(
             requested_run_mode=run_mode,
             dashboard_snapshot_path=dashboard_snapshot_path,
@@ -1511,7 +1511,7 @@ class DiagnosticsUtilities:
     def save_report(self, report: DiagnosticReport, filename: str | None = None) -> Path:
         """Save diagnostic report to file."""
         if not filename:
-            filename = f"diagnostic_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+            filename = f"diagnostic_report_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.json"
 
         report_path = LOGS_DIR / filename
 

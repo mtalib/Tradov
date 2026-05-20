@@ -20,11 +20,24 @@
 # ===============================================================================
 
 SPYDER_HOME="/home/adam/Projects/Spyder"
-VENV_PATH="$SPYDER_HOME/spyder_venv"
+LEGACY_VENV_PATH="$SPYDER_HOME/spyder_venv"
+MODERN_VENV_PATH="$SPYDER_HOME/.venv"
+if [ -d "$MODERN_VENV_PATH" ]; then
+    VENV_PATH="$MODERN_VENV_PATH"
+else
+    VENV_PATH="$LEGACY_VENV_PATH"
+fi
 LOG_DIR="$SPYDER_HOME/logs"
 DATA_DIR="$SPYDER_HOME/data"
 CONFIG_FILE="$SPYDER_HOME/.env"
-SCRIPTS_DIR="$SPYDER_HOME/SpyderQ_Scripts"
+PACKAGE_SCRIPTS_DIR="$SPYDER_HOME/Spyder/SpyderQ_Scripts"
+LEGACY_SCRIPTS_DIR="$SPYDER_HOME/SpyderQ_Scripts"
+if [ -d "$PACKAGE_SCRIPTS_DIR" ]; then
+    SCRIPTS_DIR="$PACKAGE_SCRIPTS_DIR"
+else
+    SCRIPTS_DIR="$LEGACY_SCRIPTS_DIR"
+fi
+MAIN_LAUNCHER_PATH="$SCRIPTS_DIR/SpyderQ14_MainLauncher.py"
 
 # Colors for output
 RED='\033[0;31m'
@@ -441,6 +454,36 @@ cmd_clean() {
     print_success "Old data files cleaned"
 }
 
+cmd_reset_paper_state() {
+    print_header "Reset Paper State"
+    echo ""
+
+    if [ ! -x "$VENV_PATH/bin/python" ]; then
+        print_error "Python interpreter not found at $VENV_PATH/bin/python"
+        return 1
+    fi
+
+    if [ ! -f "$MAIN_LAUNCHER_PATH" ]; then
+        print_error "Main launcher not found at $MAIN_LAUNCHER_PATH"
+        return 1
+    fi
+
+    print_warning "This will back up and clear local paper ledger/tracker state via H05"
+    print_info "Running guarded paper reset through Q14..."
+
+    cd "$SPYDER_HOME" || return 1
+    "$VENV_PATH/bin/python" "$MAIN_LAUNCHER_PATH" --mode paper --headless --reset-paper-state
+    local reset_status=$?
+
+    if [ "$reset_status" -eq 0 ]; then
+        print_success "Paper state reset completed"
+    else
+        print_error "Paper state reset failed"
+    fi
+
+    return "$reset_status"
+}
+
 cmd_help() {
     echo -e "${CYAN}SPYDER Control System${NC}"
     echo ""
@@ -456,6 +499,7 @@ cmd_help() {
     echo "  check                     Run health check"
     echo "  backup                    Create system backup"
     echo "  clean                     Clean temporary files"
+    echo "  reset-paper-state         Back up and clear local paper state"
     echo "  help                      Show this help message"
     echo ""
     echo "Components:"
@@ -471,6 +515,7 @@ cmd_help() {
     echo "  spyder start --with-dashboard  Start with dashboard"
     echo "  spyder logs master         View master controller logs"
     echo "  spyder monitor             Start live monitoring"
+    echo "  spyder reset-paper-state   Back up and clear paper ledger/state"
 }
 
 # ===============================================================================
@@ -515,6 +560,9 @@ main() {
             ;;
         clean)
             cmd_clean
+            ;;
+        reset-paper-state)
+            cmd_reset_paper_state
             ;;
         help|--help|-h)
             cmd_help

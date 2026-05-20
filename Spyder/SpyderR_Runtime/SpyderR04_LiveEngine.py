@@ -27,6 +27,7 @@ import json
 import queue
 import re
 import threading
+import time as time_module
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -94,6 +95,8 @@ HEARTBEAT_INTERVAL = 5  # seconds
 # get_positions calls 5× while still reacting quickly after a fill (fills
 # explicitly invalidate the cache, so the post-fill view is immediate).
 POSITIONS_CACHE_TTL = 5.0
+PAPER_OPTION_QUOTES_CACHE_TTL = 5.0
+PAPER_OPTION_CHAIN_CACHE_TTL = 60.0
 
 # ==============================================================================
 # ENUMS
@@ -285,6 +288,9 @@ class LiveEngine:
         self.emergency_stop = False
         self.daily_loss = 0.0
         self.daily_trades = 0
+        self._realized_pnl_total = 0.0
+        self._winning_trade_count = 0
+        self._losing_trade_count = 0
 
         # Drawdown tracking — rolling peak of session P&L (P1-4)
         self._peak_session_pnl: float = 0.0
@@ -320,6 +326,16 @@ class LiveEngine:
         # Mirrors the equivalent dict in R08 PaperTradingQtWorker.
         self._regime_metrics: dict[str, Any] = {}
         self._positions_cache_lock = threading.Lock()
+
+        # Internal paper positions still need live Tradier option marks for MTM.
+        self._paper_option_quote_client = None
+        self._paper_option_quote_client_unavailable = False
+        self._paper_option_quote_cache: dict[str, float] = {}
+        self._paper_option_quote_cache_at: float = 0.0
+        self._paper_option_quote_lock = threading.RLock()
+        self._paper_option_quote_misses: set[str] = set()
+        self._paper_option_chain_cache: dict[tuple[str, str], dict[str, list[float]]] = {}
+        self._paper_option_chain_cache_at: dict[tuple[str, str], float] = {}
 
         # Optional A02 gate bridge: run decision-flow gates before R04 checks.
         self.trading_engine = None
@@ -491,10 +507,19 @@ class LiveEngine:
                 return False
 
             # Perform pre-trading checks
-            if not self._perform_pre_trading_checks():
+            pre_trading_blockers = self._get_pre_trading_blockers()
+            allow_after_hours_paper_session = (
+                self.mode == TradingMode.PAPER
+                and pre_trading_blockers == ["market_closed"]
+            )
+            if pre_trading_blockers and not allow_after_hours_paper_session:
                 mode_label = "Paper" if self._mode_name() == "paper" else "Live"
                 self.logger.error("%s pre-trading checks failed", mode_label)
                 return False
+            if allow_after_hours_paper_session:
+                self.logger.debug(
+                    "Paper trading session activated after hours; market-hours policy still gates new entries"
+                )
 
             # Create trading session
             self.current_session = TradingSession(
@@ -506,7 +531,7 @@ class LiveEngine:
 
             # Log trading start
             mode_label = "Paper" if self._mode_name() == "paper" else "Live"
-            self.logger.info("%s trading started - Session: %s", mode_label, self.current_session.session_id)  # noqa: E501
+            self.logger.debug("%s trading started - Session: %s", mode_label, self.current_session.session_id)  # noqa: E501
 
             # Emit trading started event
             self._emit_event(
@@ -652,11 +677,20 @@ class LiveEngine:
         """
         self._session_db = db
 
-        if self._mode_name() != "paper" or not hasattr(db, "get_open_positions"):
+        get_open_positions = getattr(db, "get_open_positions", None)
+        if self._mode_name() != "paper" or not callable(get_open_positions):
             return
 
         try:
-            open_positions = db.get_open_positions()
+            get_active_open_positions = getattr(db, "get_active_paper_open_positions", None)
+            has_active_session_marker = getattr(db, "has_active_paper_session_marker", None)
+            get_resume_eligible = getattr(db, "get_resume_eligible_open_positions", None)
+            if callable(get_active_open_positions) and callable(has_active_session_marker) and has_active_session_marker():
+                open_positions = get_active_open_positions()
+            elif callable(get_resume_eligible):
+                open_positions = get_resume_eligible()
+            else:
+                open_positions = get_open_positions()
         except Exception as exc:
             self.logger.warning("Paper position hydration from H05 failed: %s", exc)
             return
@@ -677,10 +711,14 @@ class LiveEngine:
                 quantity = 0
             if quantity == 0:
                 continue
-            hydrated_positions[symbol] = dict(position)
+            hydrated_position = dict(position)
+            hydrated_position.setdefault("position_source", "session_db_hydration")
+            hydrated_positions[symbol] = hydrated_position
 
         if not hydrated_positions:
             return
+
+        hydrated_positions = self._normalize_paper_option_positions(hydrated_positions)
 
         with self._active_positions_lock:
             if self.active_positions:
@@ -731,6 +769,29 @@ class LiveEngine:
             pass
         return True, ""
 
+    @staticmethod
+    def _is_risk_reducing_order(order: dict[str, Any] | None) -> bool:
+        """Return True when an order explicitly closes or reduces existing risk."""
+        if not isinstance(order, dict):
+            return False
+
+        action = str(
+            order.get("action")
+            or order.get("side")
+            or ""
+        ).strip().lower()
+        return action in {
+            "close",
+            "exit",
+            "flatten",
+            "reduce",
+            "de_risk",
+            "buy_to_close",
+            "sell_to_close",
+            "btc",
+            "stc",
+        }
+
     def _regime_preferred_direction(self) -> str | None:
         """Infer a preferred spread direction from the S07 regime snapshot.
 
@@ -776,49 +837,51 @@ class LiveEngine:
             # ORDER_FILLED via reconciler) can be linked back to the originating
             # strategy call. If the strategy already provided one, preserve it.
             order["correlation_id"] = order.get("correlation_id") or uuid.uuid4().hex
+            risk_reducing_order = self._is_risk_reducing_order(order)
 
             # Check if trading is active
             if self.state != ExecutionState.TRADING:
                 return {"status": "rejected", "reason": f"Trading not active: {self.state.value}"}
 
             # Optional A02 preflight gate bridge (Data->Regime->Strategy->Risk).
-            a02_ok, a02_reason = self._run_a02_decision_gate(order)
-            if not a02_ok:
-                self.logger.warning("Live engine A02 gate blocked order: %s", a02_reason)
-                self._event_manager.emit(
-                    EventType.RISK_VIOLATION,
-                    {"symbol": order.get("symbol"), "reason": a02_reason},
-                    source="LiveEngine.a02_decision_gate",
-                )
-                return {"status": "rejected", "reason": a02_reason}
+            if not risk_reducing_order:
+                a02_ok, a02_reason = self._run_a02_decision_gate(order)
+                if not a02_ok:
+                    self.logger.warning("Live engine A02 gate blocked order: %s", a02_reason)
+                    self._event_manager.emit(
+                        EventType.RISK_VIOLATION,
+                        {"symbol": order.get("symbol"), "reason": a02_reason},
+                        source="LiveEngine.a02_decision_gate",
+                    )
+                    return {"status": "rejected", "reason": a02_reason}
 
-            # Regime gate — SWAN / GEX / DIX (mirrors paper engine R08)
-            regime_ok, regime_reason = self._regime_allows_entry()
-            if not regime_ok:
-                self.logger.warning("Live engine regime gate blocked order: %s", regime_reason)
-                self._event_manager.emit(
-                    EventType.RISK_VIOLATION,
-                    {"symbol": order.get("symbol"), "reason": regime_reason},
-                    source="LiveEngine.regime_gate",
-                )
-                return {"status": "rejected", "reason": regime_reason}
+                # Regime gate — SWAN / GEX / DIX (mirrors paper engine R08)
+                regime_ok, regime_reason = self._regime_allows_entry()
+                if not regime_ok:
+                    self.logger.warning("Live engine regime gate blocked order: %s", regime_reason)
+                    self._event_manager.emit(
+                        EventType.RISK_VIOLATION,
+                        {"symbol": order.get("symbol"), "reason": regime_reason},
+                        source="LiveEngine.regime_gate",
+                    )
+                    return {"status": "rejected", "reason": regime_reason}
 
-            # Perform safety checks
-            safety_result = self._perform_order_safety_checks(order)
-            if safety_result.result == SafetyCheckResult.FAILED:
-                self._event_manager.emit(
-                    EventType.RISK_VIOLATION,
-                    {"symbol": order.get("symbol"), "reason": safety_result.message},
-                    source="LiveEngine",
-                )
-                return {
-                    "status": "rejected",
-                    "reason": safety_result.message,
-                    "safety_check": safety_result,
-                }
+                # Perform safety checks
+                safety_result = self._perform_order_safety_checks(order)
+                if safety_result.result == SafetyCheckResult.FAILED:
+                    self._event_manager.emit(
+                        EventType.RISK_VIOLATION,
+                        {"symbol": order.get("symbol"), "reason": safety_result.message},
+                        source="LiveEngine",
+                    )
+                    return {
+                        "status": "rejected",
+                        "reason": safety_result.message,
+                        "safety_check": safety_result,
+                    }
 
             # Smart confirmation: only for development mode or high-risk orders
-            if self.mode == TradingMode.LIVE:
+            if self.mode == TradingMode.LIVE and not risk_reducing_order:
                 confirmation_result = self._check_order_confirmation_required(order)
                 if confirmation_result['requires_confirmation']:
                     confirmed = self._request_order_confirmation(order, confirmation_result['reason'])  # noqa: E501
@@ -1085,7 +1148,16 @@ class LiveEngine:
             with self._active_positions_lock:
                 self.active_positions.clear()
                 self.active_positions.update(new_map)
-            self.logger.info("Loaded %s active positions", len(self.active_positions))
+            if self._mode_name() == "paper" and getattr(self, "_session_db", None) is None:
+                self.logger.debug(
+                    "Loaded %s broker-reported active positions during paper bootstrap",
+                    len(self.active_positions),
+                )
+            else:
+                self.logger.debug(
+                    "Loaded %s broker-reported active positions",
+                    len(self.active_positions),
+                )
         except Exception as e:
             self.logger.error("Failed to load positions: %s", e)
 
@@ -1211,6 +1283,9 @@ class LiveEngine:
                     symbol = position["symbol"]
                     self.active_positions[symbol] = position
 
+            if self._mode_name() == "paper":
+                positions = self._mark_paper_positions_to_market()
+
             for position in positions:
                 if self._should_trigger_stop_loss(position):
                     self._execute_stop_loss(position)
@@ -1248,15 +1323,15 @@ class LiveEngine:
     # ==========================================================================
     # PRIVATE METHODS - SAFETY CHECKS
     # ==========================================================================
-    def _perform_pre_trading_checks(self) -> bool:
-        """Perform pre-trading safety checks."""
-        checks_passed = True
+    def _get_pre_trading_blockers(self) -> list[str]:
+        """Return named blockers that prevent starting a trading session."""
+        blockers: list[str] = []
 
         # Market hours check
         if not self._is_market_open():
-            self.logger.warning("Market is not open")
+            self.logger.debug("Market is not open")
             if not self.config.enable_extended_hours:
-                checks_passed = False
+                blockers.append("market_closed")
 
         # Account balance check
         if hasattr(self.broker, "get_account_info") and callable(self.broker.get_account_info):
@@ -1283,12 +1358,24 @@ class LiveEngine:
         # Risk limits check
         if not self.risk_manager.check_daily_limits():
             self.logger.error("Risk limits already exceeded")
-            checks_passed = False
+            blockers.append("risk_limits_exceeded")
 
-        return checks_passed
+        return blockers
+
+    def _perform_pre_trading_checks(self) -> bool:
+        """Perform pre-trading safety checks."""
+        return len(self._get_pre_trading_blockers()) == 0
 
     def _perform_order_safety_checks(self, order: dict[str, Any]) -> SafetyCheck:
         """Perform safety checks on an order."""
+        if self._is_risk_reducing_order(order):
+            return SafetyCheck(
+                check_name="risk_reducing_order",
+                result=SafetyCheckResult.PASSED,
+                message="Risk-reducing order bypasses entry-only safety gates",
+                timestamp=datetime.now(_ET),
+            )
+
         # Check daily trade limit
         if self.daily_trades >= self.config.max_daily_trades:
             return SafetyCheck(
@@ -1911,6 +1998,672 @@ class LiveEngine:
         )
         return normalized
 
+    @staticmethod
+    def _signed_fill_quantity(fill_side: Any, quantity: Any) -> int:
+        """Return signed fill quantity using the same buy/sell semantics as B03."""
+        try:
+            normalized_qty = abs(int(quantity or 0))
+        except (TypeError, ValueError):
+            return 0
+
+        normalized_side = str(fill_side or "buy").strip().lower().replace("-", "_")
+        is_buy = normalized_side.startswith("buy") or normalized_side in {
+            "long",
+            "cover",
+            "bto",
+            "btc",
+        }
+        return normalized_qty if is_buy else -normalized_qty
+
+    def _calculate_realized_pnl_from_fill(
+        self,
+        *,
+        symbol: str,
+        fill_side: Any,
+        fill_quantity: Any,
+        fill_price: float,
+        existing_position: dict[str, Any] | None,
+    ) -> float:
+        """Estimate realized P&L for the portion of a fill that closes exposure."""
+        if not isinstance(existing_position, dict):
+            return 0.0
+
+        try:
+            existing_qty = int(existing_position.get("quantity") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        if existing_qty == 0:
+            return 0.0
+
+        signed_fill_qty = self._signed_fill_quantity(fill_side, fill_quantity)
+        if signed_fill_qty == 0 or existing_qty * signed_fill_qty >= 0:
+            return 0.0
+
+        try:
+            entry_price = float(existing_position.get("entry_price") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        if entry_price <= 0.0 or fill_price <= 0.0:
+            return 0.0
+
+        closed_qty = min(abs(existing_qty), abs(signed_fill_qty))
+        multiplier = 100.0 if self._is_option_symbol(str(symbol)) else 1.0
+        if existing_qty > 0:
+            return (fill_price - entry_price) * closed_qty * multiplier
+        return (entry_price - fill_price) * closed_qty * multiplier
+
+    def _record_realized_pnl(self, realized_pnl: float) -> None:
+        """Update engine-level realized P&L counters for confirmed closes."""
+        if abs(realized_pnl) <= 1e-9:
+            return
+
+        self._realized_pnl_total += realized_pnl
+        if realized_pnl > 0.0:
+            self._winning_trade_count += 1
+        else:
+            self._losing_trade_count += 1
+            self.daily_loss += abs(realized_pnl)
+
+    @staticmethod
+    def _coerce_datetime(value: Any) -> datetime | None:
+        """Best-effort conversion for persisted timestamp fields."""
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
+
+    def _position_price_multiplier(self, symbol: Any) -> float:
+        """Return the instrument multiplier used for P&L calculations."""
+        return 100.0 if self._is_option_symbol(str(symbol)) else 1.0
+
+    def _calculate_unrealized_pnl(self, position: dict[str, Any]) -> float:
+        """Calculate unrealized P&L for the current marked price."""
+        try:
+            quantity = int(position.get("quantity") or 0)
+            entry_price = float(position.get("entry_price") or 0.0)
+            current_price = float(position.get("current_price") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+        if quantity == 0 or entry_price <= 0.0 or current_price <= 0.0:
+            return 0.0
+
+        multiplier = self._position_price_multiplier(position.get("symbol"))
+        if quantity > 0:
+            return (current_price - entry_price) * quantity * multiplier
+        return (entry_price - current_price) * abs(quantity) * multiplier
+
+    def _get_paper_account_base_balance(self) -> float:
+        """Return the paper account's starting cash balance."""
+        try:
+            if hasattr(self.broker, "get_account_balances") and callable(self.broker.get_account_balances):
+                account_payload = self.broker.get_account_balances() or {}
+                account = account_payload.get("account") if isinstance(account_payload, dict) else {}
+                if isinstance(account, dict):
+                    balance = account.get("balance")
+                    if balance not in (None, ""):
+                        return float(balance)
+        except Exception:
+            pass
+
+        try:
+            return float(getattr(self.broker, "_account_balance", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _record_paper_account_snapshot(self, total_unrealized_pnl: float) -> None:
+        """Persist a paper-mode account snapshot for dashboard truth."""
+        if self._mode_name() != "paper" or self._session_db is None:
+            return
+
+        cash = self._get_paper_account_base_balance() + self._realized_pnl_total
+        equity = cash + total_unrealized_pnl
+        if self.current_session is not None:
+            self.current_session.total_pnl = self._realized_pnl_total + total_unrealized_pnl
+
+        try:
+            self._session_db.record_account_snapshot(
+                cash=float(cash),
+                equity=float(equity),
+                buying_power=float(equity),
+                realized_pnl=float(self._realized_pnl_total),
+                unrealized_pnl=float(total_unrealized_pnl),
+                total_trades=int(
+                    getattr(self.current_session, "trades_executed", self.daily_trades) or self.daily_trades
+                ),
+                winning_trades=int(self._winning_trade_count),
+                losing_trades=int(self._losing_trade_count),
+                max_drawdown=float(self._calculate_portfolio_drawdown()),
+            )
+        except Exception as exc:
+            self.logger.warning("Paper account snapshot persistence failed: %s", exc)
+
+    def _paper_position_has_session_lineage(self, symbol: str) -> bool:
+        """Return True when a paper position still has H05 backing."""
+        if self._mode_name() != "paper" or self._session_db is None:
+            return True
+
+        normalized_symbol = str(symbol or "").strip()
+        if not normalized_symbol:
+            return False
+
+        try:
+            get_open_positions = getattr(self._session_db, "get_open_positions", None)
+            if callable(get_open_positions):
+                for row in get_open_positions():
+                    if not isinstance(row, dict):
+                        continue
+                    row_symbol = str(row.get("symbol") or "").strip()
+                    if row_symbol == normalized_symbol:
+                        return True
+
+            has_trade_history = getattr(self._session_db, "has_trade_history_for_symbol", None)
+            if callable(has_trade_history):
+                return bool(has_trade_history(normalized_symbol))
+        except Exception as exc:
+            self.logger.warning(
+                "Paper lineage check failed for %s: %s",
+                normalized_symbol,
+                exc,
+            )
+            return True
+
+        return True
+
+    def _get_paper_option_quote_client(self) -> Any | None:
+        """Return a lazy live-data client for internal paper mark-to-market."""
+        if self._paper_option_quote_client_unavailable:
+            return None
+
+        with self._paper_option_quote_lock:
+            if self._paper_option_quote_client is not None:
+                return self._paper_option_quote_client
+
+            try:
+                try:
+                    from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+                        create_tradier_client_from_env,
+                    )
+                except ImportError:
+                    from SpyderB_Broker.SpyderB40_TradierClient import (  # type: ignore[no-redef]
+                        create_tradier_client_from_env,
+                    )
+
+                self._paper_option_quote_client = create_tradier_client_from_env()
+            except Exception as exc:
+                self._paper_option_quote_client_unavailable = True
+                self.logger.debug("Paper option quote client unavailable: %s", exc)
+                return None
+
+            return self._paper_option_quote_client
+
+    @staticmethod
+    def _extract_quote_records(payload: Any) -> list[dict[str, Any]]:
+        """Normalize Tradier quote payloads into a list of quote dicts."""
+        if not isinstance(payload, dict):
+            return []
+
+        quotes = payload.get("quotes", payload)
+        if isinstance(quotes, dict):
+            quote_records = quotes.get("quote", quotes)
+        else:
+            quote_records = quotes
+
+        if isinstance(quote_records, dict):
+            return [quote_records]
+        if isinstance(quote_records, list):
+            return [quote for quote in quote_records if isinstance(quote, dict)]
+        return []
+
+    @staticmethod
+    def _extract_live_quote_price(quote: dict[str, Any]) -> float | None:
+        """Choose the best available live price from a Tradier quote payload."""
+
+        def _safe_float(value: Any) -> float:
+            try:
+                return float(value or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        mark_price = _safe_float(quote.get("mark"))
+        if mark_price > 0.0:
+            return mark_price
+
+        mid_price = _safe_float(quote.get("mid"))
+        if mid_price > 0.0:
+            return mid_price
+
+        bid_price = _safe_float(quote.get("bid"))
+        ask_price = _safe_float(quote.get("ask"))
+        if bid_price > 0.0 and ask_price > 0.0:
+            return (bid_price + ask_price) / 2.0
+
+        for key in ("last", "close", "bid", "ask"):
+            fallback_price = _safe_float(quote.get(key))
+            if fallback_price > 0.0:
+                return fallback_price
+
+        return None
+
+    def _get_live_option_chain_strikes(
+        self,
+        underlying: str,
+        expiration: str,
+    ) -> dict[str, list[float]]:
+        """Return available live option strikes grouped by option type."""
+        normalized_underlying = str(underlying or "").strip().upper()
+        normalized_expiration = str(expiration or "").strip()
+        if not normalized_underlying or not normalized_expiration:
+            return {}
+
+        cache_key = (normalized_underlying, normalized_expiration)
+        now_ts = time_module.time()
+        with self._paper_option_quote_lock:
+            cache_age = now_ts - float(self._paper_option_chain_cache_at.get(cache_key, 0.0) or 0.0)
+            if cache_age < PAPER_OPTION_CHAIN_CACHE_TTL:
+                cached = self._paper_option_chain_cache.get(cache_key, {})
+                return {
+                    option_type: list(strikes)
+                    for option_type, strikes in cached.items()
+                }
+
+        quote_client = self._get_paper_option_quote_client()
+        if quote_client is None:
+            return {}
+
+        try:
+            chain = quote_client.get_option_chain_with_greeks(
+                normalized_underlying,
+                normalized_expiration,
+            )
+        except Exception as exc:
+            self.logger.debug(
+                "Paper option chain fetch failed for %s %s: %s",
+                normalized_underlying,
+                normalized_expiration,
+                exc,
+            )
+            return {}
+
+        grouped_strikes: dict[str, set[float]] = {"call": set(), "put": set()}
+        for contract in chain or []:
+            option_type = str(getattr(contract, "option_type", "") or "").strip().lower()
+            if option_type not in grouped_strikes:
+                continue
+            try:
+                strike = float(getattr(contract, "strike", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if strike > 0.0:
+                grouped_strikes[option_type].add(strike)
+
+        normalized_grouped = {
+            option_type: sorted(strikes)
+            for option_type, strikes in grouped_strikes.items()
+            if strikes
+        }
+        with self._paper_option_quote_lock:
+            self._paper_option_chain_cache[cache_key] = {
+                option_type: list(strikes)
+                for option_type, strikes in normalized_grouped.items()
+            }
+            self._paper_option_chain_cache_at[cache_key] = now_ts
+
+        return normalized_grouped
+
+    @staticmethod
+    def _select_live_chain_strike(
+        available_strikes: list[float],
+        target_strike: float,
+        direction: str,
+    ) -> float:
+        """Snap a target strike to the nearest live-chain strike."""
+        ordered = sorted(
+            float(strike)
+            for strike in available_strikes
+            if float(strike or 0.0) > 0.0
+        )
+        if not ordered:
+            return float(target_strike)
+
+        if direction == "down":
+            lower = [strike for strike in ordered if strike <= target_strike]
+            if lower:
+                return lower[-1]
+        elif direction == "up":
+            upper = [strike for strike in ordered if strike >= target_strike]
+            if upper:
+                return upper[0]
+
+        return min(ordered, key=lambda strike: abs(strike - target_strike))
+
+    def _normalize_paper_option_positions(
+        self,
+        positions: dict[str, dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        """Repair invalid internal-paper option symbols to quoteable live-chain contracts."""
+        if self._mode_name() != "paper" or not positions:
+            return positions
+
+        try:
+            try:
+                from Spyder.SpyderB_Broker.SpyderB40_TradierClient import build_option_symbol
+            except ImportError:
+                from SpyderB_Broker.SpyderB40_TradierClient import build_option_symbol  # type: ignore[no-redef]
+        except Exception as exc:
+            self.logger.debug("Paper option symbol normalization unavailable: %s", exc)
+            return positions
+
+        normalized_positions: dict[str, dict[str, Any]] = {}
+        repaired_symbols: list[tuple[str, str]] = []
+        dropped_duplicate_symbols: list[tuple[str, str]] = []
+        occupied_symbols = {str(symbol or "").strip().upper() for symbol in positions}
+
+        for symbol, position in positions.items():
+            normalized_symbol = str(symbol or "").strip().upper()
+            if not normalized_symbol or not self._is_option_symbol(normalized_symbol):
+                normalized_positions[symbol] = position
+                continue
+
+            option_details = self._parse_occ_option_symbol(normalized_symbol)
+            if not option_details:
+                normalized_positions[symbol] = position
+                continue
+
+            option_type = str(option_details.get("option_type") or "").strip().lower()
+            available_strikes = self._get_live_option_chain_strikes(
+                option_details.get("underlying", ""),
+                option_details.get("expiration", ""),
+            )
+            contract_strikes = available_strikes.get(option_type, [])
+            current_strike = float(option_details.get("strike") or 0.0)
+            if not contract_strikes or any(abs(strike - current_strike) < 1e-9 for strike in contract_strikes):
+                normalized_positions[symbol] = position
+                continue
+
+            target_direction = "down" if option_type == "put" else "up"
+            normalized_strike = self._select_live_chain_strike(
+                contract_strikes,
+                current_strike,
+                target_direction,
+            )
+            if abs(normalized_strike - current_strike) < 1e-9:
+                normalized_positions[symbol] = position
+                continue
+
+            normalized_option_symbol = build_option_symbol(
+                option_details.get("underlying", ""),
+                option_details.get("expiration", ""),
+                option_type,
+                normalized_strike,
+            )
+            if normalized_option_symbol in occupied_symbols and normalized_option_symbol != normalized_symbol:
+                dropped_duplicate_symbols.append((normalized_symbol, normalized_option_symbol))
+                if self._session_db is not None:
+                    delete_open_position = getattr(self._session_db, "delete_open_position", None)
+                    if callable(delete_open_position):
+                        try:
+                            delete_open_position(
+                                position_id=f"{self.mode.value}:{normalized_symbol}",
+                            )
+                        except Exception as exc:
+                            self.logger.warning(
+                                "Paper option duplicate cleanup failed for %s -> %s: %s",
+                                normalized_symbol,
+                                normalized_option_symbol,
+                                exc,
+                            )
+
+                try:
+                    broker_last_prices = getattr(self.broker, "_last_prices", None)
+                    if (
+                        isinstance(broker_last_prices, dict)
+                        and normalized_symbol in broker_last_prices
+                        and normalized_option_symbol not in broker_last_prices
+                    ):
+                        broker_last_prices[normalized_option_symbol] = broker_last_prices[normalized_symbol]
+                except Exception:
+                    pass
+                continue
+
+            repaired_position = dict(position)
+            repaired_position["symbol"] = normalized_option_symbol
+            repaired_position["strike"] = normalized_strike
+            repaired_position["expiration"] = option_details.get("expiration") or position.get("expiration")
+            repaired_position["option_type"] = option_type
+            normalized_positions[normalized_option_symbol] = repaired_position
+            occupied_symbols.discard(normalized_symbol)
+            occupied_symbols.add(normalized_option_symbol)
+            repaired_symbols.append((normalized_symbol, normalized_option_symbol))
+
+            if self._session_db is not None:
+                rekey_open_position = getattr(self._session_db, "rekey_open_position", None)
+                if callable(rekey_open_position):
+                    try:
+                        rekey_open_position(
+                            old_position_id=f"{self.mode.value}:{normalized_symbol}",
+                            new_position_id=f"{self.mode.value}:{normalized_option_symbol}",
+                            new_symbol=normalized_option_symbol,
+                            expiration=str(repaired_position.get("expiration") or "") or None,
+                            strike=normalized_strike,
+                            option_type=option_type,
+                        )
+                    except Exception as exc:
+                        self.logger.warning(
+                            "Paper option symbol rekey failed for %s -> %s: %s",
+                            normalized_symbol,
+                            normalized_option_symbol,
+                            exc,
+                        )
+
+            try:
+                broker_last_prices = getattr(self.broker, "_last_prices", None)
+                if isinstance(broker_last_prices, dict) and normalized_symbol in broker_last_prices:
+                    broker_last_prices[normalized_option_symbol] = broker_last_prices.pop(normalized_symbol)
+            except Exception:
+                pass
+
+        if repaired_symbols:
+            self.logger.warning(
+                "Normalized invalid internal paper option symbols to live-chain contracts: %s",
+                ", ".join(f"{old}->{new}" for old, new in repaired_symbols),
+            )
+
+        if dropped_duplicate_symbols:
+            self.logger.warning(
+                "Dropped superseded invalid internal paper option symbols: %s",
+                ", ".join(f"{old}->{new}" for old, new in dropped_duplicate_symbols),
+            )
+
+        return normalized_positions
+
+    def _refresh_paper_option_market_prices(
+        self,
+        positions: dict[str, dict[str, Any]],
+    ) -> dict[str, float]:
+        """Fetch live Tradier quotes for active internal-paper option positions."""
+        if self._mode_name() != "paper":
+            return {}
+
+        option_symbols = sorted(
+            {
+                str(symbol or "").strip().upper()
+                for symbol in positions
+                if str(symbol or "").strip() and self._is_option_symbol(str(symbol))
+            }
+        )
+        if not option_symbols:
+            return {}
+
+        now_ts = time_module.time()
+        with self._paper_option_quote_lock:
+            cached_quotes = {
+                symbol: float(price)
+                for symbol, price in self._paper_option_quote_cache.items()
+                if symbol in option_symbols and float(price or 0.0) > 0.0
+            }
+            cache_age = now_ts - float(self._paper_option_quote_cache_at or 0.0)
+            if cache_age < PAPER_OPTION_QUOTES_CACHE_TTL:
+                return cached_quotes
+
+        quote_client = self._get_paper_option_quote_client()
+        if quote_client is None:
+            return {}
+
+        try:
+            payload = quote_client.get_quotes(option_symbols)
+        except Exception as exc:
+            self.logger.debug("Paper option quote refresh failed: %s", exc)
+            with self._paper_option_quote_lock:
+                self._paper_option_quote_cache_at = now_ts
+                return {
+                    symbol: float(price)
+                    for symbol, price in self._paper_option_quote_cache.items()
+                    if symbol in option_symbols and float(price or 0.0) > 0.0
+                }
+
+        refreshed_quotes: dict[str, float] = {}
+        for quote in self._extract_quote_records(payload):
+            symbol = str(quote.get("symbol") or "").strip().upper()
+            if not symbol:
+                continue
+            live_price = self._extract_live_quote_price(quote)
+            if live_price is not None and live_price > 0.0:
+                refreshed_quotes[symbol] = float(live_price)
+
+        unresolved_symbols = sorted(
+            symbol for symbol in option_symbols if symbol not in refreshed_quotes
+        )
+        with self._paper_option_quote_lock:
+            if refreshed_quotes:
+                self._paper_option_quote_cache.update(refreshed_quotes)
+            self._paper_option_quote_cache_at = now_ts
+            new_misses = [
+                symbol
+                for symbol in unresolved_symbols
+                if symbol not in self._paper_option_quote_misses
+            ]
+            self._paper_option_quote_misses = set(unresolved_symbols)
+            merged_quotes = {
+                symbol: float(price)
+                for symbol, price in self._paper_option_quote_cache.items()
+                if symbol in option_symbols and float(price or 0.0) > 0.0
+            }
+
+        if refreshed_quotes:
+            try:
+                broker_last_prices = getattr(self.broker, "_last_prices", None)
+                if isinstance(broker_last_prices, dict):
+                    broker_last_prices.update(refreshed_quotes)
+                else:
+                    self.broker._last_prices = dict(refreshed_quotes)
+            except Exception:
+                pass
+
+        if new_misses:
+            self.logger.warning(
+                "Paper MTM could not resolve live option quotes for: %s",
+                ", ".join(new_misses),
+            )
+
+        return merged_quotes
+
+    def _mark_paper_positions_to_market(self) -> list[dict[str, Any]]:
+        """Refresh paper positions from cached market prices and persist marks."""
+        if self._mode_name() != "paper":
+            return []
+
+        last_prices = getattr(self.broker, "_last_prices", {}) or {}
+        with self._active_positions_lock:
+            positions = {
+                symbol: dict(position)
+                for symbol, position in self.active_positions.items()
+                if isinstance(position, dict)
+            }
+
+        stale_symbols = [
+            symbol
+            for symbol in positions
+            if not self._paper_position_has_session_lineage(symbol)
+        ]
+        if stale_symbols:
+            for symbol in stale_symbols:
+                positions.pop(symbol, None)
+            with self._active_positions_lock:
+                for symbol in stale_symbols:
+                    self.active_positions.pop(symbol, None)
+            self.logger.warning(
+                "Dropped %s stale paper positions without session lineage",
+                len(stale_symbols),
+            )
+
+        positions = self._normalize_paper_option_positions(positions)
+        with self._active_positions_lock:
+            self.active_positions.clear()
+            self.active_positions.update(positions)
+
+        live_option_prices = self._refresh_paper_option_market_prices(positions)
+        if live_option_prices:
+            last_prices = dict(last_prices)
+            last_prices.update(live_option_prices)
+
+        total_unrealized_pnl = 0.0
+        for symbol, position in positions.items():
+            try:
+                mark_price = float(
+                    last_prices.get(symbol)
+                    or position.get("current_price")
+                    or position.get("entry_price")
+                    or 0.0
+                )
+            except (TypeError, ValueError):
+                mark_price = 0.0
+
+            if mark_price > 0.0:
+                position["current_price"] = mark_price
+            if position.get("cost_basis") in (None, ""):
+                position["cost_basis"] = position.get("entry_price", 0.0)
+            if position.get("strategy_id") in (None, ""):
+                position["strategy_id"] = position.get("strategy") or position.get("strategy_name") or ""
+            position["unrealized_pnl"] = self._calculate_unrealized_pnl(position)
+            total_unrealized_pnl += float(position.get("unrealized_pnl") or 0.0)
+
+        with self._active_positions_lock:
+            for symbol, position in positions.items():
+                self.active_positions[symbol].update(position)
+
+        if self._session_db is not None:
+            for symbol, position in positions.items():
+                try:
+                    self._session_db.upsert_position(
+                        position_id=f"{self.mode.value}:{symbol}",
+                        symbol=symbol,
+                        strategy=str(position.get("strategy") or position.get("strategy_id") or ""),
+                        quantity=int(position.get("quantity") or 0),
+                        entry_price=float(position.get("entry_price") or 0.0),
+                        current_price=float(position.get("current_price") or 0.0),
+                        unrealized_pnl=float(position.get("unrealized_pnl") or 0.0),
+                        realized_pnl=float(position.get("realized_pnl") or 0.0),
+                        status="OPEN",
+                        opened_at=self._coerce_datetime(position.get("opened_at")),
+                        expiration=str(position.get("expiration") or "") or None,
+                        strike=(
+                            float(position.get("strike"))
+                            if position.get("strike") not in (None, "")
+                            else None
+                        ),
+                        option_type=str(position.get("option_type") or "") or None,
+                    )
+                except Exception as exc:
+                    self.logger.warning("Paper position mark persistence failed for %s: %s", symbol, exc)
+
+        self._record_paper_account_snapshot(total_unrealized_pnl)
+        return list(positions.values())
+
     def _on_reconciler_fill(self, event) -> None:
         """Update engine metrics when FillReconciler confirms a fill."""
         if getattr(event, "source", None) != "FillReconciler":
@@ -1920,6 +2673,17 @@ class LiveEngine:
         self._invalidate_positions_cache()
         fill = self._normalize_reconciler_fill(event.data or {})
         order_id = fill.get("order_id")
+        symbol = str(fill.get("symbol", "") or "")
+        with self._active_positions_lock:
+            existing_position = dict(self.active_positions.get(symbol) or {})
+        realized_pnl = self._calculate_realized_pnl_from_fill(
+            symbol=symbol,
+            fill_side=fill.get("side"),
+            fill_quantity=fill.get("quantity", fill.get("qty", 0)),
+            fill_price=float(fill.get("avg_fill_price", fill.get("price", 0.0)) or 0.0),
+            existing_position=existing_position,
+        )
+        self._record_realized_pnl(realized_pnl)
         if order_id:
             with self._pending_orders_lock:  # B4: thread-safe lookup
                 hit = order_id in self.pending_orders
@@ -1939,12 +2703,13 @@ class LiveEngine:
         if self._session_db is not None:
             try:
                 self._session_db.record_trade(
-                    symbol=str(fill.get("symbol", "")),
+                    symbol=symbol,
                     trade_type=str(fill.get("side", "fill")).upper(),
                     side=str(fill.get("side", "buy")).lower(),
                     quantity=int(fill.get("quantity", fill.get("qty", 0))),
                     price=float(fill.get("avg_fill_price", fill.get("price", 0.0))),
                     commission=float(fill.get("commission", 0.0)),
+                    realized_pnl=float(realized_pnl),
                     strategy=str(fill.get("strategy", "")),
                     order_id=str(order_id) if order_id else None,
                     expiration=str(fill.get("expiration", "") or "") or None,
@@ -2003,8 +2768,13 @@ class LiveEngine:
         with self._active_positions_lock:
             existing_position = self.active_positions.get(symbol) or {}
 
+        try:
+            existing_quantity = int(existing_position.get("quantity") or 0)
+        except (TypeError, ValueError):
+            existing_quantity = 0
+
         existing_strategy = str(existing_position.get("strategy") or "")
-        existing_opened_at = existing_position.get("opened_at")
+        existing_opened_at = self._coerce_datetime(existing_position.get("opened_at"))
         try:
             existing_entry_price = float(existing_position.get("entry_price") or 0.0)
         except (TypeError, ValueError):
@@ -2023,6 +2793,15 @@ class LiveEngine:
             )
         if not strategy:
             strategy = str(position_snapshot.get("strategy") or existing_strategy or "")
+
+        fill_quantity = abs(existing_quantity - quantity) or data.get("filled_quantity") or data.get("quantity")
+        realized_pnl = self._calculate_realized_pnl_from_fill(
+            symbol=symbol,
+            fill_side=(pending_order.get("side") if pending_order else None) or data.get("side"),
+            fill_quantity=fill_quantity,
+            fill_price=fill_price,
+            existing_position=existing_position,
+        )
 
         try:
             entry_price = float(position_snapshot.get("average_fill_price") or 0.0)
@@ -2093,6 +2872,7 @@ class LiveEngine:
                 quantity=quantity,
                 entry_price=entry_price,
                 current_price=current_price,
+                realized_pnl=float(realized_pnl),
                 status=status,
                 opened_at=opened_at,
                 closed_at=closed_at,
@@ -2294,22 +3074,114 @@ class LiveEngine:
                         self.daily_trades += 1
                         if self.current_session:
                             self.current_session.trades_executed += 1
+                        _paper_symbol = str(order.get("symbol") or "")
+                        _paper_side = str(order.get("side") or "buy").lower()
+                        _paper_qty = int(order.get("quantity") or 0)
+                        _paper_price = float(
+                            (result or {}).get("fill_price")
+                            or (result or {}).get("price")
+                            or order.get("price")
+                            or 0.0
+                        )
+                        # Fix B1: include symbol so D31 _on_terminal_order_event can
+                        # clear the pending entry reservation for the underlying.
                         self._event_manager.emit(
                             EventType.ORDER_FILLED,
-                            {"order_id": order_id, "result": result},
+                            {"order_id": order_id, "result": result, "symbol": _paper_symbol},
                             source="LiveEngine",
                         )
+                        # Fix B2: persist paper fill to session DB (H05) for trade records.
+                        if self._session_db is not None and _paper_symbol:
+                            try:
+                                _strike = order.get("strike")
+                                self._session_db.record_trade(
+                                    symbol=_paper_symbol,
+                                    trade_type=_paper_side.upper(),
+                                    side=_paper_side,
+                                    quantity=_paper_qty,
+                                    price=_paper_price,
+                                    commission=0.0,
+                                    realized_pnl=0.0,
+                                    strategy=str(order.get("strategy_id") or order.get("strategy") or ""),
+                                    order_id=str(order_id) if order_id else None,
+                                    expiration=str(order.get("expiration") or "") or None,
+                                    strike=float(_strike) if _strike not in (None, "") else None,
+                                    option_type=str(order.get("option_type") or "") or None,
+                                    notes="paper fill via LiveEngine",
+                                )
+                            except Exception as _db_err:
+                                self.logger.warning("Paper fill DB record failed: %s", _db_err)
+                        # Fix B3: forward paper fill to PositionTracker so active_positions
+                        # stays consistent and POSITION_UPDATED events are emitted.
+                        if self._position_tracker is not None and _paper_symbol and _paper_qty:
+                            try:
+                                self._position_tracker.record_fill({
+                                    "symbol": _paper_symbol,
+                                    "side": _paper_side,
+                                    "quantity": _paper_qty,
+                                    "fill_price": _paper_price,
+                                    "strategy_id": str(order.get("strategy_id") or order.get("strategy") or ""),
+                                    "strategy_name": str(order.get("strategy_name") or order.get("strategy") or order.get("strategy_id") or ""),
+                                    "order_id": str(order_id) if order_id else "",
+                                })
+                            except Exception as _pt_err:
+                                self.logger.warning("Paper fill position tracker record failed: %s", _pt_err)
                 elif status == "filled":
                     # Direct fill: mock / paper engine without reconciler.
                     self.metrics.successful_executions += 1
                     self.daily_trades += 1
                     if self.current_session:
                         self.current_session.trades_executed += 1
+                    _paper_symbol = str(order.get("symbol") or "")
+                    _paper_side = str(order.get("side") or "buy").lower()
+                    _paper_qty = int(order.get("quantity") or 0)
+                    _paper_price = float(
+                        (result or {}).get("fill_price")
+                        or (result or {}).get("price")
+                        or order.get("price")
+                        or 0.0
+                    )
+                    # Fix B1: include symbol for pending-reservation clearing.
                     self._event_manager.emit(
                         EventType.ORDER_FILLED,
-                        {"order_id": order_id, "result": result},
+                        {"order_id": order_id, "result": result, "symbol": _paper_symbol},
                         source="LiveEngine",
                     )
+                    # Fix B2: persist to session DB.
+                    if self._session_db is not None and _paper_symbol:
+                        try:
+                            _strike = order.get("strike")
+                            self._session_db.record_trade(
+                                symbol=_paper_symbol,
+                                trade_type=_paper_side.upper(),
+                                side=_paper_side,
+                                quantity=_paper_qty,
+                                price=_paper_price,
+                                commission=0.0,
+                                realized_pnl=0.0,
+                                strategy=str(order.get("strategy_id") or order.get("strategy") or ""),
+                                order_id=str(order_id) if order_id else None,
+                                expiration=str(order.get("expiration") or "") or None,
+                                strike=float(_strike) if _strike not in (None, "") else None,
+                                option_type=str(order.get("option_type") or "") or None,
+                                notes="paper fill via LiveEngine",
+                            )
+                        except Exception as _db_err:
+                            self.logger.warning("Paper fill DB record failed: %s", _db_err)
+                    # Fix B3: forward to PositionTracker.
+                    if self._position_tracker is not None and _paper_symbol and _paper_qty:
+                        try:
+                            self._position_tracker.record_fill({
+                                "symbol": _paper_symbol,
+                                "side": _paper_side,
+                                "quantity": _paper_qty,
+                                "fill_price": _paper_price,
+                                "strategy_id": str(order.get("strategy_id") or order.get("strategy") or ""),
+                                "strategy_name": str(order.get("strategy_name") or order.get("strategy") or order.get("strategy_id") or ""),
+                                "order_id": str(order_id) if order_id else "",
+                            })
+                        except Exception as _pt_err:
+                            self.logger.warning("Paper fill position tracker record failed: %s", _pt_err)
                 else:  # "partial"
                     self.metrics.successful_executions += 1
                     self._event_manager.emit(

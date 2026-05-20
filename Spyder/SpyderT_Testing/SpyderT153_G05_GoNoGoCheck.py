@@ -4,9 +4,11 @@
 import threading
 from pathlib import Path
 
+import Spyder.SpyderG_GUI.SpyderG05_TradingDashboard as g05
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 from Spyder.SpyderG_GUI.SpyderG06_DashboardData import EventClockState
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import TradingMode
+from Spyder.SpyderG_GUI.SpyderG53_GoNoGoPresenter import GoNoGoPresentation
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 
 
@@ -89,9 +91,15 @@ def test_go_no_go_returns_go_when_core_checks_pass() -> None:
     assert "Pre-open: GO" in dash.go_no_go_status_label.text()
 
 
-def test_go_no_go_returns_no_go_when_api_disconnected() -> None:
+def test_go_no_go_returns_no_go_when_api_disconnected(monkeypatch) -> None:
     dash = _build_dashboard_stub()
     dash.api_connected = False
+
+    monkeypatch.setattr(
+        g05,
+        "check_api_connection",
+        lambda: (False, "Tradier API not configured"),
+    )
 
     result = dash.run_preopen_go_no_go_check(show_dialog=False)
 
@@ -112,3 +120,37 @@ def test_go_no_go_returns_conditional_go_during_event_window() -> None:
     assert result["warnings"]
     assert "Pre-open: CONDITIONAL GO" in dash.go_no_go_status_label.text()
     assert dash.start_btn.enabled is True
+
+
+def test_go_no_go_uses_presenter_output(monkeypatch) -> None:
+    dash = _build_dashboard_stub()
+    dash._build_preopen_check_snapshot = lambda: {"checked_at_et": "now"}
+    dash._evaluate_trading_readiness_snapshot = lambda snapshot: {"decision": "OK"}
+
+    monkeypatch.setattr(
+        g05,
+        "build_go_no_go_presentation",
+        lambda inner: GoNoGoPresentation(
+            decision="GO",
+            reasons=("reason-1",),
+            warnings=("warning-1",),
+            checked_at_et="2026-05-15T09:31:22-04:00",
+            status_text="Pre-open: CUSTOM",
+            button_style="background-color: #123456;",
+            start_enabled=False,
+            log_message="custom log",
+        ),
+    )
+
+    result = dash.run_preopen_go_no_go_check(show_dialog=False)
+
+    assert result == {
+        "decision": "GO",
+        "reasons": ["reason-1"],
+        "warnings": ["warning-1"],
+        "checked_at_et": "2026-05-15T09:31:22-04:00",
+    }
+    assert dash.go_no_go_status_label.text() == "Pre-open: CUSTOM"
+    assert dash.start_btn.enabled is False
+    assert dash.go_no_go_btn.style == "background-color: #123456;"
+    assert dash._log_lines[-1] == "custom log"

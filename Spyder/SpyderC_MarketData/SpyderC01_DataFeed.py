@@ -497,7 +497,7 @@ class DataFeedManager:
                     self.status = DataFeedStatus.ERROR
                     return False
 
-                self.logger.info(
+                self.logger.debug(
                     "Data feed using Tradier REST quote fallback (%s)",
                     self._provider.__class__.__name__,
                 )

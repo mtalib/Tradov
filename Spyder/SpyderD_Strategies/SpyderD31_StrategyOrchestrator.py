@@ -42,9 +42,10 @@ import threading  # noqa: E402
 import time  # noqa: E402
 import uuid  # noqa: E402
 import re  # noqa: E402
+import math  # noqa: E402
 from fnmatch import fnmatchcase  # noqa: E402
 from collections import deque, defaultdict  # noqa: E402
-from datetime import datetime, timedelta, timezone, time as dt_time  # noqa: E402
+from datetime import datetime, timedelta, time as dt_time, UTC  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
 from enum import Enum  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
@@ -262,7 +263,7 @@ try:
                 stop_loss = max(entry_price * 1.25, 0.01)
                 take_profit = max(entry_price * 0.75, 0.01)
 
-            timestamp = getattr(native_signal, "timestamp", None) or datetime.now(timezone.utc)
+            timestamp = getattr(native_signal, "timestamp", None) or datetime.now(UTC)
 
             return BaseTradingSignal(
                 signal_id=str(getattr(native_signal, "signal_id", uuid.uuid4().hex)),
@@ -395,7 +396,7 @@ try:
                 take_profit = max(entry_price * 0.5, 0.01)
 
             confidence = 0.75 if signal_type == BaseSignalType.BUY else 0.65
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
             return BaseTradingSignal(
                 signal_id=f"VIXHEDGE_{timestamp.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}",
                 signal_type=signal_type,
@@ -807,6 +808,17 @@ class StrategyOrchestrator:
             1,
             int(os.environ.get("SPYDER_MAX_ACTIVE_HORIZON_BUCKETS", str(MAX_ACTIVE_HORIZON_BUCKETS)))
         )
+        if str(os.environ.get("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            self.logger.warning(
+                "SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT is experimental; D31 only admits "
+                "a third ultra_short PivotMeanReversion slot and still requires the "
+                "overlay risk gate before dispatch"
+            )
         self._startup_cache_seed_enabled = str(
             os.environ.get("SPYDER_ENABLE_STARTUP_CACHE_SEED", "0")
         ).strip().lower() in {"1", "true", "yes", "on"}
@@ -890,7 +902,7 @@ class StrategyOrchestrator:
             trend_strength=0.0,
             vix_level=20.0,
             regime_duration_days=0,
-            last_regime_change=datetime.now(timezone.utc)
+            last_regime_change=datetime.now(UTC)
         )
 
         # Performance tracking
@@ -912,7 +924,7 @@ class StrategyOrchestrator:
 
         # Monitoring and control
         self.orchestration_active = False
-        self.last_rebalance = datetime.now(timezone.utc)
+        self.last_rebalance = datetime.now(UTC)
         self.rebalance_history: list[RebalanceEvent] = []
         self.strategy_conflicts: list[StrategyConflict] = []
 
@@ -924,6 +936,7 @@ class StrategyOrchestrator:
         self._initial_strategy_activation_ready_at = 0.0
         self._initial_strategy_activation_running = False
         self._initial_strategy_activation_lock = threading.Lock()
+        self._paper_startup_regime_engine_pending = False
 
         # Live engine reference for order dispatch (set via set_live_engine)
         self._live_engine = None
@@ -972,8 +985,16 @@ class StrategyOrchestrator:
             )
         except (TypeError, ValueError):
             self._pending_entry_reservation_ttl_s = 90.0
+        try:
+            self._duplicate_entry_warning_interval_s: float = max(
+                1.0,
+                float(os.getenv("SPYDER_D31_DUPLICATE_ENTRY_WARNING_INTERVAL_S", "300")),
+            )
+        except (TypeError, ValueError):
+            self._duplicate_entry_warning_interval_s = 300.0
         self._pending_entry_reservations: dict[tuple[str, str], float] = {}
         self._pending_entry_reservations_lock = threading.Lock()
+        self._duplicate_entry_warning_last_monotonic: dict[tuple[str, str], float] = {}
         self._signal_drop_audit_enabled: bool = str(
             os.getenv("SPYDER_D31_SIGNAL_DROP_AUDIT", "1")
         ).strip().lower() not in {"0", "false", "no", "off"}
@@ -1107,7 +1128,7 @@ class StrategyOrchestrator:
                 _spy_bucket.append({"close": _spy_last * 0.999, "price": _spy_last * 0.999, "symbol": "SPY"})
             _spy_bucket.append({"close": _spy_last, "price": _spy_last, "symbol": "SPY"})
             self.market_data_cache["SPY"] = _spy_bucket
-            self.logger.info(
+            self.logger.debug(
                 "D31 cache seeded from disk: SPY prev=%.2f current=%.2f",
                 _spy_bucket[0]["close"],
                 _spy_last,
@@ -1363,7 +1384,7 @@ class StrategyOrchestrator:
         detail_text = detail or ""
 
         return {
-            "ts_utc": datetime.now(timezone.utc).isoformat(),
+            "ts_utc": datetime.now(UTC).isoformat(),
             "component": "D31",
             "event": event,
             "run_mode": self._audit_run_mode,
@@ -1425,6 +1446,19 @@ class StrategyOrchestrator:
         if session_id:
             self._audit_session_id = str(session_id)
 
+    def set_startup_regime_engine_pending(self, pending: bool) -> None:
+        """Mark whether paper startup is still waiting on deferred L09 attach."""
+        self._paper_startup_regime_engine_pending = bool(pending)
+
+    def _is_waiting_for_deferred_paper_regime_engine(self) -> bool:
+        """Return True while SessionSupervisor paper startup is waiting on L09."""
+        return (
+            self._paper_startup_regime_engine_pending
+            and str(self._audit_run_mode or "").strip().lower() == "paper"
+            and str(self._audit_source_context or "").strip().lower() == "session_supervisor"
+            and self._l09_engine is None
+        )
+
     def _resolve_signal_audit_file_path(self, now_utc: datetime) -> str:
         """Resolve the daily decision-log path with optional run-mode partitioning.
 
@@ -1456,7 +1490,7 @@ class StrategyOrchestrator:
         if not self._signal_drop_audit_enabled:
             return
         try:
-            now_utc = datetime.now(timezone.utc)
+            now_utc = datetime.now(UTC)
             file_path = self._resolve_signal_audit_file_path(now_utc)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             record = {
@@ -1487,7 +1521,7 @@ class StrategyOrchestrator:
         older than *retention_days* calendar days relative to today (UTC).
         """
         try:
-            cutoff = datetime.now(timezone.utc).date() - timedelta(days=retention_days)
+            cutoff = datetime.now(UTC).date() - timedelta(days=retention_days)
             base_dir = self._signal_drop_audit_dir
             if not os.path.isdir(base_dir):
                 return
@@ -1543,7 +1577,7 @@ class StrategyOrchestrator:
             return
 
         try:
-            now_utc = datetime.now(timezone.utc)
+            now_utc = datetime.now(UTC)
             file_path = self._resolve_signal_audit_file_path(now_utc)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             record = self._build_signal_audit_record(
@@ -1594,7 +1628,7 @@ class StrategyOrchestrator:
             return
 
         try:
-            now_utc = datetime.now(timezone.utc)
+            now_utc = datetime.now(UTC)
             file_path = self._resolve_signal_audit_file_path(now_utc)
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             record = self._build_signal_audit_record(
@@ -1890,7 +1924,7 @@ class StrategyOrchestrator:
             self.shutdown_event.clear()
 
             if defer_initial_strategy_activation:
-                self.logger.info(
+                self.logger.debug(
                     "⏳ Deferring initial strategy activation to orchestration loop"
                 )
             else:
@@ -1998,6 +2032,7 @@ class StrategyOrchestrator:
                 )
 
             strategy_name = strategy_class.__name__
+            strategy_type = self._get_strategy_type(strategy_class)
             if self.lean_mode and strategy_name not in self.lean_strategy_allowlist:
                 raise ValueError(
                     f"Lean mode blocks strategy registration: {strategy_name}"
@@ -2006,13 +2041,23 @@ class StrategyOrchestrator:
 
             with self._strategies_lock:
                 current_active = len(self.active_strategies)
-                if current_active >= self.max_concurrent_strategies:
+                overlay_registration_allowed = self._allows_overlay_strategy_registration_locked(
+                    strategy_type=strategy_type,
+                    horizon_bucket=horizon_bucket,
+                )
+                if (
+                    current_active >= self.max_concurrent_strategies
+                    and not overlay_registration_allowed
+                ):
                     raise ValueError(
                         f"Concurrent strategy limit reached: {current_active}/{self.max_concurrent_strategies}"  # noqa: E501
                     )
 
                 active_bucket_counts = self._get_active_horizon_bucket_counts_locked()
-                if active_bucket_counts.get(horizon_bucket, 0) >= 1:
+                if (
+                    active_bucket_counts.get(horizon_bucket, 0) >= 1
+                    and not overlay_registration_allowed
+                ):
                     raise ValueError(
                         "Horizon-bucket already occupied: "
                         f"{horizon_bucket}"
@@ -2023,6 +2068,7 @@ class StrategyOrchestrator:
                 if (
                     would_add_new_bucket
                     and len(active_buckets) >= self.max_active_horizon_buckets
+                    and not overlay_registration_allowed
                 ):
                     raise ValueError(
                         "Horizon-bucket limit reached: "
@@ -2080,7 +2126,7 @@ class StrategyOrchestrator:
             _new_alloc = StrategyAllocation(
                 strategy_id=strategy_id,
                 strategy_name=strategy_class.__name__,
-                strategy_type=self._get_strategy_type(strategy_class),
+                strategy_type=strategy_type,
                 horizon_bucket=horizon_bucket,
                 allocated_capital=allocated_capital,
                 target_allocation=initial_allocation,
@@ -2088,20 +2134,30 @@ class StrategyOrchestrator:
                 performance_score=0.5,  # Neutral starting score
                 risk_score=0.5,
                 health_score=1.0,
-                last_rebalance=datetime.now(timezone.utc)
+                last_rebalance=datetime.now(UTC)
             )
 
             # Add to active strategies AND allocation map under the same lock (B3/v15 + C1/v18).
             late_registration_error: ValueError | None = None
             with self._strategies_lock:
                 current_active = len(self.active_strategies)
-                if current_active >= self.max_concurrent_strategies:
+                overlay_registration_allowed = self._allows_overlay_strategy_registration_locked(
+                    strategy_type=strategy_type,
+                    horizon_bucket=horizon_bucket,
+                )
+                if (
+                    current_active >= self.max_concurrent_strategies
+                    and not overlay_registration_allowed
+                ):
                     late_registration_error = ValueError(
                         f"Concurrent strategy limit reached: {current_active}/{self.max_concurrent_strategies}"
                     )
                 else:
                     active_bucket_counts = self._get_active_horizon_bucket_counts_locked()
-                    if active_bucket_counts.get(horizon_bucket, 0) >= 1:
+                    if (
+                        active_bucket_counts.get(horizon_bucket, 0) >= 1
+                        and not overlay_registration_allowed
+                    ):
                         late_registration_error = ValueError(
                             "Horizon-bucket already occupied: "
                             f"{horizon_bucket}"
@@ -2112,6 +2168,7 @@ class StrategyOrchestrator:
                         if (
                             would_add_new_bucket
                             and len(active_buckets) >= self.max_active_horizon_buckets
+                            and not overlay_registration_allowed
                         ):
                             late_registration_error = ValueError(
                                 "Horizon-bucket limit reached: "
@@ -2441,6 +2498,8 @@ class StrategyOrchestrator:
                 or self._initial_strategy_activation_running
             ):
                 return
+            if self._is_waiting_for_deferred_paper_regime_engine():
+                return
             self._initial_strategy_activation_running = True
 
         try:
@@ -2530,12 +2589,12 @@ class StrategyOrchestrator:
                         allocation = self.strategy_allocations[strategy_id]
                         allocation.current_allocation = new_allocation
                         allocation.allocated_capital = new_allocation * total_capital
-                        allocation.last_rebalance = datetime.now(timezone.utc)
-                        allocation.allocation_history.append((datetime.now(timezone.utc), new_allocation))
+                        allocation.last_rebalance = datetime.now(UTC)
+                        allocation.allocation_history.append((datetime.now(UTC), new_allocation))
 
             # Record rebalance event
             rebalance_event = RebalanceEvent(
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 reason=reason,
                 previous_allocations=previous_allocations,
                 new_allocations=new_allocations,
@@ -2545,7 +2604,7 @@ class StrategyOrchestrator:
             )
 
             self.rebalance_history.append(rebalance_event)
-            self.last_rebalance = datetime.now(timezone.utc)
+            self.last_rebalance = datetime.now(UTC)
 
             # Update portfolio metrics
             self._update_portfolio_metrics()
@@ -2559,7 +2618,7 @@ class StrategyOrchestrator:
             self.logger.error("❌ Rebalancing execution failed: %s", e, exc_info=True)
             return False
 
-    def _get_risk_profile_for_strategy(self, strategy_class: type) -> "RiskProfile":  # noqa: F821
+    def _get_risk_profile_for_strategy(self, strategy_class: type) -> RiskProfile:  # noqa: F821
         """Return a RiskProfile sized to this strategy's capital slice."""
         from SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile  # lazy to avoid circular
         # Fraction of base_capital for a single strategy slot
@@ -2589,6 +2648,15 @@ class StrategyOrchestrator:
         raw = str((config or {}).get("horizon_bucket", "")).strip().lower()
         if raw in {"ultra_short", "short", "swing"}:
             return raw
+
+        normalized_name = strategy_name
+        for suffix in ("Strategy", "Spyder", "D"):
+            if normalized_name.endswith(suffix):
+                normalized_name = normalized_name[: -len(suffix)]
+
+        strategy_type_normalized = self._normalise_strategy_type_for_entry_gate(normalized_name)
+        if strategy_type_normalized == "pivot_mean_reversion":
+            return "ultra_short"
 
         name = strategy_name.lower()
         if "zerodte" in name or "0dte" in name:
@@ -2628,6 +2696,44 @@ class StrategyOrchestrator:
             bucket = self._infer_horizon_bucket_from_allocation(alloc)
             counts[bucket] = counts.get(bucket, 0) + 1
         return counts
+
+    def _allows_overlay_strategy_registration_locked(
+        self,
+        *,
+        strategy_type: str,
+        horizon_bucket: str,
+    ) -> bool:
+        """Return True when D31 may admit the ODTE overlay allocation exception.
+
+        Must be called while ``self._strategies_lock`` is held.
+        """
+        if not self._overlay_slot_flag_enabled():
+            return False
+
+        # Fail closed if operators widened the baseline contract out-of-band.
+        if self.max_concurrent_strategies != MAX_CONCURRENT_STRATEGIES:
+            return False
+        if self.max_active_horizon_buckets != MAX_ACTIVE_HORIZON_BUCKETS:
+            return False
+
+        strategy_type_normalized = self._normalise_strategy_type_for_entry_gate(strategy_type)
+        if strategy_type_normalized != "pivot_mean_reversion":
+            return False
+
+        if horizon_bucket != "ultra_short":
+            return False
+
+        if len(self.active_strategies) != MAX_CONCURRENT_STRATEGIES:
+            return False
+
+        for alloc in self.strategy_allocations.values():
+            active_strategy_type = self._normalise_strategy_type_for_entry_gate(
+                getattr(alloc, "strategy_type", "")
+            )
+            if active_strategy_type == "pivot_mean_reversion":
+                return False
+
+        return True
 
     def _calculate_optimal_allocation(self, strategy_name: str) -> float:
         """Return an initial capital fraction for a single new strategy.
@@ -2928,12 +3034,12 @@ class StrategyOrchestrator:
             regime_changed = new_regime != self.market_regime.current_regime
 
             if regime_changed:
-                self.market_regime.last_regime_change = datetime.now(timezone.utc)
+                self.market_regime.last_regime_change = datetime.now(UTC)
                 self.market_regime.regime_duration_days = 0
-                self.market_regime.regime_history.append((datetime.now(timezone.utc), new_regime))
+                self.market_regime.regime_history.append((datetime.now(UTC), new_regime))
             else:
                 # Update duration
-                days_since_change = (datetime.now(timezone.utc) - self.market_regime.last_regime_change).days
+                days_since_change = (datetime.now(UTC) - self.market_regime.last_regime_change).days
                 self.market_regime.regime_duration_days = days_since_change
 
             self.market_regime.current_regime = new_regime
@@ -2959,7 +3065,7 @@ class StrategyOrchestrator:
         vix_level: float,
         vix_percentile: float,
         trend_strength: float,
-    ) -> "MarketRegime":
+    ) -> MarketRegime:
         """Classify regime via L09 UnifiedRegimeEngine when injected; else inline heuristic."""
         self._last_l09_confidence = 0.0
         self._last_l09_consensus = None
@@ -3095,7 +3201,7 @@ class StrategyOrchestrator:
                     event_state = str(event_clock.get("state", "clear"))
 
                 conditions = _L09Cond(
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                     spy_price=spy_price,
                     spy_change_pct=spy_change_pct,
                     volume_ratio=1.0,
@@ -3123,7 +3229,7 @@ class StrategyOrchestrator:
                 # its classification is too ambiguous to override the heuristic path.
                 _L09_CONFIDENCE_THRESHOLD = 0.70
                 if consensus.confidence < _L09_CONFIDENCE_THRESHOLD:
-                    self.logger.info(
+                    self.logger.debug(
                         "📊 L09 conf %.2f < %.2f threshold — deferring to heuristic classifier "
                         "(L09 said %s)",
                         consensus.confidence,
@@ -3155,9 +3261,119 @@ class StrategyOrchestrator:
 
     def _classify_market_regime(self, vix_level: float, vix_percentile: float, trend_strength: float) -> MarketRegime:  # noqa: E501
         """Classify current market regime"""
-        # Simplified regime classification
+        def _ema(values: list[float], period: int) -> float:
+            if len(values) < period:
+                return float("nan")
+            alpha = 2.0 / (period + 1.0)
+            ema_val = values[-period]
+            for val in values[-period + 1:]:
+                ema_val = alpha * val + (1.0 - alpha) * ema_val
+            return ema_val
+
+        def _last_close(series: list[dict[str, Any]]) -> float:
+            for item in reversed(series):
+                if isinstance(item, dict):
+                    value = item.get("close") or item.get("price") or item.get("last")
+                    numeric = self._coerce_float(value)
+                    if numeric is not None:
+                        return float(numeric)
+            return float("nan")
+
         is_high_vol = vix_level > VIX_REGIME_THRESHOLDS['high']
         is_crisis = vix_level > VIX_REGIME_THRESHOLDS['extreme']
+
+        event_clock = self.market_data_cache.get("event_clock_state")
+        event_state = "clear"
+        if isinstance(event_clock, dict):
+            event_state = str(event_clock.get("state", "clear")).strip().lower()
+        if event_state in {"pre", "live", "post"}:
+            return MarketRegime.EVENT_TRANSITION
+
+        spy_ticks = self.market_data_cache.get("SPY", [])
+        spy_closes = [
+            self._coerce_float(t.get("close", t.get("price")))
+            for t in spy_ticks
+            if isinstance(t, dict)
+        ]
+        spy_closes = [float(c) for c in spy_closes if c is not None]
+        spy_price = spy_closes[-1] if spy_closes else float("nan")
+        spy_ema50 = _ema(spy_closes, 50)
+
+        atr = float("nan")
+        atr_pct = float("nan")
+        highs = [self._coerce_float(t.get("high")) for t in spy_ticks if isinstance(t, dict)]
+        lows = [self._coerce_float(t.get("low")) for t in spy_ticks if isinstance(t, dict)]
+        highs = [float(v) for v in highs if v is not None]
+        lows = [float(v) for v in lows if v is not None]
+        if highs and lows and len(highs) == len(lows) and len(spy_closes) >= 2:
+            tr_values: list[float] = []
+            for idx in range(1, min(len(highs), len(lows), len(spy_closes))):
+                high = highs[idx]
+                low = lows[idx]
+                prev_close = spy_closes[idx - 1]
+                tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+                tr_values.append(tr)
+            if tr_values:
+                atr = sum(tr_values[-14:]) / min(len(tr_values), 14)
+        elif len(spy_closes) >= 2:
+            diffs = [abs(spy_closes[i] - spy_closes[i - 1]) for i in range(1, len(spy_closes))]
+            if diffs:
+                atr = sum(diffs[-14:]) / min(len(diffs), 14)
+
+        if isinstance(atr, (int, float)) and atr > 0 and spy_price > 0:
+            atr_pct = atr / spy_price
+
+        vix_ticks = self.market_data_cache.get("VIX", []) or self.market_data_cache.get("^VIX", [])
+        vix_values = [
+            self._coerce_float(t.get("close", t.get("price", 0.0)))
+            for t in vix_ticks
+            if isinstance(t, dict)
+        ]
+        vix_values = [float(v) for v in vix_values if v is not None]
+        vix_ema50 = _ema(vix_values, 50)
+
+        vix9d = _last_close(self.market_data_cache.get("VIX9D", []) or self.market_data_cache.get("^VIX9D", []))
+        vxv = _last_close(self.market_data_cache.get("VXV", []) or self.market_data_cache.get("^VXV", []))
+
+        spy_change_pct = 0.0
+        if len(spy_closes) >= 2 and spy_closes[0] != 0:
+            spy_change_pct = (spy_closes[-1] - spy_closes[0]) / spy_closes[0] * 100.0
+
+        if (
+            (not math.isnan(vix9d) and vix9d > vix_level)
+            or is_crisis
+            or (spy_change_pct <= -1.25 and trend_strength < 0 and vix_level >= 4.0)
+        ):
+            return MarketRegime.CRISIS
+
+        if not math.isnan(spy_price) and not math.isnan(spy_ema50) and not math.isnan(vix_ema50):
+            if spy_price > spy_ema50 and vix_level < vix_ema50:
+                return MarketRegime.BULL_HIGH_VOL if is_high_vol else MarketRegime.BULL_LOW_VOL
+            if spy_price < spy_ema50 and vix_level > vix_ema50:
+                return MarketRegime.BEAR_HIGH_VOL if is_high_vol else MarketRegime.BEAR_LOW_VOL
+
+        term_structure_ok = False
+        if not math.isnan(vix9d):
+            term_structure_ok = vix9d <= vix_level
+        elif not math.isnan(vxv):
+            term_structure_ok = vix_level <= vxv
+
+        if (
+            not math.isnan(spy_price)
+            and not math.isnan(spy_ema50)
+            and not math.isnan(atr)
+            and abs(spy_price - spy_ema50) <= atr
+            and term_structure_ok
+        ):
+            return MarketRegime.SIDEWAYS_LOW_VOL
+
+        if (
+            not math.isnan(atr_pct)
+            and atr_pct >= 0.015
+            and (vix_percentile >= 80.0 or vix_level >= 25.0)
+        ):
+            return MarketRegime.SIDEWAYS_HIGH_VOL
+
         is_trending_up = trend_strength > 0.3
         is_trending_down = trend_strength < -0.3
 
@@ -3240,7 +3456,7 @@ class StrategyOrchestrator:
 
         try:
             self._d30_selector = selector_cls()
-            self.logger.info("D31 wired with D30 RegimeGatedSelector")
+            self.logger.debug("D31 wired with D30 RegimeGatedSelector")
         except Exception as exc:
             self.logger.warning(
                 "D31 could not initialize D30 RegimeGatedSelector: %s",
@@ -3285,7 +3501,7 @@ class StrategyOrchestrator:
         return SimpleNamespace(
             regime=l09_regime,
             confidence=float(getattr(self.market_regime, "regime_confidence", 0.0) or 0.0),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         )
 
     def _get_cached_pivot_signal_for_selector(self) -> dict[str, Any] | None:
@@ -3359,6 +3575,26 @@ class StrategyOrchestrator:
 
         return None
 
+    def _paper_fail_closed_selector_reason(
+        self,
+        strategy_name: str | None,
+        selector_reason: str,
+    ) -> str | None:
+        """Return a fail-closed reason for untyped paper IronCondor selection."""
+        if self._is_live_mode() or strategy_name != "IronCondor":
+            return None
+
+        normalized_reason = str(selector_reason or "").strip().lower()
+        # Only block truly untyped fallbacks (D31 plain fallback and D30's
+        # untyped neutral-posture else-branch).  D30 regime-named fallback
+        # paths such as "Range/calm fallback regime — Iron Condor" are typed
+        # selections and must NOT be blocked.
+        _UNTYPED_FALLBACK_TOKENS = ("fallback_lean_mapping", "fallback neutral posture")
+        if any(token in normalized_reason for token in _UNTYPED_FALLBACK_TOKENS):
+            return f"untyped_selector_iron_condor:{selector_reason or 'fallback_lean_mapping'}"
+
+        return None
+
     def _select_strategy_name_for_regime(self) -> tuple[str | None, str]:
         """Resolve the current lean strategy via D30, with deterministic fallback."""
         self._last_selector_feature_flag = None
@@ -3375,11 +3611,29 @@ class StrategyOrchestrator:
                 strategy_value = getattr(getattr(selection, "selected_strategy", None), "value", None)
                 strategy_name = self._map_selector_strategy_to_registry_name(strategy_value)
                 reason = str(getattr(selection, "reason", strategy_value or "selector_result"))
+                fail_closed_reason = self._paper_fail_closed_selector_reason(strategy_name, reason)
+                if fail_closed_reason is not None:
+                    self.logger.warning(
+                        "D31 paper selector fail-closed: blocking %s due to %s",
+                        strategy_name,
+                        reason,
+                    )
+                    return None, f"paper_fail_closed:{fail_closed_reason}"
                 return strategy_name, reason
             except Exception as exc:
                 self.logger.warning("D31 selector execution failed; using fallback map: %s", exc)
 
         fallback_name = self._fallback_lean_strategy_name()
+        fail_closed_reason = self._paper_fail_closed_selector_reason(
+            fallback_name,
+            "fallback_lean_mapping",
+        )
+        if fail_closed_reason is not None:
+            self.logger.warning(
+                "D31 paper selector fail-closed: blocking %s due to fallback lean mapping",
+                fallback_name,
+            )
+            return None, f"paper_fail_closed:{fail_closed_reason}"
         return fallback_name, "fallback_lean_mapping"
 
     def _get_regime_strategy_weights(self) -> dict[str, float]:
@@ -3569,7 +3823,7 @@ class StrategyOrchestrator:
                         self.base_capital * fraction
                     )
 
-            self.last_rebalance = datetime.now(timezone.utc)
+            self.last_rebalance = datetime.now(UTC)
             self._update_portfolio_metrics()
             self.logger.debug("  ✅ Initial allocation complete for %d strategies", len(allocations))
 
@@ -3753,7 +4007,7 @@ class StrategyOrchestrator:
         """Snapshot current portfolio metrics into the rolling performance history."""
         try:
             snapshot = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "total_pnl": self.portfolio_metrics.total_pnl,
                 "daily_pnl": self.portfolio_metrics.daily_pnl,
                 "active_strategies": len(self.active_strategies),
@@ -3846,7 +4100,7 @@ class StrategyOrchestrator:
         else:
             self.available_strategies = {}
 
-        self.logger.info("📋 Registered %s strategy types", len(self.available_strategies))
+        self.logger.debug("📋 Registered %s strategy types", len(self.available_strategies))
 
     def _setup_event_subscriptions(self):
         """Setup event system subscriptions"""
@@ -3928,7 +4182,7 @@ class StrategyOrchestrator:
                             f"exceeds limit {CONCENTRATION_LIMIT:.1%}"
                         ),
                         resolution_action="Reduce allocation across concentrated strategies",
-                        detected_at=datetime.now(timezone.utc),
+                        detected_at=datetime.now(UTC),
                     )
                 )
         except Exception as e:
@@ -3965,7 +4219,7 @@ class StrategyOrchestrator:
                         f"Strategies share {len(overlap)} position key(s): {overlap_preview}"
                     ),
                     resolution_action="Pause one strategy or net overlapping exposure",
-                    detected_at=datetime.now(timezone.utc),
+                    detected_at=datetime.now(UTC),
                 )
 
             # Same-type overlap: medium severity concentration warning.
@@ -3980,7 +4234,7 @@ class StrategyOrchestrator:
                     severity="medium",
                     description=f"Multiple active strategies share type '{type_1}'",
                     resolution_action="Rebalance allocation across similar strategy types",
-                    detected_at=datetime.now(timezone.utc),
+                    detected_at=datetime.now(UTC),
                 )
 
         except Exception as e:
@@ -4083,7 +4337,7 @@ class StrategyOrchestrator:
                 or original_signal.get("type")
                 or "unknown"
             )
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
 
             if approved:
                 self._y02_advisory[strategy_type] = {
@@ -4422,7 +4676,7 @@ class StrategyOrchestrator:
                 )
                 self.market_regime.current_regime = new_regime
                 self.market_regime.regime_confidence = confidence
-                self.market_regime.last_regime_change = datetime.now(timezone.utc)
+                self.market_regime.last_regime_change = datetime.now(UTC)
                 self.market_regime.regime_duration_days = 0
 
             # Re-run strategy selection for the updated regime
@@ -4522,7 +4776,7 @@ class StrategyOrchestrator:
                 type(data).__name__,
             )
             return
-        self.last_market_update = datetime.now(timezone.utc)
+        self.last_market_update = datetime.now(UTC)
         try:
             self._emit_pin_risk_window_events()
         except Exception as _pin_exc:
@@ -4712,10 +4966,24 @@ class StrategyOrchestrator:
                     detail=gate_detail,
                 )
                 if gate_reason == "session_window_gate":
-                    self.logger.warning(
-                        "Strategy signal rejected by session window gate: %s",
-                        gate_detail,
+                    # outside_primary_window / weekend_block are expected after-hours
+                    # states and are already captured in the drop audit; only log
+                    # at WARNING for intraday cutoff cases (zero_dte, broker_cutoff)
+                    # that operators may want to investigate during live sessions.
+                    _after_hours_detail = gate_detail in (
+                        "session_window:outside_primary_window",
+                        "session_window:weekend_block",
                     )
+                    if _after_hours_detail:
+                        self.logger.debug(
+                            "Strategy signal skipped — outside trading session: %s",
+                            gate_detail,
+                        )
+                    else:
+                        self.logger.warning(
+                            "Strategy signal rejected by session window gate: %s",
+                            gate_detail,
+                        )
                     self._emit_event_safe(
                         EventType.RISK,
                         {
@@ -4820,6 +5088,103 @@ class StrategyOrchestrator:
             self._record_signal_drop("pre_risk", "rvr_build_failed", signal=signal)
             return
 
+        risk_request.metadata.update(self._build_overlay_gate_metadata(_sig))
+
+        overlay_slot_requested = bool(risk_request.metadata.get("overlay_slot_requested", False))
+        if overlay_slot_requested:
+            if not hasattr(risk_manager, "validate_overlay_slot"):
+                self.logger.warning(
+                    "Strategy signal rejected by overlay gate: reason=%s | %s | signal=%s",
+                    "unavailable",
+                    pivot_context,
+                    signal,
+                )
+                self._record_signal_drop(
+                    "pre_risk",
+                    "overlay_gate:unavailable",
+                    signal=signal,
+                    detail="validate_overlay_slot unavailable",
+                )
+                return
+
+            try:
+                overlay_result = risk_manager.validate_overlay_slot(risk_request)
+            except Exception as exc:
+                self.logger.error("Risk validate_overlay_slot raised: %s", exc, exc_info=True)
+                self._record_signal_drop(
+                    "pre_risk",
+                    "overlay_gate:exception",
+                    signal=signal,
+                    detail=str(exc),
+                )
+                return
+
+            overlay_approved = True
+            overlay_reason = ""
+            overlay_values: dict[str, Any] = {}
+            if isinstance(overlay_result, dict):
+                overlay_approved = bool(
+                    overlay_result.get("allow", overlay_result.get("approved", overlay_result.get("valid", True)))
+                )
+                overlay_reason = str(
+                    overlay_result.get("reason_code") or overlay_result.get("reason") or "unknown"
+                )
+                if isinstance(overlay_result.get("computed_values"), dict):
+                    overlay_values = dict(overlay_result.get("computed_values") or {})
+            elif hasattr(overlay_result, "allow"):
+                overlay_approved = bool(overlay_result.allow)
+                overlay_reason_code = overlay_result.reason_code if hasattr(overlay_result, "reason_code") else ""
+                overlay_reason = str(overlay_reason_code or "unknown")
+                overlay_computed_values = (
+                    overlay_result.computed_values if hasattr(overlay_result, "computed_values") else None
+                )
+                if isinstance(overlay_computed_values, dict):
+                    overlay_values = dict(overlay_computed_values or {})
+            elif isinstance(overlay_result, bool):
+                overlay_approved = overlay_result
+                overlay_reason = "unknown" if not overlay_result else "admitted"
+
+            if not overlay_approved:
+                strategy_id = signal.get("strategy_id", "unknown") if isinstance(signal, dict) else "unknown"
+                overlay_detail = overlay_reason
+                missing_inputs = overlay_values.get("missing_inputs")
+                if isinstance(missing_inputs, list) and missing_inputs:
+                    overlay_detail = "missing_inputs=" + ",".join(str(item) for item in missing_inputs)
+                self.logger.warning(
+                    "Strategy signal rejected by overlay gate: reason=%s | %s | signal=%s",
+                    overlay_reason,
+                    pivot_context,
+                    signal,
+                )
+                _record_risk_rejection_metric(
+                    strategy=strategy_id,
+                    rejection_reason=f"overlay_gate:{overlay_reason}",
+                )
+                try:
+                    risk_alert_type = (
+                        getattr(EventType, "RISK_ALERT", None)
+                        or getattr(EventType, "RISK", None)
+                        or "RISK_ALERT"
+                    )
+                    self.event_manager.publish(
+                        risk_alert_type,
+                        {
+                            "severity": "warning",
+                            "reason": "validate_overlay_slot_rejected",
+                            "overlay_reason": overlay_reason,
+                            "signal": signal,
+                        },
+                    )
+                except Exception:
+                    pass
+                self._record_signal_drop(
+                    "pre_risk",
+                    f"overlay_gate:{overlay_reason}",
+                    signal=signal,
+                    detail=overlay_detail,
+                )
+                return
+
         try:
             result = risk_manager.validate_signal(risk_request)
         except Exception as exc:
@@ -4870,35 +5235,56 @@ class StrategyOrchestrator:
             strategy_id = signal.get("strategy_id", signal.get("strategy_name", ""))
             side = signal.get("action", signal.get("side", "buy"))
             symbol = str(signal.get("symbol") or "")
-            if self._has_duplicate_open_position(symbol, strategy_id, side):
-                self.logger.warning(
-                    "Strategy signal blocked — existing or in-flight entry already active: symbol=%s strategy=%s | %s",
+            duplicate_source = self._get_duplicate_open_position_source(
+                symbol,
+                strategy_id,
+                side,
+            )
+            if duplicate_source is not None:
+                duplicate_detail = (
+                    f"symbol={symbol};strategy={strategy_id};duplicate_source={duplicate_source}"
+                )
+                self._log_duplicate_entry_warning_if_due(
                     symbol,
                     strategy_id,
                     pivot_context,
+                    stage="pre_dispatch",
                 )
                 self._record_signal_drop(
                     "pre_dispatch",
                     "duplicate_open_position",
                     signal=signal,
-                    detail=f"symbol={symbol};strategy={strategy_id}",
+                    detail=duplicate_detail,
                 )
-                self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+                self._record_signal_dispatch_outcome_safe(
+                    "dispatch_rejected",
+                    signal=signal,
+                    detail=duplicate_detail,
+                )
                 return
+            self._clear_duplicate_entry_warning_state(symbol, strategy_id)
             if self._is_entry_action(side) and not self._reserve_pending_entry(symbol, strategy_id):
-                self.logger.warning(
-                    "Strategy signal blocked — existing or in-flight entry already active: symbol=%s strategy=%s | %s",
+                duplicate_detail = (
+                    f"symbol={symbol};strategy={strategy_id};"
+                    "duplicate_source=pending_entry_reservation"
+                )
+                self._log_duplicate_entry_warning_if_due(
                     symbol,
                     strategy_id,
                     pivot_context,
+                    stage="pre_dispatch",
                 )
                 self._record_signal_drop(
                     "pre_dispatch",
                     "duplicate_open_position",
                     signal=signal,
-                    detail=f"symbol={symbol};strategy={strategy_id}",
+                    detail=duplicate_detail,
                 )
-                self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+                self._record_signal_dispatch_outcome_safe(
+                    "dispatch_rejected",
+                    signal=signal,
+                    detail=duplicate_detail,
+                )
                 return
 
         if approved:
@@ -4973,8 +5359,96 @@ class StrategyOrchestrator:
             "bull_put_spread": "bull_put_credit_spread",
             "bear_call_spread": "bear_call_credit_spread",
             "iron_condor": "iron_condor_defined_risk",
+            "pivotmeanreversion": "pivot_mean_reversion",
+            "pivot_mr": "pivot_mean_reversion",
+            "d34_pivotmr": "pivot_mean_reversion",
         }
         return aliases.get(normalized, normalized)
+
+    @staticmethod
+    def _overlay_slot_flag_enabled() -> bool:
+        """Return True when the optional ODTE overlay flag is enabled."""
+        return str(os.environ.get("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _build_overlay_gate_metadata(self, signal: dict[str, Any]) -> dict[str, Any]:
+        """Build overlay-gate metadata for the D31 -> E01 risk request."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        strategy_type_value = (
+            signal.get("strategy_type")
+            or metadata.get("strategy_type")
+            or signal.get("strategy_id")
+            or metadata.get("strategy_id")
+            or ""
+        )
+        strategy_type_normalized = self._normalise_strategy_type_for_entry_gate(strategy_type_value)
+
+        with self._strategies_lock:
+            active_strategy_count = len(self.active_strategies)
+
+        execution_quality = signal.get("execution_quality")
+        if not isinstance(execution_quality, dict):
+            execution_quality = (
+                metadata.get("execution_quality")
+                if isinstance(metadata.get("execution_quality"), dict)
+                else {}
+            )
+
+        projected_post_trade_greeks = signal.get("projected_post_trade_greeks")
+        if not isinstance(projected_post_trade_greeks, dict):
+            projected_post_trade_greeks = (
+                metadata.get("projected_post_trade_greeks")
+                if isinstance(metadata.get("projected_post_trade_greeks"), dict)
+                else {}
+            )
+
+        event_clock_state = signal.get("event_clock_state")
+        if event_clock_state is None:
+            event_clock_state = metadata.get("event_clock_state")
+
+        event_window_blocked = signal.get("event_window_blocked", metadata.get("event_window_blocked"))
+        if event_window_blocked is None and isinstance(event_clock_state, dict):
+            event_state = str(event_clock_state.get("state", "clear")).strip().lower()
+            if event_state:
+                event_window_blocked = event_state != "clear"
+
+        overlay_gate_missing_inputs = signal.get("overlay_gate_missing_inputs")
+        if not isinstance(overlay_gate_missing_inputs, list):
+            overlay_gate_missing_inputs = (
+                metadata.get("overlay_gate_missing_inputs")
+                if isinstance(metadata.get("overlay_gate_missing_inputs"), list)
+                else []
+            )
+
+        overlay_slot_requested = (
+            self._overlay_slot_flag_enabled()
+            and strategy_type_normalized == "pivot_mean_reversion"
+            and active_strategy_count >= self.max_concurrent_strategies
+        )
+
+        overlay_metadata: dict[str, Any] = {
+            "strategy_type_normalized": strategy_type_normalized,
+            "active_strategy_count": active_strategy_count,
+            "overlay_slot_requested": overlay_slot_requested,
+            "is_overlay_slot": overlay_slot_requested,
+            "daily_risk_used_fraction": signal.get(
+                "daily_risk_used_fraction",
+                metadata.get("daily_risk_used_fraction"),
+            ),
+            "projected_post_trade_greeks": projected_post_trade_greeks,
+            "execution_quality": execution_quality,
+            "event_window_blocked": event_window_blocked,
+            "event_clock_state": event_clock_state,
+            "overlay_gate_missing_inputs": overlay_gate_missing_inputs,
+        }
+        if strategy_type_normalized == "pivot_mean_reversion":
+            overlay_metadata["strategy_type"] = strategy_type_normalized
+
+        return overlay_metadata
 
     def _strategy_policy_match_tokens(self, strategy_name: Any) -> set[str]:
         """Build normalized tokens for regime policy strategy allow/block matching."""
@@ -5018,6 +5492,9 @@ class StrategyOrchestrator:
     def _passes_entry_trust_gate(self, signal: Any) -> tuple[bool, str]:
         """Apply F09 structural trust filters and regime policy gate."""
         if not isinstance(signal, dict):
+            return True, ""
+
+        if self._is_closing_trade_signal(signal):
             return True, ""
 
         entry_gate = self._get_entry_filter_gate()
@@ -5108,6 +5585,17 @@ class StrategyOrchestrator:
         if not session_gate_ok:
             return False, "pre_risk", "session_window_gate", session_gate_reason
 
+        if (
+            self._is_opening_trade_signal(signal)
+            and self._is_waiting_for_deferred_paper_regime_engine()
+        ):
+            return (
+                False,
+                "pre_risk",
+                "paper_startup_regime_wait",
+                "paper_startup:waiting_for_l09_regime_engine",
+            )
+
         market_gate_ok, market_gate_reason = self._passes_entry_trust_gate(signal)
         if not market_gate_ok:
             return False, "pre_risk", "entry_trust_gate", market_gate_reason
@@ -5163,8 +5651,8 @@ class StrategyOrchestrator:
         policy: dict[str, Any] = {
             "primary_start_et": "09:30",
             "primary_end_et": "16:15",
-            "first_entry_not_before_et": "09:35",
-            "zero_dte_no_new_risk_cutoff_et": "15:45",
+            "first_entry_not_before_et": "10:15",
+            "zero_dte_no_new_risk_cutoff_et": "14:30",
             "broker_cutoff_et": "16:00",
             "broker_cutoff_buffer_minutes": 10,
             "pin_risk_monitor_end_et": "17:30",
@@ -5269,7 +5757,35 @@ class StrategyOrchestrator:
 
         option_symbol = str(signal.get("option_symbol") or metadata.get("option_symbol") or "").strip()
         symbol = str(signal.get("symbol") or metadata.get("symbol") or "").strip()
-        has_option_hint = bool(option_symbol) or bool(re.search(r"[CP]\d{8}$", symbol))
+        strategy_candidates = (
+            signal.get("strategy_type"),
+            metadata.get("strategy_type"),
+            signal.get("strategy_id"),
+            metadata.get("strategy_id"),
+        )
+        normalized_candidates = {
+            self._normalise_strategy_type_for_entry_gate(candidate)
+            for candidate in strategy_candidates
+            if candidate
+        }
+        has_short_premium_strategy_hint = any(
+            candidate in {
+                "iron_condor_defined_risk",
+                "iron_butterfly",
+                "jade_lizard",
+                "credit_spread",
+                "evolved_credit_spread",
+                "bull_put_credit_spread",
+                "bear_call_credit_spread",
+            }
+            or candidate.endswith("_credit_spread")
+            for candidate in normalized_candidates
+        )
+        has_option_hint = (
+            bool(option_symbol)
+            or bool(re.search(r"[CP]\d{8}$", symbol))
+            or has_short_premium_strategy_hint
+        )
         return has_option_hint
 
     def _is_opening_trade_signal(self, signal: dict[str, Any]) -> bool:
@@ -5293,7 +5809,31 @@ class StrategyOrchestrator:
             "bot",
             "sld",
         }
+        if action == "sell" and self._is_short_option_entry(signal):
+            return True
         return action in opening_actions
+
+    def _is_closing_trade_signal(self, signal: dict[str, Any]) -> bool:
+        """Identify explicit close/reduce signals that should bypass entry-only gates."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        action = str(
+            signal.get("action")
+            or metadata.get("action")
+            or signal.get("side")
+            or metadata.get("side")
+            or ""
+        ).strip().lower()
+        return action in {
+            "close",
+            "exit",
+            "flatten",
+            "reduce",
+            "de_risk",
+            "buy_to_close",
+            "sell_to_close",
+            "btc",
+            "stc",
+        }
 
     def _is_zero_dte_signal(self, signal: dict[str, Any], now_et: datetime) -> bool:
         """Best-effort 0DTE detection from signal metadata."""
@@ -5317,6 +5857,9 @@ class StrategyOrchestrator:
 
     def _passes_session_window_gate(self, signal: dict[str, Any]) -> tuple[bool, str]:
         """Apply configured session window + 0DTE cutoff controls."""
+        if self._is_closing_trade_signal(signal):
+            return True, ""
+
         now_et = _d31_now_et()
         if now_et.weekday() >= 5:
             return False, "session_window:weekend_block"
@@ -5327,7 +5870,7 @@ class StrategyOrchestrator:
         if current_time < start_et or current_time >= end_et:
             return False, "session_window:outside_primary_window"
 
-        first_entry_not_before = self._session_time("first_entry_not_before_et", "09:35")
+        first_entry_not_before = self._session_time("first_entry_not_before_et", "10:15")
         if self._is_opening_trade_signal(signal) and current_time < first_entry_not_before:
             return False, "session_window:first_entry_embargo"
 
@@ -5336,7 +5879,7 @@ class StrategyOrchestrator:
             return False, "session_window:missing_broker_cutoff_live"
 
         if self._is_short_option_entry(signal) and self._is_zero_dte_signal(signal, now_et):
-            cutoff = self._session_time("zero_dte_no_new_risk_cutoff_et", "15:45")
+            cutoff = self._session_time("zero_dte_no_new_risk_cutoff_et", "14:30")
             if current_time >= cutoff:
                 return False, "session_window:zero_dte_short_cutoff"
 
@@ -5588,7 +6131,7 @@ class StrategyOrchestrator:
                 expiration_dt = datetime.combine(
                     now_et.date() + timedelta(days=max(int(dte_fallback), 0)),
                     datetime.min.time(),
-                    tzinfo=timezone.utc,
+                    tzinfo=UTC,
                 )
 
             dte_value = setup_payload.get("dte")
@@ -6041,7 +6584,16 @@ class StrategyOrchestrator:
         self._l09_engine = engine
         self._last_l09_confidence = 0.0
         self._last_l09_consensus = None
-        self.logger.info("UnifiedRegimeEngine attached to StrategyOrchestrator")
+        self._paper_startup_regime_engine_pending = False
+        self.logger.debug("UnifiedRegimeEngine attached to StrategyOrchestrator")
+        if self.orchestration_active and self._initial_strategy_activation_pending:
+            try:
+                self._run_initial_strategy_activation_if_pending()
+            except Exception as exc:
+                self.logger.warning(
+                    "Deferred initial strategy activation after L09 attach failed: %s",
+                    exc,
+                )
 
     def set_order_manager(self, manager: Any) -> None:
         """Wire an OrderManager so approved signals use mid-price walk execution.
@@ -6086,7 +6638,7 @@ class StrategyOrchestrator:
                      exposes ``validate_signal(request) -> RiskValidationResult``.
         """
         self.risk_manager = manager
-        self.logger.info(
+        self.logger.debug(
             "RiskManager wired to StrategyOrchestrator for signal pre-validation"
         )
 
@@ -6171,22 +6723,66 @@ class StrategyOrchestrator:
             for key in keys_to_drop:
                 self._pending_entry_reservations.pop(key, None)
 
-    def _has_duplicate_open_position(
+    def _clear_duplicate_entry_warning_state(self, symbol: Any, strategy_id: Any) -> None:
+        """Reset duplicate-entry warning throttle after the duplicate block clears."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return
+
+        normalized_strategy = str(strategy_id or "").strip().lower()
+        key = (normalized_symbol, normalized_strategy)
+        self._duplicate_entry_warning_last_monotonic.pop(key, None)
+
+    def _log_duplicate_entry_warning_if_due(
+        self,
+        symbol: Any,
+        strategy_id: Any,
+        pivot_context: str,
+        *,
+        stage: str,
+    ) -> None:
+        """Throttle repeated duplicate-entry warnings for the same symbol/strategy."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        normalized_strategy = str(strategy_id or "").strip().lower()
+        key = (normalized_symbol, normalized_strategy)
+        now_mono = time.monotonic()
+        last_mono = self._duplicate_entry_warning_last_monotonic.get(key, 0.0)
+        if (now_mono - last_mono) < self._duplicate_entry_warning_interval_s:
+            return
+
+        self._duplicate_entry_warning_last_monotonic[key] = now_mono
+        if stage == "dispatch":
+            self.logger.warning(
+                "Duplicate entry blocked — open position already active: symbol=%s strategy=%s | %s",
+                symbol,
+                strategy_id,
+                pivot_context,
+            )
+            return
+
+        self.logger.warning(
+            "Strategy signal blocked — existing or in-flight entry already active: symbol=%s strategy=%s | %s",
+            symbol,
+            strategy_id,
+            pivot_context,
+        )
+
+    def _get_duplicate_open_position_source(
         self,
         symbol: str,
         strategy_id: Any,
         side: Any,
         include_pending: bool = True,
-    ) -> bool:
-        """Return True when the live engine already holds the same open entry."""
+    ) -> str | None:
+        """Return the surface that is currently blocking a duplicate entry."""
         if not self._is_entry_action(side):
-            return False
+            return None
 
         if include_pending and self._has_pending_entry_reservation(symbol, strategy_id):
-            return True
+            return "pending_entry_reservation"
 
         if self._live_engine is None:
-            return False
+            return None
 
         try:
             if hasattr(self._live_engine, "get_active_positions_snapshot"):
@@ -6194,10 +6790,10 @@ class StrategyOrchestrator:
             else:
                 active_positions = getattr(self._live_engine, "active_positions", {})
         except Exception:
-            return False
+            return None
 
         if not isinstance(active_positions, dict):
-            return False
+            return None
 
         current_strategy = str(strategy_id or "").strip().lower()
 
@@ -6206,39 +6802,66 @@ class StrategyOrchestrator:
         if underlying_symbol and underlying_symbol not in lookup_symbols:
             lookup_symbols.append(underlying_symbol)
 
-        def _matches(existing_position: dict[str, Any], existing_symbol: str) -> bool:
+        def _match_source(existing_position: dict[str, Any], existing_symbol: str) -> str | None:
             try:
                 existing_qty = int(existing_position.get("quantity") or 0)
             except (TypeError, ValueError):
                 existing_qty = 0
             if existing_qty == 0:
-                return False
+                return None
 
             existing_strategy = str(existing_position.get("strategy") or "").strip().lower()
             if current_strategy and existing_strategy and existing_strategy != current_strategy:
-                return False
+                return None
 
             existing_underlying = self._extract_option_underlying(
                 existing_position.get("underlying_symbol")
                 or existing_position.get("symbol")
                 or existing_symbol
             )
-            return existing_symbol in lookup_symbols or existing_underlying in lookup_symbols
+            if existing_symbol not in lookup_symbols and existing_underlying not in lookup_symbols:
+                return None
+
+            position_source = str(existing_position.get("position_source") or "").strip().lower()
+            if position_source == "session_db_hydration":
+                return "persisted_carryover"
+            return "active_positions"
 
         for lookup_symbol in lookup_symbols:
             existing = active_positions.get(lookup_symbol)
-            if isinstance(existing, dict) and _matches(existing, lookup_symbol):
-                self._clear_pending_entry_reservations_for_symbol(symbol)
-                return True
+            if isinstance(existing, dict):
+                source = _match_source(existing, lookup_symbol)
+                if source is not None:
+                    self._clear_pending_entry_reservations_for_symbol(symbol)
+                    return source
 
         for existing_symbol, existing_position in active_positions.items():
             if not isinstance(existing_position, dict):
                 continue
-            if _matches(existing_position, str(existing_symbol)):
+            source = _match_source(existing_position, str(existing_symbol))
+            if source is not None:
                 self._clear_pending_entry_reservations_for_symbol(symbol)
-                return True
+                return source
 
-        return False
+        return None
+
+    def _has_duplicate_open_position(
+        self,
+        symbol: str,
+        strategy_id: Any,
+        side: Any,
+        include_pending: bool = True,
+    ) -> bool:
+        """Return True when the live engine already holds the same open entry."""
+        return (
+            self._get_duplicate_open_position_source(
+                symbol,
+                strategy_id,
+                side,
+                include_pending=include_pending,
+            )
+            is not None
+        )
 
     def _dispatch_approved_signal(self, signal: Any) -> None:
         """Convert a risk-approved strategy signal to an order and submit it.
@@ -6333,24 +6956,44 @@ class StrategyOrchestrator:
             option_symbol = str(_get("option_symbol", "") or "")
             is_paper_run = str(self._audit_run_mode or "").strip().lower() == "paper"
 
-            if self._has_duplicate_open_position(symbol, strategy_id, side, include_pending=False):
-                self.logger.warning(
-                    "Duplicate entry blocked — open position already active: symbol=%s strategy=%s | %s",
+            duplicate_source = self._get_duplicate_open_position_source(
+                symbol,
+                strategy_id,
+                side,
+                include_pending=False,
+            )
+            if duplicate_source is not None:
+                duplicate_detail = (
+                    f"symbol={symbol};strategy={strategy_id};duplicate_source={duplicate_source}"
+                )
+                self._log_duplicate_entry_warning_if_due(
                     symbol,
                     strategy_id,
                     pivot_context,
+                    stage="dispatch",
                 )
                 self._record_signal_drop(
                     "dispatch",
                     "duplicate_open_position",
                     signal=signal,
-                    detail=f"symbol={symbol};strategy={strategy_id}",
+                    detail=duplicate_detail,
                 )
-                self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+                self._record_signal_dispatch_outcome_safe(
+                    "dispatch_rejected",
+                    signal=signal,
+                    detail=duplicate_detail,
+                )
                 return
+            self._clear_duplicate_entry_warning_state(symbol, strategy_id)
 
             normalized_strategy_id = str(strategy_id or "").strip().lower().replace("-", "_")
-            if is_paper_run and "iron_condor" in normalized_strategy_id:
+            is_explicit_close_signal = self._is_closing_trade_signal(signal)
+            symbol_is_option_leg = bool(self._parse_occ_option_symbol(symbol))
+            if (
+                is_paper_run
+                and "iron_condor" in normalized_strategy_id
+                and not (is_explicit_close_signal and symbol_is_option_leg)
+            ):
                 self._dispatch_paper_iron_condor(
                     signal=signal,
                     raw_signal=raw_signal_payload,
@@ -6500,8 +7143,15 @@ class StrategyOrchestrator:
 
     def _should_rebalance(self) -> bool:
         """Check if portfolio rebalancing is needed"""
+        # Never rebalance outside regular market hours (Mon–Fri 09:30–16:00 ET)
+        now_et = _d31_now_et()
+        if now_et.weekday() >= 5:  # Saturday or Sunday
+            return False
+        t = now_et.time()
+        if not (dt_time(9, 30) <= t <= dt_time(16, 0)):
+            return False
         # Time-based rebalancing
-        time_since_rebalance = datetime.now(timezone.utc) - self.last_rebalance
+        time_since_rebalance = datetime.now(UTC) - self.last_rebalance
         # Performance-driven rebalancing
         # (Implementation would check allocation drift, performance changes, etc.)
         return time_since_rebalance > timedelta(minutes=REBALANCE_FREQUENCY_MINUTES)
@@ -6509,7 +7159,7 @@ class StrategyOrchestrator:
     def _determine_rebalance_reason(self) -> RebalanceReason:
         """Determine the reason for rebalancing"""
         # Simplified logic - would be more sophisticated in practice
-        time_since_rebalance = datetime.now(timezone.utc) - self.last_rebalance
+        time_since_rebalance = datetime.now(UTC) - self.last_rebalance
         if time_since_rebalance > timedelta(minutes=REBALANCE_FREQUENCY_MINUTES):
             return RebalanceReason.SCHEDULED
 
@@ -7162,7 +7812,7 @@ class StrategyOrchestratorDashboard(_DASHBOARD_BASE):
             self.update_allocation_chart()
 
             # Update status bar
-            self.last_update_label.setText(f"Updated: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
+            self.last_update_label.setText(f"Updated: {datetime.now(UTC).strftime('%H:%M:%S')}")
 
         except Exception as e:
             self.logger.error("Error updating dashboard: %s", e, exc_info=True)

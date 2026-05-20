@@ -1,0 +1,100 @@
+-        self.data_updated.emit(data_copy)
+-
+-    def _update_simulation_data(self, data: dict):
+-        """Update simulation data with realistic market movements"""
+-        if not is_market_hours():
++        if not data_copy:
+@@ -1591,17 +1592 @@ class ThreadSafeMarketDataWorker(QObject):
+-        current_time = datetime.now(UTC)
+-
+-        for symbol, market_info in data.items():
+-            if symbol not in ["GEX", "DEX", "OGL", "DIX", "SWAN"]:
+-                old_price = market_info["last"]
+-                change = random.uniform(-0.5, 0.5)
+-                new_price = old_price + change
+-                change_pct = (change / old_price * 100) if old_price != 0 else 0
+-
+-                market_info.update(
+-                    {
+-                        "last": new_price,
+-                        "change": change,
+-                        "change_pct": change_pct,
+-                        "timestamp": current_time,
+-                    },
+-                )
++        self.data_updated.emit(data_copy)
+@@ -1609,2 +1594,3 @@ class ThreadSafeMarketDataWorker(QObject):
+-            with QMutexLocker(self.data_mutex):
+-                self.last_data_update[symbol] = current_time
++    def _update_simulation_data(self, data: dict):
++        """Legacy no-op: synthetic quote generation is disabled."""
++        return
+--- DIFF FOR Spyder/SpyderG_GUI/SpyderG20_DashboardBuilder.py ---
+diff --git a/Spyder/SpyderG_GUI/SpyderG20_DashboardBuilder.py b/Spyder/SpyderG_GUI/SpyderG20_DashboardBuilder.py
+index 1867e48..55bc4eb 100644
+--- a/Spyder/SpyderG_GUI/SpyderG20_DashboardBuilder.py
++++ b/Spyder/SpyderG_GUI/SpyderG20_DashboardBuilder.py
+@@ -362 +362 @@ def build_center_panel(dashboard: Any) -> QWidget:
+-    layout.addWidget(dashboard.chart_widget, 2)
++    layout.addWidget(dashboard.chart_widget, 3)
+@@ -366 +366 @@ def build_center_panel(dashboard: Any) -> QWidget:
+-    layout.addWidget(dashboard.chart_hidden_controls_panel, 2)
++    layout.addWidget(dashboard.chart_hidden_controls_panel, 4)
+@@ -433 +433 @@ def build_center_panel(dashboard: Any) -> QWidget:
+-    dashboard.positions_table.setMinimumHeight(200)
++    dashboard.positions_table.setMinimumHeight(228)
+@@ -446 +446 @@ def build_center_panel(dashboard: Any) -> QWidget:
+-    layout.addWidget(positions_group, 1)
++    layout.addWidget(positions_group, 4)
+@@ -1107 +1107 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
+-    columns = ["     LEG", "STRIKE", "CONT", "EXPIRY", "COST", "P&L", ""]
++    columns = ["     LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""]
+@@ -1130 +1130 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
+-                padding: 2px 4px;
++                padding: 1px 4px;
+@@ -1161,7 +1161,8 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
+-    tree.setColumnWidth(0, 100)
+-    tree.setColumnWidth(1, 80)
+-    tree.setColumnWidth(2, 45)
+-    tree.setColumnWidth(3, 65)
+-    tree.setColumnWidth(4, 90)
+-    tree.setColumnWidth(5, 90)
+-    tree.header().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
++    tree.setColumnWidth(0, 94)
++    tree.setColumnWidth(1, 68)
++    tree.setColumnWidth(2, 44)
++    tree.setColumnWidth(3, 60)
++    tree.setColumnWidth(4, 68)
++    tree.setColumnWidth(5, 60)
++    tree.setColumnWidth(6, 92)
++    tree.header().setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
+@@ -1619 +1620 @@ def build_toolbar(dashboard: Any) -> QWidget:
+-    # Data Status — clickable only in EOD/SIMULATED states
++    # Data Status — display-only; synthetic market-data fallback is disabled.
+@@ -1623 +1624 @@ def build_toolbar(dashboard: Any) -> QWidget:
+-    dashboard.data_status_container.setToolTip("Data is simulated — no live feed connected")
++    dashboard.data_status_container.setToolTip("No Tradier market snapshot is available yet")
+@@ -1628 +1629 @@ def build_toolbar(dashboard: Any) -> QWidget:
+-    dashboard.data_status_label = QLabel("SIMULATED")
++    dashboard.data_status_label = QLabel("NO DATA")
+@@ -1630 +1631 @@ def build_toolbar(dashboard: Any) -> QWidget:
+-        "color: " + COLORS["automation_active"] + "; font-size: 14px;",
++        "color: " + COLORS["negative"] + "; font-size: 14px;",
+@@ -1638 +1638,0 @@ def build_toolbar(dashboard: Any) -> QWidget:
+-    dashboard.data_status_container.mousePressEvent = dashboard._toggle_data_display
+--- DIFF FOR Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py ---
+diff --git a/Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py b/Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py
+index 51c5636..72c531b 100644
+--- a/Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py
++++ b/Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py
+@@ -287,0 +288,3 @@ class LiveEngine:
++        self._realized_pnl_total = 0.0
++        self._winning_trade_count = 0
++        self._losing_trade_count = 0
+@@ -655 +658,2 @@ class LiveEngine:
+-        if self._mode_name() != "paper" or not hasattr(db, "get_open_positions"):
++        get_open_positions = getattr(db, "get_open_positions", None)
++        if self._mode_name() != "paper" or not callable(get_open_positions):
+@@ -659 +663,5 @@ class LiveEngine:
+-            open_positions = db.get_open_positions()
++            get_resume_eligible = getattr(db, "get_resume_eligible_open_positions", None)

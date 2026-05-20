@@ -193,7 +193,7 @@ def build_center_panel(dashboard: Any) -> QWidget:
     )
 
     # Order follows the decision-flow narrative: REGIME → STRESS → STANCE → GATE
-    # (policy/posture state) → ENTRY (the only runtime observation,
+    # (policy/posture state) → DISPATCH (the only runtime observation,
     # which also carries the HALT visual that the legacy TRADEABLE pill used to).
     dashboard.regime_pill = _ClickablePillLabel("REGIME: —")
     dashboard.regime_pill.setStyleSheet(_PILL_INIT_SS)
@@ -223,15 +223,15 @@ def build_center_panel(dashboard: Any) -> QWidget:
 
     regime_layout.addWidget(_regime_sep())
 
-    # ENTRY pill — execution-truth badge sourced from D31.get_dispatch_state(),
+    # DISPATCH pill — execution-truth badge sourced from D31.get_dispatch_state(),
     # with regime-driven HALT priority. v12: absorbed the legacy TRADEABLE pill;
     # its permitted-strategy list and concurrency context now live in this tooltip.
     # Last in the bar because it is the only runtime observation; everything to
     # its left is policy/posture state.
-    dashboard.dispatch_pill = _ClickablePillLabel("ENTRY: —")
+    dashboard.dispatch_pill = _ClickablePillLabel("DISPATCH: —")
     dashboard.dispatch_pill.setStyleSheet(_PILL_INIT_SS)
     dashboard.dispatch_pill.setToolTip(
-        "Live entry state from D31 (FLOWING / IDLE / BLOCKED / ERROR / HALT)"
+        "Live dispatch state from D31 (FLOWING / IDLE / BLOCKED / ERROR / HALT)"
     )
     regime_layout.addWidget(dashboard.dispatch_pill)
 
@@ -359,11 +359,11 @@ def build_center_panel(dashboard: Any) -> QWidget:
 
     create_chart_widget(dashboard)
     dashboard.chart_visible = True
-    layout.addWidget(dashboard.chart_widget, 2)
+    layout.addWidget(dashboard.chart_widget, 3)
 
     create_chart_hidden_controls_panel(dashboard)
     dashboard.chart_hidden_controls_panel.hide()
-    layout.addWidget(dashboard.chart_hidden_controls_panel, 2)
+    layout.addWidget(dashboard.chart_hidden_controls_panel, 4)
 
     positions_group = QGroupBox()
     positions_layout = QVBoxLayout()
@@ -406,7 +406,7 @@ def build_center_panel(dashboard: Any) -> QWidget:
             f"font-size: 11px; padding: 0 6px; background-color: {COLORS['panel']};"
             f" color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 3px;"
         )
-        dashboard.recent_trades_history_btn.setToolTip("Show last 30 closed trades")
+        dashboard.recent_trades_history_btn.setToolTip("Show last 30 recent trade records")
         dashboard.recent_trades_history_btn.clicked.connect(
             dashboard._open_recent_trades_history_dialog
         )
@@ -430,7 +430,7 @@ def build_center_panel(dashboard: Any) -> QWidget:
     dashboard.bp_used_label = None
 
     dashboard.positions_table = create_positions_table(dashboard)
-    dashboard.positions_table.setMinimumHeight(200)
+    dashboard.positions_table.setMinimumHeight(228)
 
     # Tree of spreads + legs (paper) or broker orders/positions (live).
     positions_layout.addWidget(dashboard.positions_table)
@@ -443,7 +443,7 @@ def build_center_panel(dashboard: Any) -> QWidget:
     positions_group.setLayout(positions_layout)
     dashboard.positions_group = positions_group
     dashboard.spreads_group = positions_group  # backwards-compat alias
-    layout.addWidget(positions_group, 1)
+    layout.addWidget(positions_group, 4)
 
     logs_container = QWidget()
     logs_container.setFixedHeight(190)
@@ -1104,7 +1104,7 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
 def create_positions_table(dashboard: Any) -> QTreeWidget:
     """Create the positions tree widget."""
     tree = QTreeWidget()
-    columns = ["     LEG", "STRIKE", "CONT", "EXPIRY", "COST", "P&L", ""]
+    columns = ["     LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""]
     tree.setColumnCount(len(columns))
     tree.setHeaderLabels(columns)
 
@@ -1127,7 +1127,7 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
                 outline: none;
             }}
             QTreeWidget::item {{
-                padding: 2px 4px;
+                padding: 1px 4px;
                 border-bottom: 1px solid {COLORS["border"]};
             }}
             QTreeWidget::item:selected {{
@@ -1158,13 +1158,14 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
         """,
     )
 
-    tree.setColumnWidth(0, 100)
-    tree.setColumnWidth(1, 80)
-    tree.setColumnWidth(2, 45)
-    tree.setColumnWidth(3, 65)
-    tree.setColumnWidth(4, 90)
-    tree.setColumnWidth(5, 90)
-    tree.header().setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+    tree.setColumnWidth(0, 94)
+    tree.setColumnWidth(1, 68)
+    tree.setColumnWidth(2, 44)
+    tree.setColumnWidth(3, 60)
+    tree.setColumnWidth(4, 68)
+    tree.setColumnWidth(5, 60)
+    tree.setColumnWidth(6, 92)
+    tree.header().setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
     tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     return tree
@@ -1616,18 +1617,18 @@ def build_toolbar(dashboard: Any) -> QWidget:
 
     dashboard.api_status_container.setLayout(api_status_layout)
 
-    # Data Status — clickable only in EOD/SIMULATED states
+    # Data Status — display-only; synthetic market-data fallback is disabled.
     dashboard.data_status_container = QWidget()
     dashboard.data_status_container.setMinimumWidth(120)
     dashboard.data_status_container.setMaximumWidth(120)
-    dashboard.data_status_container.setToolTip("Data is simulated — no live feed connected")
+    dashboard.data_status_container.setToolTip("No Tradier market snapshot is available yet")
     data_status_layout = QHBoxLayout()
     data_status_layout.setContentsMargins(8, 3, 8, 3)
     data_status_layout.setSpacing(6)
 
-    dashboard.data_status_label = QLabel("SIMULATED")
+    dashboard.data_status_label = QLabel("NO DATA")
     dashboard.data_status_label.setStyleSheet(
-        "color: " + COLORS["automation_active"] + "; font-size: 14px;",
+        "color: " + COLORS["negative"] + "; font-size: 14px;",
     )
     dashboard.data_status_label.setAlignment(
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -1635,7 +1636,6 @@ def build_toolbar(dashboard: Any) -> QWidget:
     data_status_layout.addWidget(dashboard.data_status_label)
 
     dashboard.data_status_container.setLayout(data_status_layout)
-    dashboard.data_status_container.mousePressEvent = dashboard._toggle_data_display
 
     # Compact always-visible Event Clock badge; full details are in the hidden-controls panel.
     try:

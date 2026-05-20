@@ -2,6 +2,7 @@
 """Focused tests for D31 strategy admission guardrails."""
 
 import importlib
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -70,6 +71,10 @@ class MockCalendarSpreadStrategy(_BaseMockStrategy):
     pass
 
 
+class PivotMeanReversionStrategy(_BaseMockStrategy):
+    pass
+
+
 def _make_orchestrator():
     orchestrator_cls = _get_strategy_orchestrator_class()
     orchestrator = orchestrator_cls(event_manager=_StubEventManager())
@@ -102,6 +107,74 @@ def test_d31_rejects_add_strategy_when_horizon_bucket_cap_reached():
     # Adding a swing bucket strategy should fail when only one bucket is allowed.
     with pytest.raises(ValueError, match="Horizon-bucket limit reached"):
         orchestrator.add_strategy(MockCalendarSpreadStrategy, config={}, initial_allocation=0.1)
+
+
+def test_d31_warns_when_unimplemented_overlay_flag_is_requested(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT", "true")
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    mocked_logger = MagicMock()
+    monkeypatch.setattr(
+        mod,
+        "SpyderLogger",
+        SimpleNamespace(get_logger=lambda *_args, **_kwargs: mocked_logger),
+    )
+
+    orchestrator = _make_orchestrator()
+
+    assert orchestrator.max_concurrent_strategies == 2
+    assert orchestrator.max_active_horizon_buckets == 2
+    mocked_logger.warning.assert_called_once()
+    warning_text = mocked_logger.warning.call_args.args[0]
+    assert "SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT is experimental" in warning_text
+    assert "third ultra_short PivotMeanReversion slot" in warning_text
+
+
+def test_d31_allows_overlay_registration_only_for_third_pmr_slot(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT", "true")
+    orchestrator = _make_orchestrator()
+
+    first_strategy_id = orchestrator.add_strategy(
+        MockZeroDTEStrategy,
+        config={},
+        initial_allocation=0.1,
+    )
+    second_strategy_id = orchestrator.add_strategy(
+        MockCalendarSpreadStrategy,
+        config={},
+        initial_allocation=0.1,
+    )
+
+    overlay_strategy_id = orchestrator.add_strategy(
+        PivotMeanReversionStrategy,
+        config={},
+        initial_allocation=0.1,
+    )
+
+    assert first_strategy_id in orchestrator.active_strategies
+    assert second_strategy_id in orchestrator.active_strategies
+    assert overlay_strategy_id in orchestrator.active_strategies
+    assert len(orchestrator.active_strategies) == 3
+    assert orchestrator.strategy_allocations[overlay_strategy_id].horizon_bucket == "ultra_short"
+
+
+def test_d31_rejects_second_overlay_registration_when_one_is_active(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT", "true")
+    orchestrator = _make_orchestrator()
+
+    orchestrator.add_strategy(MockZeroDTEStrategy, config={}, initial_allocation=0.1)
+    orchestrator.add_strategy(MockCalendarSpreadStrategy, config={}, initial_allocation=0.1)
+    orchestrator.add_strategy(
+        PivotMeanReversionStrategy,
+        config={},
+        initial_allocation=0.1,
+    )
+
+    with pytest.raises(ValueError, match="Concurrent strategy limit reached"):
+        orchestrator.add_strategy(
+            PivotMeanReversionStrategy,
+            config={},
+            initial_allocation=0.1,
+        )
 
 
 def test_d31_dispatch_midwalk_handles_result_without_message_attribute():

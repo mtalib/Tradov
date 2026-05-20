@@ -34,7 +34,6 @@ Module Description:
 # STANDARD IMPORTS
 # ==============================================================================
 import os
-import random
 import threading
 import time
 from datetime import datetime, UTC
@@ -121,6 +120,9 @@ _CHAIN_LOCK: threading.Lock = threading.Lock()
 _CHAIN_TTL: float = 30.0
 _CHAIN_CACHE: dict = {}  # keys: "contracts", "put_vol", "call_vol", "expiry", "ts"
 
+_VXV_CACHE_TTL_SECONDS: float = 300.0
+_VXV_CACHE: dict[str, Any] = {"ts": 0.0, "entry": None}
+
 # RUT historical previous-close cache.
 # Tradier returns change=None for RUT; we fetch its prev-day close once per
 # session via the historical quotes endpoint so we can derive change/change_pct.
@@ -198,6 +200,62 @@ _QUOTE_SYMBOL_BASKET: tuple[str, ...] = tuple(get_quote_symbol_basket())
 def _build_quote_symbol_basket() -> list[str]:
     """Return one canonical quote basket for slow, fast, and EOD fetch paths."""
     return list(_QUOTE_SYMBOL_BASKET)
+
+
+def _get_vxv_yahoo_symbol() -> str:
+    """Return the canonical Yahoo symbol for Spyder's internal VXV key."""
+    try:
+        from Spyder.SpyderC_MarketData.SpyderC10_VIXAnalyzer import VIX_SYMBOLS  # noqa: PLC0415
+
+        yahoo_symbol = VIX_SYMBOLS.get("VXV")
+        if isinstance(yahoo_symbol, str) and yahoo_symbol.strip():
+            return yahoo_symbol
+    except Exception:
+        pass
+
+    return "^VIX3M"
+
+
+def _fetch_vxv_live_entry() -> dict[str, Any] | None:
+    """Fetch a synthetic VXV live-data entry from Yahoo with a short cache."""
+    cached_entry = _VXV_CACHE.get("entry")
+    cache_age = time.monotonic() - float(_VXV_CACHE.get("ts", 0.0) or 0.0)
+    if isinstance(cached_entry, dict) and cache_age < _VXV_CACHE_TTL_SECONDS:
+        return dict(cached_entry)
+
+    try:
+        import yfinance as yf  # noqa: PLC0415
+
+        ticker = yf.Ticker(_get_vxv_yahoo_symbol())
+        info = ticker.info
+        last = float(info.get("regularMarketPrice") or 0.0)
+        prev_close = float(info.get("previousClose") or 0.0)
+        if last <= 0.0:
+            last = prev_close
+        if last <= 0.0:
+            raise ValueError("Yahoo returned no VXV/VIX3M price")
+
+        change_available = prev_close > 0.0
+        change = last - prev_close if change_available else 0.0
+        change_pct = ((change / prev_close) * 100.0) if change_available else 0.0
+        entry = {
+            "last": round(last, 2),
+            "change": round(change, 2),
+            "change_pct": round(change_pct, 2),
+            "change_available": change_available,
+            "timestamp_ms": int(time.time() * 1000),
+            "source": "yfinance_vix3m",
+        }
+        _VXV_CACHE["entry"] = entry
+        _VXV_CACHE["ts"] = time.monotonic()
+        return dict(entry)
+    except Exception as exc:
+        if isinstance(cached_entry, dict):
+            logger.debug("VXV Yahoo refresh failed, using cached VXV entry: %s", exc)
+            return dict(cached_entry)
+
+        logger.debug("VXV Yahoo fetch failed: %s", exc)
+        return None
 
 
 def _quote_to_live_entry(q: dict) -> tuple[str, dict] | None:
@@ -667,7 +725,6 @@ class ThreadSafeMarketDataWorker(QObject):
         self._market_data_event_type = None
         self._last_spy_market_data_key = None
         self._paper_balance_snapshot_missing_warned = False
-        self._init_simulation_data()
 
         if not self._quiet_startup:
             logger.info("🔧 Market Data Worker initialized with heartbeat monitoring")
@@ -863,13 +920,10 @@ class ThreadSafeMarketDataWorker(QObject):
     def _fetch_balance_only(self):
         """Fetch account balance from Tradier without touching quotes or market-hours guards.
 
-        Called at startup (both inside and outside trading window) so the account
-        panels are populated as soon as credentials are available, regardless of
-        whether the market is open.
+        Called at startup (both inside and outside trading window), including the
+        quiet launch prewarm, so the account panels are populated as soon as
+        credentials are available regardless of whether the market is open.
         """
-        if bool(getattr(self, "_quiet_startup", False)):
-            return
-
         try:
             from dotenv import load_dotenv
             load_dotenv(override=True)
@@ -958,6 +1012,9 @@ class ThreadSafeMarketDataWorker(QObject):
                         }
                 except Exception:
                     pass
+                _vxv_entry = _fetch_vxv_live_entry()
+                if _vxv_entry is not None:
+                    live_data["VXV"] = _vxv_entry
                 if live_data:
                     import json as _json
                     import time as _time
@@ -1063,7 +1120,7 @@ class ThreadSafeMarketDataWorker(QObject):
             # Only fetch after 9:30 AM ET — start="09:30" is invalid if market hasn't opened yet
             try:
                 import pytz as _pytz
-                from datetime import date as _date, datetime as _dt
+                from datetime import datetime as _dt
                 _et_now = _dt.now(_pytz.timezone("US/Eastern"))
                 _market_open_et = _et_now.replace(hour=9, minute=30, second=0, microsecond=0)
                 if _et_now < _market_open_et:
@@ -1072,7 +1129,10 @@ class ThreadSafeMarketDataWorker(QObject):
                 _now_mono = time.monotonic()
                 if (_now_mono - _last_chart_fetch) < SPY_TIMESALES_FETCH_INTERVAL_SECONDS:
                     raise StopIteration
-                today_open = f"{_date.today().isoformat()} 09:30"
+                # Use the ET session date rather than the host clock date.
+                # On a UTC-clocked host, date.today() can already be the next
+                # calendar day while the market is still in the prior ET session.
+                today_open = f"{_et_now.date().isoformat()} 09:30"
                 ts_resp = mkt_client.get_time_sales(
                     "SPY", interval="5min", start=today_open, session_filter="open",
                 )
@@ -1331,6 +1391,47 @@ class ThreadSafeMarketDataWorker(QObject):
             from dotenv import load_dotenv  # noqa: PLC0415
             import json as _json  # noqa: PLC0415
             load_dotenv(override=True)
+
+            # ── Quiet-window gate (5:00 PM – 9:00 AM ET) ─────────────────────
+            # Between 5PM and 9AM ET no external API calls are made.  The last
+            # eod_snapshot.json written during the previous trading session is
+            # served directly so the dashboard shows genuine closing prices
+            # without generating any Tradier or yfinance traffic after hours.
+            try:
+                from datetime import time as _dt_time  # noqa: PLC0415
+                _et_now_t = datetime.now(pytz.timezone("US/Eastern")).time()
+                _in_quiet = _et_now_t >= _dt_time(17, 0) or _et_now_t < _dt_time(9, 0)
+            except Exception:
+                _in_quiet = False
+            if _in_quiet:
+                _snapshot_file = self.data_file.parent / "eod_snapshot.json"
+                if _snapshot_file.exists():
+                    try:
+                        _cached = _json.loads(_snapshot_file.read_text())
+                        # Strip EOD metadata; dashboard reads live_data.json
+                        _live_data_out = {
+                            k: v for k, v in _cached.items()
+                            if not k.startswith("_eod_")
+                        }
+                        _live_data_out["_fetch_time_ms"] = int(time.time() * 1000)
+                        self.data_file.parent.mkdir(parents=True, exist_ok=True)
+                        with open(self.data_file, "w") as _f:
+                            _json.dump(_live_data_out, _f)
+                        self.log_message.emit("📊 EOD data served from previous session's cache")
+                        self.market_data_status_changed.emit("EOD")
+                        self.eod_snapshot_fetched.emit(True)
+                        return
+                    except Exception as _cache_err:
+                        logger.debug(
+                            "📊 EOD cache load failed (%s) — falling back to Tradier API",
+                            _cache_err,
+                        )
+                else:
+                    logger.debug(
+                        "📊 EOD cache not present — proceeding with API call (first launch or cache cleared)"
+                    )
+            # ── End quiet-window gate ─────────────────────────────────────────
+
             if not TRADIER_AVAILABLE:
                 self.eod_snapshot_fetched.emit(False)
                 return
@@ -1347,6 +1448,7 @@ class ThreadSafeMarketDataWorker(QObject):
             if isinstance(quotes_raw, dict):
                 quotes_raw = [quotes_raw]
             live_data: dict = {}
+            _vxv_source: str | None = None
             for q in quotes_raw:
                 sym = q.get("symbol", "")
                 last = float(q.get("last") or q.get("close") or 0.0)
@@ -1368,6 +1470,10 @@ class ThreadSafeMarketDataWorker(QObject):
                         "change_pct": change_pct,
                         "timestamp_ms": timestamp_ms,
                     }
+            _vxv_entry = _fetch_vxv_live_entry()
+            if _vxv_entry is not None:
+                live_data["VXV"] = _vxv_entry
+                _vxv_source = str(_vxv_entry.get("source") or "yfinance_vix3m")
             if live_data:
                 import time as _time
                 _now_ms = int(_time.time() * 1000)
@@ -1375,6 +1481,39 @@ class ThreadSafeMarketDataWorker(QObject):
                     "_eod_date": datetime.now(UTC).strftime("%Y-%m-%d"),
                     "_eod_fetched_ts": int(_time.time()),
                 }
+
+                # VXV is cataloged as event-only (not fetched from Tradier). When
+                # available from a previous persisted snapshot, carry it forward so
+                # EOD consumers have continuity across restarts.
+                _vxv_fallback_applied = False
+                if "VXV" not in live_data:
+                    _fallback_paths = (
+                        self.data_file.parent / "live_data.json",
+                        self.data_file.parent / "eod_snapshot.json",
+                    )
+                    for _fallback_path in _fallback_paths:
+                        try:
+                            _payload = _json.loads(_fallback_path.read_text())
+                        except (OSError, ValueError, TypeError):
+                            continue
+                        _vxv_entry = _payload.get("VXV") if isinstance(_payload, dict) else None
+                        if not isinstance(_vxv_entry, dict):
+                            continue
+                        _vxv_last = float(_vxv_entry.get("last") or 0.0)
+                        if _vxv_last <= 0.0:
+                            continue
+                        live_data["VXV"] = {
+                            "last": _vxv_last,
+                            "change": float(_vxv_entry.get("change") or 0.0),
+                            "change_pct": float(_vxv_entry.get("change_pct") or 0.0),
+                            "timestamp_ms": _vxv_entry.get("timestamp_ms"),
+                            "change_available": bool(_vxv_entry.get("change_available", True)),
+                            "source": "cached_vxv_fallback",
+                        }
+                        _vxv_fallback_applied = True
+                        _vxv_source = "cached_vxv_fallback"
+                        break
+
                 self.data_file.parent.mkdir(parents=True, exist_ok=True)
                 # Include _fetch_time_ms so the toolbar freshness check has a
                 # reference time; SPX/$DJI use a 1800 s window so they display
@@ -1395,13 +1534,18 @@ class ThreadSafeMarketDataWorker(QObject):
                     "SPY": "spy_prev_day.json",
                     "SPX": "spx_prev_day.json",
                     "$DJI": "dji_prev_day.json",
+                    "DIA": "dia_prev_day.json",
                 }
+                _sidecar_saved: list[str] = []
+                _sidecar_skipped: list[str] = []
                 for _sym, _fname in _symbol_prev_files.items():
                     _entry = _live_data_out.get(_sym)
                     if not isinstance(_entry, dict):
+                        _sidecar_skipped.append(_sym)
                         continue
                     _last = float(_entry.get("last") or 0.0)
                     if _last <= 0.0:
+                        _sidecar_skipped.append(_sym)
                         continue
                     _prev_file = self.data_file.parent / _fname
                     with open(_prev_file, "w") as _pf:
@@ -1416,8 +1560,20 @@ class ThreadSafeMarketDataWorker(QObject):
                             },
                             _pf,
                         )
+                    _sidecar_saved.append(_sym)
 
                 logger.info("📊 EOD snapshot: %d symbols saved (%s)", len(live_data), _snapshot_meta["_eod_date"])  # noqa: E501
+                logger.info(
+                    "📦 EOD sidecars saved=%s skipped=%s",
+                    ",".join(sorted(_sidecar_saved)) if _sidecar_saved else "none",
+                    ",".join(sorted(_sidecar_skipped)) if _sidecar_skipped else "none",
+                )
+                if _vxv_fallback_applied:
+                    logger.info("📈 EOD VXV fallback applied from cached snapshot")
+                elif _vxv_source is not None:
+                    logger.info("📈 EOD VXV refreshed from %s", _vxv_source)
+                else:
+                    logger.info("📈 EOD VXV unavailable (event-only source did not provide cached value)")
                 self.market_data_status_changed.emit("EOD")
                 self.eod_snapshot_fetched.emit(True)
             else:
@@ -1428,46 +1584,8 @@ class ThreadSafeMarketDataWorker(QObject):
             self.eod_snapshot_fetched.emit(False)
 
     def _init_simulation_data(self):
-        """Initialize simulation data with all symbols"""
-        base_prices = {
-            "SPY": 585.25,
-            "SPX": 5850.75,
-            "VIX": 15.32,
-            "VIX9D": 14.8,
-            "VXV": 16.2,
-            "VVIX": 82.45,
-            "$TICK": 234,
-            "$TRIN": 0.85,
-            "$ADD": 1245,
-            "CPC": 0.95,
-            "SKEW": 125.5,
-            "QQQ": 485.92,
-            "IWM": 225.18,
-            "TLT": 92.45,
-            "HYG": 78.50,
-            "LQD": 105.32,
-            "DXY": 103.25,
-            "GLD": 195.67,
-            "GEX": -2500000000,
-            "DEX": 850000000,
-            "OGL": 585.50,
-            "DIX": 42.5,
-            "SWAN": 1.85,
-            "IVR": 45.0,
-            "ATM_IV": 15.5,
-            "VRP": 2.3,
-        }
-
-        with QMutexLocker(self.data_mutex):
-            for symbol, price in base_prices.items():
-                self.market_data[symbol] = {
-                    "symbol": symbol,
-                    "last": price,
-                    "change": 0,
-                    "change_pct": 0,
-                    "timestamp": datetime.now(UTC),
-                }
-                self.last_data_update[symbol] = datetime.now(UTC)
+        """Legacy no-op: synthetic quote seeding is disabled."""
+        return
 
     def _check_market_hours(self):
         """Check if market hours status has changed"""
@@ -1494,7 +1612,6 @@ class ThreadSafeMarketDataWorker(QObject):
         # CRITICAL: Create QTimers in the worker thread, not the main thread
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._emit_data)
-        self.update_timer.start(2000)
 
         self.market_hours_timer = QTimer(self)
         self.market_hours_timer.timeout.connect(self._check_market_hours)
@@ -1580,34 +1697,14 @@ class ThreadSafeMarketDataWorker(QObject):
         with QMutexLocker(self.data_mutex):
             data_copy = self.market_data.copy()
 
-        self._update_simulation_data(data_copy)
+        if not data_copy:
+            return
+
         self.data_updated.emit(data_copy)
 
     def _update_simulation_data(self, data: dict):
-        """Update simulation data with realistic market movements"""
-        if not is_market_hours():
-            return
-
-        current_time = datetime.now(UTC)
-
-        for symbol, market_info in data.items():
-            if symbol not in ["GEX", "DEX", "OGL", "DIX", "SWAN"]:
-                old_price = market_info["last"]
-                change = random.uniform(-0.5, 0.5)
-                new_price = old_price + change
-                change_pct = (change / old_price * 100) if old_price != 0 else 0
-
-                market_info.update(
-                    {
-                        "last": new_price,
-                        "change": change,
-                        "change_pct": change_pct,
-                        "timestamp": current_time,
-                    },
-                )
-
-            with QMutexLocker(self.data_mutex):
-                self.last_data_update[symbol] = current_time
+        """Legacy no-op: synthetic quote generation is disabled."""
+        return
 
     def force_connect(self):
         """Manual connect - now checks actual connection"""

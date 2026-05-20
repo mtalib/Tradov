@@ -2,6 +2,9 @@
 """Focused tests for D31 entry trust gating via F09 market-structure controls."""
 
 import importlib
+import json
+from datetime import UTC, datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -75,8 +78,11 @@ class _StubMetricsOrchestrator:
 
 
 class _ApprovedRiskManager:
-    def validate_signal(self, request):
-        return SimpleNamespace(approved=True)
+    def __init__(self):
+        self.validate_signal = MagicMock(return_value=SimpleNamespace(approved=True))
+        self.validate_overlay_slot = MagicMock(
+            return_value=SimpleNamespace(allow=True, reason_code='admitted')
+        )
 
 
 def _healthy_conditions():
@@ -134,6 +140,23 @@ def _make_orchestrator(conditions, tmp_path=None):
     return orchestrator
 
 
+def _read_today_audit_records(orchestrator):
+    file_path = Path(
+        orchestrator._resolve_signal_audit_file_path(datetime.now(UTC))
+    )
+    if not file_path.exists():
+        return []
+
+    records = []
+    with file_path.open(encoding='utf-8') as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            records.append(json.loads(line))
+    return records
+
+
 def test_d31_dispatches_signal_when_entry_trust_gate_passes():
     orchestrator = _make_orchestrator(_healthy_conditions())
     signal = {
@@ -149,6 +172,110 @@ def test_d31_dispatches_signal_when_entry_trust_gate_passes():
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
     orchestrator._dispatch_approved_signal.assert_called_once_with(signal)
+
+
+def test_d31_calls_overlay_gate_only_for_baseline_full_pmr_candidate(monkeypatch):
+    monkeypatch.setenv('SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT', 'true')
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator.active_strategies = {
+        'base-1': object(),
+        'base-2': object(),
+    }
+    orchestrator.max_concurrent_strategies = 2
+    orchestrator.risk_manager = _ApprovedRiskManager()
+
+    signal = {
+        'strategy_id': 'D34_PivotMR',
+        'strategy_type': 'PivotMeanReversion',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+        'daily_risk_used_fraction': 0.25,
+        'projected_post_trade_greeks': {
+            'delta': 0.05,
+            'gamma': 0.01,
+            'vega': 0.05,
+            'theta': 0.05,
+        },
+        'execution_quality': {
+            'bid_ask_width_ok': True,
+            'expected_slippage_bps': 12.0,
+        },
+        'event_clock_state': {'state': 'clear'},
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator.risk_manager.validate_overlay_slot.assert_called_once()
+    overlay_request = orchestrator.risk_manager.validate_overlay_slot.call_args.args[0]
+    assert overlay_request.metadata['overlay_slot_requested'] is True
+    assert overlay_request.metadata['active_strategy_count'] == 2
+    assert overlay_request.metadata['strategy_type'] == 'pivot_mean_reversion'
+    assert overlay_request.metadata['strategy_type_normalized'] == 'pivot_mean_reversion'
+    assert overlay_request.metadata['event_window_blocked'] is False
+    orchestrator.risk_manager.validate_signal.assert_called_once()
+    orchestrator._dispatch_approved_signal.assert_called_once_with(signal)
+
+
+def test_d31_skips_overlay_gate_before_baseline_cap_even_when_flag_enabled(monkeypatch):
+    monkeypatch.setenv('SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT', 'true')
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator.active_strategies = {'base-1': object()}
+    orchestrator.max_concurrent_strategies = 2
+    orchestrator.risk_manager = _ApprovedRiskManager()
+
+    signal = {
+        'strategy_id': 'D34_PivotMR',
+        'strategy_type': 'PivotMeanReversion',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator.risk_manager.validate_overlay_slot.assert_not_called()
+    orchestrator.risk_manager.validate_signal.assert_called_once()
+    orchestrator._dispatch_approved_signal.assert_called_once_with(signal)
+
+
+def test_d31_blocks_signal_when_overlay_gate_rejects_candidate(monkeypatch):
+    monkeypatch.setenv('SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT', 'true')
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator.active_strategies = {
+        'base-1': object(),
+        'base-2': object(),
+    }
+    orchestrator.max_concurrent_strategies = 2
+    orchestrator.risk_manager = _ApprovedRiskManager()
+    orchestrator.risk_manager.validate_overlay_slot.return_value = SimpleNamespace(
+        allow=False,
+        reason_code='daily_risk_limit',
+        computed_values={},
+    )
+
+    signal = {
+        'strategy_id': 'D34_PivotMR',
+        'strategy_type': 'pivot_mean_reversion',
+        'symbol': 'SPY',
+        'action': 'buy',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator.risk_manager.validate_overlay_slot.assert_called_once()
+    orchestrator.risk_manager.validate_signal.assert_not_called()
+    orchestrator._dispatch_approved_signal.assert_not_called()
+    assert orchestrator._last_drop_event is not None
+    assert orchestrator._last_drop_event['stage'] == 'pre_risk'
+    assert orchestrator._last_drop_event['reason'] == 'overlay_gate:daily_risk_limit'
 
 
 def test_d31_blocks_signal_when_data_quality_trust_gate_fails():
@@ -366,3 +493,322 @@ def test_d31_on_strategy_signal_entry_trust_rejection_emits_risk_alert_and_pre_r
     assert publish_payload['reason'] == 'entry_trust_gate_rejected'
     assert publish_payload['message'] == 'market_structure_untrusted'
     assert publish_payload['signal'] == signal
+
+
+def test_d31_session_window_blocks_short_premium_sell_before_first_entry(monkeypatch):
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._session_window_policy["first_entry_not_before_et"] = "09:40"
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator._passes_session_window_gate = mod.StrategyOrchestrator._passes_session_window_gate.__get__(
+        orchestrator,
+        mod.StrategyOrchestrator,
+    )
+    eastern = mod._d31_now_et().tzinfo
+    monkeypatch.setattr(
+        mod,
+        "_d31_now_et",
+        lambda: datetime(2026, 5, 14, 9, 33, tzinfo=eastern),
+    )
+
+    allowed, reason = orchestrator._passes_session_window_gate(
+        {
+            'strategy_id': 'iron_condor',
+            'strategy_type': 'iron_condor',
+            'symbol': 'SPY',
+            'action': 'sell',
+            'quantity': 1,
+            'price': 2.15,
+            'confidence': 0.8,
+        }
+    )
+
+    assert allowed is False
+    assert reason == 'session_window:first_entry_embargo'
+
+
+def test_d31_session_window_does_not_treat_generic_sell_as_opening_trade(monkeypatch):
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._session_window_policy["first_entry_not_before_et"] = "09:40"
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator._passes_session_window_gate = mod.StrategyOrchestrator._passes_session_window_gate.__get__(
+        orchestrator,
+        mod.StrategyOrchestrator,
+    )
+    eastern = mod._d31_now_et().tzinfo
+    monkeypatch.setattr(
+        mod,
+        "_d31_now_et",
+        lambda: datetime(2026, 5, 14, 9, 33, tzinfo=eastern),
+    )
+
+    allowed, reason = orchestrator._passes_session_window_gate(
+        {
+            'strategy_id': 'MACrossover',
+            'strategy_type': 'MACrossover',
+            'symbol': 'SPY',
+            'action': 'sell',
+            'quantity': 1,
+            'price': 603.0,
+            'confidence': 0.8,
+        }
+    )
+
+    assert allowed is True
+    assert reason == ''
+
+
+def test_d31_session_window_allows_explicit_close_signal_outside_primary_window(monkeypatch):
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator._passes_session_window_gate = mod.StrategyOrchestrator._passes_session_window_gate.__get__(
+        orchestrator,
+        mod.StrategyOrchestrator,
+    )
+    eastern = mod._d31_now_et().tzinfo
+    monkeypatch.setattr(
+        mod,
+        "_d31_now_et",
+        lambda: datetime(2026, 5, 14, 18, 14, tzinfo=eastern),
+    )
+
+    allowed, reason = orchestrator._passes_session_window_gate(
+        {
+            'strategy_id': 'iron_condor',
+            'strategy_type': 'iron_condor',
+            'symbol': 'SPY260618P00699000',
+            'action': 'close',
+            'side': 'buy',
+            'quantity': 1,
+        }
+    )
+
+    assert allowed is True
+    assert reason == ''
+
+
+def test_d31_entry_trust_gate_skips_explicit_close_signal() -> None:
+    orchestrator = _make_orchestrator(_healthy_conditions())
+
+    allowed, reason = orchestrator._passes_entry_trust_gate(
+        {
+            'strategy_id': 'iron_condor',
+            'strategy_type': 'iron_condor',
+            'symbol': 'SPY260618P00699000',
+            'action': 'close',
+            'side': 'buy',
+            'quantity': 1,
+        }
+    )
+
+    assert allowed is True
+    assert reason == ''
+
+
+def test_d31_on_strategy_signal_dispatches_explicit_close_signal_outside_primary_window(monkeypatch):
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator._passes_session_window_gate = mod.StrategyOrchestrator._passes_session_window_gate.__get__(
+        orchestrator,
+        mod.StrategyOrchestrator,
+    )
+    orchestrator._passes_entry_trust_gate = mod.StrategyOrchestrator._passes_entry_trust_gate.__get__(
+        orchestrator,
+        mod.StrategyOrchestrator,
+    )
+    eastern = mod._d31_now_et().tzinfo
+    monkeypatch.setattr(
+        mod,
+        "_d31_now_et",
+        lambda: datetime(2026, 5, 14, 18, 14, tzinfo=eastern),
+    )
+
+    signal = {
+        'strategy_id': 'iron_condor',
+        'strategy_type': 'iron_condor',
+        'symbol': 'SPY260618P00699000',
+        'action': 'close',
+        'side': 'buy',
+        'quantity': 1,
+        'price': 4.21,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_called_once_with(signal)
+
+
+def test_d31_low_confidence_l09_falls_back_to_contract_bull_classifier(monkeypatch):
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    d31_mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    l09_mod = importlib.import_module("Spyder.SpyderL_ML.SpyderL09_UnifiedRegimeEngine")
+
+    monkeypatch.setattr(orchestrator, "_recover_cache_if_cold", lambda: None)
+
+    spy_ticks = []
+    for idx in range(60):
+        close = 700.0 + idx
+        spy_ticks.append(
+            {
+                "close": close,
+                "high": close + 1.0,
+                "low": close - 1.0,
+            }
+        )
+
+    vix_ticks = []
+    for idx in range(60):
+        close = 24.0 - (idx * 0.1)
+        vix_ticks.append({"close": close})
+
+    orchestrator.market_data_cache = {
+        "SPY": spy_ticks,
+        "VIX": vix_ticks,
+        "VIX9D": [{"close": 17.0}],
+        "VXV": [{"close": 20.0}],
+        "event_clock_state": {"state": "clear"},
+    }
+
+    class _LowConfidenceL09:
+        def get_current_regime(self, _conditions):
+            return SimpleNamespace(
+                regime=l09_mod.MarketRegime.SIDEWAYS_RANGE,
+                confidence=0.60,
+            )
+
+    orchestrator._l09_engine = _LowConfidenceL09()
+
+    result = orchestrator._classify_market_regime_unified(
+        vix_level=18.0,
+        vix_percentile=50.0,
+        trend_strength=0.0,
+    )
+
+    assert result == d31_mod.MarketRegime.BULL_LOW_VOL
+
+
+def test_d31_duplicate_open_position_warning_is_throttled():
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._get_duplicate_open_position_source = MagicMock(return_value='active_positions')
+    orchestrator.logger.warning = MagicMock()
+
+    signal = {
+        'strategy_id': 'iron_condor',
+        'strategy_type': 'iron_condor',
+        'symbol': 'SPY',
+        'action': 'sell',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    assert orchestrator.logger.warning.call_count == 1
+    assert orchestrator._signal_drop_reasons['pre_dispatch:duplicate_open_position'] == 2
+
+
+def test_d31_duplicate_open_position_warning_reemits_after_cooldown():
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._get_duplicate_open_position_source = MagicMock(return_value='active_positions')
+    orchestrator.logger.warning = MagicMock()
+    orchestrator._duplicate_entry_warning_interval_s = 60.0
+
+    signal = {
+        'strategy_id': 'iron_condor',
+        'strategy_type': 'iron_condor',
+        'symbol': 'SPY',
+        'action': 'sell',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+    orchestrator._duplicate_entry_warning_last_monotonic[('SPY', 'iron_condor')] -= 61.0
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    assert orchestrator.logger.warning.call_count == 2
+
+
+def test_d31_duplicate_open_position_warning_reemits_after_block_clears():
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._get_duplicate_open_position_source = MagicMock(
+        side_effect=['active_positions', None, 'active_positions']
+    )
+    orchestrator._reserve_pending_entry = MagicMock(return_value=True)
+    orchestrator._dispatch_approved_signal = MagicMock()
+    orchestrator.logger.warning = MagicMock()
+    orchestrator._duplicate_entry_warning_interval_s = 600.0
+
+    signal = {
+        'strategy_id': 'iron_condor',
+        'strategy_type': 'iron_condor',
+        'symbol': 'SPY',
+        'action': 'sell',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    assert orchestrator.logger.warning.call_count == 2
+    assert orchestrator._dispatch_approved_signal.call_count == 1
+
+
+def test_d31_pre_dispatch_duplicate_pending_source_persisted_to_decision_audit(tmp_path):
+    orchestrator = _make_orchestrator(_healthy_conditions(), tmp_path=tmp_path)
+
+    signal = {
+        'strategy_id': 'iron_condor',
+        'strategy_type': 'iron_condor',
+        'symbol': 'SPY',
+        'action': 'sell',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    assert orchestrator._reserve_pending_entry('SPY', 'iron_condor') is True
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    records = _read_today_audit_records(orchestrator)
+    dropped = [
+        record for record in records
+        if record.get('event') == 'signal_dropped'
+        and record.get('stage') == 'pre_dispatch'
+        and record.get('reason') == 'duplicate_open_position'
+    ]
+    rejected = [record for record in records if record.get('event') == 'dispatch_rejected']
+
+    assert dropped
+    assert rejected
+    assert dropped[-1]['detail'] == (
+        'symbol=SPY;strategy=iron_condor;duplicate_source=pending_entry_reservation'
+    )
+    assert rejected[-1]['detail'] == (
+        'symbol=SPY;strategy=iron_condor;duplicate_source=pending_entry_reservation'
+    )
+
+
+def test_d31_duplicate_source_reports_live_active_positions():
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._live_engine = SimpleNamespace(
+        get_active_positions_snapshot=lambda: {
+            'SPY': {
+                'symbol': 'SPY',
+                'strategy': 'iron_condor',
+                'quantity': -1,
+            }
+        }
+    )
+
+    assert (
+        orchestrator._get_duplicate_open_position_source('SPY', 'iron_condor', 'sell')
+        == 'active_positions'
+    )

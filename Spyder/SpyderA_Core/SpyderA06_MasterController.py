@@ -29,7 +29,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
-from datetime import datetime, time as dt_time, timezone
+from datetime import datetime, time as dt_time, UTC
 from enum import Enum
 from typing import Any
 from collections.abc import Callable
@@ -286,8 +286,8 @@ class MasterController:
         return {
             "primary_start_et": "09:30",
             "primary_end_et": "16:15",
-            "first_entry_not_before_et": "09:35",
-            "zero_dte_no_new_risk_cutoff_et": "15:45",
+            "first_entry_not_before_et": "10:15",
+            "zero_dte_no_new_risk_cutoff_et": "14:30",
             "broker_cutoff_et": "16:00",
             "broker_cutoff_buffer_minutes": 10,
             "pin_risk_monitor_end_et": "17:30",
@@ -321,8 +321,8 @@ class MasterController:
             "autonomous_session": {
                 "primary_start_et": os.environ.get("SPYDER_SESSION_PRIMARY_START_ET", "09:30"),
                 "primary_end_et": os.environ.get("SPYDER_SESSION_PRIMARY_END_ET", "16:15"),
-                "first_entry_not_before_et": os.environ.get("SPYDER_FIRST_ENTRY_NOT_BEFORE_ET", "09:35"),
-                "zero_dte_no_new_risk_cutoff_et": os.environ.get("SPYDER_ZERO_DTE_NO_NEW_RISK_CUTOFF_ET", "15:45"),
+                "first_entry_not_before_et": os.environ.get("SPYDER_FIRST_ENTRY_NOT_BEFORE_ET", "10:15"),
+                "zero_dte_no_new_risk_cutoff_et": os.environ.get("SPYDER_ZERO_DTE_NO_NEW_RISK_CUTOFF_ET", "14:30"),
                 "broker_cutoff_et": os.environ.get("SPYDER_BROKER_CUTOFF_ET", "16:00"),
                 "broker_cutoff_buffer_minutes": int(os.environ.get("SPYDER_BROKER_CUTOFF_BUFFER_MINUTES", "10")),
                 "pin_risk_monitor_end_et": os.environ.get("SPYDER_PIN_RISK_MONITOR_END_ET", "17:30"),
@@ -489,7 +489,7 @@ class MasterController:
             logger.info("Environment: %s", self.config.environment)
             logger.info("=" * 80)
 
-            self.startup_time = datetime.now(timezone.utc)
+            self.startup_time = datetime.now(UTC)
             self.status = SystemStatus.STARTING
 
             # Define startup sequence
@@ -514,7 +514,7 @@ class MasterController:
 
             self.status = SystemStatus.RUNNING
 
-            elapsed = (datetime.now(timezone.utc) - self.startup_time).total_seconds()
+            elapsed = (datetime.now(UTC) - self.startup_time).total_seconds()
             logger.info(f"SYSTEM STARTUP COMPLETE in {elapsed:.2f} seconds")
 
             # Generate startup report
@@ -1127,7 +1127,7 @@ class MasterController:
             logger.info("SYSTEM SHUTDOWN INITIATED - Reason: %s", reason)
             logger.info("=" * 80)
 
-            self.shutdown_time = datetime.now(timezone.utc)
+            self.shutdown_time = datetime.now(UTC)
             self.status = SystemStatus.STOPPING
 
             # Disable trading first
@@ -1153,7 +1153,7 @@ class MasterController:
 
             self.status = SystemStatus.STOPPED
 
-            elapsed = (datetime.now(timezone.utc) - self.shutdown_time).total_seconds()
+            elapsed = (datetime.now(UTC) - self.shutdown_time).total_seconds()
             logger.info(f"SYSTEM SHUTDOWN COMPLETE in {elapsed:.2f} seconds")
 
             return True
@@ -1351,7 +1351,7 @@ class MasterController:
         error_rate = total_errors / max(len(self.modules), 1)
 
         return HealthMetrics(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             cpu_usage=cpu_usage,
             memory_usage=memory.percent,
             disk_usage=disk.percent,
@@ -1399,7 +1399,7 @@ class MasterController:
             if module.status == ModuleStatus.STARTING:
                 # Check if it's been starting for too long
                 if module.metadata.get("start_time"):
-                    elapsed = (datetime.now(timezone.utc) - module.metadata["start_time"]).total_seconds()
+                    elapsed = (datetime.now(UTC) - module.metadata["start_time"]).total_seconds()
                     if elapsed > 300:  # 5 minutes
                         logger.error("Module %s stuck in STARTING state", module_id)
                         module.status = ModuleStatus.ERROR
@@ -1413,13 +1413,13 @@ class MasterController:
                 if module.restart_attempts < 3:
                     # Check cooldown period
                     if module.last_restart:
-                        cooldown = (datetime.now(timezone.utc) - module.last_restart).total_seconds()
+                        cooldown = (datetime.now(UTC) - module.last_restart).total_seconds()
                         if cooldown < 60:  # 1 minute cooldown
                             continue
 
                     logger.info("Attempting to restart module %s", module_id)
                     module.restart_attempts += 1
-                    module.last_restart = datetime.now(timezone.utc)
+                    module.last_restart = datetime.now(UTC)
                     module.status = ModuleStatus.RESTARTING
 
                     # Attempt restart
@@ -1809,7 +1809,7 @@ class MasterController:
             "modules_failed": sum(
                 1 for m in self.modules.values() if m.status == ModuleStatus.ERROR
             ),
-            "startup_duration": (datetime.now(timezone.utc) - self.startup_time).total_seconds(),
+            "startup_duration": (datetime.now(UTC) - self.startup_time).total_seconds(),
         }
 
         logger.info("Startup Report:")
@@ -1830,7 +1830,7 @@ class MasterController:
             "modules_stopped": sum(
                 1 for m in self.modules.values() if m.status == ModuleStatus.STOPPED
             ),
-            "shutdown_duration": (datetime.now(timezone.utc) - self.shutdown_time).total_seconds(),
+            "shutdown_duration": (datetime.now(UTC) - self.shutdown_time).total_seconds(),
         }
 
         logger.info("Shutdown Report:")
@@ -1875,7 +1875,7 @@ class MasterController:
                     payload={
                         "event": event_type,
                         "data": data,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                     sender="MasterController",
                 )
@@ -1908,7 +1908,7 @@ class MasterController:
             "market_state": self.market_state.value,
             "trading_enabled": self.trading_enabled,
             "uptime": (
-                (datetime.now(timezone.utc) - self.startup_time).total_seconds() if self.startup_time else 0
+                (datetime.now(UTC) - self.startup_time).total_seconds() if self.startup_time else 0
             ),
             "modules": {
                 "total": len(self.modules),
