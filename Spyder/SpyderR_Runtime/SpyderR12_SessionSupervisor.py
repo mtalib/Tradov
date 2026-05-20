@@ -1127,16 +1127,16 @@ class SessionSupervisor:
 
     def _begin_startup_profile(self) -> None:
         """Start env-gated startup timing for late-session profiling."""
-        if not self._startup_profile_enabled:
+        if not getattr(self, "_startup_profile_enabled", False):
             return
         self._startup_profile_started_at = time.perf_counter()
         self._log_startup_profile("start_entered")
 
     def _log_startup_profile(self, stage: str) -> None:
         """Emit a startup timing marker when profiling is enabled."""
-        if not self._startup_profile_enabled:
+        if not getattr(self, "_startup_profile_enabled", False):
             return
-        started_at = self._startup_profile_started_at
+        started_at = getattr(self, "_startup_profile_started_at", None)
         if started_at is None:
             return
         self.logger.info(

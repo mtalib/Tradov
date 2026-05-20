@@ -512,20 +512,21 @@ class EndToEndHappyPathTest(unittest.TestCase):
         orch.risk_manager = risk
         orch._dispatch_approved_signal = lambda _s: None  # stub — broker not needed here
 
-        em.emit(
-            EventType.STRATEGY_SIGNAL,
-            {
-                "signal_id": "t-o7",
-                "strategy_id": "test",
-                "symbol": "SPY",
-                "action": "buy",
-                "quantity": 1,
-                "price": 500.0,
-            },
-            source="test",
-        )
+        with mock.patch.object(orch, "_evaluate_pre_risk_signal_gates", return_value=(True, "", "", "")):
+            em.emit(
+                EventType.STRATEGY_SIGNAL,
+                {
+                    "signal_id": "t-o7",
+                    "strategy_id": "test",
+                    "symbol": "SPY",
+                    "action": "buy",
+                    "quantity": 1,
+                    "price": 500.0,
+                },
+                source="test",
+            )
 
-        reached = dispatched_event.wait(timeout=2.0)
+            reached = dispatched_event.wait(timeout=2.0)
         self.assertTrue(
             reached,
             "STRATEGY_SIGNAL did not reach validate_signal within 2 s — "
