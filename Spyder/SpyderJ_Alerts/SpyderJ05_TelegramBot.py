@@ -526,6 +526,26 @@ class TelegramBot:
             message_type=MessageType.TRADE_CLOSE
         )
 
+    def send_compact_trade_message(
+        self,
+        event_type: str,
+        strategy: str,
+        symbol: str,
+        pnl: float = 0.0,
+        pnl_percent: float = 0.0,
+    ) -> bool:
+        """Send a compact single-line trade notification for live event handlers."""
+        time_str = datetime.now(_ET_TZ).strftime("%I:%M %p ET")
+        if event_type == "opened":
+            text = f"🎯 <b>{strategy}</b> executed · {symbol}  <i>{time_str}</i>"
+        else:
+            pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+            pct_part = f" ({pnl_percent:+.1f}%)" if pnl_percent else ""
+            icon = "💰" if pnl >= 0 else "📉"
+            text = f"{icon} <b>{strategy}</b> closed · P&L: <b>{pnl_str}</b>{pct_part}  <i>{time_str}</i>"
+        msg_type = MessageType.TRADE_OPEN if event_type == "opened" else MessageType.TRADE_CLOSE
+        return self.send_message(text, priority=MessagePriority.HIGH, message_type=msg_type)
+
     def send_stop_loss_alert(
         self,
         symbol: str,
@@ -2422,30 +2442,33 @@ class TelegramBot:
         """Handle trade events"""
         try:
             trade_type = event.data.get('type')
+            strategy = event.data.get('strategy', 'Strategy')
+            symbol = event.data.get('symbol', '')
 
             if trade_type == 'opened':
-                self.send_trade_opened(
-                    symbol=event.data['symbol'],
-                    strategy=event.data['strategy'],
-                    position_type=event.data['position_type'],
-                    quantity=event.data['quantity'],
-                    entry_price=event.data['entry_price'],
-                    target_price=event.data.get('target_price'),
-                    stop_price=event.data.get('stop_price'),
-                    max_risk=event.data.get('max_risk')
+                self.logger.info("🎯 Executed: %s · %s", strategy, symbol)
+                self.send_compact_trade_message(
+                    "opened",
+                    strategy=strategy,
+                    symbol=symbol,
                 )
 
             elif trade_type == 'closed':
-                self.send_trade_closed(
-                    symbol=event.data['symbol'],
-                    strategy=event.data['strategy'],
-                    position_type=event.data['position_type'],
-                    entry_price=event.data['entry_price'],
-                    exit_price=event.data['exit_price'],
-                    quantity=event.data['quantity'],
-                    pnl=event.data['pnl'],
-                    pnl_percent=event.data['pnl_percent'],
-                    reason=event.data.get('reason', 'Manual close')
+                pnl = float(event.data.get('pnl', 0.0) or 0.0)
+                pnl_percent = float(event.data.get('pnl_percent', 0.0) or 0.0)
+                pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+                self.logger.info(
+                    "%s Closed: %s · P&L: %s",
+                    "💰" if pnl >= 0 else "📉",
+                    strategy,
+                    pnl_str,
+                )
+                self.send_compact_trade_message(
+                    "closed",
+                    strategy=strategy,
+                    symbol=symbol,
+                    pnl=pnl,
+                    pnl_percent=pnl_percent,
                 )
 
         except Exception as e:
@@ -2524,10 +2547,6 @@ class TelegramBot:
             strategy = payload.get("strategy") or payload.get("strategy_name") or event.source or "Strategy"
             symbol = payload.get("symbol") or payload.get("underlying") or "SPY"
 
-            position_type = self._enum_name(
-                payload.get("position_type") or payload.get("option_type") or payload.get("direction"),
-                default="POSITION",
-            )
             quantity = self._to_int(
                 payload.get("quantity") or payload.get("position_size") or payload.get("contracts"),
                 default=1,
@@ -2537,10 +2556,6 @@ class TelegramBot:
                 payload.get("entry_price") or payload.get("credit_received") or payload.get("credit"),
                 default=0.0,
             )
-            exit_price = self._to_float(
-                payload.get("exit_price") or payload.get("current_price") or payload.get("debit_to_close") or payload.get("debit"),
-                default=entry_price,
-            )
 
             pnl = self._to_float(payload.get("pnl", payload.get("realized_pnl", 0.0)), default=0.0)
             pnl_percent = self._to_float(payload.get("pnl_percent"), default=0.0)
@@ -2549,18 +2564,19 @@ class TelegramBot:
                 if notional > 0:
                     pnl_percent = (pnl / notional) * 100.0
 
-            reason = payload.get("reason") or payload.get("exit_reason") or "Position closed"
-
-            self.send_trade_closed(
-                symbol=str(symbol),
+            pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+            self.logger.info(
+                "%s Closed: %s · P&L: %s",
+                "💰" if pnl >= 0 else "📉",
+                str(strategy),
+                pnl_str,
+            )
+            self.send_compact_trade_message(
+                "closed",
                 strategy=str(strategy),
-                position_type=str(position_type),
-                entry_price=entry_price,
-                exit_price=exit_price,
-                quantity=quantity,
+                symbol=str(symbol),
                 pnl=pnl,
                 pnl_percent=pnl_percent,
-                reason=str(reason),
             )
         except Exception as e:
             self.logger.error("Error handling position closed event: %s", e)

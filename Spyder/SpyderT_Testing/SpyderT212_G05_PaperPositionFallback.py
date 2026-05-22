@@ -98,6 +98,75 @@ class _PaperCondorSessionDB:
         ]
 
 
+class _UnsignedPaperCondorSessionDB:
+    def get_resume_eligible_open_positions(self):
+        return self.get_open_positions()
+
+    def get_open_positions(self):
+        return [
+            {
+                "position_id": "paper:SPY260515P00565000",
+                "symbol": "SPY260515P00565000",
+                "quantity": 1,
+                "side": "buy_to_open",
+                "entry_price": 0.45,
+                "current_price": 0.40,
+                "unrealized_pnl": -5.0,
+                "strategy": "iron_condor",
+                "status": "OPEN",
+                "opened_at": "2026-05-12T15:12:30+00:00",
+                "expiration": "2026-05-15",
+                "strike": 565.0,
+                "option_type": "put",
+            },
+            {
+                "position_id": "paper:SPY260515P00570000",
+                "symbol": "SPY260515P00570000",
+                "quantity": 1,
+                "side": "sell_to_open",
+                "entry_price": 1.25,
+                "current_price": 1.10,
+                "unrealized_pnl": 15.0,
+                "strategy": "iron_condor",
+                "status": "OPEN",
+                "opened_at": "2026-05-12T15:12:30+00:00",
+                "expiration": "2026-05-15",
+                "strike": 570.0,
+                "option_type": "put",
+            },
+            {
+                "position_id": "paper:SPY260515C00580000",
+                "symbol": "SPY260515C00580000",
+                "quantity": 1,
+                "side": "sell_to_open",
+                "entry_price": 1.30,
+                "current_price": 1.45,
+                "unrealized_pnl": -15.0,
+                "strategy": "iron_condor",
+                "status": "OPEN",
+                "opened_at": "2026-05-12T15:12:31+00:00",
+                "expiration": "2026-05-15",
+                "strike": 580.0,
+                "option_type": "call",
+            },
+            {
+                "position_id": "paper:SPY260515C00585000",
+                "symbol": "SPY260515C00585000",
+                "quantity": 1,
+                "side": "buy_to_open",
+                "entry_price": 0.55,
+                "current_price": 0.50,
+                "unrealized_pnl": 5.0,
+                "strategy": "iron_condor",
+                "status": "OPEN",
+                "opened_at": "2026-05-12T15:12:31+00:00",
+                "expiration": "2026-05-15",
+                "strike": 585.0,
+                "option_type": "call",
+            },
+        ]
+
+
 class _StalePaperSessionDB(_PaperCondorSessionDB):
     def get_resume_eligible_open_positions(self):
         return []
@@ -128,7 +197,7 @@ def _build_dashboard_stub(session_db=None, *, trading_active: bool = False) -> S
     dash.trading_mode = TradingMode.PAPER
     dash.trading_active = trading_active
     dash.positions_table = QTreeWidget()
-    dash.positions_table.setColumnCount(8)
+    dash.positions_table.setColumnCount(9)
     dash.orders_title_label = QLabel("Orders")
     dash._portfolio_summary_cache = None
     dash._paper_session_db = None
@@ -150,13 +219,14 @@ def test_render_paper_spreads_in_tree_falls_back_to_session_positions() -> None:
 
     assert "ACTIVE PAPER POSITION (CARRIED OVER) : IRON CONDOR" in summary.text(0)
     assert "STATUS: OPEN" in summary.text(0)
-    assert detail.text(0).strip() == "SPY"
-    assert detail.text(1) == "--"
-    assert detail.text(2) == "-4"
-    assert detail.text(3) == "$733.10"
-    assert detail.text(4) == "-$2,932.40"
-    assert detail.text(5) == "--"
-    assert detail.text(6) == "-$60.00"
+    assert detail.text(0) == "SELL"
+    assert detail.text(1) == "SPY"
+    assert detail.text(2) == "--"
+    assert detail.text(3) == "4"
+    assert detail.text(4) == "$733.10"
+    assert detail.text(5) == "-$2,932.40"
+    assert detail.text(6) == "--"
+    assert detail.text(7) == "-$60.00"
 
 
 def test_render_paper_spreads_in_tree_groups_restored_condor_legs() -> None:
@@ -177,14 +247,33 @@ def test_render_paper_spreads_in_tree_groups_restored_condor_legs() -> None:
     assert close_buttons[0].width() == 20
     assert close_buttons[0].height() == 20
 
-    leg_labels = [dash.positions_table.topLevelItem(i).text(0).strip() for i in range(1, 5)]
-    assert leg_labels == ["Sell Put", "Buy Put", "Sell Call", "Buy Call"]
-    assert dash.positions_table.topLevelItem(1).text(1) == "$570P"
-    assert dash.positions_table.topLevelItem(1).text(3) == "$1.25"
-    assert dash.positions_table.topLevelItem(1).text(4) == "-$125"
-    assert dash.positions_table.topLevelItem(2).text(1) == "$565P"
-    assert dash.positions_table.topLevelItem(3).text(1) == "$580C"
-    assert dash.positions_table.topLevelItem(4).text(1) == "$585C"
+    action_labels = [dash.positions_table.topLevelItem(i).text(0) for i in range(1, 5)]
+    assert action_labels == ["SELL PUT", "BUY PUT", "SELL CALL", "BUY CALL"]
+    assert dash.positions_table.topLevelItem(1).text(1) == "SPY260515P00570000"
+    assert dash.positions_table.topLevelItem(1).text(2) == "$570P"
+    assert dash.positions_table.topLevelItem(1).text(4) == "$1.25"
+    assert dash.positions_table.topLevelItem(1).text(5) == "-$125"
+    assert dash.positions_table.topLevelItem(2).text(1) == "SPY260515P00565000"
+    assert dash.positions_table.topLevelItem(3).text(1) == "SPY260515C00580000"
+    assert dash.positions_table.topLevelItem(4).text(1) == "SPY260515C00585000"
+
+
+def test_render_paper_spreads_in_tree_rebuilds_unsigned_condor_legs_from_side_data() -> None:
+    dash = _build_dashboard_stub(session_db=_UnsignedPaperCondorSessionDB())
+
+    dash._render_paper_spreads_in_tree([], armed_candidate=None)
+
+    assert dash.positions_table.topLevelItemCount() == 5
+
+    summary = dash.positions_table.topLevelItem(0)
+    summary_widget = dash.positions_table.itemWidget(summary, 0)
+    assert summary_widget is not None
+    label_texts = [label.text() for label in summary_widget.findChildren(QLabel)]
+    assert any("ACTIVE TRADE CARRIED OVER : IRON CONDOR" in text for text in label_texts)
+    assert any("NET P&L" in text for text in label_texts)
+
+    action_labels = [dash.positions_table.topLevelItem(i).text(0) for i in range(1, 5)]
+    assert action_labels == ["SELL PUT", "BUY PUT", "SELL CALL", "BUY CALL"]
 
 
 def test_render_paper_spreads_in_tree_ignores_stale_session_rows_without_manifest_match() -> None:
@@ -238,7 +327,7 @@ def test_render_paper_spreads_in_tree_groups_partial_active_rows_under_one_heade
     assert "ACTIVE PAPER POSITION (EXECUTING) : IRON CONDOR" in summary.text(0)
     assert "TRADES: 3" in summary.text(0)
 
-    labels = [dash.positions_table.topLevelItem(i).text(0).strip() for i in range(1, 4)]
+    labels = [dash.positions_table.topLevelItem(i).text(1) for i in range(1, 4)]
     assert labels == [
         "SPY260515P00565000",
         "SPY260515P00570000",

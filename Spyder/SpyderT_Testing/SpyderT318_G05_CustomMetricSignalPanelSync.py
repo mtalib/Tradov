@@ -83,3 +83,46 @@ def test_on_custom_metrics_updated_skips_signal_panel_live_sync_when_helper_has_
 
     dash.signal_panel.update_regime.assert_called_once_with("NEUTRAL", 1.9, 42.0, 120.0, 0.0)
     dash.signal_panel.update_live_data.assert_not_called()
+
+
+def test_on_custom_metrics_updated_uses_merged_metrics_for_regime_and_signal_panel(monkeypatch) -> None:
+    dash = _build_dashboard_stub()
+    dash._last_custom_metrics_payload = {
+        "SWAN": {"value": 1.65},
+        "DIX": {"value": 43.0},
+        "SKEW": {"value": 135.5},
+    }
+    helper_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        g05,
+        "build_custom_metric_signal_panel_sync_plan",
+        lambda **kwargs: helper_calls.append(dict(kwargs))
+        or SimpleNamespace(
+            regime_value="BULL",
+            swan=1.65,
+            dix=43.0,
+            skew=135.5,
+            gex=4.5,
+            live_data={"GEX": 4.5, "SWAN": 1.65},
+        ),
+    )
+
+    SpyderTradingDashboard._on_custom_metrics_updated(dash, {"GEX": {"value": 4.5}})
+
+    merged_metrics = {
+        "SWAN": {"value": 1.65},
+        "DIX": {"value": 43.0},
+        "SKEW": {"value": 135.5},
+        "GEX": {"value": 4.5},
+    }
+    dash.update_regime_pills.assert_called_once_with(merged_metrics)
+    assert helper_calls == [
+        {
+            "metrics": merged_metrics,
+            "metric_routing": SpyderTradingDashboard._S07_METRIC_ROUTING,
+            "regime_value": "RISK OFF",
+        }
+    ]
+    dash.signal_panel.update_regime.assert_called_once_with("BULL", 1.65, 43.0, 135.5, 4.5)
+    dash.signal_panel.update_live_data.assert_called_once_with({"GEX": 4.5, "SWAN": 1.65})

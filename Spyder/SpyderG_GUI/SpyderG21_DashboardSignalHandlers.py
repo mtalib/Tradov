@@ -7,25 +7,9 @@ Purpose: Extract slot/controller signal handling out of SpyderG05_TradingDashboa
 """
 
 import os
-from datetime import datetime
 from typing import Any
 
-import pytz
-
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import COLORS
-from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
-    MARKET_OPEN_TIME,
-    MARKET_CLOSE_TIME,
-)
-
-
-def is_market_hours(now_et: datetime | None = None) -> bool:
-    """Return True only during regular trading hours (9:30 AM – 4:00 PM ET), Mon–Fri."""
-    current_et = now_et or datetime.now(pytz.timezone("US/Eastern"))
-    if current_et.weekday() >= 5:
-        return False
-    t = current_et.time()
-    return MARKET_OPEN_TIME <= t <= MARKET_CLOSE_TIME
 
 
 def handle_connection_status_changed(dashboard: Any, connected: bool, status: str) -> None:
@@ -34,8 +18,7 @@ def handle_connection_status_changed(dashboard: Any, connected: bool, status: st
     dashboard.api_connected = connected
 
     if connected:
-        market_open = bool(is_market_hours())
-        exec_color = COLORS["positive"] if market_open else COLORS["warning"]
+        exec_color = COLORS["positive"]
         dashboard.api_connection_label.setText("TRADIER EXEC")
         dashboard.api_connection_label.setStyleSheet(f"color: {exec_color};")
         if hasattr(dashboard, "api_connect_icon") and dashboard.api_connect_icon:
@@ -94,13 +77,15 @@ def handle_heartbeat_status_changed(dashboard: Any, status: str) -> None:
             dashboard.api_connect_icon.setStyleSheet(
                 f"color: {COLORS['negative']}; font-size: 13px;",
             )
-        if hasattr(dashboard, "mkt_provider_label"):
-            dashboard.mkt_provider_label.setStyleSheet(
-                f"color: {COLORS['negative']}; font-size: 14px;",
-            )
+        provider = os.getenv("MARKET_DATA_PROVIDER", "tradier").lower()
+        dashboard._apply_mkt_provider_display(provider)
         if hasattr(dashboard, "mkt_connect_icon") and dashboard.mkt_connect_icon:
+            if getattr(dashboard, "mkt_data_connected", False):
+                data_color = COLORS["positive"]
+            else:
+                data_color = COLORS["negative"]
             dashboard.mkt_connect_icon.setStyleSheet(
-                f"color: {COLORS['negative']}; font-size: 13px;",
+                f"color: {data_color}; font-size: 13px;",
             )
     elif status == "connected":
         exec_color = COLORS["positive"] if getattr(dashboard, "api_connected", False) else COLORS["negative"]  # noqa: E501

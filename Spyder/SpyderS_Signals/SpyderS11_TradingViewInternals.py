@@ -53,11 +53,24 @@ from typing import Any
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
+import shutil
 try:
     from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page  # noqa: F401
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
+
+# Detect a system Chromium when Playwright's bundled browser cannot be installed
+# (e.g. Ubuntu 26.04 is not yet in Playwright's support matrix).
+_SYSTEM_CHROMIUM_PATHS = (
+    "/snap/bin/chromium",          # snap install chromium
+    "/usr/bin/chromium-browser",   # apt install chromium-browser
+    "/usr/bin/chromium",           # some distros
+)
+_SYSTEM_CHROMIUM: str | None = next(
+    (p for p in _SYSTEM_CHROMIUM_PATHS if shutil.which(p) or __import__('os').path.isfile(p)),
+    None,
+)
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -233,7 +246,22 @@ class TradingViewInternals:
                     "Run: pip install playwright && python -m playwright install chromium"
                 )
             pw = sync_playwright().start()
-            browser = pw.chromium.launch(headless=True)
+            # Try bundled Playwright Chromium first; fall back to system Chromium
+            # when the bundled binary is unavailable (e.g. unsupported OS version).
+            try:
+                browser = pw.chromium.launch(headless=True)
+            except Exception as _bundled_exc:
+                if _SYSTEM_CHROMIUM is None:
+                    raise RuntimeError(
+                        f"Playwright bundled Chromium unavailable ({_bundled_exc}) and no "
+                        "system Chromium found. "
+                        "Install one with: sudo snap install chromium"
+                    ) from _bundled_exc
+                logger.debug(
+                    "Playwright bundled Chromium unavailable (%s); using system Chromium at %s",
+                    _bundled_exc, _SYSTEM_CHROMIUM,
+                )
+                browser = pw.chromium.launch(headless=True, executable_path=_SYSTEM_CHROMIUM)
             ctx = browser.new_context(user_agent=_USER_AGENT)
             for name, url in _SYMBOLS.items():
                 try:

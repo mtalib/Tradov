@@ -215,6 +215,38 @@ class TestR04ExecuteOrderRejections(unittest.TestCase):
         engine._wait_for_execution.assert_called_once()
         broker.submit_order.assert_not_called()
 
+    def test_execute_order_resolves_generic_option_close_side_before_pending_registration(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+        engine.state = ExecutionState.TRADING
+        symbol = "SPY260618C00777000"
+        engine.active_positions = {
+            symbol: {
+                "symbol": symbol,
+                "quantity": -1,
+                "entry_price": 1.37,
+                "current_price": 1.37,
+                "strategy": "iron_condor",
+            }
+        }
+        engine._wait_for_execution = MagicMock(return_value={"status": "accepted"})
+        engine._update_execution_metrics = MagicMock()
+
+        result = engine.execute_order(
+            {
+                "symbol": symbol,
+                "side": "close",
+                "quantity": 1,
+                "price": 1.37,
+                "strategy_id": "iron_condor",
+            }
+        )
+
+        self.assertEqual(result["status"], "accepted")
+        pending_entry = next(iter(engine.pending_orders.values()))
+        self.assertEqual(pending_entry["order"]["side"], "buy_to_close")
+
     def test_rejected_when_a02_preflight_gate_blocks(self):
         from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
 
@@ -723,6 +755,48 @@ class TestR04GetExecutionStatus(unittest.TestCase):
 class TestR04FillAccounting(unittest.TestCase):
     """Unified R04 fill persistence should retain realized P&L for closes."""
 
+    def test_normalize_reconciler_fill_resolves_legacy_close_side_for_short_option(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+        engine.mode = TradingMode.PAPER
+        symbol = "SPY260613P00712500"
+        engine.active_positions = {
+            symbol: {
+                "symbol": symbol,
+                "quantity": -1,
+                "entry_price": 8.5843,
+                "current_price": 8.5843,
+                "strategy": "iron_condor",
+            }
+        }
+        engine.pending_orders = {
+            "ORD-CLOSE-LEGACY": {
+                "order": {
+                    "symbol": symbol,
+                    "quantity": 1,
+                    "side": "close",
+                    "strategy": "iron_condor",
+                }
+            }
+        }
+
+        normalized = engine._normalize_reconciler_fill(
+            {
+                "order_id": "ORD-CLOSE-LEGACY",
+                "quantity": 1,
+                "raw": {
+                    "id": "PAPER-LEGACY-1",
+                    "symbol": symbol,
+                    "avg_fill_price": 4.2921,
+                    "quantity": 1,
+                    "transaction_date": "2026-05-14T19:22:05+00:00",
+                },
+            }
+        )
+
+        self.assertEqual(normalized["side"], "buy_to_close")
+
     def test_reconciler_fill_records_realized_pnl_for_option_close(self):
         from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
         from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
@@ -1090,6 +1164,109 @@ class TestR04PaperMarkToMarket(unittest.TestCase):
         self.assertEqual(open_rows[0]["position_id"], f"paper:{repaired_symbol}")
         self.assertEqual(open_rows[0]["symbol"], repaired_symbol)
         self.assertAlmostEqual(open_rows[0]["strike"], 699.0, places=4)
+        self.assertIsNone(old_row)
+        self.assertIsNotNone(latest_snapshot)
+        self.assertAlmostEqual(latest_snapshot["unrealized_pnl"], 429.22, places=2)
+        self.assertAlmostEqual(latest_snapshot["equity"], 100429.22, places=2)
+
+    def test_monitor_positions_repairs_invalid_paper_option_expiration_to_live_chain(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_mark_to_market.db")
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            invalid_symbol = "SPY260619P00690000"
+            repaired_symbol = "SPY260618P00690000"
+            quote_client = MagicMock()
+            quote_client.get_quotes.return_value = {
+                "quotes": {
+                    "quote": {
+                        "symbol": repaired_symbol,
+                        "bid": 4.2000,
+                        "ask": 4.3842,
+                    }
+                }
+            }
+            quote_client.get_option_expirations.return_value = {
+                "expirations": {
+                    "date": ["2026-06-18", "2026-06-26"],
+                }
+            }
+            engine._paper_option_quote_client = quote_client
+            engine._paper_option_chain_cache = {
+                ("SPY", "2026-06-18"): {
+                    "put": [689.0, 690.0, 699.0, 700.0],
+                    "call": [770.0, 780.0],
+                }
+            }
+            engine._paper_option_chain_cache_at = {("SPY", "2026-06-18"): time.time()}
+            broker.get_positions.return_value = []
+            broker.get_account_balances.return_value = {
+                "account": {"balance": 100000.0}
+            }
+            broker._last_prices = {}
+            db.record_trade(
+                symbol=invalid_symbol,
+                trade_type="STO",
+                side="sell",
+                quantity=1,
+                price=8.5843,
+                strategy="iron_condor",
+                expiration="2026-06-19",
+                strike=690.0,
+                option_type="put",
+            )
+            db.upsert_position(
+                position_id=f"paper:{invalid_symbol}",
+                symbol=invalid_symbol,
+                strategy="iron_condor",
+                quantity=-1,
+                entry_price=8.5843,
+                current_price=8.5843,
+                status="OPEN",
+                expiration="2026-06-19",
+                strike=690.0,
+                option_type="put",
+            )
+            engine.active_positions = {
+                invalid_symbol: {
+                    "symbol": invalid_symbol,
+                    "quantity": -1,
+                    "entry_price": 8.5843,
+                    "current_price": 8.5843,
+                    "strategy": "iron_condor",
+                    "expiration": "2026-06-19",
+                    "strike": 690.0,
+                    "option_type": "put",
+                }
+            }
+
+            engine._monitor_positions()
+
+            latest_snapshot = db.get_latest_snapshot()
+            open_rows = db.get_open_positions()
+            with db._connect() as conn:
+                old_row = conn.execute(
+                    "SELECT symbol FROM positions WHERE position_id = ?",
+                    (f"paper:{invalid_symbol}",),
+                ).fetchone()
+
+        quote_client.get_option_expirations.assert_called_once_with("SPY")
+        quote_client.get_quotes.assert_called_once_with([repaired_symbol])
+        self.assertNotIn(invalid_symbol, engine.active_positions)
+        self.assertIn(repaired_symbol, engine.active_positions)
+        repaired_position = engine.active_positions[repaired_symbol]
+        self.assertEqual(repaired_position["expiration"], "2026-06-18")
+        self.assertAlmostEqual(repaired_position["strike"], 690.0, places=4)
+        self.assertAlmostEqual(repaired_position["current_price"], 4.2921, places=4)
+        self.assertAlmostEqual(broker._last_prices[repaired_symbol], 4.2921, places=4)
+        self.assertEqual(len(open_rows), 1)
+        self.assertEqual(open_rows[0]["position_id"], f"paper:{repaired_symbol}")
+        self.assertEqual(open_rows[0]["symbol"], repaired_symbol)
+        self.assertEqual(open_rows[0]["expiration"], "2026-06-18")
         self.assertIsNone(old_row)
         self.assertIsNotNone(latest_snapshot)
         self.assertAlmostEqual(latest_snapshot["unrealized_pnl"], 429.22, places=2)

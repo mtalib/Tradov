@@ -51,10 +51,8 @@ from PySide6.QtCore import QObject, QMutex, QMutexLocker, QTimer, Signal, Slot
 # ==============================================================================
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (
-    TRADIER_CONNECT_TIME,
     LogThrottle,
     is_dashboard_session as _is_dashboard_session,
-    is_tradier_active_window as is_tradier_window,
 )
 from Spyder.SpyderU_Utilities.SpyderU49_SymbolCatalog import (
     get_quote_symbol_basket,
@@ -828,24 +826,6 @@ class ThreadSafeMarketDataWorker(QObject):
 
     def _heartbeat_check(self):
         """30-second heartbeat check for Tradier API connection"""
-        # Stay quiet outside the 9:20 AM – 4:30 PM ET trading window
-        if not is_tradier_window():
-            if self.api_connected:
-                # Transition to disconnected when window closes
-                self.api_connected = False
-                self.connection_status_changed.emit(False, "OUTSIDE TRADING HOURS")
-                self.market_data_status_changed.emit("NONE")
-
-            # Always signal offline so toolbar labels stay red
-            self.heartbeat_status_changed.emit("offline")
-
-            # Emit calm ❤️ message at startup and every 30 minutes thereafter
-            if self._offline_log_throttle.should_emit():
-                self.heartbeat_received.emit(
-                    "❤️ Tradier inactive - outside market hours (9:20 AM – 4:30 PM ET)"
-                )
-            return
-
         try:
             # Check actual connection
             connected, mode = check_api_connection()
@@ -1624,28 +1604,6 @@ class ThreadSafeMarketDataWorker(QObject):
         self.heartbeat_warning_timer = QTimer(self)
         self.heartbeat_warning_timer.timeout.connect(self._heartbeat_warning)
 
-        # Only attempt initial connection if within the trading window
-        if not is_tradier_window():
-            import pytz as _pytz
-            _et_now = datetime.now(_pytz.timezone("US/Eastern"))
-            _open_str = TRADIER_CONNECT_TIME.strftime("%I:%M %p")
-            if not self._quiet_startup:
-                logger.info("🕐 Outside trading window — Tradier will connect at %s ET", _open_str)
-            self.connection_status_changed.emit(False, "WAITING FOR MARKET")
-            self.market_data_status_changed.emit("NONE")
-            self.heartbeat_status_changed.emit("disconnected")
-            self.heartbeat_received.emit(
-                "❤️ Tradier inactive - outside market hours (9:20 AM – 4:30 PM ET)"
-            )
-            # Fetch real last-trade prices so the dashboard shows genuine EOD data
-            # rather than hardcoded simulation values.  Run after a short delay so
-            # all Qt signal connections are established before the emit fires.
-            QTimer.singleShot(500, self._fetch_eod_snapshot)
-            # Also fetch account balance — not gated by market hours so the
-            # account section populates even when launched before/after market.
-            QTimer.singleShot(2000, self._fetch_balance_only)
-            return
-
         try:
             connected, mode = check_api_connection()
             self.api_connected = connected
@@ -1677,6 +1635,12 @@ class ThreadSafeMarketDataWorker(QObject):
             self.connection_status_changed.emit(False, "API DISCONNECTED")
             self.market_data_status_changed.emit("NONE")
             self.heartbeat_status_changed.emit("error")  # Red heart
+
+        # Always queue balance fetch; queue EOD snapshot outside market hours
+        # so the dashboard shows genuine last-close prices when launched pre/post session.
+        if not is_market_hours():
+            QTimer.singleShot(500, self._fetch_eod_snapshot)
+        QTimer.singleShot(2000, self._fetch_balance_only)
 
     @Slot()
     def run_full_fetch(self):

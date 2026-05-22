@@ -6,6 +6,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import Spyder.SpyderG_GUI.SpyderG05_TradingDashboard as g05
+import Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB as h05
 from Spyder.SpyderG_GUI.SpyderG05_TradingDashboard import SpyderTradingDashboard
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import TradingMode
 from Spyder.SpyderG_GUI.SpyderG34_AccountCapitalMath import (
@@ -48,6 +49,7 @@ def test_on_balance_updated_reconciles_idle_paper_realized_delta() -> None:
     dash._paper_initial_capital = 100000.0
     dash._pnl_stats_by_mode = {TradingMode.PAPER: {"today_pnl": "$+0.00"}}
     dash._refresh_pnl_table = MagicMock()
+    dash._apply_spyderbox_paper_account_snapshot = lambda: False
     calls: list[dict] = []
     dash._set_spyderbox_account_panel_values = lambda **kwargs: calls.append(kwargs)
 
@@ -58,6 +60,57 @@ def test_on_balance_updated_reconciles_idle_paper_realized_delta() -> None:
         {"realized": 1250.0},
     ]
     dash._refresh_pnl_table.assert_called_once_with({"today_pnl": "$+0.00"})
+
+
+def test_on_balance_updated_applies_latest_paper_snapshot_when_active(monkeypatch) -> None:
+    dash = SpyderTradingDashboard.__new__(SpyderTradingDashboard)
+    dash.trading_mode = TradingMode.PAPER
+    dash.trading_active = True
+    dash._paper_initial_capital = 100000.0
+    dash._pnl_stats_by_mode = {TradingMode.PAPER: {"today_pnl": "$+0.00"}}
+    dash._refresh_pnl_table = MagicMock()
+    dash._apply_spyderbox_paper_account_snapshot = MagicMock(return_value=True)
+    dash._set_spyderbox_account_panel_values = MagicMock()
+
+    SpyderTradingDashboard._on_balance_updated(dash, "paper", 100202.86, 100202.86)
+
+    dash._set_spyderbox_account_panel_values.assert_called_once_with(
+        settled=100202.86,
+        buying=100202.86,
+    )
+    dash._apply_spyderbox_paper_account_snapshot.assert_called_once_with()
+    dash._refresh_pnl_table.assert_not_called()
+
+
+def test_apply_spyderbox_paper_account_snapshot_uses_latest_h05_values(monkeypatch) -> None:
+    dash = SpyderTradingDashboard.__new__(SpyderTradingDashboard)
+    dash.logger = MagicMock()
+    calls: list[dict] = []
+    dash._set_spyderbox_account_panel_values = lambda **kwargs: calls.append(kwargs)
+
+    paper_db = MagicMock()
+    paper_db.get_latest_snapshot.return_value = {
+        "equity": 100202.86,
+        "buying_power": 100202.86,
+        "realized_pnl": 25.0,
+        "unrealized_pnl": -320.35,
+    }
+
+    monkeypatch.setattr(
+        h05,
+        "TradingSessionDB",
+        MagicMock(for_paper=MagicMock(return_value=paper_db)),
+    )
+
+    assert SpyderTradingDashboard._apply_spyderbox_paper_account_snapshot(dash) is True
+    assert calls == [
+        {
+            "settled": 100202.86,
+            "buying": 100202.86,
+            "realized": 25.0,
+            "unrealized": -320.35,
+        },
+    ]
 
 
 def test_on_paper_metrics_uses_capital_baseline_fallback(monkeypatch) -> None:

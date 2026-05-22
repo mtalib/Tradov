@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import numpy as np
 import pandas as pd
@@ -124,3 +124,20 @@ def test_construct_iron_condor_aligns_to_live_chain(monkeypatch) -> None:
     assert [leg.strike for leg in structure.legs] == [689.0, 699.0, 770.0, 780.0]
     assert structure.body_width == 71.0
     assert structure.wing_width == 10.0
+
+
+def test_resolve_live_option_expiration_prefers_nearest_listed_contract(monkeypatch) -> None:
+    constructor = MultiLegStrategyConstructor(config={"underlying_symbol": "SPY"})
+
+    monkeypatch.setattr(
+        constructor,
+        "_get_live_option_expiration_dates",
+        lambda symbol: [date(2026, 6, 18), date(2026, 6, 26)],
+    )
+
+    resolved_expiration = constructor._resolve_live_option_expiration(
+        "SPY",
+        datetime(2026, 6, 19, 15, 45, tzinfo=UTC),
+    )
+
+    assert resolved_expiration == datetime(2026, 6, 18, 15, 45, tzinfo=UTC)

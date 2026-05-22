@@ -61,8 +61,8 @@ class RecentTradesDialog(QDialog):
         layout.addWidget(subtitle)
 
         self._table = QTreeWidget(self)
-        self._table.setColumnCount(8)
-        self._table.setHeaderLabels(["     LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""])
+        self._table.setColumnCount(9)
+        self._table.setHeaderLabels(["ACTION", "LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""])
         for column in range(self._table.columnCount()):
             self._table.headerItem().setTextAlignment(column, Qt.AlignmentFlag.AlignCenter)
 
@@ -85,14 +85,15 @@ class RecentTradesDialog(QDialog):
             f"QScrollBar:vertical {{ width: 8px; background: {COLORS['panel']}; }}"
         )
         header = self._table.header()
-        self._table.setColumnWidth(0, 94)
-        self._table.setColumnWidth(1, 68)
-        self._table.setColumnWidth(2, 44)
-        self._table.setColumnWidth(3, 60)
-        self._table.setColumnWidth(4, 68)
-        self._table.setColumnWidth(5, 60)
-        self._table.setColumnWidth(6, 92)
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
+        self._table.setColumnWidth(0, 92)
+        self._table.setColumnWidth(1, 146)
+        self._table.setColumnWidth(2, 68)
+        self._table.setColumnWidth(3, 44)
+        self._table.setColumnWidth(4, 60)
+        self._table.setColumnWidth(5, 68)
+        self._table.setColumnWidth(6, 60)
+        self._table.setColumnWidth(7, 92)
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
         self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         layout.addWidget(self._table)
@@ -119,7 +120,7 @@ class RecentTradesDialog(QDialog):
     def _populate_table(self) -> None:
         table = self._table
         table.clear()
-        table.setHeaderLabels(["     LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""])
+        table.setHeaderLabels(["ACTION", "LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""])
 
         for trade in self._trades:
             if self._is_grouped_trade(trade):
@@ -140,12 +141,13 @@ class RecentTradesDialog(QDialog):
     @staticmethod
     def _align_data_row(item: QTreeWidgetItem) -> None:
         item.setTextAlignment(0, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
-        item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignCenter))
+        item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
         item.setTextAlignment(2, int(Qt.AlignmentFlag.AlignCenter))
-        item.setTextAlignment(3, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        item.setTextAlignment(3, int(Qt.AlignmentFlag.AlignCenter))
         item.setTextAlignment(4, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
-        item.setTextAlignment(5, int(Qt.AlignmentFlag.AlignCenter))
-        item.setTextAlignment(6, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        item.setTextAlignment(5, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        item.setTextAlignment(6, int(Qt.AlignmentFlag.AlignCenter))
+        item.setTextAlignment(7, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
 
     @staticmethod
     def _is_grouped_trade(trade: dict[str, Any]) -> bool:
@@ -193,23 +195,26 @@ class RecentTradesDialog(QDialog):
 
         for spread_leg in legs:
             leg_row = QTreeWidgetItem(self._table)
-            leg_row.setText(0, spread_leg.side_text)
-            leg_row.setText(1, spread_leg.strike_text)
-            leg_row.setText(2, spread_leg.quantity_text)
-            leg_row.setText(3, spread_leg.price_text)
-            leg_row.setText(5, spread_leg.expiry_text)
+            leg_row.setText(0, spread_leg.action_text)
+            leg_row.setText(1, spread_leg.leg_text)
+            leg_row.setText(2, spread_leg.strike_text)
+            leg_row.setText(3, spread_leg.quantity_text)
+            leg_row.setText(4, spread_leg.price_text)
+            leg_row.setText(6, spread_leg.expiry_text)
             self._align_data_row(leg_row)
-            for col in range(7):
+            for col in range(8):
                 leg_row.setForeground(col, QColor("#ffffff"))
+            if spread_leg.action_color:
+                leg_row.setForeground(0, QColor(spread_leg.action_color))
 
             if spread_leg.cost_text:
-                leg_row.setText(4, spread_leg.cost_text)
+                leg_row.setText(5, spread_leg.cost_text)
                 if spread_leg.cost_color:
-                    leg_row.setForeground(4, QColor(spread_leg.cost_color))
+                    leg_row.setForeground(5, QColor(spread_leg.cost_color))
             if spread_leg.pnl_text:
-                leg_row.setText(6, spread_leg.pnl_text)
+                leg_row.setText(7, spread_leg.pnl_text)
                 if spread_leg.pnl_color:
-                    leg_row.setForeground(6, QColor(spread_leg.pnl_color))
+                    leg_row.setForeground(7, QColor(spread_leg.pnl_color))
 
     def _add_flat_trade_rows(self, trade: dict[str, Any]) -> None:
         display = build_recent_trade_display(trade, symbol_placeholder="-")
@@ -227,21 +232,27 @@ class RecentTradesDialog(QDialog):
         )
 
         detail_row = QTreeWidgetItem(self._table)
-        detail_row.setText(0, f"  {symbol}")
-        detail_row.setText(2, display.quantity_text)
-        detail_row.setText(3, display.price_text)
-        detail_row.setText(4, display.cost_text)
-        detail_row.setText(6, display.realized_pnl_text)
+        action_text = action.upper()
+        detail_row.setText(0, action_text)
+        detail_row.setText(1, symbol)
+        detail_row.setText(3, display.quantity_text)
+        detail_row.setText(4, display.price_text)
+        detail_row.setText(5, display.cost_text)
+        detail_row.setText(7, display.realized_pnl_text)
         self._align_data_row(detail_row)
-        for col in range(7):
+        for col in range(8):
             detail_row.setForeground(col, QColor("#ffffff"))
+        if action_text.startswith("BUY"):
+            detail_row.setForeground(0, QColor(COLORS["positive"]))
+        elif action_text.startswith("SELL"):
+            detail_row.setForeground(0, QColor(COLORS["negative"]))
 
         if display.cost_text.startswith("$+") or display.cost_text.startswith("+"):
-            detail_row.setForeground(4, QColor(COLORS["positive"]))
+            detail_row.setForeground(5, QColor(COLORS["positive"]))
         elif display.cost_text.startswith("$-") or display.cost_text.startswith("-"):
-            detail_row.setForeground(4, QColor(COLORS["negative"]))
+            detail_row.setForeground(5, QColor(COLORS["negative"]))
 
         if display.realized_pnl_value > 0:
-            detail_row.setForeground(6, QColor(COLORS["positive"]))
+            detail_row.setForeground(7, QColor(COLORS["positive"]))
         elif display.realized_pnl_value < 0:
-            detail_row.setForeground(6, QColor(COLORS["negative"]))
+            detail_row.setForeground(7, QColor(COLORS["negative"]))

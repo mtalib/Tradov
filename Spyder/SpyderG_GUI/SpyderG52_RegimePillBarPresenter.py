@@ -111,12 +111,12 @@ _DISPATCH_TIPS: dict[str, str] = {
 _STANCE_TIPS: dict[str, str] = {
     "BULLISH": (
         "<b>BULLISH STANCE</b><br><br>"
-        "D30 maps BULL regime &rarr; BULLISH stance<br><br>"
+        "D31 maps BULL regime &rarr; BULLISH stance<br><br>"
         "<b>Permitted strategy:</b> SpyderD06_BullPutSpread"
     ),
     "CHOPPY": (
         "<b>CHOPPY STANCE</b><br><br>"
-        "D30 maps BEAR / RANGE / VOLATILE &rarr; CHOPPY stance<br>"
+        "D31 maps BEAR / RANGE / VOLATILE &rarr; CHOPPY stance<br>"
         "Specific strategy is determined by Strategy Gate:<br><br>"
         "&bull; BEAR &rarr; SpyderD07_BearCallSpread<br>"
         "&bull; RANGE &rarr; SpyderD02_IronCondor<br>"
@@ -124,7 +124,7 @@ _STANCE_TIPS: dict[str, str] = {
     ),
     "CRISIS": (
         "<b>CRISIS STANCE</b><br><br>"
-        "D30 maps CRISIS / EVENT &rarr; CRISIS stance<br><br>"
+        "D31 maps CRISIS / EVENT &rarr; CRISIS stance<br><br>"
         "<i>Hard halt &mdash; no new entries permitted</i>"
     ),
 }

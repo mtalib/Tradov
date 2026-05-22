@@ -208,3 +208,28 @@ def test_d31_dispatch_midwalk_handles_result_without_message_attribute():
     if "signal" in call_kwargs:
         assert call_kwargs["signal"] == signal
     orchestrator._record_signal_drop.assert_not_called()
+
+
+def test_d31_paused_strategy_does_not_block_same_bucket_add():
+    """Regression: a paused strategy must not block a new strategy in the same horizon bucket.
+
+    During a regime transition, _adaptive_strategy_management pauses the outgoing
+    strategy before adding the incoming one.  The bucket should be claimable
+    immediately after the pause so the add_strategy call succeeds.
+    """
+    orchestrator = _make_orchestrator()
+    orchestrator.max_concurrent_strategies = 4
+    orchestrator.max_active_horizon_buckets = 3
+
+    # Register and pause an initial short-horizon strategy.
+    strategy_id = orchestrator.add_strategy(MockShortStrategy, config={}, initial_allocation=0.1)
+    assert strategy_id in orchestrator.active_strategies
+
+    # Simulate the pause that _adaptive_strategy_management performs.
+    orchestrator.active_strategies[strategy_id].pause = MagicMock()
+    orchestrator.active_strategies[strategy_id].pause()
+    orchestrator.paused_strategies.add(strategy_id)
+
+    # Adding a second strategy of the same horizon bucket must now succeed.
+    new_id = orchestrator.add_strategy(MockShortStrategy, config={}, initial_allocation=0.1)
+    assert new_id in orchestrator.active_strategies

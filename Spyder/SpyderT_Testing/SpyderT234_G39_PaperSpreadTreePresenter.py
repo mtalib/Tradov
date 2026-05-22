@@ -22,10 +22,10 @@ def test_build_paper_spread_tree_presentation_formats_header_and_legs() -> None:
             "expiration": "2026-05-15",
             "opened_at": datetime(2026, 5, 12, 15, 12, tzinfo=UTC).timestamp(),
             "legs": [
-                {"side": "Sell Put", "strike": 570.0, "qty": 1, "type": "P", "cost": -125.0, "pnl": 15.0},
-                {"side": "Buy Put", "strike": 565.0, "qty": 1, "type": "P", "cost": 45.0, "pnl": -5.0},
-                {"side": "Sell Call", "strike": 580.0, "qty": 1, "type": "C", "cost": -130.0, "pnl": -15.0},
-                {"side": "Buy Call", "strike": 585.0, "qty": 1, "type": "C", "cost": 55.0, "pnl": 5.0},
+                {"side": "Sell Put", "symbol": "SPY260515P00570000", "strike": 570.0, "qty": 1, "type": "P", "cost": -125.0, "pnl": 15.0},
+                {"side": "Buy Put", "symbol": "SPY260515P00565000", "strike": 565.0, "qty": 1, "type": "P", "cost": 45.0, "pnl": -5.0},
+                {"side": "Sell Call", "symbol": "SPY260515C00580000", "strike": 580.0, "qty": 1, "type": "C", "cost": -130.0, "pnl": -15.0},
+                {"side": "Buy Call", "symbol": "SPY260515C00585000", "strike": 585.0, "qty": 1, "type": "C", "cost": 55.0, "pnl": 5.0},
             ],
         },
         date(2026, 5, 12),
@@ -39,7 +39,13 @@ def test_build_paper_spread_tree_presentation_formats_header_and_legs() -> None:
     assert header.pnl_text == "NET P&L +$0 (+0.0%)"
     assert header.pnl_color == COLORS["positive"]
 
-    assert [leg.side_text.strip() for leg in legs] == ["Sell Put", "Buy Put", "Sell Call", "Buy Call"]
+    assert [leg.action_text for leg in legs] == ["SELL PUT", "BUY PUT", "SELL CALL", "BUY CALL"]
+    assert [leg.leg_text for leg in legs] == [
+        "SPY260515P00570000",
+        "SPY260515P00565000",
+        "SPY260515C00580000",
+        "SPY260515C00585000",
+    ]
     assert [leg.strike_text for leg in legs] == ["$570P", "$565P", "$580C", "$585C"]
     assert [leg.price_text for leg in legs] == ["$1.25", "$0.45", "$1.30", "$0.55"]
     assert all(leg.expiry_text == "05/15" for leg in legs)
@@ -61,10 +67,10 @@ def test_build_paper_spread_tree_presentation_formats_closed_trade_history_rows(
             "expiration": "2026-05-29",
             "closed_at": datetime(2026, 5, 16, 14, 46, tzinfo=UTC).timestamp(),
             "legs": [
-                {"side": "Sell Put", "strike": 581.0, "qty": 1, "type": "P", "cost": -101.0, "pnl": -16.0},
-                {"side": "Buy Put", "strike": 576.0, "qty": 1, "type": "P", "cost": 30.0, "pnl": 5.0},
-                {"side": "Sell Call", "strike": 596.0, "qty": 1, "type": "C", "cost": -87.0, "pnl": -24.0},
-                {"side": "Buy Call", "strike": 601.0, "qty": 1, "type": "C", "cost": 10.0, "pnl": -3.0},
+                {"side": "Sell Put", "symbol": "SPY260529P00581000", "strike": 581.0, "qty": 1, "type": "P", "cost": -101.0, "pnl": -16.0},
+                {"side": "Buy Put", "symbol": "SPY260529P00576000", "strike": 576.0, "qty": 1, "type": "P", "cost": 30.0, "pnl": 5.0},
+                {"side": "Sell Call", "symbol": "SPY260529C00596000", "strike": 596.0, "qty": 1, "type": "C", "cost": -87.0, "pnl": -24.0},
+                {"side": "Buy Call", "symbol": "SPY260529C00601000", "strike": 601.0, "qty": 1, "type": "C", "cost": 10.0, "pnl": -3.0},
             ],
         },
         date(2026, 5, 16),
@@ -78,4 +84,4 @@ def test_build_paper_spread_tree_presentation_formats_closed_trade_history_rows(
     assert header.summary_text == "CLOSED TRADE : IRON CONDOR  |  DTE: 13  |  STATUS: CLOSED"
     assert header.pnl_text == "NET P&L -$38 (-25.7%)"
     assert header.pnl_color == COLORS["negative"]
-    assert [leg.side_text.strip() for leg in legs] == ["Sell Put", "Buy Put", "Sell Call", "Buy Call"]
+    assert [leg.action_text for leg in legs] == ["SELL PUT", "BUY PUT", "SELL CALL", "BUY CALL"]

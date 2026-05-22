@@ -46,7 +46,7 @@ Removed Infrastructure:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
-from datetime import date, datetime, timedelta  # noqa: E402
+from datetime import UTC, date, datetime, timedelta  # noqa: E402
 import re  # noqa: E402
 from zoneinfo import ZoneInfo  # noqa: E402
 from typing import Any  # noqa: E402
@@ -62,7 +62,7 @@ import pandas as pd  # noqa: E402
 try:
     ET_TZ = ZoneInfo('America/New_York')
 except Exception:  # pragma: no cover - defensive tzdata fallback
-    ET_TZ = datetime.UTC
+    ET_TZ = UTC
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -349,7 +349,7 @@ class IronCondorStrategy(BaseStrategy):
                 strength = SignalStrength.WEAK
 
             current_price = float(market_data["close"].iloc[-1])
-            now = datetime.now(datetime.UTC)
+            now = datetime.now(UTC)
             signal = TradingSignal(
                 signal_id=str(uuid.uuid4()),
                 signal_type=SignalType.SELL,
@@ -1189,7 +1189,7 @@ class IronCondorStrategy(BaseStrategy):
             'active_setups': len(self.active_setups),
             'multileg_coordinator_connected': self.multileg_coordinator is not None,
             'last_analysis': {
-                'timestamp': datetime.now(datetime.UTC).isoformat(),
+                'timestamp': datetime.now(UTC).isoformat(),
                 'market_suitable': self.current_analysis.market_suitable if self.current_analysis else False,  # noqa: E501
                 'confidence_score': self.current_analysis.confidence_score if self.current_analysis else 0.0  # noqa: E501
             }

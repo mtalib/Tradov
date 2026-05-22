@@ -39,9 +39,9 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 _A01_EASTERN_TZ = ZoneInfo("America/New_York")
-_A01_PAPER_LOAD_START_ET = dt_time(9, 25)
+_A01_PAPER_LOAD_START_ET = dt_time(9, 0)
 _A01_MARKET_OPEN_ET = dt_time(9, 30)
-_A01_PAPER_AUTOSTART_WARMUP_END_ET = dt_time(9, 33)
+_A01_PAPER_AUTOSTART_WARMUP_END_ET = dt_time(9, 0)
 
 
 def _next_et_session_time(target_time: dt_time, now_et: datetime | None = None) -> datetime:
@@ -593,10 +593,28 @@ class SpyderApplication:
             self.logger.warning("MISSING CRITICAL CAPABILITY: %s", warning)
 
     def _setup_logging(self) -> None:
-        """Setup application logging with reduced verbosity to prevent Gateway flooding."""
+        """Setup application logging.
+
+        Two log destinations are configured:
+        - **Internal file** (``~/.spyder/logs/spyder_YYYYMMDD.log``): DEBUG+,
+          rotates at 50 MB, keeps 10 backups.  Every record goes here so that
+          nothing is lost during post-session analysis.
+        - **Console / GUI**: INFO+ only; noisy INFO records are further
+          suppressed in the GUI panel by ``GUIMinimalFilter`` in G99.
+        """
         try:
-            if has_logger and setup_logging_func:
-                setup_logging_func()
+            if has_logger:
+                _log_file = (
+                    Path.home()
+                    / ".spyder"
+                    / "logs"
+                    / f"spyder_{datetime.now().strftime('%Y%m%d')}.log"
+                )
+                SpyderLogger.initialize_logging(
+                    log_level=self.config.log_level,
+                    log_file=_log_file,
+                    file_log_level="DEBUG",
+                )
             else:
                 # Fallback: attach a handler to the Spyder package logger only,
                 # leaving the root logger untouched.

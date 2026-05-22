@@ -334,6 +334,8 @@ class LiveEngine:
         self._paper_option_quote_cache_at: float = 0.0
         self._paper_option_quote_lock = threading.RLock()
         self._paper_option_quote_misses: set[str] = set()
+        self._paper_option_expiration_cache: dict[str, list[str]] = {}
+        self._paper_option_expiration_cache_at: dict[str, float] = {}
         self._paper_option_chain_cache: dict[tuple[str, str], dict[str, list[float]]] = {}
         self._paper_option_chain_cache_at: dict[tuple[str, str], float] = {}
 
@@ -730,6 +732,62 @@ class LiveEngine:
             len(hydrated_positions),
         )
 
+        # Seed B03 (PositionTracker) so that close fills received before any
+        # new fills are netted correctly instead of creating phantom longs.
+        # Only primes symbols that B03 does not already have a fill record for.
+        pt = self._position_tracker
+        if pt is not None:
+            try:
+                tracker_positions = getattr(pt, "positions", None)
+                tracker_lock = (
+                    getattr(pt, "_position_lock", None) or getattr(pt, "lock", None)
+                )
+                if isinstance(tracker_positions, dict) and tracker_lock is not None:
+                    with tracker_lock:
+                        for sym, pos in hydrated_positions.items():
+                            if sym in tracker_positions:
+                                continue
+                            qty = int(pos.get("quantity") or 0)
+                            if qty == 0:
+                                continue
+                            tracker_positions[sym] = {
+                                "symbol": sym,
+                                "quantity": qty,
+                                "average_fill_price": float(
+                                    pos.get("entry_price") or 0.0
+                                ),
+                                "strategy_id": str(
+                                    pos.get("strategy_id") or pos.get("strategy") or ""
+                                ),
+                                "strategy": str(pos.get("strategy") or ""),
+                                "strategy_name": str(pos.get("strategy") or ""),
+                            }
+                    self.logger.info(
+                        "Seeded B03 PositionTracker from %s hydrated paper positions",
+                        len(hydrated_positions),
+                    )
+            except Exception as exc:
+                self.logger.warning(
+                    "Failed to seed B03 from H05 hydration: %s", exc
+                )
+
+        # Seed _realized_pnl_total from today's H05 trade history so that the
+        # first account snapshot after a restart reflects previously-realized
+        # P&L rather than resetting to $0.
+        if self._realized_pnl_total == 0.0:
+            try:
+                pnl_summary_fn = getattr(db, "get_pnl_summary", None)
+                if callable(pnl_summary_fn):
+                    pnl_today = float(pnl_summary_fn().get("today", 0.0))
+                    if pnl_today != 0.0:
+                        self._realized_pnl_total = pnl_today
+                        self.logger.info(
+                            "Seeded _realized_pnl_total=%.2f from H05 today's trade history",
+                            pnl_today,
+                        )
+            except Exception as exc:
+                self.logger.warning("Failed to seed realized P&L from H05: %s", exc)
+
     def update_regime_metrics(self, metrics: dict[str, Any]) -> None:
         """Receive a fresh S07 CustomMetricsOrchestrator snapshot.
 
@@ -791,6 +849,54 @@ class LiveEngine:
             "btc",
             "stc",
         }
+
+    def _resolve_order_side(self, order: dict[str, Any] | None) -> str:
+        """Canonicalize close-side tokens before queueing or replaying fills."""
+        if not isinstance(order, dict):
+            return "buy"
+
+        symbol = str(order.get("symbol") or "").strip()
+        side = str(order.get("side") or order.get("action") or "buy").strip().lower().replace("-", "_")
+        action = str(order.get("action") or "").strip().lower().replace("-", "_")
+        is_option = self._is_option_symbol(symbol)
+
+        if action in {"close", "exit", "flatten", "reduce", "de_risk"}:
+            if side in {"buy", "buy_to_close", "btc"}:
+                return "buy_to_close" if is_option else "buy"
+            if side in {"sell", "sell_to_close", "stc"}:
+                return "sell_to_close" if is_option else "sell"
+
+        if side != "close":
+            return side
+
+        tracked_candidates: list[Any] = []
+        if symbol:
+            with self._active_positions_lock:
+                active_position = self.active_positions.get(symbol)
+            if active_position is not None:
+                tracked_candidates.append(active_position)
+
+            position_tracker = getattr(self, "_position_tracker", None) or getattr(self, "position_tracker", None)
+            if position_tracker is not None and hasattr(position_tracker, "get_position"):
+                try:
+                    tracked_position = position_tracker.get_position(symbol)
+                except Exception:
+                    tracked_position = None
+                if tracked_position is not None:
+                    tracked_candidates.append(tracked_position)
+
+        for candidate in tracked_candidates:
+            raw_quantity = candidate.get("quantity") if isinstance(candidate, dict) else getattr(candidate, "quantity", None)
+            try:
+                quantity = float(raw_quantity or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if quantity > 0:
+                return "sell_to_close" if is_option else "sell"
+            if quantity < 0:
+                return "buy_to_close" if is_option else "buy"
+
+        return side
 
     def _regime_preferred_direction(self) -> str | None:
         """Infer a preferred spread direction from the S07 regime snapshot.
@@ -896,6 +1002,8 @@ class LiveEngine:
                 else:
                     # Autonomous mode - log and proceed
                     self.logger.info("Order %s proceeding autonomously (confirmation not required)", order.get('symbol'))  # noqa: E501
+
+            order["side"] = self._resolve_order_side(order)
 
             # Add to order queue
             order["timestamp"] = datetime.now(_ET)
@@ -1766,19 +1874,37 @@ class LiveEngine:
             return self._is_market_open()
 
     def _calculate_portfolio_drawdown(self) -> float:
-        """Calculate current portfolio drawdown as a fraction of peak equity.
+        """Calculate current portfolio drawdown as a fraction of portfolio equity.
 
-        Uses session P&L to compute a rolling peak-to-trough drawdown.  Falls
-        back to daily-loss / max-daily-loss ratio when no session is active.
+        Uses session P&L to compute a rolling peak-to-trough drawdown expressed
+        as a fraction of the starting portfolio equity (not peak session P&L).
+        Dividing by the session P&L peak is incorrect when the peak is tiny
+        (e.g., a $2 mark-to-market blip after opening a new position) because
+        even a $3 subsequent swing would report a 150% drawdown and falsely
+        trigger the 5% emergency threshold.
+
+        Falls back to daily-loss / max-daily-loss ratio when no session is
+        active.
         """
         try:
             if self.current_session is not None:
                 session_pnl: float = float(getattr(self.current_session, "total_pnl", 0.0) or 0.0)
                 if session_pnl > self._peak_session_pnl:
                     self._peak_session_pnl = session_pnl
-                # Drawdown is meaningful only when we have had positive equity
+                # Drawdown is meaningful only when we have had positive equity.
+                # Scale by portfolio equity (not peak P&L) so a small mark-to-
+                # market fluctuation on a freshly-opened position does not
+                # produce a spuriously large drawdown fraction.
                 if self._peak_session_pnl > 0:
-                    return (self._peak_session_pnl - session_pnl) / self._peak_session_pnl
+                    # Use max_daily_loss as a proxy for account scale when
+                    # peak session P&L is tiny (e.g., right after opening a
+                    # position the peak may be only a few dollars).
+                    account_scale = max(
+                        abs(float(self.config.max_daily_loss or 0.0)),
+                        self._peak_session_pnl,
+                        1.0,
+                    )
+                    return (self._peak_session_pnl - session_pnl) / account_scale
             # Fallback: fraction of daily-loss limit consumed
             if self.config.max_daily_loss > 0:
                 return min(self.daily_loss / self.config.max_daily_loss, 1.0)
@@ -1906,13 +2032,26 @@ class LiveEngine:
             or pending_result.get("symbol")
             or ""
         )
-        side = str(
-            normalized.get("side")
-            or raw_fill.get("side")
-            or pending_order.get("side")
-            or pending_result.get("side")
-            or "buy"
-        ).lower()
+        fill_action = (
+            normalized.get("action")
+            or raw_fill.get("action")
+            or pending_order.get("action")
+            or pending_result.get("action")
+            or ""
+        )
+        side = self._resolve_order_side(
+            {
+                "symbol": symbol,
+                "side": (
+                    normalized.get("side")
+                    or raw_fill.get("side")
+                    or pending_order.get("side")
+                    or pending_result.get("side")
+                    or "buy"
+                ),
+                "action": fill_action,
+            }
+        )
         quantity = int(
             normalized.get("quantity")
             or normalized.get("exec_quantity")
@@ -2315,6 +2454,120 @@ class LiveEngine:
 
         return normalized_grouped
 
+    def _get_live_option_expiration_dates(self, underlying: str) -> list[str]:
+        """Return listed live expirations for the underlying symbol."""
+        normalized_underlying = str(underlying or "").strip().upper()
+        if not normalized_underlying:
+            return []
+
+        now_ts = time_module.time()
+        with self._paper_option_quote_lock:
+            cache_age = now_ts - float(
+                self._paper_option_expiration_cache_at.get(normalized_underlying, 0.0) or 0.0
+            )
+            if cache_age < PAPER_OPTION_CHAIN_CACHE_TTL:
+                return list(self._paper_option_expiration_cache.get(normalized_underlying, []))
+
+        quote_client = self._get_paper_option_quote_client()
+        if quote_client is None:
+            return []
+
+        try:
+            response = quote_client.get_option_expirations(normalized_underlying)
+        except Exception as exc:
+            self.logger.debug(
+                "Paper option expirations unavailable for %s: %s",
+                normalized_underlying,
+                exc,
+            )
+            return []
+
+        raw_dates: list[str] | str = []
+        if isinstance(response, dict):
+            expirations_bucket = response.get("expirations")
+            if isinstance(expirations_bucket, dict):
+                raw_dates = expirations_bucket.get("date") or []
+
+        if isinstance(raw_dates, str):
+            raw_dates = [raw_dates]
+
+        normalized_dates: set[str] = set()
+        for raw_date in raw_dates if isinstance(raw_dates, list) else []:
+            text = str(raw_date or "").strip()
+            if not text:
+                continue
+            try:
+                normalized_dates.add(datetime.fromisoformat(text).date().isoformat())
+            except ValueError:
+                continue
+
+        ordered_dates = sorted(normalized_dates)
+        with self._paper_option_quote_lock:
+            self._paper_option_expiration_cache[normalized_underlying] = list(ordered_dates)
+            self._paper_option_expiration_cache_at[normalized_underlying] = now_ts
+
+        return ordered_dates
+
+    @staticmethod
+    def _select_live_option_expiration(
+        available_expirations: list[str],
+        target_expiration: str,
+    ) -> str:
+        """Select the listed expiration closest to the requested target date."""
+        try:
+            target_date = datetime.fromisoformat(str(target_expiration).strip()).date()
+        except ValueError:
+            return str(target_expiration or "").strip()
+
+        parsed_expirations: list[str] = []
+        for expiration in available_expirations:
+            text = str(expiration or "").strip()
+            if not text:
+                continue
+            try:
+                datetime.fromisoformat(text).date()
+            except ValueError:
+                continue
+            parsed_expirations.append(text)
+
+        if not parsed_expirations:
+            return target_date.isoformat()
+        if target_date.isoformat() in parsed_expirations:
+            return target_date.isoformat()
+
+        return min(
+            parsed_expirations,
+            key=lambda expiration_text: (
+                abs((datetime.fromisoformat(expiration_text).date() - target_date).days),
+                0 if datetime.fromisoformat(expiration_text).date() <= target_date else 1,
+                expiration_text,
+            ),
+        )
+
+    def _resolve_live_option_expiration(self, underlying: str, target_expiration: str) -> str:
+        """Snap a target expiration onto a live listed contract when available."""
+        normalized_target = str(target_expiration or "").strip()
+        if not normalized_target:
+            return normalized_target
+
+        available_expirations = self._get_live_option_expiration_dates(underlying)
+        if not available_expirations:
+            return normalized_target
+
+        resolved_expiration = self._select_live_option_expiration(
+            available_expirations,
+            normalized_target,
+        )
+        if resolved_expiration != normalized_target:
+            self.logger.info(
+                "Resolved paper option expiration to listed contract: %s %s -> %s",
+                underlying,
+                normalized_target,
+                resolved_expiration,
+            )
+
+        return resolved_expiration
+
     @staticmethod
     def _select_live_chain_strike(
         available_strikes: list[float],
@@ -2375,29 +2628,48 @@ class LiveEngine:
                 continue
 
             option_type = str(option_details.get("option_type") or "").strip().lower()
+            underlying = option_details.get("underlying", "")
+            current_expiration = str(option_details.get("expiration") or "").strip()
+            resolved_expiration = self._resolve_live_option_expiration(
+                underlying,
+                current_expiration,
+            ) or current_expiration
             available_strikes = self._get_live_option_chain_strikes(
-                option_details.get("underlying", ""),
-                option_details.get("expiration", ""),
+                underlying,
+                resolved_expiration,
             )
             contract_strikes = available_strikes.get(option_type, [])
             current_strike = float(option_details.get("strike") or 0.0)
-            if not contract_strikes or any(abs(strike - current_strike) < 1e-9 for strike in contract_strikes):
+            expiration_changed = resolved_expiration != current_expiration
+            if not contract_strikes:
                 normalized_positions[symbol] = position
                 continue
 
-            target_direction = "down" if option_type == "put" else "up"
-            normalized_strike = self._select_live_chain_strike(
-                contract_strikes,
-                current_strike,
-                target_direction,
-            )
-            if abs(normalized_strike - current_strike) < 1e-9:
+            normalized_strike = current_strike
+            if not any(abs(strike - current_strike) < 1e-9 for strike in contract_strikes):
+                # Strike absent from live chain. Only attempt to repair when
+                # the expiration is also being remapped — in that case the
+                # symbol will be rebuilt from scratch anyway. When the
+                # expiration is correct the chain may be a partial snapshot;
+                # keep the position intact to avoid incorrectly collapsing
+                # separate SELL and BUY legs onto the same strike.
+                if not expiration_changed:
+                    normalized_positions[symbol] = position
+                    continue
+                target_direction = "down" if option_type == "put" else "up"
+                normalized_strike = self._select_live_chain_strike(
+                    contract_strikes,
+                    current_strike,
+                    target_direction,
+                )
+
+            if not expiration_changed and abs(normalized_strike - current_strike) < 1e-9:
                 normalized_positions[symbol] = position
                 continue
 
             normalized_option_symbol = build_option_symbol(
-                option_details.get("underlying", ""),
-                option_details.get("expiration", ""),
+                underlying,
+                resolved_expiration,
                 option_type,
                 normalized_strike,
             )
@@ -2433,7 +2705,11 @@ class LiveEngine:
             repaired_position = dict(position)
             repaired_position["symbol"] = normalized_option_symbol
             repaired_position["strike"] = normalized_strike
-            repaired_position["expiration"] = option_details.get("expiration") or position.get("expiration")
+            repaired_position["expiration"] = (
+                resolved_expiration
+                or current_expiration
+                or position.get("expiration")
+            )
             repaired_position["option_type"] = option_type
             normalized_positions[normalized_option_symbol] = repaired_position
             occupied_symbols.discard(normalized_symbol)
@@ -2602,6 +2878,79 @@ class LiveEngine:
             )
 
         positions = self._normalize_paper_option_positions(positions)
+
+        # Re-hydrate any OPEN H05 positions that are missing from
+        # active_positions (safety net for positions evicted by the normalize
+        # step or any other path that removes them without a close fill).
+        if self._session_db is not None:
+            try:
+                get_open_positions = getattr(self._session_db, "get_open_positions", None)
+                if callable(get_open_positions):
+                    for row in get_open_positions():
+                        if not isinstance(row, dict):
+                            continue
+                        row_symbol = str(row.get("symbol") or "").strip()
+                        if not row_symbol or row_symbol in positions:
+                            continue
+                        row_qty = int(row.get("quantity") or 0)
+                        if row_qty == 0:
+                            continue
+                        self.logger.info(
+                            "MTM re-hydrating evicted paper position from H05: %s qty=%d",
+                            row_symbol,
+                            row_qty,
+                        )
+                        positions[row_symbol] = {
+                            "symbol": row_symbol,
+                            "quantity": row_qty,
+                            "entry_price": float(row.get("entry_price") or 0.0),
+                            "current_price": float(
+                                row.get("current_price") or row.get("entry_price") or 0.0
+                            ),
+                            "unrealized_pnl": float(row.get("unrealized_pnl") or 0.0),
+                            "realized_pnl": float(row.get("realized_pnl") or 0.0),
+                            "strategy": str(row.get("strategy") or ""),
+                            "opened_at": self._coerce_datetime(row.get("opened_at")),
+                            "expiration": str(row.get("expiration") or "") or None,
+                            "strike": (
+                                float(row["strike"])
+                                if row.get("strike") not in (None, "")
+                                else None
+                            ),
+                            "option_type": str(row.get("option_type") or "") or None,
+                        }
+                        # Also prime B03 if it has no fill record yet so that
+                        # close fills from R14 are netted correctly rather than
+                        # creating a phantom long.
+                        pt = self._position_tracker
+                        if pt is not None:
+                            try:
+                                tp = getattr(pt, "positions", None)
+                                tl = getattr(pt, "_position_lock", None) or getattr(pt, "lock", None)
+                                if isinstance(tp, dict) and tl is not None:
+                                    with tl:
+                                        if row_symbol not in tp:
+                                            tp[row_symbol] = {
+                                                "symbol": row_symbol,
+                                                "quantity": row_qty,
+                                                "average_fill_price": float(
+                                                    row.get("entry_price") or 0.0
+                                                ),
+                                                "strategy_id": str(
+                                                    row.get("strategy_id")
+                                                    or row.get("strategy")
+                                                    or ""
+                                                ),
+                                                "strategy": str(row.get("strategy") or ""),
+                                                "strategy_name": str(
+                                                    row.get("strategy") or ""
+                                                ),
+                                            }
+                            except Exception:
+                                pass
+            except Exception as exc:
+                self.logger.warning("Paper position re-hydration failed: %s", exc)
+
         with self._active_positions_lock:
             self.active_positions.clear()
             self.active_positions.update(positions)
@@ -2634,7 +2983,9 @@ class LiveEngine:
 
         with self._active_positions_lock:
             for symbol, position in positions.items():
-                self.active_positions[symbol].update(position)
+                entry = self.active_positions.get(symbol)
+                if entry is not None:
+                    entry.update(position)
 
         if self._session_db is not None:
             for symbol, position in positions.items():
@@ -2662,6 +3013,25 @@ class LiveEngine:
                     self.logger.warning("Paper position mark persistence failed for %s: %s", symbol, exc)
 
         self._record_paper_account_snapshot(total_unrealized_pnl)
+
+        # Notify the dashboard so it re-reads H05 and refreshes the P&L
+        # column.  Throttled to once every 5 s to match the option-quote cache
+        # TTL — there is no point re-drawing more often than prices change.
+        now_ts = time_module.time()
+        last_emit = float(getattr(self, "_last_mtm_gui_emit_at", 0.0) or 0.0)
+        if positions and (now_ts - last_emit) >= PAPER_OPTION_QUOTES_CACHE_TTL:
+            self._last_mtm_gui_emit_at = now_ts
+            first_symbol = next(iter(positions), None)
+            if first_symbol and self._event_manager is not None:
+                try:
+                    self._event_manager.emit(
+                        EventType.POSITION_UPDATED,
+                        {"symbol": first_symbol, "source": "mark_to_market"},
+                        source="LiveEngine",
+                    )
+                except Exception:
+                    pass
+
         return list(positions.values())
 
     def _on_reconciler_fill(self, event) -> None:
@@ -3263,29 +3633,16 @@ class LiveEngine:
                     OrderSide, OrderType as _OrderType, TradierServerError as _TradierServerError,
                 )
 
-            side_str = str(order.get("side", order.get("action", "buy"))).lower()
-            if side_str == "close":
-                # Resolve close direction from position sign so that short-premium
-                # strategies (credit spreads, iron condors) are bought-to-close
-                # rather than sold (which would double the short exposure).
-                # Prefer explicit "side" if provided by the emitter (R14 sets it);
-                # fall back to querying the position tracker.
-                _qty: float = 0.0
-                _pt = getattr(self, "_position_tracker", None) or getattr(self, "position_tracker", None)  # noqa: E501
-                if _pt is not None:
-                    try:
-                        _pos = _pt.get_position(order.get("symbol", ""))
-                        _qty = float(getattr(_pos, "quantity", 0.0) or 0.0)
-                    except Exception:
-                        _qty = 0.0
-                # Long (qty > 0) → SELL to close; Short (qty ≤ 0) → BUY to close.
-                side = OrderSide.SELL if _qty > 0 else OrderSide.BUY
-            else:
-                side = (
-                    OrderSide.BUY
-                    if side_str in ("buy", "buy_to_open", "buy_to_close")
-                    else OrderSide.SELL
-                )
+            side_str = self._resolve_order_side(order)
+            _side_map = {
+                "buy": OrderSide.BUY,
+                "sell": OrderSide.SELL,
+                "buy_to_open": OrderSide.BUY_TO_OPEN,
+                "buy_to_close": OrderSide.BUY_TO_CLOSE,
+                "sell_to_open": OrderSide.SELL_TO_OPEN,
+                "sell_to_close": OrderSide.SELL_TO_CLOSE,
+            }
+            side = _side_map.get(side_str, OrderSide.BUY)
             otype_str = str(order.get("order_type", order.get("type", "market"))).lower()
             _otype_map = {
                 "market": _OrderType.MARKET,

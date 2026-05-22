@@ -79,10 +79,10 @@ DASHBOARD_SESSION_OPEN = time(4, 0)
 DASHBOARD_SESSION_CLOSE = time(16, 30)
 
 # Tradier active window — when the Tradier worker should hold an open
-# connection. 9:20 AM gives ~10 minutes of warm-up before the 9:30 open;
-# 4:30 PM matches the dashboard session close. Outside this window the
-# sandbox returns nothing useful and connecting is wasteful.
-TRADIER_CONNECT_TIME = time(9, 20)
+# connection. 9:00 AM aligns with the session supervisor autostart so
+# market data, account info, and execution are all available from the
+# same moment. 4:30 PM matches the dashboard session close.
+TRADIER_CONNECT_TIME = time(9, 0)
 TRADIER_DISCONNECT_TIME = time(16, 30)
 
 
@@ -117,7 +117,7 @@ def is_dashboard_session(now_et: datetime | None = None) -> bool:
 
 
 def is_tradier_active_window(now_et: datetime | None = None) -> bool:
-    """Return True only during the Tradier active window (9:20 AM – 4:30 PM ET)."""
+    """Return True only during the Tradier active window (9:00 AM – 4:30 PM ET)."""
     current = _coerce_et_datetime(now_et).time()
     return TRADIER_CONNECT_TIME <= current <= TRADIER_DISCONNECT_TIME
 

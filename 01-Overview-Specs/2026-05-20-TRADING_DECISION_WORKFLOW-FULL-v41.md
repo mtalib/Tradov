@@ -1,10 +1,10 @@
-# Trading Decision Workflow (Full) — v40
+# Trading Decision Workflow (Full) — v41
 
 Last Updated: 2026-05-20
 Status: Design + As-Implemented Verification Specification
 Scope: 6-Regime Master Logic and Strategy Mapping for SPY options
 
-Source note: this saved `v40` snapshot records the 2026-05-20 pre-open session-window and intraday activity-table alignment on top of the v39 overlay slice. Current code now aligns A03/A04/A06/D31/Q92/G05 around `first_entry_not_before_et=10:15` and `zero_dte_no_new_risk_cutoff_et=14:30`, and U03/A04 expose the explicit SPY intraday activity windows used for operator guidance. Historical sections 10.26-10.28 intentionally preserve references to the older `09:40 ET` contract where they describe earlier audit boundaries rather than the current live policy.
+Source note: this saved `v41` snapshot adds the results of a dual-path regime audit triggered by an observed REGIME=RANGE on the dashboard during a genuine bull-market condition. Three concrete bugs were identified in the display and execution regime classifiers; all findings and a prioritized implementation plan are documented in Section 10.36. All historical audit notes from v40 are preserved. v40 context: current code aligns A03/A04/A06/D31/Q92/G05 around `first_entry_not_before_et=10:15` and `zero_dte_no_new_risk_cutoff_et=14:30`; U03/A04 expose the explicit SPY intraday activity windows for operator guidance; historical sections 10.26–10.28 preserve references to the older `09:40 ET` contract where they describe earlier audit boundaries rather than the current live policy.
 
 ## Change Log
 
@@ -52,6 +52,7 @@ Source note: this saved `v40` snapshot records the 2026-05-20 pre-open session-w
 | v38 | 2026-05-19 | Aligned the workflow to the first landed overlay slice: E00/E01 now expose a typed overlay verdict API, D31 now performs a narrow `_on_strategy_signal()` overlay gate for baseline-full PMR candidates, and focused tests passed in T143_E00/T46/T141/T143_D31. Also added a post-open runtime audit note: the current PID was dashboard-only with market-data/DB polling but no armed paper session, no decision JSONL for today, and an empty `data/spyder_paper.db`. |
 | v39 | 2026-05-19 | Closed the remaining live D31 admission gap: `add_strategy()` now admits the narrow third-slot `ultra_short` PivotMeanReversion overlay exception behind `SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT`, PMR now defaults to the `ultra_short` bucket, and focused D31 validation passed in T141/T143. The overlay remains partial overall because decision-log schema, runtime disable, and clean paper replay verification are still outstanding. |
 | v40 | 2026-05-20 | Aligned the current paper-trading session-window contract and operator-facing intraday timetable to the stricter SPY activity policy: first-entry embargo `10:15 ET`, primary session `10:15-11:30`, secondary continuation `13:00-14:30`, and new `0DTE` short-risk cutoff `14:30 ET`. Fixed stale A04/A06/D31/G05/Q92 defaults, added explicit intraday activity windows to U03/A04, and documented the pre-open validation audit in Sections 1.2 and 10.35. |
+| v41 | 2026-05-20 | Dual-path regime audit: discovered 3 bugs causing REGIME=RANGE on the dashboard during genuine bull-market conditions. Bug 1 (CRITICAL): `SpyderG109_RegimePillStateHelper._classify_vix_regime()` uses absolute `VIX < 20` threshold for BULL — in a slow bull market (VIX=20–24, still below its 50-day EMA) the condition fails and the function returns RANGE; slow-bull SPX daily change (`< 1.0%`) makes this almost permanent when S07 is offline. Bug 2 (HIGH): `SpyderL09_UnifiedRegimeEngine._detect_lean_regime()` `spy_trend_ready` guard requires `vix_ema50` to be finite — cold VIX cache (< 50 ticks) causes the entire BULL/BEAR check to be skipped; SIDEWAYS_RANGE is returned at 0.85 confidence (above D31's 70% threshold), so execution regime also drifts to RANGE. Bug 3 (MEDIUM): `SpyderG110_RegimePillStatusHelper` GATE and STANCE fall back to the S07 display regime when `execution_truth.gate` is empty — at startup before D31's first classification, GATE shows "RANGE CALM" and STANCE shows "CHOPPY" even when D31 later classifies BULL. All findings, exact code references, proposed fixes, and regression test targets documented in Section 10.36. |
 
 ## 1) Objective
 
@@ -2904,3 +2905,285 @@ This audit was intentionally pre-open and regression-based. It did not itself pr
 - the secondary continuation window is `13:00-14:30 ET`
 - new `0DTE` short-premium risk is blocked from `14:30 ET` onward
 - pre-open GUI/readiness surfaces now match the actual execution gate instead of advertising the older `09:40 ET` embargo
+
+## 10.36) Dual-Path Regime Audit: REGIME=RANGE During Bull Market (2026-05-20)
+
+### Trigger
+
+Operator observed the dashboard REGIME pill showing **RANGE** while the market was genuinely in a bull-market condition (SPY above its 50-day EMA, VIX below its 50-day EMA). This audit verified both the execution-path regime classifier (L09 → D31) and the display-path regime classifier (S07/G109 → G05) independently and found three concrete bugs.
+
+---
+
+### Architecture Recap: Two Independent Classifiers
+
+Two fully independent classifiers contribute to the REGIME pill and execution gates. A disagreement is expected and documented in §5.3, but all three bugs below produce RANGE labels in conditions that should produce BULL, misleading the operator.
+
+| Path | Owning code | Source inputs | Purpose |
+|---|---|---|---|
+| Execution | `SpyderL09_UnifiedRegimeEngine._detect_lean_regime()` → `SpyderD31_StrategyOrchestrator._classify_market_regime_unified()` | SPY price/EMA50, VIX level/EMA50 | Drives strategy selection; D31 uses L09 result only when confidence ≥ 70% |
+| Display | `SpyderG109_RegimePillStateHelper.build_regime_pill_state_plan()` | S07 DIX/SWAN/SKEW/GEX live metrics; VIX fallback when S07 offline | Dashboard REGIME pill label only — not an execution gate |
+
+---
+
+### Bug 1 — CRITICAL: G109 VIX Fallback Threshold Too Strict
+
+**File:** `Spyder/SpyderG_GUI/SpyderG109_RegimePillStateHelper.py`, line 66
+
+**Code (current):**
+
+```python
+if spx_change_pct >= 1.0 and vix < 20:
+    return "BULL"
+return "RANGE"
+```
+
+**Problem — two compounding issues:**
+
+1. `spx_change_pct` is the **daily** SPX price-change percentage at the time of evaluation. A genuine slow grinding bull market advances 0.2–0.5% per day; the `>= 1.0%` threshold is almost never satisfied during a sustained multi-week trend.
+
+2. `vix < 20` is an absolute hardcoded threshold, not relative to VIX's own 50-day EMA. In a bull market where VIX = 20–24 but is still *below* its EMA50 (e.g., VIX = 22, VIX_EMA50 = 26), this condition fails and the function returns RANGE even though the canonical BULL condition (`VIX < VIX_EMA50`) is satisfied.
+
+**Scenario that exactly reproduces the reported bug:**
+
+- SPY = 525, SPY_EMA50 = 518 → SPY above EMA50 (bull trend confirmed) ✓
+- VIX = 22, VIX_EMA50 = 26 → VIX below its own EMA50 (bull signal) ✓
+- SPX daily change = +0.4% (typical slow bull day)
+- S07 offline (no DIX/SWAN feed available)
+- `regime_sticky = None` (fresh session; S07 never came online this session)
+
+**Result:** `_classify_vix_regime()` evaluates `spx_change_pct >= 1.0 → False`, falls through to `return "RANGE"`. Dashboard displays **RANGE**. Execution path (D31/L09) correctly classifies **BULL TREND**.
+
+**When `regime_sticky` protects vs. when it fails:**
+
+When S07 was recently live and classified BULL, `regime_sticky = "BULL"` is preserved when S07 goes offline (`regime = regime_sticky`). The bug triggers specifically on:
+
+- Fresh cold start where S07 has never been live in the current session.
+- After an extended S07 outage when sticky has expired or was never set.
+
+Note that `next_regime_sticky = regime if s07_live else regime_sticky`. When S07 is offline, the sticky is **never updated** — it retains its last S07-live value indefinitely. On a cold start with `regime_sticky = None`, the VIX fallback is always the only source of truth for the display pill.
+
+**Proposed Fix (Option A — preferred, canonical):**
+
+Pass `vix_ema50` to `_classify_vix_regime()` from the VIX snapshot (already available in the dashboard market-data cache) and replace the absolute check with the EMA50-relative comparison:
+
+```python
+def _classify_vix_regime(
+    snapshot: Mapping[str, object] | None,
+    vix_ema50: float | None = None,
+) -> str:
+    ...
+    # Canonical: VIX < VIX_EMA50 is the bull signal, not VIX < 20 absolute
+    if isinstance(vix_ema50, float) and vix_ema50 > 0 and np.isfinite(vix_ema50):
+        vix_below_trend = vix < vix_ema50
+    else:
+        vix_below_trend = vix < 22  # raised fallback: less restrictive than 20
+    if spx_change_pct >= 0.3 and vix_below_trend:
+        return "BULL"
+    return "RANGE"
+```
+
+This option requires threading `vix_ema50` through `build_regime_pill_state_plan()` from the G05 market-data snapshot.
+
+**Proposed Fix (Option B — minimal change, no new arguments):**
+
+Raise the absolute VIX threshold and lower the SPX change threshold to better approximate a slow bull environment without adding arguments:
+
+```python
+if spx_change_pct >= 0.3 and vix < 24:
+    return "BULL"
+```
+
+This is a non-canonical proxy (no EMA50 relationship) but substantially reduces false-RANGE occurrences with no wiring changes. VIX < 24 captures the typical slow-bull range while still excluding genuinely elevated volatility environments.
+
+**Recommended regression test:** New file `SpyderT_Testing/SpyderT380_G109_VixFallbackBull.py`
+
+- Scenario A: VIX = 22, VIX_EMA50 = 26, SPX_change = +0.4% → assert `_classify_vix_regime()` returns `"BULL"`
+- Scenario B: VIX = 28, VIX_EMA50 = 26, SPX_change = +0.4% → assert returns `"RANGE"` (VIX above EMA50)
+- Scenario C: VIX = 36, VIX9D = 40, SPX_change = -2.0% → assert returns `"CRISIS"` (VIX9D inversion)
+
+---
+
+### Bug 2 — HIGH: L09 `spy_trend_ready` Guard Too Strict
+
+**File:** `Spyder/SpyderL_ML/SpyderL09_UnifiedRegimeEngine.py`, lines 1505–1520
+
+**Code (current):**
+
+```python
+spy_trend_ready = all(
+    isinstance(value, (int, float)) and np.isfinite(value)
+    for value in (spy_price, spy_ema50, vix, vix_ema50)
+)
+if spy_trend_ready:
+    if spy_price > spy_ema50 and vix < vix_ema50:
+        return RegimeDetectionResult(regime=MarketRegime.BULL_TRENDING, confidence=0.90, ...)
+    if spy_price < spy_ema50 and vix > vix_ema50:
+        return RegimeDetectionResult(regime=MarketRegime.BEAR_TRENDING, confidence=0.90, ...)
+# Falls through to range/high-vol checks when spy_trend_ready=False
+```
+
+**Problem:**
+
+`spy_trend_ready` requires ALL FOUR inputs to be finite: `spy_price`, `spy_ema50`, `vix`, **and** `vix_ema50`. If `vix_ema50` is NaN (VIX cache has fewer than 50 ticks — common early in a session or after a reconnect), the entire BULL/BEAR check is skipped.
+
+After skipping BULL/BEAR, the logic proceeds to:
+
+- Step 5: `if within_atr and contango → SIDEWAYS_RANGE (confidence=0.85)`
+
+At confidence 0.85, D31 uses this result directly (D31's gate threshold is 0.70), so the **execution regime** also drifts to RANGE rather than falling through to the heuristic which correctly checks EMA50.
+
+**When this scenario occurs:**
+
+- Session start or after a Tradier reconnect when the VIX time-series cache is partially populated (fewer than 50 ticks → EMA50 computation returns NaN).
+- Note: D31's `_recover_cache_if_cold()` seeds the SPY cache from `live_data.json` when fewer than 2 SPY closes are present, but it seeds SPY data, **not** VIX EMA50. VIX EMA50 requires 50 VIX ticks from `market_data_cache["VIX"]`.
+
+**Full consequence chain:**
+
+1. VIX cache < 50 ticks → `vix_ema50 = NaN`
+2. `spy_trend_ready = False` → BULL check skipped
+3. SPY within 1 ATR of EMA50 AND VIX < VXV (contango) → SIDEWAYS_RANGE at 0.85
+4. D31 uses L09 result → execution regime = SIDEWAYS_RANGE
+5. D31 policy key `range_calm` → D30 selector dispatches IronCondor instead of BullPutSpread
+
+**Proposed Fix:**
+
+Split `spy_trend_ready` into two independent guards — `spy_directional_ready` (only SPY price + EMA50 + VIX required) and `vix_ema50_ready` (VIX EMA50 required). Allow a partial BULL classification at reduced confidence when directional data is available but VIX EMA50 is not yet populated:
+
+```python
+spy_directional_ready = (
+    isinstance(spy_price, (int, float)) and np.isfinite(spy_price)
+    and isinstance(spy_ema50, (int, float)) and np.isfinite(spy_ema50)
+    and isinstance(vix, (int, float)) and np.isfinite(vix)
+)
+vix_ema50_ready = isinstance(vix_ema50, (int, float)) and np.isfinite(vix_ema50)
+
+if spy_directional_ready:
+    if vix_ema50_ready:
+        # Full canonical check: both directional and EMA50-relative VIX available
+        if spy_price > spy_ema50 and vix < vix_ema50:
+            return RegimeDetectionResult(regime=MarketRegime.BULL_TRENDING, confidence=0.90, ...)
+        if spy_price < spy_ema50 and vix > vix_ema50:
+            return RegimeDetectionResult(regime=MarketRegime.BEAR_TRENDING, confidence=0.90, ...)
+    else:
+        # Partial check: VIX_EMA50 not yet available — use VIX absolute proxy
+        # Confidence 0.75 signals that the EMA50 confirmation is missing
+        if spy_price > spy_ema50 and vix < 22:
+            return RegimeDetectionResult(regime=MarketRegime.BULL_TRENDING, confidence=0.75, ...)
+        if spy_price < spy_ema50 and vix > 28:
+            return RegimeDetectionResult(regime=MarketRegime.BEAR_TRENDING, confidence=0.75, ...)
+```
+
+Both 0.75-confidence results exceed D31's 70% threshold, so they will be used instead of the SIDEWAYS_RANGE range/contango fallback. The absolute VIX levels (22 for BULL, 28 for BEAR) are conservative proxies designed to avoid false BULL classification in genuinely elevated-volatility regimes.
+
+**Recommended regression test:** New file `SpyderT_Testing/SpyderT381_L09_ColdVixEma50.py`
+
+- Scenario A: SPY=525, SPY_EMA50=518, VIX=18, vix_ema50=NaN → assert `BULL_TRENDING`, confidence ≥ 0.70
+- Scenario B: SPY=525, SPY_EMA50=518, VIX=18, vix_ema50=22 → assert `BULL_TRENDING`, confidence = 0.90
+- Scenario C: SPY=518, SPY_EMA50=525, VIX=18, vix_ema50=NaN → assert NOT `BULL_TRENDING` (SPY below EMA50)
+- Scenario D: SPY=525, SPY_EMA50=518, VIX=25, vix_ema50=NaN → assert NOT `BULL_TRENDING` (VIX above 22 proxy threshold)
+
+---
+
+### Bug 3 — MEDIUM: G110 GATE and STANCE Fall Back to S07 Display Regime at Startup
+
+**File:** `Spyder/SpyderG_GUI/SpyderG110_RegimePillStatusHelper.py`
+
+**Code (current):**
+
+```python
+gate = str(execution_truth.get("gate", "")).strip().upper()
+if not gate:
+    gate = {
+        "BULL": "BULL TREND",
+        "BEAR": "BEAR TREND",
+        "RANGE": "RANGE CALM",
+        "VOLATILE": "HIGH VOL",
+        "CRISIS": "CRISIS",
+    }.get(regime, "RANGE CALM")
+
+stance = str(execution_truth.get("stance", "")).strip().upper()
+if not stance:
+    stance = {
+        "BULL": "BULLISH",
+        "BEAR": "BEARISH",
+        "RANGE": "CHOPPY",
+        "VOLATILE": "CHOPPY",
+        "CRISIS": "CRISIS",
+    }.get(regime, "CHOPPY")
+```
+
+**Problem:**
+
+`execution_truth` is populated from `D31.get_execution_pill_state()`. That method returns `gate = ""` when `_execution_gate_label_for_policy_key()` receives an empty policy key, which happens when `D31.market_regime.current_regime` is `None` or has no value attribute — i.e., at startup before D31's first classification cycle.
+
+When `execution_truth.gate` is empty, G110 falls back to a dict keyed on `regime` — the **S07 display regime** from G109. If the display regime is RANGE (see Bug 1), the GATE pill shows `"RANGE CALM"` and STANCE shows `"CHOPPY"`, even though D31 will shortly classify BULL.
+
+**Combined impact of Bugs 1 + 3:**
+
+1. S07 offline, cold start → G109 returns RANGE (Bug 1)
+2. D31 hasn't yet run first classification → `execution_truth.gate = ""`
+3. G110 reads display regime = RANGE → GATE = "RANGE CALM", STANCE = "CHOPPY"
+4. After D31's first BULL classification, `execution_truth.gate = "BULL TREND"` → G110 now shows correct GATE
+5. But G109 display regime stays RANGE (Bug 1 unresolved) → operator sees REGIME=RANGE + GATE=BULL TREND contradiction
+
+**Proposed Fix (Option A — preferred, removes the contradiction):**
+
+Fix Bug 1 first. If G109 correctly displays BULL, the G110 GATE fallback dict maps `"BULL" → "BULL TREND"` and the contradiction disappears entirely.
+
+**Proposed Fix (Option B — explicit startup guard in D31):**
+
+In `D31.get_execution_pill_state()`, return the safe `range_calm` label when `raw_regime` is empty but explicitly document this as a known transient startup window (< one classification cycle, typically < 30 seconds):
+
+```python
+def get_execution_pill_state(self) -> dict[str, Any]:
+    current_regime = getattr(getattr(self, "market_regime", None), "current_regime", None)
+    raw_regime = str(getattr(current_regime, "value", "") or "").strip().lower()
+    if not raw_regime:
+        # Startup transient: first classification cycle has not run yet.
+        # Return explicit safe defaults rather than letting G110 derive from display regime.
+        return {"regime": "", "stance": "CHOPPY", "gate": "RANGE CALM", "gate_key": "range_calm"}
+    ...
+```
+
+This makes the startup behavior explicit and documented without changing the outcome (G110 already produces RANGE CALM/CHOPPY at startup via fallback). The real value is preventing subtle changes to the G110 fallback dict from accidentally emitting non-deterministic startup labels.
+
+**Recommended regression test:** New file `SpyderT_Testing/SpyderT382_G110_GateStartupFallback.py`
+
+- Scenario A: `execution_truth = {}` (empty), display `regime = "BULL"` → GATE = "BULL TREND"
+- Scenario B: `execution_truth = {}`, display `regime = "RANGE"` → GATE = "RANGE CALM"
+- Scenario C: `execution_truth = {"gate": "BULL TREND", "stance": "BULLISH"}`, display `regime = "RANGE"` → GATE = "BULL TREND" (execution truth wins over display)
+
+---
+
+### Accuracy Summary: v40 Spec vs. Current Code
+
+| Spec section | Claim | Accuracy against current code |
+|---|---|---|
+| §4.0 Canonical BULL logic | SPY > EMA50 AND VIX < VIX_EMA50 → BULL | **Correct** in D31 heuristic (`_classify_market_regime()`) and L09 when all four inputs are available |
+| §4.0 Display path accuracy | Dashboard pill uses same canonical logic | **Inaccurate** — display pill uses S07 DIX/SWAN proxy; VIX fallback uses absolute `VIX < 20`, not EMA50-relative |
+| §5.1 STRESS | SWAN ≥ 3.0 = CRISIS, ≥ 2.0 = HIGH, ≥ 1.5 = MEDIUM, else = LOW | **Correct** in `SpyderG110_RegimePillStatusHelper` |
+| §5.2 STANCE | BULLISH/BEARISH/CHOPPY from D31 execution_truth | **Correct** once D31 has run its first classification cycle; see Bug 3 for startup transient |
+| §5.3 GATE | BULL TREND / BEAR TREND / RANGE CALM / HIGH VOL / CRISIS / EVENT | **Correct** once D31 has run; see Bug 3 for startup transient |
+| §5.4 DISPATCH | FLOWING / IDLE / BLOCKED / ERROR / HALT | **Correct** |
+| §9.1 (implicit) L09 BULL fallback when VIX_EMA50 unavailable | Not documented | **Gap** — Bug 2 shows execution can drift to RANGE when VIX cache is cold |
+
+---
+
+### Prioritized Implementation Plan
+
+| Priority | Bug | Target file | Change summary | Proposed test |
+|---|---|---|---|---|
+| P1 — CRITICAL | Bug 1: G109 VIX fallback | `SpyderG109_RegimePillStateHelper.py` line 66 | Option A: thread `vix_ema50` through, use `vix < vix_ema50` canonical check; lower `spx_change_pct` threshold to `0.3`. Option B (minimal): change `vix < 20` to `vix < 24` and `>= 1.0` to `>= 0.3` | `SpyderT380_G109_VixFallbackBull.py` |
+| P2 — HIGH | Bug 2: L09 `spy_trend_ready` | `SpyderL09_UnifiedRegimeEngine.py` lines 1505–1520 | Split guard into `spy_directional_ready` + `vix_ema50_ready`; emit BULL at confidence=0.75 when VIX_EMA50 unavailable but SPY > EMA50 and VIX < 22 | `SpyderT381_L09_ColdVixEma50.py` |
+| P3 — MEDIUM | Bug 3: G110 startup fallback | `SpyderD31_StrategyOrchestrator.py` `get_execution_pill_state()` | Return explicit `{"stance": "CHOPPY", "gate": "RANGE CALM"}` at startup before first classification; fully resolved by fixing Bug 1 | `SpyderT382_G110_GateStartupFallback.py` |
+
+### Recommended Validation Commands (post-fix)
+
+```
+pytest Spyder/SpyderT_Testing/SpyderT380_G109_VixFallbackBull.py --no-cov
+pytest Spyder/SpyderT_Testing/SpyderT381_L09_ColdVixEma50.py --no-cov
+pytest Spyder/SpyderT_Testing/SpyderT382_G110_GateStartupFallback.py --no-cov
+ruff check Spyder/SpyderG_GUI/SpyderG109_RegimePillStateHelper.py \
+           Spyder/SpyderL_ML/SpyderL09_UnifiedRegimeEngine.py \
+           Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py
+```

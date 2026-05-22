@@ -29,10 +29,12 @@ def test_r12_freshness_threshold_relaxes_for_degraded_quote_fallback(monkeypatch
         _quote_poll_interval_s=1.0,
     )
 
-    assert supervisor._resolve_freshness_monitor_thresholds() == (10.0, 30.0)
+    assert supervisor._resolve_freshness_monitor_thresholds() == (35.0, 30.0)
 
 
-def test_r12_freshness_threshold_scales_with_slower_degraded_quote_poll(monkeypatch) -> None:
+def test_r12_freshness_threshold_uses_paper_bridge_floor_for_moderate_degraded_poll(
+    monkeypatch,
+) -> None:
     monkeypatch.delenv("SPYDER_DATA_FRESHNESS_RTH_THRESHOLD_S", raising=False)
     monkeypatch.delenv("SPYDER_DATA_FRESHNESS_OOH_THRESHOLD_S", raising=False)
 
@@ -42,7 +44,20 @@ def test_r12_freshness_threshold_scales_with_slower_degraded_quote_poll(monkeypa
         _quote_poll_interval_s=5.0,
     )
 
-    assert supervisor._resolve_freshness_monitor_thresholds() == (26.0, 30.0)
+    assert supervisor._resolve_freshness_monitor_thresholds() == (35.0, 30.0)
+
+
+def test_r12_freshness_threshold_scales_with_very_slow_degraded_quote_poll(monkeypatch) -> None:
+    monkeypatch.delenv("SPYDER_DATA_FRESHNESS_RTH_THRESHOLD_S", raising=False)
+    monkeypatch.delenv("SPYDER_DATA_FRESHNESS_OOH_THRESHOLD_S", raising=False)
+
+    supervisor = SessionSupervisor(mode="paper", dry_run=True)
+    supervisor.feed = SimpleNamespace(
+        status=SimpleNamespace(value="degraded"),
+        _quote_poll_interval_s=7.0,
+    )
+
+    assert supervisor._resolve_freshness_monitor_thresholds() == (36.0, 30.0)
 
 
 def test_r12_freshness_threshold_keeps_live_degraded_cadence_threshold(monkeypatch) -> None:
@@ -113,6 +128,6 @@ def test_r12_start_freshness_monitor_uses_paper_degraded_floor(monkeypatch) -> N
     )
 
     assert supervisor._start_freshness_monitor() is True
-    assert captured["rth_threshold_s"] == 10.0
+    assert captured["rth_threshold_s"] == 35.0
     assert captured["startup_grace_s"] == 0.0
     monitor.start.assert_called_once_with()

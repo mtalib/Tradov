@@ -48,9 +48,10 @@ def test_build_restored_position_presentations_formats_summary_and_detail_rows()
     presentation = presentations[0]
     assert "ACTIVE PAPER POSITION (CARRIED OVER) : IRON CONDOR" in presentation.summary_text
     assert "STATUS: OPEN" in presentation.summary_text
-    assert presentation.symbol_text == "  SPY260515P00570000"
+    assert presentation.action_text == "SELL PUT"
+    assert presentation.leg_text == "SPY260515P00570000"
     assert presentation.strike_text == "$570P"
-    assert presentation.quantity_text == "-1"
+    assert presentation.quantity_text == "1"
     assert presentation.expiry_text == "05/15"
     assert presentation.entry_price_text == "$1.25"
     assert presentation.cost_text == "-$125"

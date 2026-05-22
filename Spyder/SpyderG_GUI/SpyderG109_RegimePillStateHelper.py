@@ -63,7 +63,7 @@ def _classify_vix_regime(snapshot: Mapping[str, object] | None) -> str:
         return "VOLATILE"
     if spx_change_pct <= -1.5:
         return "BEAR"
-    if spx_change_pct >= 1.0 and vix < 20:
+    if spx_change_pct >= 0.3 and vix < 24:
         return "BULL"
     return "RANGE"
 

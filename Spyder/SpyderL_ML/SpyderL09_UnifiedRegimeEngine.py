@@ -1500,39 +1500,73 @@ class UnifiedRegimeEngine:
                     metadata={"reason": "vix9d_inversion"},
                 )
 
-        spy_trend_ready = all(
-            isinstance(value, (int, float)) and np.isfinite(value)
-            for value in (spy_price, spy_ema50, vix, vix_ema50)
+        spy_directional_ready = (
+            isinstance(spy_price, (int, float)) and np.isfinite(spy_price)
+            and isinstance(spy_ema50, (int, float)) and np.isfinite(spy_ema50)
+            and isinstance(vix, (int, float)) and np.isfinite(vix)
         )
-        if spy_trend_ready:
-            if spy_price > spy_ema50 and vix < vix_ema50:
-                return RegimeDetectionResult(
-                    regime=MarketRegime.BULL_TRENDING,
-                    confidence=0.90,
-                    source=RegimeSource.LEAN_RULES,
-                    timestamp=conditions.timestamp,
-                    features={
-                        "spy_price": spy_price,
-                        "spy_ema50": spy_ema50,
-                        "vix": vix,
-                        "vix_ema50": vix_ema50,
-                    },
-                    metadata={"reason": "bull_trend"},
-                )
-            if spy_price < spy_ema50 and vix > vix_ema50:
-                return RegimeDetectionResult(
-                    regime=MarketRegime.BEAR_TRENDING,
-                    confidence=0.90,
-                    source=RegimeSource.LEAN_RULES,
-                    timestamp=conditions.timestamp,
-                    features={
-                        "spy_price": spy_price,
-                        "spy_ema50": spy_ema50,
-                        "vix": vix,
-                        "vix_ema50": vix_ema50,
-                    },
-                    metadata={"reason": "bear_trend"},
-                )
+        vix_ema50_ready = isinstance(vix_ema50, (int, float)) and np.isfinite(vix_ema50)
+        if spy_directional_ready:
+            if vix_ema50_ready:
+                if spy_price > spy_ema50 and vix < vix_ema50:
+                    return RegimeDetectionResult(
+                        regime=MarketRegime.BULL_TRENDING,
+                        confidence=0.90,
+                        source=RegimeSource.LEAN_RULES,
+                        timestamp=conditions.timestamp,
+                        features={
+                            "spy_price": spy_price,
+                            "spy_ema50": spy_ema50,
+                            "vix": vix,
+                            "vix_ema50": vix_ema50,
+                        },
+                        metadata={"reason": "bull_trend"},
+                    )
+                if spy_price < spy_ema50 and vix > vix_ema50:
+                    return RegimeDetectionResult(
+                        regime=MarketRegime.BEAR_TRENDING,
+                        confidence=0.90,
+                        source=RegimeSource.LEAN_RULES,
+                        timestamp=conditions.timestamp,
+                        features={
+                            "spy_price": spy_price,
+                            "spy_ema50": spy_ema50,
+                            "vix": vix,
+                            "vix_ema50": vix_ema50,
+                        },
+                        metadata={"reason": "bear_trend"},
+                    )
+            else:
+                # vix_ema50 not yet warmed up — use absolute VIX proxy thresholds.
+                # Confidence 0.75 exceeds D31's 0.70 gate so regime is not suppressed.
+                if spy_price > spy_ema50 and vix < 22:
+                    return RegimeDetectionResult(
+                        regime=MarketRegime.BULL_TRENDING,
+                        confidence=0.75,
+                        source=RegimeSource.LEAN_RULES,
+                        timestamp=conditions.timestamp,
+                        features={
+                            "spy_price": spy_price,
+                            "spy_ema50": spy_ema50,
+                            "vix": vix,
+                            "vix_ema50": float("nan"),
+                        },
+                        metadata={"reason": "bull_trend_partial"},
+                    )
+                if spy_price < spy_ema50 and vix > 28:
+                    return RegimeDetectionResult(
+                        regime=MarketRegime.BEAR_TRENDING,
+                        confidence=0.75,
+                        source=RegimeSource.LEAN_RULES,
+                        timestamp=conditions.timestamp,
+                        features={
+                            "spy_price": spy_price,
+                            "spy_ema50": spy_ema50,
+                            "vix": vix,
+                            "vix_ema50": float("nan"),
+                        },
+                        metadata={"reason": "bear_trend_partial"},
+                    )
 
         atr = conditions.spy_atr
         atr_pct = conditions.spy_atr_pct

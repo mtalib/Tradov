@@ -335,6 +335,14 @@ def build_center_panel(dashboard: Any) -> QWidget:
             background-color: #1565C0;
         }
     """
+    dashboard.system_log_minimal_btn = QPushButton("MINIMAL")
+    dashboard.system_log_minimal_btn.setCheckable(True)
+    dashboard.system_log_minimal_btn.setMinimumWidth(88)
+    dashboard.system_log_minimal_btn.setToolTip("Show only key trade lifecycle messages")
+    dashboard.system_log_minimal_btn.clicked.connect(
+        lambda: dashboard._set_system_log_verbosity("MINIMAL", announce=True)
+    )
+
     dashboard.system_log_normal_btn = QPushButton("NORMAL")
     dashboard.system_log_normal_btn.setCheckable(True)
     dashboard.system_log_normal_btn.setMinimumWidth(88)
@@ -352,10 +360,22 @@ def build_center_panel(dashboard: Any) -> QWidget:
     )
     dashboard.system_log_mode_group = QButtonGroup(dashboard.chart_widget)
     dashboard.system_log_mode_group.setExclusive(True)
+    dashboard.system_log_mode_group.addButton(dashboard.system_log_minimal_btn)
     dashboard.system_log_mode_group.addButton(dashboard.system_log_normal_btn)
     dashboard.system_log_mode_group.addButton(dashboard.system_log_debug_btn)
-    dashboard.system_log_normal_btn.setChecked(dashboard.system_log_mode != "DEBUG")
+    dashboard.system_log_minimal_btn.setChecked(dashboard.system_log_mode == "MINIMAL")
+    dashboard.system_log_normal_btn.setChecked(dashboard.system_log_mode not in ("DEBUG", "MINIMAL"))
     dashboard.system_log_debug_btn.setChecked(dashboard.system_log_mode == "DEBUG")
+
+    dashboard.system_log_allowlist_btn = QPushButton("ALLOWLIST")
+    dashboard.system_log_allowlist_btn.setCheckable(False)
+    dashboard.system_log_allowlist_btn.setMinimumWidth(88)
+    dashboard.system_log_allowlist_btn.setToolTip(
+        "Configure which INFO-level modules appear in the system log"
+    )
+    dashboard.system_log_allowlist_btn.clicked.connect(
+        dashboard._open_allowlist_dialog
+    )
 
     create_chart_widget(dashboard)
     dashboard.chart_visible = True
@@ -857,8 +877,10 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     mode_toggle_layout = QHBoxLayout(mode_toggle_container)
     mode_toggle_layout.setContentsMargins(0, 0, 0, 0)
     mode_toggle_layout.setSpacing(8)
+    mode_toggle_layout.addWidget(dashboard.system_log_minimal_btn)
     mode_toggle_layout.addWidget(dashboard.system_log_normal_btn)
     mode_toggle_layout.addWidget(dashboard.system_log_debug_btn)
+    mode_toggle_layout.addWidget(dashboard.system_log_allowlist_btn)
     controls_row.addWidget(mode_toggle_container)
     controls_row.addStretch()
     layout.addLayout(controls_row)
@@ -1104,7 +1126,7 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
 def create_positions_table(dashboard: Any) -> QTreeWidget:
     """Create the positions tree widget."""
     tree = QTreeWidget()
-    columns = ["     LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""]
+    columns = ["ACTION", "LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""]
     tree.setColumnCount(len(columns))
     tree.setHeaderLabels(columns)
 
@@ -1158,14 +1180,15 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
         """,
     )
 
-    tree.setColumnWidth(0, 94)
-    tree.setColumnWidth(1, 68)
-    tree.setColumnWidth(2, 44)
-    tree.setColumnWidth(3, 60)
-    tree.setColumnWidth(4, 68)
-    tree.setColumnWidth(5, 60)
-    tree.setColumnWidth(6, 92)
-    tree.header().setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
+    tree.setColumnWidth(0, 92)
+    tree.setColumnWidth(1, 146)
+    tree.setColumnWidth(2, 68)
+    tree.setColumnWidth(3, 44)
+    tree.setColumnWidth(4, 60)
+    tree.setColumnWidth(5, 68)
+    tree.setColumnWidth(6, 60)
+    tree.setColumnWidth(7, 92)
+    tree.header().setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
     tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     return tree

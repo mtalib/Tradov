@@ -46,6 +46,7 @@ from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventT
 # CONSTANTS
 # ==============================================================================
 _DEFAULT_SWEEP_INTERVAL_S: float = 1.0
+_PENDING_GROUP_FLATTEN_TTL_S: float = 15.0
 
 
 # ==============================================================================
@@ -118,6 +119,8 @@ class ExitMonitor:
         # C5 (v18): protect _orphan_alerted against concurrent reads/writes
         # from the sweep thread vs. register_strategy/unregister_strategy.
         self._orphan_lock = threading.Lock()
+        self._pending_group_flatten_lock = threading.Lock()
+        self._pending_group_flatten_reservations: dict[str, float] = {}
 
         # Prometheus metrics — soft-import; silently disabled if unavailable.
         self._prom: Any = None
@@ -243,6 +246,77 @@ class ExitMonitor:
             return self.strategy_map.get(normalized)
         return None
 
+    def _reserve_pending_group_flatten(self, strategy_id: str) -> None:
+        """Suppress duplicate exit checks while a grouped carryover flatten is in flight."""
+        strategy_token = self._normalize_strategy_token(strategy_id)
+        if not strategy_token:
+            return
+
+        with self._pending_group_flatten_lock:
+            self._pending_group_flatten_reservations[strategy_token] = (
+                time.monotonic() + _PENDING_GROUP_FLATTEN_TTL_S
+            )
+
+    def _has_pending_group_flatten(self, view: _PositionView) -> bool:
+        """Return True when a hydrated carryover strategy is already flattening."""
+        raw = view.raw if isinstance(view.raw, dict) else {}
+        if str(raw.get("position_source") or "").strip() != "session_db_hydration":
+            return False
+
+        strategy_token = self._normalize_strategy_token(view.strategy_id)
+        if not strategy_token:
+            return False
+
+        now_monotonic = time.monotonic()
+        with self._pending_group_flatten_lock:
+            expiry = self._pending_group_flatten_reservations.get(strategy_token)
+            if expiry is None:
+                return False
+            if expiry <= now_monotonic:
+                self._pending_group_flatten_reservations.pop(strategy_token, None)
+                return False
+            return True
+
+    def _should_flatten_orphaned_paper_strategy(
+        self,
+        strategy_id: str,
+        view: _PositionView,
+    ) -> bool:
+        """Return True when a restored paper carryover should be closed as a group."""
+        raw = view.raw if isinstance(view.raw, dict) else {}
+        if str(raw.get("position_source") or "").strip() != "session_db_hydration":
+            return False
+
+        strategy_token = self._normalize_strategy_token(strategy_id)
+        if strategy_token != "iron_condor":
+            return False
+
+        symbol = str(view.symbol or raw.get("symbol") or "").strip().upper()
+        return bool(symbol) and len(symbol) >= 15 and ("C" in symbol or "P" in symbol)
+
+    def _emit_strategy_group_flatten_request(
+        self,
+        strategy_id: str,
+        symbol: str,
+    ) -> None:
+        """Request a runtime close of all positions associated with a strategy."""
+        self._reserve_pending_group_flatten(strategy_id)
+        self.logger.warning(
+            "ExitMonitor: requesting grouped paper cleanup for orphan carryover %s "
+            "(strategy_id=%r)",
+            symbol,
+            strategy_id,
+        )
+        self.em.emit(
+            event_type=EventType.FLATTEN_REQUEST,
+            data={
+                "type": "strategy_group_flatten",
+                "reason": "paper_orphan_carryover_strategy",
+                "strategy_id": strategy_id,
+            },
+            source="ExitMonitor",
+        )
+
     # ------------------------------------------------------------------
     # Internal sweep
     # ------------------------------------------------------------------
@@ -360,6 +434,9 @@ class ExitMonitor:
             raw=raw_pos if isinstance(raw_pos, dict) else {},
         )
 
+        if self._has_pending_group_flatten(view):
+            return
+
         strategy = self._resolve_strategy(strategy_id)
 
         if strategy is None:
@@ -417,6 +494,8 @@ class ExitMonitor:
             },
             source="ExitMonitor",
         )
+        if self._should_flatten_orphaned_paper_strategy(strategy_id, view):
+            self._emit_strategy_group_flatten_request(strategy_id, symbol)
 
     def _emit_close_signal(self, view: _PositionView, strategy_id: str) -> None:
         """Emit a STRATEGY_SIGNAL to close a position."""

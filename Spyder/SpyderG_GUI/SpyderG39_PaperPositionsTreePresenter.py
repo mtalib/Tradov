@@ -20,7 +20,9 @@ class RestoredPaperPositionPresentation:
     """Preformatted texts and colors for a restored paper position row pair."""
 
     summary_text: str
-    symbol_text: str
+    action_text: str
+    action_color: str
+    leg_text: str
     strike_text: str
     quantity_text: str
     expiry_text: str
@@ -55,7 +57,9 @@ class PaperSpreadHeaderPresentation:
 class PaperSpreadLegPresentation:
     """Preformatted detail values for a paper spread leg tree row."""
 
-    side_text: str
+    action_text: str
+    action_color: str | None
+    leg_text: str
     strike_text: str
     quantity_text: str
     price_text: str
@@ -143,6 +147,25 @@ def format_signed_dollars(value: float, decimals: int | None = None) -> str:
     return f"{'+' if value >= 0 else '-'}${abs_value:,.{resolved_decimals}f}"
 
 
+def _occ_option_flag(symbol: str) -> str:
+    """Return OCC option flag (C/P) when the symbol looks like an OCC contract."""
+    normalized = str(symbol or "").strip().upper()
+    if len(normalized) < 16 or not normalized[-15:-9].isdigit():
+        return ""
+    flag = normalized[-9:-8]
+    return flag if flag in {"C", "P"} else ""
+
+
+def _action_prefix_from_side(raw_side: str) -> str:
+    """Normalize persisted side labels into BUY/SELL when possible."""
+    normalized = str(raw_side or "").strip().lower()
+    if normalized in {"sell", "sell_to_open", "sell_to_close", "sto", "stc", "short"}:
+        return "SELL"
+    if normalized in {"buy", "buy_to_open", "buy_to_close", "bto", "btc", "long"}:
+        return "BUY"
+    return ""
+
+
 def build_restored_position_presentations(
     positions: Sequence[Mapping[str, Any]] | None,
     colors: Mapping[str, str],
@@ -155,6 +178,7 @@ def build_restored_position_presentations(
 
         symbol = str(position.get("symbol", "—") or "—")
         quantity = coerce_int(position.get("quantity"), 0)
+        display_quantity = abs(quantity)
         entry_price = coerce_float(position.get("entry_price"), 0.0) or 0.0
         current_price = coerce_float(position.get("current_price"), None)
         strategy = str(position.get("strategy", "") or "paper_fill")
@@ -172,17 +196,28 @@ def build_restored_position_presentations(
         opened_text = opened_at[:19].replace("T", " ") if opened_at else "--"
         expiration = str(position.get("expiration", "") or "")
         strike = coerce_float(position.get("strike"), None)
-        option_type = str(position.get("option_type", "") or "").upper()[:1]
+        option_type = str(position.get("option_type", "") or "").upper()[:1] or _occ_option_flag(symbol)
+        action_prefix = _action_prefix_from_side(
+            str(position.get("side") or position.get("position_side") or "")
+        )
+        if not action_prefix:
+            if quantity < 0:
+                action_prefix = "SELL"
+            elif quantity > 0:
+                action_prefix = "BUY"
+        action_suffix = " PUT" if option_type == "P" else " CALL" if option_type == "C" else ""
+        action_text = f"{action_prefix}{action_suffix}".strip() or "—"
+        action_color = (
+            colors["negative"] if action_prefix == "SELL"
+            else colors["positive"] if action_prefix == "BUY"
+            else colors["text"]
+        )
         unrealized_pnl = coerce_float(position.get("unrealized_pnl"), 0.0) or 0.0
         mark_price = current_price if current_price is not None else entry_price
         contract_multiplier = 100.0 if option_type in {"P", "C"} else 1.0
         total_cost = entry_price * quantity * contract_multiplier
 
-        quantity_color = colors["text"]
-        if quantity > 0:
-            quantity_color = colors["positive"]
-        elif quantity < 0:
-            quantity_color = colors["negative"]
+        quantity_color = action_color
 
         presentations.append(
             RestoredPaperPositionPresentation(
@@ -196,19 +231,22 @@ def build_restored_position_presentations(
                     f"{strategy.replace('_', ' ').upper()}  |  "
                     f"STATUS: {status}  |  OPENED: {opened_text}  |  MARK: ${mark_price:,.2f}"
                 ),
-                symbol_text=f"  {symbol}",
+                action_text=action_text,
+                action_color=action_color,
+                leg_text=symbol,
                 strike_text=(
                     f"${strike:.0f}{option_type}"
                     if strike is not None and strike > 0
                     else "--"
                 ),
-                quantity_text=str(quantity),
+                quantity_text=str(display_quantity),
                 expiry_text=format_expiration_short(expiration),
                 entry_price_text=f"${entry_price:,.2f}",
                 cost_text=format_signed_dollars(total_cost),
                 pnl_text=f"{'+' if unrealized_pnl >= 0 else '-'}${abs(unrealized_pnl):,.2f}",
                 tooltip_text=(
                     f"Symbol: {symbol}\n"
+                    f"Action: {action_text}\n"
                     f"Strategy: {strategy}\n"
                     f"Status: {status}\n"
                     f"Opened: {opened_text}\n"
@@ -398,7 +436,6 @@ def build_paper_spread_tree_presentation(
     if credit_dollars is None:
         credit_dollars = credit * 100.0 * max(quantity, 1)
     pnl_percent = (mtm_pnl / credit_dollars * 100.0) if credit_dollars > 0 else 0.0
-    pnl_sign = "+" if mtm_pnl >= 0 else "-"
 
     if closed:
         summary_text = (
@@ -419,7 +456,7 @@ def build_paper_spread_tree_presentation(
     header = PaperSpreadHeaderPresentation(
         timestamp_text=timestamp_text,
         summary_text=summary_text,
-        pnl_text=f"NET P&L {pnl_sign}${abs(mtm_pnl):,.0f} ({pnl_percent:+.1f}%)",
+        pnl_text=f"NET P&L {format_signed_dollars(mtm_pnl)} ({pnl_percent:+.1f}%)",
         pnl_color=colors["positive"] if mtm_pnl >= 0 else colors["negative"],
     )
 
@@ -436,6 +473,12 @@ def build_paper_spread_tree_presentation(
                         or raw_leg.get("action")
                         or raw_leg.get("position")
                         or raw_leg.get("name")
+                        or ""
+                    ).strip(),
+                    "symbol": str(
+                        raw_leg.get("symbol")
+                        or raw_leg.get("option_symbol")
+                        or raw_leg.get("contract_symbol")
                         or ""
                     ).strip(),
                     "strike": coerce_float(raw_leg.get("strike", raw_leg.get("strike_price")), None),
@@ -470,6 +513,7 @@ def build_paper_spread_tree_presentation(
         normalized_legs = [
             {
                 "side": f"Sell {option_word}",
+                "symbol": "",
                 "strike": short_strike,
                 "qty": quantity,
                 "price": short_entry,
@@ -483,6 +527,7 @@ def build_paper_spread_tree_presentation(
             },
             {
                 "side": f"Buy {option_word}",
+                "symbol": "",
                 "strike": long_strike,
                 "qty": quantity,
                 "price": long_entry,
@@ -500,9 +545,17 @@ def build_paper_spread_tree_presentation(
     leg_presentations: list[PaperSpreadLegPresentation] = []
     for leg in normalized_legs:
         side = str(leg.get("side") or "LEG")
+        action_text = side.upper()
+        action_color = (
+            colors["negative"] if action_text.startswith("SELL") or action_text.startswith("SHORT")
+            else colors["positive"] if action_text.startswith("BUY") or action_text.startswith("LONG")
+            else None
+        )
         strike = coerce_float(leg.get("strike"), 0.0) or 0.0
         leg_type = str(leg.get("type") or "").upper()[:1]
         leg_qty = abs(coerce_int(leg.get("qty"), quantity))
+        leg_symbol = str(leg.get("symbol") or "").strip()
+        leg_text = leg_symbol or ("PUT LEG" if leg_type == "P" else "CALL LEG" if leg_type == "C" else "LEG")
         price = coerce_float(leg.get("price"), None)
         cost = coerce_float(leg.get("cost"), None)
         pnl = coerce_float(leg.get("pnl"), None)
@@ -511,9 +564,11 @@ def build_paper_spread_tree_presentation(
 
         leg_presentations.append(
             PaperSpreadLegPresentation(
-                side_text=f"  {side}",
+                action_text=action_text,
+                action_color=action_color,
+                leg_text=leg_text,
                 strike_text=f"${strike:.0f}{leg_type}",
-                quantity_text=str(coerce_int(leg.get("qty"), quantity)),
+                quantity_text=str(leg_qty),
                 price_text=(f"${abs(price):,.2f}" if price is not None else ""),
                 expiry_text=expiry_display,
                 cost_text=(format_signed_dollars(cost) if cost is not None else ""),

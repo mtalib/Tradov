@@ -12,6 +12,7 @@ class SystemLogVerbosityPlan:
 
     selected_mode: str
     logger_level: int
+    minimal_button_checked: bool
     normal_button_checked: bool
     debug_button_checked: bool
     announcement_message: str | None
@@ -25,7 +26,14 @@ def build_system_log_verbosity_plan(
     normal_level: int,
 ) -> SystemLogVerbosityPlan:
     """Normalize the requested verbosity mode into a full application plan."""
-    selected_mode = "DEBUG" if str(mode).upper() == "DEBUG" else "NORMAL"
+    _mode = str(mode).upper()
+    if _mode == "DEBUG":
+        selected_mode = "DEBUG"
+    elif _mode == "MINIMAL":
+        selected_mode = "MINIMAL"
+    else:
+        selected_mode = "NORMAL"
+
     announcement_message = None
     if announce:
         announcement_message = f"ℹ️ System log mode → {selected_mode}"
@@ -33,6 +41,7 @@ def build_system_log_verbosity_plan(
     return SystemLogVerbosityPlan(
         selected_mode=selected_mode,
         logger_level=debug_level if selected_mode == "DEBUG" else normal_level,
+        minimal_button_checked=selected_mode == "MINIMAL",
         normal_button_checked=selected_mode == "NORMAL",
         debug_button_checked=selected_mode == "DEBUG",
         announcement_message=announcement_message,
