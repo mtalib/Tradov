@@ -237,7 +237,6 @@ class CustomMetricsOrchestrator(QObject):
         self.pca_signal_engine = None
         self.market_intel_client = None
         self.snapshot_llm = None
-        self.prediction_markets = None
         self.eco_calendar = None
 
         # Current metrics storage with thread-safe access
@@ -307,10 +306,6 @@ class CustomMetricsOrchestrator(QObject):
             "NEWS_FLOW_VERDICT": "neutral",
             "NEWS_FLOW_HEADLINE": "",
             "MARKET_SNAPSHOT_TEXT": "",
-            # S17 — Kalshi prediction markets
-            "KALSHI_RECESSION_PROB": float("nan"),
-            "KALSHI_FED_PAUSE_PROB": float("nan"),
-            "KALSHI_AVAILABLE": False,
             # S18 — economic calendar stand-down
             "ECO_STAND_DOWN": False,
             "ECO_NEXT_EVENT_NAME": "",
@@ -588,21 +583,6 @@ class CustomMetricsOrchestrator(QObject):
             self.logger.error("Failed to init MarketSnapshotLLM: %s", e, exc_info=True)
             self.snapshot_llm = None
 
-        # S17 - Kalshi prediction markets
-        try:
-            (get_prediction_markets_client,) = _import_optional_symbols(
-                _signal_module_variants("SpyderS17_PredictionMarkets"),
-                "get_prediction_markets_client",
-            )
-            self.prediction_markets = get_prediction_markets_client()
-            self.logger.debug("✅ S17_PredictionMarkets initialized")
-        except ImportError as exc:
-            self.prediction_markets = None
-            self.logger.debug("S17_PredictionMarkets unavailable: %s", exc)
-        except Exception as e:
-            self.logger.error("Failed to init PredictionMarketsClient: %s", e, exc_info=True)
-            self.prediction_markets = None
-
         # S18 - Economic calendar stand-down gate
         try:
             (get_economic_calendar,) = _import_optional_symbols(
@@ -631,7 +611,7 @@ class CustomMetricsOrchestrator(QObject):
 
     def _init_quality_tracking(self):
         """Initialize quality tracking for all metrics"""
-        metric_names = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'PCA-PROXY', 'PCA-IV', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW', 'MARKET_INTEL', 'PREDICTION_MARKETS', 'ECO_CALENDAR']  # noqa: E501
+        metric_names = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'PCA-PROXY', 'PCA-IV', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW', 'MARKET_INTEL', 'ECO_CALENDAR']  # noqa: E501
 
         for metric in metric_names:
             self.metric_quality[metric] = MetricQuality(
@@ -872,9 +852,6 @@ class CustomMetricsOrchestrator(QObject):
                 # S15 - Market Intelligence (Adanos social + AV macro news)
                 market_intel_success = self._update_market_intel_metrics(updated_metrics, update_errors)  # noqa: E501
 
-                # S17 - Kalshi prediction markets
-                prediction_markets_success = self._update_prediction_markets_metrics(updated_metrics, update_errors)  # noqa: E501
-
                 # S18 - Economic calendar stand-down signals
                 eco_calendar_success = self._update_eco_calendar_metrics(updated_metrics, update_errors)  # noqa: E501
 
@@ -979,14 +956,13 @@ class CustomMetricsOrchestrator(QObject):
                     dealer_flow_success,
                     liquidity_success,
                     market_intel_success,
-                    prediction_markets_success,
                     eco_calendar_success,
                 ])
 
                 # Keep custom-metrics cycle summaries in DEBUG so NORMAL logs
                 # remain focused on lifecycle, warnings, and errors.
                 _summary = (
-                    f"{success_count}/15 | "
+                    f"{success_count}/14 | "
                     f"GEX={updated_metrics.get('GEX', 0):.1f}B "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}% "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f} "
@@ -1453,42 +1429,6 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["MARKET_SNAPSHOT_TEXT"] = self.current_metrics.get(
                 "MARKET_SNAPSHOT_TEXT", ""
             )
-
-    def _update_prediction_markets_metrics(self, updated_metrics: dict, errors: list) -> bool:
-        """Update S17 Kalshi prediction-market probabilities."""
-        from Spyder.SpyderS_Signals.SpyderS17_PredictionMarkets import (
-            KALSHI_RECESSION_PROB,
-            KALSHI_FED_PAUSE_PROB,
-            KALSHI_AVAILABLE,
-        )
-        _defaults = {
-            KALSHI_RECESSION_PROB: self.current_metrics.get(KALSHI_RECESSION_PROB, float("nan")),
-            KALSHI_FED_PAUSE_PROB: self.current_metrics.get(KALSHI_FED_PAUSE_PROB, float("nan")),
-            KALSHI_AVAILABLE: self.current_metrics.get(KALSHI_AVAILABLE, False),
-        }
-        try:
-            if self.prediction_markets is None:
-                updated_metrics.update(_defaults)
-                return False
-            snap = self.prediction_markets.get_snapshot()
-            updated_metrics[KALSHI_RECESSION_PROB] = snap.get(KALSHI_RECESSION_PROB, float("nan"))
-            updated_metrics[KALSHI_FED_PAUSE_PROB] = snap.get(KALSHI_FED_PAUSE_PROB, float("nan"))
-            updated_metrics[KALSHI_AVAILABLE] = snap.get(KALSHI_AVAILABLE, False)
-            if "PREDICTION_MARKETS" in self.metric_quality:
-                q = self.metric_quality["PREDICTION_MARKETS"]
-                q.last_successful_update = datetime.now(UTC)
-                q.data_points += 1
-                q.quality_score = min(1.0, q.quality_score + 0.01)
-            return bool(snap.get(KALSHI_AVAILABLE, False))
-        except Exception as e:
-            errors.append(f"Prediction markets update error: {e}")
-            self._log_deduped_issue(
-                channel="prediction_markets_update_error",
-                message=f"Prediction markets update error: {e}",
-                level="warning",
-            )
-            updated_metrics.update(_defaults)
-            return False
 
     def _update_eco_calendar_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update S18 economic calendar stand-down signals."""
@@ -2932,32 +2872,6 @@ class CustomMetricsOrchestrator(QObject):
                 "quality": 1.0,
             },
             # S17 - Kalshi prediction markets
-            "KALSHI_RECESSION_PROB": {
-                "value": metrics.get("KALSHI_RECESSION_PROB", float("nan")),
-                "formatted": (
-                    f"{float(metrics.get('KALSHI_RECESSION_PROB', float('nan'))) * 100:.0f}%"
-                    if not math.isnan(float(metrics.get("KALSHI_RECESSION_PROB", float("nan"))))
-                    else "---"
-                ),
-                "timestamp": timestamp,
-                "quality": self.metric_quality["PREDICTION_MARKETS"].quality_score,
-            },
-            "KALSHI_FED_PAUSE_PROB": {
-                "value": metrics.get("KALSHI_FED_PAUSE_PROB", float("nan")),
-                "formatted": (
-                    f"{float(metrics.get('KALSHI_FED_PAUSE_PROB', float('nan'))) * 100:.0f}%"
-                    if not math.isnan(float(metrics.get("KALSHI_FED_PAUSE_PROB", float("nan"))))
-                    else "---"
-                ),
-                "timestamp": timestamp,
-                "quality": self.metric_quality["PREDICTION_MARKETS"].quality_score,
-            },
-            "KALSHI_AVAILABLE": {
-                "value": metrics.get("KALSHI_AVAILABLE", False),
-                "formatted": "live" if metrics.get("KALSHI_AVAILABLE", False) else "---",
-                "timestamp": timestamp,
-                "quality": self.metric_quality["PREDICTION_MARKETS"].quality_score,
-            },
             # S18 - Economic calendar
             "ECO_STAND_DOWN": {
                 "value": metrics.get("ECO_STAND_DOWN", False),
