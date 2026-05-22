@@ -47,7 +47,7 @@ try:
 except ImportError:
     def njit(*args, **kwargs):  # type: ignore[misc]
         """No-op decorator when numba is not available."""
-        if callable(args[0]):
+        if args and callable(args[0]):
             return args[0]
         return lambda f: f
     _NUMBA_AVAILABLE = False

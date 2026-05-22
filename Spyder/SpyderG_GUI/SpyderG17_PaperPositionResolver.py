@@ -135,6 +135,19 @@ def restore_paper_spreads_from_positions(
             or f"{position.get('symbol', '')}:{position.get('opened_at', '')}:{position.get('quantity', '')}"
         )
 
+    def _normalized_signed_quantity(position: dict[str, Any], quantity: int) -> int:
+        side = str(
+            position.get("side")
+            or position.get("position_side")
+            or position.get("direction")
+            or ""
+        ).strip().lower()
+        if side in {"sell", "sell_to_open", "sell_to_close", "sto", "stc", "short"}:
+            return -abs(quantity)
+        if side in {"buy", "buy_to_open", "buy_to_close", "bto", "btc", "long"}:
+            return abs(quantity)
+        return quantity
+
     def _build_condor(candidate: list[dict[str, Any]]) -> dict[str, Any] | None:
         if len(candidate) != 4:
             return None
@@ -174,15 +187,33 @@ def restore_paper_spreads_from_positions(
         for option_type in ("call", "put"):
             if len(grouped[option_type]) != 2:
                 return None
-            positive = [row for row in grouped[option_type] if _coerce_int(row.get("quantity"), 0) > 0]
-            negative = [row for row in grouped[option_type] if _coerce_int(row.get("quantity"), 0) < 0]
+            positive = [
+                row for row in grouped[option_type]
+                if _normalized_signed_quantity(row, _coerce_int(row.get("quantity"), 0)) > 0
+            ]
+            negative = [
+                row for row in grouped[option_type]
+                if _normalized_signed_quantity(row, _coerce_int(row.get("quantity"), 0)) < 0
+            ]
             if len(positive) != 1 or len(negative) != 1:
                 return None
 
-        long_put = next(row for row in grouped["put"] if _coerce_int(row.get("quantity"), 0) > 0)
-        short_put = next(row for row in grouped["put"] if _coerce_int(row.get("quantity"), 0) < 0)
-        short_call = next(row for row in grouped["call"] if _coerce_int(row.get("quantity"), 0) < 0)
-        long_call = next(row for row in grouped["call"] if _coerce_int(row.get("quantity"), 0) > 0)
+        long_put = next(
+            row for row in grouped["put"]
+            if _normalized_signed_quantity(row, _coerce_int(row.get("quantity"), 0)) > 0
+        )
+        short_put = next(
+            row for row in grouped["put"]
+            if _normalized_signed_quantity(row, _coerce_int(row.get("quantity"), 0)) < 0
+        )
+        short_call = next(
+            row for row in grouped["call"]
+            if _normalized_signed_quantity(row, _coerce_int(row.get("quantity"), 0)) < 0
+        )
+        long_call = next(
+            row for row in grouped["call"]
+            if _normalized_signed_quantity(row, _coerce_int(row.get("quantity"), 0)) > 0
+        )
 
         if not (
             _coerce_float(long_put.get("strike"), 0.0) < _coerce_float(short_put.get("strike"), 0.0)
@@ -190,7 +221,7 @@ def restore_paper_spreads_from_positions(
         ):
             return None
 
-        qty = abs(_coerce_int(short_put.get("quantity"), 0))
+        qty = abs(_normalized_signed_quantity(short_put, _coerce_int(short_put.get("quantity"), 0)))
         if qty <= 0:
             return None
 
@@ -202,9 +233,9 @@ def restore_paper_spreads_from_positions(
         expiration = str(short_put.get("expiration") or "")
 
         for row in ordered_legs:
-            leg_qty = abs(_coerce_int(row.get("quantity"), qty)) or qty
+            signed_qty = _normalized_signed_quantity(row, _coerce_int(row.get("quantity"), qty))
+            leg_qty = abs(signed_qty) or qty
             leg_price = _coerce_float(row.get("entry_price"), 0.0) or 0.0
-            signed_qty = _coerce_int(row.get("quantity"), 0)
             option_type = str(row.get("option_type") or "").lower()
             unrealized_pnl = _coerce_float(row.get("unrealized_pnl"), 0.0) or 0.0
             cost = leg_price * 100.0 * leg_qty
@@ -218,6 +249,7 @@ def restore_paper_spreads_from_positions(
             mtm_pnl += unrealized_pnl
             legs.append(
                 {
+                    "symbol": str(row.get("symbol") or ""),
                     "side": side,
                     "strike": _coerce_float(row.get("strike"), 0.0) or 0.0,
                     "qty": leg_qty,
@@ -227,8 +259,15 @@ def restore_paper_spreads_from_positions(
                 }
             )
 
+        # Build a unique, stable id from the sorted OCC symbols of the four
+        # legs so the dashboard X-button can target exactly this condor group
+        # via a FLATTEN_REQUEST without ambiguity when multiple condors are open.
+        condor_id = "|".join(
+            sorted(leg["symbol"] for leg in legs if leg.get("symbol"))
+        )
+
         return {
-            "id": "",
+            "id": condor_id,
             "structure": "IRON_CONDOR",
             "lifecycle_state": lifecycle_state,
             "qty": qty,
@@ -253,7 +292,7 @@ def restore_paper_spreads_from_positions(
         expiration = str(position.get("expiration") or parsed.get("expiration") or "")
         strike = _coerce_float(position.get("strike"), parsed.get("strike"))
         option_type = str(position.get("option_type") or parsed.get("option_type") or "").lower()
-        quantity = _coerce_int(position.get("quantity"), 0)
+        quantity = _normalized_signed_quantity(position, _coerce_int(position.get("quantity"), 0))
         underlying = str(parsed.get("underlying") or position.get("symbol") or "")
 
         if (

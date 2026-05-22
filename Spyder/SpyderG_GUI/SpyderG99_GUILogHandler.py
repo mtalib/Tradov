@@ -29,6 +29,80 @@ import re
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtCore import QObject, Signal, Qt
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+# ---------------------------------------------------------------------------
+# Allowlist: logger name prefixes whose INFO-level records are shown in the
+# GUI log.  WARNING / ERROR / CRITICAL from *any* logger always pass through.
+# Add a prefix here when a new series needs its milestones surfaced.
+# ---------------------------------------------------------------------------
+_GUI_INFO_ALLOWLIST: tuple[str, ...] = (
+    "SpyderA01",       # Application lifecycle (startup, shutdown)
+    "SpyderB40",       # TradierClient — connection events and fills
+    "SpyderD31",       # StrategyOrchestrator — strategy lifecycle
+    "SpyderE",         # Risk series — limit changes, halt events
+    "SpyderJ05",       # Telegram bot — trade executed / closed headlines
+    "SpyderG18",       # MarketDataWorker — connection status
+    "SpyderR_Runtime", # Runtime supervisor events
+    "SpyderR04",       # FillReconciler — confirmed fills
+    "SpyderR12",       # SessionSupervisor / paper start gate
+    "SpyderS07",       # Market conditions / regime transitions
+)
+
+# Human-readable labels shown in the ALLOWLIST dialog, keyed by prefix.
+_GUI_INFO_ALLOWLIST_LABELS: dict[str, str] = {
+    "SpyderA01":       "Application lifecycle  (startup / shutdown)",
+    "SpyderB40":       "Tradier — connection events & fills",
+    "SpyderD31":       "Strategy Orchestrator  (add / pause / remove)",
+    "SpyderE":         "Risk series  (limit changes, halt events)",
+    "SpyderJ05":       "Telegram bot  (executed / closed headlines)",
+    "SpyderG18":       "Market data worker  (connection status)",
+    "SpyderR_Runtime": "Runtime supervisor events",
+    "SpyderR04":       "Fill Reconciler  (confirmed fills)",
+    "SpyderR12":       "Session Supervisor  (paper start gate)",
+    "SpyderS07":       "Market conditions  (regime transitions)",
+}
+
+# Tight allowlist used in MINIMAL mode — only the key trade-lifecycle headlines.
+_GUI_MINIMAL_ALLOWLIST: tuple[str, ...] = (
+    "SpyderD31",  # Strategy Executed / Hunting / Supervising
+    "SpyderJ05",  # Trade executed / closed headlines
+    "SpyderR12",  # Session started
+)
+
+
+class GUIMinimalFilter(logging.Filter):
+    """Reduce dashboard log noise while keeping all actionable records.
+
+    Pass-through rules (evaluated in order):
+    1. ``WARNING`` and above from **any** logger — always shown.
+    2. ``INFO`` from loggers whose name starts with a prefix in *allowlist*
+       — key operational milestones (session events, fills, regime changes).
+    3. Everything else — suppressed from the GUI log but still written to
+       the internal rotating file log.
+
+    The allowlist can be customised at startup via
+    ``setup_gui_logging(info_allowlist=...)``.  The module-level
+    ``_GUI_INFO_ALLOWLIST`` tuple is the default.
+    """
+
+    def __init__(self, allowlist: tuple[str, ...] = _GUI_INFO_ALLOWLIST) -> None:
+        super().__init__()
+        self._allowlist = allowlist
+
+    def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        if record.levelno >= logging.WARNING:
+            return True
+        return any(record.name.startswith(prefix) for prefix in self._allowlist)
+
 
 class GUILogHandler(QObject, logging.Handler):
     """
@@ -78,6 +152,18 @@ class GUILogHandler(QObject, logging.Handler):
         # Set default formatter
         formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
         self.setFormatter(formatter)
+
+        # Suppress noisy INFO records; WARNING+ always passes through.
+        self.addFilter(GUIMinimalFilter())
+
+    def set_allowlist(self, active_prefixes: tuple[str, ...]) -> None:
+        """Replace the active INFO allowlist on the attached GUIMinimalFilter.
+
+        Called from the dashboard whenever the user confirms a new selection
+        in the ALLOWLIST dialog.  Safe to call from the GUI thread.
+        """
+        self.filters = [f for f in self.filters if not isinstance(f, GUIMinimalFilter)]
+        self.addFilter(GUIMinimalFilter(active_prefixes))
 
     def set_dashboard(self, dashboard):
         """
@@ -268,7 +354,8 @@ class FilteredGUILogHandler(GUILogHandler):
 
 def setup_gui_logging(dashboard, log_level: str = "INFO",
                      include_modules: list | None = None,
-                     exclude_modules: list | None = None) -> GUILogHandler:
+                     exclude_modules: list | None = None,
+                     info_allowlist: tuple[str, ...] | None = None) -> GUILogHandler:
     """
     Convenience function to set up GUI logging.
 
@@ -284,12 +371,24 @@ def setup_gui_logging(dashboard, log_level: str = "INFO",
     Example:
         >>> handler = setup_gui_logging(dashboard, log_level="INFO")
         >>> # Now all INFO and above logs will appear in dashboard
+
+    Additional parameters
+    ---------------------
+    info_allowlist:
+        Override the default set of logger-name prefixes whose INFO records
+        are allowed through to the dashboard.  ``None`` keeps the module
+        default (``_GUI_INFO_ALLOWLIST``).
     """
     # Create handler
     if include_modules or exclude_modules:
         handler = FilteredGUILogHandler(dashboard, include_modules, exclude_modules)
     else:
         handler = GUILogHandler(dashboard)
+
+    # Replace the default GUIMinimalFilter if a custom allowlist was supplied.
+    if info_allowlist is not None:
+        handler.filters = [f for f in handler.filters if not isinstance(f, GUIMinimalFilter)]
+        handler.addFilter(GUIMinimalFilter(info_allowlist))
 
     # Set level
     level = getattr(logging, log_level.upper(), logging.INFO)
@@ -305,4 +404,134 @@ def setup_gui_logging(dashboard, log_level: str = "INFO",
     return handler
 
 
-__all__ = ['GUILogHandler', 'FilteredGUILogHandler', 'setup_gui_logging']
+class AllowlistDialog(QDialog):
+    """Modal dialog that lets the user toggle individual INFO-level prefixes.
+
+    The dialog is driven entirely by ``_GUI_INFO_ALLOWLIST`` and
+    ``_GUI_INFO_ALLOWLIST_LABELS`` so it stays in sync with the code
+    automatically when new entries are added to those module-level constants.
+
+    Usage::
+
+        dlg = AllowlistDialog(parent=dashboard, active=current_active_tuple)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            handler.set_allowlist(dlg.selected_prefixes())
+    """
+
+    _DIALOG_STYLE = """
+        QDialog {
+            background-color: #1a1a1a;
+        }
+        QLabel#title {
+            color: #e0e0e0;
+            font-size: 13px;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+        QLabel#subtitle {
+            color: #909090;
+            font-size: 11px;
+        }
+        QCheckBox {
+            color: #d0d0d0;
+            font-size: 12px;
+            spacing: 8px;
+        }
+        QCheckBox::indicator {
+            width: 14px;
+            height: 14px;
+            border: 1px solid #555;
+            border-radius: 2px;
+            background-color: #2a2a2a;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #1E88E5;
+            border-color: #1E88E5;
+        }
+        QCheckBox::indicator:hover {
+            border-color: #1E88E5;
+        }
+        QDialogButtonBox QPushButton {
+            background-color: #2a2a2a;
+            color: #d0d0d0;
+            border: 1px solid #444;
+            border-radius: 3px;
+            padding: 4px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            min-width: 72px;
+        }
+        QDialogButtonBox QPushButton:hover {
+            background-color: #1E88E5;
+            color: white;
+            border-color: #1E88E5;
+        }
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        active: tuple[str, ...] = _GUI_INFO_ALLOWLIST,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("System Log — INFO Allowlist")
+        self.setMinimumWidth(420)
+        self.setStyleSheet(self._DIALOG_STYLE)
+        self._checkboxes: dict[str, QCheckBox] = {}
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(16, 14, 16, 14)
+
+        title = QLabel("INFO ALLOWLIST")
+        title.setObjectName("title")
+        layout.addWidget(title)
+
+        subtitle = QLabel(
+            "Checked modules show INFO messages in the dashboard log.\n"
+            "WARNING / ERROR / CRITICAL always appear regardless."
+        )
+        subtitle.setObjectName("subtitle")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        # Scrollable checkbox area (future-proof for a longer list)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_area.setStyleSheet("background: transparent;")
+
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        check_layout = QVBoxLayout(container)
+        check_layout.setSpacing(8)
+        check_layout.setContentsMargins(4, 4, 4, 4)
+
+        active_set = set(active)
+        for prefix in _GUI_INFO_ALLOWLIST:
+            label = _GUI_INFO_ALLOWLIST_LABELS.get(prefix, prefix)
+            cb = QCheckBox(label)
+            cb.setChecked(prefix in active_set)
+            self._checkboxes[prefix] = cb
+            check_layout.addWidget(cb)
+
+        scroll_area.setWidget(container)
+        layout.addWidget(scroll_area)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selected_prefixes(self) -> tuple[str, ...]:
+        """Return the prefixes whose checkboxes are currently checked."""
+        return tuple(
+            prefix for prefix, cb in self._checkboxes.items() if cb.isChecked()
+        )
+
+
+__all__ = ['GUILogHandler', 'FilteredGUILogHandler', 'GUIMinimalFilter',
+           'AllowlistDialog', 'setup_gui_logging', '_GUI_INFO_ALLOWLIST',
+           '_GUI_INFO_ALLOWLIST_LABELS']

@@ -131,6 +131,26 @@ class TestFlattenRequestRouting:
         supervisor._flatten_positions.assert_called_once()
         supervisor._flatten_at_risk_short_options.assert_not_called()
 
+    def test_strategy_group_flatten_routes_to_targeted_strategy_close(self):
+        supervisor = SessionSupervisor(mode="paper", dry_run=True, skip_orphan_sweep=True)
+        supervisor._flatten_positions = MagicMock(return_value=4)
+        supervisor._flatten_at_risk_short_options = MagicMock(return_value=0)
+
+        event = SimpleNamespace(
+            data={
+                "type": "strategy_group_flatten",
+                "reason": "paper_orphan_carryover_strategy",
+                "strategy_id": "iron_condor",
+            }
+        )
+        supervisor._on_flatten_request(event)
+
+        supervisor._flatten_positions.assert_called_once_with(
+            reason="paper_orphan_carryover_strategy",
+            strategy_id="iron_condor",
+        )
+        supervisor._flatten_at_risk_short_options.assert_not_called()
+
 
 class TestTargetedShortOptionFlatten:
     def test_flatten_at_risk_short_options_closes_only_short_options(self):
@@ -146,6 +166,38 @@ class TestTargetedShortOptionFlatten:
             reason="broker_cutoff_protection",
             position_quantity=-1,
         )
+
+    def test_flatten_positions_can_filter_by_strategy_id(self):
+        supervisor = SessionSupervisor(mode="paper", dry_run=True, skip_orphan_sweep=True)
+        supervisor._get_positions_for_flatten = MagicMock(
+            return_value=[
+                {"symbol": "SPY260618P00690000", "quantity": 1, "strategy_id": "iron_condor"},
+                {"symbol": "SPY260618P00700000", "quantity": -1, "strategy_id": "iron_condor"},
+                {"symbol": "SPY", "quantity": 10, "strategy_id": "pivot_mean_reversion"},
+            ]
+        )
+        supervisor._submit_flatten_close = MagicMock(return_value={"status": "ok", "order": {"id": "ORD-1"}})
+
+        closed = supervisor._flatten_positions(
+            reason="paper_orphan_carryover_strategy",
+            strategy_id="iron_condor",
+        )
+
+        assert closed == 2
+        assert supervisor._submit_flatten_close.call_args_list[0].args == (
+            "SPY260618P00690000",
+            1,
+        )
+        assert supervisor._submit_flatten_close.call_args_list[0].kwargs == {
+            "reason": "paper_orphan_carryover_strategy",
+        }
+        assert supervisor._submit_flatten_close.call_args_list[1].args == (
+            "SPY260618P00700000",
+            -1,
+        )
+        assert supervisor._submit_flatten_close.call_args_list[1].kwargs == {
+            "reason": "paper_orphan_carryover_strategy",
+        }
 
 
 class TestFlattenSubscriptionCleanup:

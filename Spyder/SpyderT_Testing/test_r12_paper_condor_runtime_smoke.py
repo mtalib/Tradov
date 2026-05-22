@@ -88,7 +88,7 @@ def _build_dashboard_stub(session_db: TradingSessionDB) -> SpyderTradingDashboar
     dash.logger = SpyderLogger.get_logger(__name__)
     dash.trading_mode = TradingMode.PAPER
     dash.positions_table = QTreeWidget()
-    dash.positions_table.setColumnCount(8)
+    dash.positions_table.setColumnCount(9)
     dash.orders_title_label = QLabel("Orders")
     dash._paper_session_db = session_db
     dash._live_session_db = None
@@ -236,10 +236,10 @@ def test_r12_paper_condor_dispatch_persists_and_renders_restored_group(tmp_path,
             assert any("ACTIVE TRADE CARRIED OVER : IRON CONDOR" in text for text in label_texts)
 
             leg_labels = [
-                dash.positions_table.topLevelItem(index).text(0).strip()
+                dash.positions_table.topLevelItem(index).text(0)
                 for index in range(1, 5)
             ]
-            assert leg_labels == ["Sell Put", "Buy Put", "Sell Call", "Buy Call"]
+            assert leg_labels == ["SELL PUT", "BUY PUT", "SELL CALL", "BUY CALL"]
         finally:
             if getattr(supervisor, "_running", False):
                 supervisor.stop(flatten=False)

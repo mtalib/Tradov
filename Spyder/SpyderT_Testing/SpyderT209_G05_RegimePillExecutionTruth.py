@@ -88,7 +88,7 @@ def test_update_regime_pills_prefers_d31_execution_truth_for_stance_and_gate(tmp
     assert "BULL" in dash.regime_pill.text()
     assert "CHOPPY" in dash.stance_pill.text()
     assert "CRISIS" in dash.gate_pill.text()
-    assert "ENTRY" in dash.dispatch_pill.text()
+    assert "DISPATCH" in dash.dispatch_pill.text()
     assert "D31 execution regime=bear_high_vol" in dash.dispatch_pill.tooltip
     assert "D31 policy bucket=crisis_turbulent" in dash.dispatch_pill.tooltip
 

@@ -1,4 +1,5 @@
 # Analysis Dependencies
+# Note: scipy is also declared in requirements-trading.txt (needed for Black-Scholes / GEX)
 scipy>=1.7.0
 statsmodels>=0.13.0
 ta>=0.9.0
@@ -45,3 +46,7 @@ quantstats>=0.0.62
 
 # High-performance columnar data (Polars)
 polars>=0.20.0
+
+# TradingView breadth scraper (S11_TradingViewInternals) — headless Chromium
+# After pip install, also run: python -m playwright install chromium
+playwright>=1.40.0

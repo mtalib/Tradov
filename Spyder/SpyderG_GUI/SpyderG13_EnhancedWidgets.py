@@ -1646,8 +1646,10 @@ class MarketSymbolWidget(QWidget):
                 self.price_label.setText(f"{last:.2f}")
         elif self.symbol == "SPX":
             self.price_label.setText(f"{last:.2f}")
+            self.price_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 11px;")
         else:
             self.price_label.setText(f"{last:.2f}")
+            self.price_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 11px;")
 
         color = COLORS["positive"] if change >= 0 else COLORS["negative"]
         sign = "+" if change >= 0 else ""

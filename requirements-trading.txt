@@ -24,10 +24,16 @@ urllib3>=1.26.0,<3.0  # pinned upper bound for stability
 pyzmq>=25.0.0,<27.0
 
 # Institutional Options Pricing
-quantlib-python>=1.31,<2.0  # pinned upper bound for stability
+QuantLib>=1.31  # quantlib-python was renamed to QuantLib for Python 3.11+
 
 # High-performance async event loop
 uvloop>=0.19.0,<1.0  # pinned upper bound for stability
 
 # High-performance JSON serialization
 orjson>=3.9.0,<4.0  # pinned upper bound for stability
+
+# Scientific computing — required for options Greeks (Black-Scholes) and GEX/DEX
+scipy>=1.7.0
+
+# HTML parsing — required by pandas.read_html() for S&P 500 constituent fetches (S01_DIXCalculator)
+lxml>=4.9.0

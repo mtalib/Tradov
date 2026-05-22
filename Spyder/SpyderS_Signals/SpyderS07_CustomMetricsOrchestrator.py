@@ -235,6 +235,10 @@ class CustomMetricsOrchestrator(QObject):
         self.swan_scheduler = None
         self.tv_client = None
         self.pca_signal_engine = None
+        self.market_intel_client = None
+        self.snapshot_llm = None
+        self.prediction_markets = None
+        self.eco_calendar = None
 
         # Current metrics storage with thread-safe access
         self._metrics_lock = threading.RLock()
@@ -296,6 +300,21 @@ class CustomMetricsOrchestrator(QObject):
             "DATA_QUALITY_FEED": {},
             "PCA-PROXY_DETAILS": {},
             "PCA-IV_DETAILS": {},
+            # S15 / S16 — market intelligence and LLM snapshot
+            "ADANOS_SENTIMENT": {},
+            "NEWS_FLOW_EQUITIES": float("nan"),
+            "NEWS_FLOW_MACRO": float("nan"),
+            "NEWS_FLOW_VERDICT": "neutral",
+            "NEWS_FLOW_HEADLINE": "",
+            "MARKET_SNAPSHOT_TEXT": "",
+            # S17 — Kalshi prediction markets
+            "KALSHI_RECESSION_PROB": float("nan"),
+            "KALSHI_FED_PAUSE_PROB": float("nan"),
+            "KALSHI_AVAILABLE": False,
+            # S18 — economic calendar stand-down
+            "ECO_STAND_DOWN": False,
+            "ECO_NEXT_EVENT_NAME": "",
+            "ECO_NEXT_EVENT_MINUTES": float("nan"),
         }
 
         self._options_tradier_client = None
@@ -539,6 +558,66 @@ class CustomMetricsOrchestrator(QObject):
             self.logger.error("Failed to init PCA signals: %s", e, exc_info=True)
             self.pca_signal_engine = None
 
+        # S15 - Market Intelligence (Adanos social + Alpha Vantage macro news)
+        try:
+            (get_market_intel_client,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS15_MarketIntelClient"),
+                "get_market_intel_client",
+            )
+            self.market_intel_client = get_market_intel_client()
+            self.logger.debug("✅ S15_MarketIntelClient initialized")
+        except ImportError as exc:
+            self.market_intel_client = None
+            self.logger.debug("S15_MarketIntelClient unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init MarketIntelClient: %s", e, exc_info=True)
+            self.market_intel_client = None
+
+        # S16 - LLM Market Snapshot (OpenRouter)
+        try:
+            (get_market_snapshot_llm,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS16_MarketSnapshotLLM"),
+                "get_market_snapshot_llm",
+            )
+            self.snapshot_llm = get_market_snapshot_llm()
+            self.logger.debug("✅ S16_MarketSnapshotLLM initialized")
+        except ImportError as exc:
+            self.snapshot_llm = None
+            self.logger.debug("S16_MarketSnapshotLLM unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init MarketSnapshotLLM: %s", e, exc_info=True)
+            self.snapshot_llm = None
+
+        # S17 - Kalshi prediction markets
+        try:
+            (get_prediction_markets_client,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS17_PredictionMarkets"),
+                "get_prediction_markets_client",
+            )
+            self.prediction_markets = get_prediction_markets_client()
+            self.logger.debug("✅ S17_PredictionMarkets initialized")
+        except ImportError as exc:
+            self.prediction_markets = None
+            self.logger.debug("S17_PredictionMarkets unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init PredictionMarketsClient: %s", e, exc_info=True)
+            self.prediction_markets = None
+
+        # S18 - Economic calendar stand-down gate
+        try:
+            (get_economic_calendar,) = _import_optional_symbols(
+                _signal_module_variants("SpyderS18_EconomicCalendar"),
+                "get_economic_calendar",
+            )
+            self.eco_calendar = get_economic_calendar()
+            self.logger.debug("✅ S18_EconomicCalendar initialized")
+        except ImportError as exc:
+            self.eco_calendar = None
+            self.logger.debug("S18_EconomicCalendar unavailable: %s", exc)
+        except Exception as e:
+            self.logger.error("Failed to init EconomicCalendar: %s", e, exc_info=True)
+            self.eco_calendar = None
+
     def _ensure_calculators_initialized(self) -> None:
         """Resolve optional calculators once, outside the GUI-thread constructor."""
         if self._calculators_initialized:
@@ -552,7 +631,7 @@ class CustomMetricsOrchestrator(QObject):
 
     def _init_quality_tracking(self):
         """Initialize quality tracking for all metrics"""
-        metric_names = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'PCA-PROXY', 'PCA-IV', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW']  # noqa: E501
+        metric_names = ['GEX', 'DEX', 'OGL', 'DIX', 'SWAN', 'SKEW', 'PCA-PROXY', 'PCA-IV', 'VEX', 'CHEX', 'FRED', 'SENTIMENT', 'BREADTH', 'SECTOR_BREADTH', 'OPTIONS', 'LIQUIDITY', 'VOL_SURFACE', 'DEALER_FLOW', 'MARKET_INTEL', 'PREDICTION_MARKETS', 'ECO_CALENDAR']  # noqa: E501
 
         for metric in metric_names:
             self.metric_quality[metric] = MetricQuality(
@@ -790,6 +869,15 @@ class CustomMetricsOrchestrator(QObject):
                 # S10 - Sentiment Updates (AAII weekly surveys, NAAIM exposure)
                 sentiment_success = self._update_sentiment_metrics(updated_metrics, update_errors)
 
+                # S15 - Market Intelligence (Adanos social + AV macro news)
+                market_intel_success = self._update_market_intel_metrics(updated_metrics, update_errors)  # noqa: E501
+
+                # S17 - Kalshi prediction markets
+                prediction_markets_success = self._update_prediction_markets_metrics(updated_metrics, update_errors)  # noqa: E501
+
+                # S18 - Economic calendar stand-down signals
+                eco_calendar_success = self._update_eco_calendar_metrics(updated_metrics, update_errors)  # noqa: E501
+
                 if self._shutdown_in_progress():
                     return
 
@@ -813,6 +901,9 @@ class CustomMetricsOrchestrator(QObject):
 
                 # Observe-only liquidity diagnostics for candidate contracts
                 liquidity_success = self._update_liquidity_diagnostics_metrics(updated_metrics, update_errors)  # noqa: E501
+
+                # S16 - LLM market snapshot text (throttled via internal TTL cache)
+                self._update_market_snapshot_text(updated_metrics)
 
                 # Update stored values
                 self.current_metrics.update(updated_metrics)
@@ -887,12 +978,15 @@ class CustomMetricsOrchestrator(QObject):
                     vol_surface_success,
                     dealer_flow_success,
                     liquidity_success,
+                    market_intel_success,
+                    prediction_markets_success,
+                    eco_calendar_success,
                 ])
 
                 # Keep custom-metrics cycle summaries in DEBUG so NORMAL logs
                 # remain focused on lifecycle, warnings, and errors.
                 _summary = (
-                    f"{success_count}/13 | "
+                    f"{success_count}/15 | "
                     f"GEX={updated_metrics.get('GEX', 0):.1f}B "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}% "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f} "
@@ -908,7 +1002,7 @@ class CustomMetricsOrchestrator(QObject):
                     >= self._metrics_info_heartbeat_seconds
                 )
                 self.logger.debug(
-                    f"📊 Metrics updated: {success_count}/12 sources successful "
+                    f"📊 Metrics updated: {success_count}/15 sources successful "
                     f"(GEX={updated_metrics.get('GEX', 0):.1f}B, "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}%, "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f}, "
@@ -983,7 +1077,7 @@ class CustomMetricsOrchestrator(QObject):
             message=(
                 "S07 update-cycle issues: "
                 f"{len(update_errors)} issue(s), "
-                f"{success_count}/12 sources successful, keys=[{summary}]"
+                f"{success_count}/15 sources successful, keys=[{summary}]"
             ),
             level="debug" if only_benign else "warning",
             emit_error=not only_benign,
@@ -1242,6 +1336,11 @@ class CustomMetricsOrchestrator(QObject):
                 updated_metrics["YIELD_SLOPE"]    = snap.get("spread_10y_2y", float("nan"))
                 updated_metrics["YIELD_INVERTED"]  = snap.get("yield_curve_inverted", False)
                 self.fred_updated.emit(snap)
+                if "FRED" in self.metric_quality:
+                    q = self.metric_quality["FRED"]
+                    q.last_successful_update = datetime.now(UTC)
+                    q.data_points += 1
+                    q.quality_score = min(1.0, q.quality_score + 0.01)
                 return True
             else:
                 for key in ("YIELD_10Y", "YIELD_SLOPE", "YIELD_INVERTED"):
@@ -1268,6 +1367,11 @@ class CustomMetricsOrchestrator(QObject):
                 updated_metrics["AAII_BEARISH"]    = snap.get("aaii_bearish",    float("nan"))
                 updated_metrics["NAAIM_EXPOSURE"]  = snap.get("naaim_exposure",  float("nan"))
                 self.sentiment_updated.emit(snap)
+                if "SENTIMENT" in self.metric_quality:
+                    q = self.metric_quality["SENTIMENT"]
+                    q.last_successful_update = datetime.now(UTC)
+                    q.data_points += 1
+                    q.quality_score = min(1.0, q.quality_score + 0.01)
                 return True
             else:
                 for key in ("AAII_BULLISH", "AAII_BEARISH", "NAAIM_EXPOSURE"):
@@ -1283,6 +1387,143 @@ class CustomMetricsOrchestrator(QObject):
             )
             for key in ("AAII_BULLISH", "AAII_BEARISH", "NAAIM_EXPOSURE"):
                 updated_metrics[key] = self.current_metrics.get(key, float("nan"))
+            return False
+
+    def _update_market_intel_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update S15 market-intelligence metrics: Adanos social + AV macro news."""
+        from Spyder.SpyderS_Signals.SpyderS15_MarketIntelClient import (
+            ADANOS_SENTIMENT,
+            NEWS_FLOW_EQUITIES,
+            NEWS_FLOW_MACRO,
+            NEWS_FLOW_VERDICT,
+            NEWS_FLOW_HEADLINE,
+        )
+        _defaults = {
+            ADANOS_SENTIMENT: self.current_metrics.get(ADANOS_SENTIMENT, {}),
+            NEWS_FLOW_EQUITIES: self.current_metrics.get(NEWS_FLOW_EQUITIES, float("nan")),
+            NEWS_FLOW_MACRO: self.current_metrics.get(NEWS_FLOW_MACRO, float("nan")),
+            NEWS_FLOW_VERDICT: self.current_metrics.get(NEWS_FLOW_VERDICT, "neutral"),
+            NEWS_FLOW_HEADLINE: self.current_metrics.get(NEWS_FLOW_HEADLINE, ""),
+        }
+        try:
+            if self.market_intel_client is None:
+                updated_metrics.update(_defaults)
+                return False
+            snap = self.market_intel_client.get_snapshot()
+            updated_metrics[ADANOS_SENTIMENT] = snap.get(ADANOS_SENTIMENT, {})
+            updated_metrics[NEWS_FLOW_EQUITIES] = snap.get(NEWS_FLOW_EQUITIES, float("nan"))
+            updated_metrics[NEWS_FLOW_MACRO] = snap.get(NEWS_FLOW_MACRO, float("nan"))
+            updated_metrics[NEWS_FLOW_VERDICT] = snap.get(NEWS_FLOW_VERDICT, "neutral")
+            updated_metrics[NEWS_FLOW_HEADLINE] = snap.get(NEWS_FLOW_HEADLINE, "")
+            if "MARKET_INTEL" in self.metric_quality:
+                q = self.metric_quality["MARKET_INTEL"]
+                q.last_successful_update = datetime.now(UTC)
+                q.data_points += 1
+                q.quality_score = min(1.0, q.quality_score + 0.01)
+            return True
+        except Exception as e:
+            errors.append(f"Market intel update error: {e}")
+            self._log_deduped_issue(
+                channel="market_intel_update_error",
+                message=f"Market intel update error: {e}",
+                level="warning",
+            )
+            updated_metrics.update(_defaults)
+            return False
+
+    def _update_market_snapshot_text(self, updated_metrics: dict) -> None:
+        """Refresh S16 LLM market snapshot text (no-op if TTL not expired)."""
+        try:
+            if self.snapshot_llm is None:
+                updated_metrics["MARKET_SNAPSHOT_TEXT"] = self.current_metrics.get(
+                    "MARKET_SNAPSHOT_TEXT", ""
+                )
+                return
+            # Pass the partially-built updated_metrics merged with current so
+            # the LLM has access to regime + market-intel keys populated above.
+            merged: dict = {**self.current_metrics, **updated_metrics}
+            text = self.snapshot_llm.get_snapshot_text(merged)
+            updated_metrics["MARKET_SNAPSHOT_TEXT"] = text
+        except Exception as e:
+            self._log_deduped_issue(
+                channel="snapshot_llm_error",
+                message=f"LLM snapshot error: {e}",
+                level="warning",
+            )
+            updated_metrics["MARKET_SNAPSHOT_TEXT"] = self.current_metrics.get(
+                "MARKET_SNAPSHOT_TEXT", ""
+            )
+
+    def _update_prediction_markets_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update S17 Kalshi prediction-market probabilities."""
+        from Spyder.SpyderS_Signals.SpyderS17_PredictionMarkets import (
+            KALSHI_RECESSION_PROB,
+            KALSHI_FED_PAUSE_PROB,
+            KALSHI_AVAILABLE,
+        )
+        _defaults = {
+            KALSHI_RECESSION_PROB: self.current_metrics.get(KALSHI_RECESSION_PROB, float("nan")),
+            KALSHI_FED_PAUSE_PROB: self.current_metrics.get(KALSHI_FED_PAUSE_PROB, float("nan")),
+            KALSHI_AVAILABLE: self.current_metrics.get(KALSHI_AVAILABLE, False),
+        }
+        try:
+            if self.prediction_markets is None:
+                updated_metrics.update(_defaults)
+                return False
+            snap = self.prediction_markets.get_snapshot()
+            updated_metrics[KALSHI_RECESSION_PROB] = snap.get(KALSHI_RECESSION_PROB, float("nan"))
+            updated_metrics[KALSHI_FED_PAUSE_PROB] = snap.get(KALSHI_FED_PAUSE_PROB, float("nan"))
+            updated_metrics[KALSHI_AVAILABLE] = snap.get(KALSHI_AVAILABLE, False)
+            if "PREDICTION_MARKETS" in self.metric_quality:
+                q = self.metric_quality["PREDICTION_MARKETS"]
+                q.last_successful_update = datetime.now(UTC)
+                q.data_points += 1
+                q.quality_score = min(1.0, q.quality_score + 0.01)
+            return bool(snap.get(KALSHI_AVAILABLE, False))
+        except Exception as e:
+            errors.append(f"Prediction markets update error: {e}")
+            self._log_deduped_issue(
+                channel="prediction_markets_update_error",
+                message=f"Prediction markets update error: {e}",
+                level="warning",
+            )
+            updated_metrics.update(_defaults)
+            return False
+
+    def _update_eco_calendar_metrics(self, updated_metrics: dict, errors: list) -> bool:
+        """Update S18 economic calendar stand-down signals."""
+        from Spyder.SpyderS_Signals.SpyderS18_EconomicCalendar import (
+            ECO_STAND_DOWN,
+            ECO_NEXT_EVENT_NAME,
+            ECO_NEXT_EVENT_MINUTES,
+        )
+        _defaults = {
+            ECO_STAND_DOWN: self.current_metrics.get(ECO_STAND_DOWN, False),
+            ECO_NEXT_EVENT_NAME: self.current_metrics.get(ECO_NEXT_EVENT_NAME, ""),
+            ECO_NEXT_EVENT_MINUTES: self.current_metrics.get(ECO_NEXT_EVENT_MINUTES, float("nan")),
+        }
+        try:
+            if self.eco_calendar is None:
+                updated_metrics.update(_defaults)
+                return False
+            snap = self.eco_calendar.get_snapshot()
+            updated_metrics[ECO_STAND_DOWN] = snap.get(ECO_STAND_DOWN, False)
+            updated_metrics[ECO_NEXT_EVENT_NAME] = snap.get(ECO_NEXT_EVENT_NAME, "")
+            updated_metrics[ECO_NEXT_EVENT_MINUTES] = snap.get(ECO_NEXT_EVENT_MINUTES, float("nan"))
+            if "ECO_CALENDAR" in self.metric_quality:
+                q = self.metric_quality["ECO_CALENDAR"]
+                q.last_successful_update = datetime.now(UTC)
+                q.data_points += 1
+                q.quality_score = min(1.0, q.quality_score + 0.01)
+            return True
+        except Exception as e:
+            errors.append(f"Economic calendar update error: {e}")
+            self._log_deduped_issue(
+                channel="eco_calendar_update_error",
+                message=f"Economic calendar update error: {e}",
+                level="warning",
+            )
+            updated_metrics.update(_defaults)
             return False
 
     def _update_tv_breadth_metrics(self, updated_metrics: dict, errors: list) -> bool:
@@ -1419,6 +1660,11 @@ class CustomMetricsOrchestrator(QObject):
 
                 if "SECTOR_BREADTH" in self.metric_quality:
                     q = self.metric_quality["SECTOR_BREADTH"]
+                    q.last_successful_update = datetime.now(UTC)
+                    q.data_points += 1
+                    q.quality_score = min(1.0, q.quality_score + 0.01)
+                if "BREADTH" in self.metric_quality:
+                    q = self.metric_quality["BREADTH"]
                     q.last_successful_update = datetime.now(UTC)
                     q.data_points += 1
                     q.quality_score = min(1.0, q.quality_score + 0.01)
@@ -1810,6 +2056,11 @@ class CustomMetricsOrchestrator(QObject):
                     "candidates": candidates,
                 },
             }
+            if "LIQUIDITY" in self.metric_quality:
+                q = self.metric_quality["LIQUIDITY"]
+                q.last_successful_update = datetime.now(UTC)
+                q.data_points += 1
+                q.quality_score = min(1.0, q.quality_score + 0.01)
             return True
         except Exception as e:
             errors.append(f"liquidity diagnostics update failed: {e}")
@@ -2168,6 +2419,11 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["ATM_IV"] = atm_iv
             updated_metrics["IVR"] = self._compute_ivr(atm_iv)
             updated_metrics["VRP"] = atm_iv - hv20 if hv20 is not None else float("nan")
+            if "OPTIONS" in self.metric_quality:
+                q = self.metric_quality["OPTIONS"]
+                q.last_successful_update = datetime.now(UTC)
+                q.data_points += 1
+                q.quality_score = min(1.0, q.quality_score + 0.01)
             return True
         except Exception as e:
             if self._is_transient_options_unavailable(str(e)):
@@ -2209,6 +2465,11 @@ class CustomMetricsOrchestrator(QObject):
             updated_metrics["FLY_25D"] = float(snapshot.get("fly_25d", float("nan")))
             updated_metrics["SURFACE_CONFIDENCE"] = float(snapshot.get("surface_confidence", float("nan")))  # noqa: E501
             updated_metrics["SURFACE_AGE_MS"] = float(snapshot.get("surface_age_ms", float("nan")))
+            if "VOL_SURFACE" in self.metric_quality:
+                q = self.metric_quality["VOL_SURFACE"]
+                q.last_successful_update = datetime.now(UTC)
+                q.data_points += 1
+                q.quality_score = min(1.0, q.quality_score + 0.01)
 
             if self.pca_signal_engine is not None:
                 try:
@@ -2631,6 +2892,92 @@ class CustomMetricsOrchestrator(QObject):
                 "formatted": f"{(metrics.get('DATA_QUALITY_FEED', {}).get('data', {}).get('overall_quality', float('nan')) * 100.0):.0f}% healthy",  # noqa: E501
                 "timestamp": timestamp,
                 "quality": 1.0
+            },
+            # S15 - Market Intelligence
+            "ADANOS_SENTIMENT": {
+                "value": metrics.get("ADANOS_SENTIMENT", {}),
+                "formatted": (metrics.get("ADANOS_SENTIMENT") or {}).get("trend", "neutral"),
+                "timestamp": timestamp,
+                "quality": self.metric_quality["MARKET_INTEL"].quality_score,
+            },
+            "NEWS_FLOW_EQUITIES": {
+                "value": metrics.get("NEWS_FLOW_EQUITIES", float("nan")),
+                "formatted": _format_float(metrics.get("NEWS_FLOW_EQUITIES", float("nan")), 3),
+                "timestamp": timestamp,
+                "quality": self.metric_quality["MARKET_INTEL"].quality_score,
+            },
+            "NEWS_FLOW_MACRO": {
+                "value": metrics.get("NEWS_FLOW_MACRO", float("nan")),
+                "formatted": _format_float(metrics.get("NEWS_FLOW_MACRO", float("nan")), 3),
+                "timestamp": timestamp,
+                "quality": self.metric_quality["MARKET_INTEL"].quality_score,
+            },
+            "NEWS_FLOW_VERDICT": {
+                "value": metrics.get("NEWS_FLOW_VERDICT", "neutral"),
+                "formatted": str(metrics.get("NEWS_FLOW_VERDICT", "neutral")).capitalize(),
+                "timestamp": timestamp,
+                "quality": self.metric_quality["MARKET_INTEL"].quality_score,
+            },
+            "NEWS_FLOW_HEADLINE": {
+                "value": metrics.get("NEWS_FLOW_HEADLINE", ""),
+                "formatted": str(metrics.get("NEWS_FLOW_HEADLINE", "")),
+                "timestamp": timestamp,
+                "quality": self.metric_quality["MARKET_INTEL"].quality_score,
+            },
+            # S16 - LLM market snapshot
+            "MARKET_SNAPSHOT_TEXT": {
+                "value": metrics.get("MARKET_SNAPSHOT_TEXT", ""),
+                "formatted": str(metrics.get("MARKET_SNAPSHOT_TEXT", "")),
+                "timestamp": timestamp,
+                "quality": 1.0,
+            },
+            # S17 - Kalshi prediction markets
+            "KALSHI_RECESSION_PROB": {
+                "value": metrics.get("KALSHI_RECESSION_PROB", float("nan")),
+                "formatted": (
+                    f"{float(metrics.get('KALSHI_RECESSION_PROB', float('nan'))) * 100:.0f}%"
+                    if not math.isnan(float(metrics.get("KALSHI_RECESSION_PROB", float("nan"))))
+                    else "---"
+                ),
+                "timestamp": timestamp,
+                "quality": self.metric_quality["PREDICTION_MARKETS"].quality_score,
+            },
+            "KALSHI_FED_PAUSE_PROB": {
+                "value": metrics.get("KALSHI_FED_PAUSE_PROB", float("nan")),
+                "formatted": (
+                    f"{float(metrics.get('KALSHI_FED_PAUSE_PROB', float('nan'))) * 100:.0f}%"
+                    if not math.isnan(float(metrics.get("KALSHI_FED_PAUSE_PROB", float("nan"))))
+                    else "---"
+                ),
+                "timestamp": timestamp,
+                "quality": self.metric_quality["PREDICTION_MARKETS"].quality_score,
+            },
+            "KALSHI_AVAILABLE": {
+                "value": metrics.get("KALSHI_AVAILABLE", False),
+                "formatted": "live" if metrics.get("KALSHI_AVAILABLE", False) else "---",
+                "timestamp": timestamp,
+                "quality": self.metric_quality["PREDICTION_MARKETS"].quality_score,
+            },
+            # S18 - Economic calendar
+            "ECO_STAND_DOWN": {
+                "value": metrics.get("ECO_STAND_DOWN", False),
+                "formatted": "STAND-DOWN" if metrics.get("ECO_STAND_DOWN", False) else "clear",
+                "timestamp": timestamp,
+                "quality": self.metric_quality["ECO_CALENDAR"].quality_score,
+            },
+            "ECO_NEXT_EVENT_NAME": {
+                "value": metrics.get("ECO_NEXT_EVENT_NAME", ""),
+                "formatted": str(metrics.get("ECO_NEXT_EVENT_NAME", "")),
+                "timestamp": timestamp,
+                "quality": self.metric_quality["ECO_CALENDAR"].quality_score,
+            },
+            "ECO_NEXT_EVENT_MINUTES": {
+                "value": metrics.get("ECO_NEXT_EVENT_MINUTES", float("nan")),
+                "formatted": _format_float(
+                    metrics.get("ECO_NEXT_EVENT_MINUTES", float("nan")), 0
+                ),
+                "timestamp": timestamp,
+                "quality": self.metric_quality["ECO_CALENDAR"].quality_score,
             },
             "meta": {
                 "update_frequency": self.current_update_interval,

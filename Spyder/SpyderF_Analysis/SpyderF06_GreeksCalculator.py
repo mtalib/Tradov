@@ -37,7 +37,14 @@ import math
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import minimize_scalar, brentq
-from numba import jit
+try:
+    from numba import jit
+except ImportError:
+    def jit(*args, **kwargs):  # type: ignore[misc]
+        """No-op decorator when numba is not available."""
+        if args and callable(args[0]):
+            return args[0]
+        return lambda f: f
 import cachetools
 
 # ==============================================================================

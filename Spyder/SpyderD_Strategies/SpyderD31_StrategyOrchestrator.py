@@ -952,6 +952,9 @@ class StrategyOrchestrator:
         self._metrics_orchestrator: Any | None = None
         self._live_options_metrics_snapshot: dict[str, float | None] = {}
         self._live_options_metrics_loaded_monotonic: float = 0.0
+        # S18 economic calendar — lazily resolved for eco stand-down gate
+        self._eco_calendar: Any | None = None
+        self._eco_calendar_resolved: bool = False
         self._regime_policy: dict[str, Any] | None = None
         self._session_window_policy: dict[str, Any] = self._load_session_window_policy()
         self._pin_risk_window_state: str = "inactive"
@@ -986,6 +989,13 @@ class StrategyOrchestrator:
         except (TypeError, ValueError):
             self._pending_entry_reservation_ttl_s = 90.0
         try:
+            self._pending_exit_reservation_ttl_s: float = max(
+                1.0,
+                float(os.getenv("SPYDER_D31_PENDING_EXIT_RESERVATION_TTL_S", "15")),
+            )
+        except (TypeError, ValueError):
+            self._pending_exit_reservation_ttl_s = 15.0
+        try:
             self._duplicate_entry_warning_interval_s: float = max(
                 1.0,
                 float(os.getenv("SPYDER_D31_DUPLICATE_ENTRY_WARNING_INTERVAL_S", "300")),
@@ -994,6 +1004,8 @@ class StrategyOrchestrator:
             self._duplicate_entry_warning_interval_s = 300.0
         self._pending_entry_reservations: dict[tuple[str, str], float] = {}
         self._pending_entry_reservations_lock = threading.Lock()
+        self._pending_exit_reservations: dict[tuple[str, str], float] = {}
+        self._pending_exit_reservations_lock = threading.Lock()
         self._duplicate_entry_warning_last_monotonic: dict[tuple[str, str], float] = {}
         self._signal_drop_audit_enabled: bool = str(
             os.getenv("SPYDER_D31_SIGNAL_DROP_AUDIT", "1")
@@ -1752,6 +1764,8 @@ class StrategyOrchestrator:
         """Return D31-owned posture labels for the G05 STANCE and GATE pills."""
         current_regime = getattr(getattr(self, "market_regime", None), "current_regime", None)
         raw_regime = str(getattr(current_regime, "value", "") or "").strip().lower()
+        if not raw_regime:
+            return {"regime": "", "stance": "CHOPPY", "gate": "RANGE CALM", "gate_key": "range_calm"}
         policy = self._get_regime_policy()
         regimes = policy.get("regimes", {}) if isinstance(policy, dict) else {}
         gate_key = self._normalize_regime_policy_key(raw_regime, regimes if isinstance(regimes, dict) else None)
@@ -2467,6 +2481,18 @@ class StrategyOrchestrator:
                 # Update market regime
                 self._update_market_regime()
 
+                # Hunting heartbeat — once per rebalance cycle
+                with self._strategies_lock:
+                    _n_active = len(self.active_strategies)
+                _regime_label = (
+                    getattr(self.market_regime.current_regime, "value", "unknown")
+                    if self.market_regime.current_regime
+                    else "unknown"
+                )
+                self.logger.info(
+                    "🔍 Hunting: %d active, regime=%s", _n_active, _regime_label
+                )
+
                 self._run_initial_strategy_activation_if_pending()
 
                 # Check if rebalancing is needed
@@ -2516,6 +2542,17 @@ class StrategyOrchestrator:
         """Strategy health monitoring loop"""
         while self.orchestration_active and not self.shutdown_event.is_set():
             try:
+                # Supervision heartbeat — throttled to once every 5 min when positions open
+                with self._strategies_lock:
+                    _n = len(self.active_strategies)
+                if _n > 0:
+                    _now_m = time.monotonic()
+                    if _now_m - getattr(self, "_last_supervision_log_ts", 0.0) >= 300.0:
+                        self.logger.info(
+                            "👁 Supervising %d position%s", _n, "s" if _n != 1 else ""
+                        )
+                        self._last_supervision_log_ts = _now_m
+
                 # Monitor strategy health
                 self._monitor_strategy_health()
 
@@ -2618,6 +2655,35 @@ class StrategyOrchestrator:
             self.logger.error("❌ Rebalancing execution failed: %s", e, exc_info=True)
             return False
 
+    def _adjust_strategy_capital(self, strategy_id: str, capital_change: float) -> bool:
+        """Validate and log a capital reallocation for a strategy.
+
+        The caller (_execute_rebalancing) performs the actual accounting update
+        (current_allocation, allocated_capital) only when ALL adjustments succeed.
+        This method validates the strategy exists, logs the change, and returns
+        True so the outer commit path proceeds.
+        """
+        try:
+            if strategy_id not in self.strategy_allocations:
+                self.logger.warning(
+                    "Capital adjustment skipped — unknown strategy_id: %s", strategy_id
+                )
+                return False
+
+            alloc = self.strategy_allocations[strategy_id]
+            direction = "▲" if capital_change > 0 else "▼"
+            self.logger.info(
+                "Capital adjustment %s $%.0f for strategy %s (current allocated: $%.0f)",
+                direction,
+                abs(capital_change),
+                strategy_id,
+                alloc.allocated_capital,
+            )
+            return True
+        except Exception as e:
+            self.logger.error("Error in _adjust_strategy_capital for %s: %s", strategy_id, e, exc_info=True)
+            return False
+
     def _get_risk_profile_for_strategy(self, strategy_class: type) -> RiskProfile:  # noqa: F821
         """Return a RiskProfile sized to this strategy's capital slice."""
         from SpyderD_Strategies.SpyderD01_BaseStrategy import RiskProfile  # lazy to avoid circular
@@ -2690,9 +2756,16 @@ class StrategyOrchestrator:
         """Return active strategy count per horizon bucket.
 
         Must be called while ``self._strategies_lock`` is held.
+
+        Paused strategies are excluded from bucket occupancy so that a
+        regime-transition ``add_strategy`` call can claim the vacated bucket
+        immediately after the outgoing strategy is paused, rather than having
+        to wait for a full removal cycle.
         """
         counts: dict[str, int] = {}
-        for alloc in self.strategy_allocations.values():
+        for strategy_id, alloc in self.strategy_allocations.items():
+            if strategy_id in self.paused_strategies:
+                continue
             bucket = self._infer_horizon_bucket_from_allocation(alloc)
             counts[bucket] = counts.get(bucket, 0) + 1
         return counts
@@ -4898,9 +4971,11 @@ class StrategyOrchestrator:
         symbol = str(data.get("symbol") or "")
         if symbol:
             self._clear_pending_entry_reservations_for_symbol(symbol)
+            self._clear_pending_exit_reservations_for_symbol(symbol)
             underlying_symbol = self._extract_option_underlying(symbol)
             if underlying_symbol and underlying_symbol != symbol:
                 self._clear_pending_entry_reservations_for_symbol(underlying_symbol)
+                self._clear_pending_exit_reservations_for_symbol(underlying_symbol)
 
     def _on_terminal_order_event(self, event: Event) -> None:
         """Release in-flight entry reservations when an order reaches terminal state."""
@@ -4908,15 +4983,27 @@ class StrategyOrchestrator:
         if not isinstance(data, dict):
             return
 
+        event_type = getattr(event, "event_type", None)
+        event_type_value = str(getattr(event_type, "value", event_type) or "").strip().lower()
+        should_clear_exit_reservations = event_type_value in {
+            "order_cancelled",
+            "order_expired",
+            "order_rejected",
+        }
+
         symbol = str(data.get("symbol") or "")
         raw = data.get("raw") if isinstance(data.get("raw"), dict) else {}
         if not symbol and raw:
             symbol = str(raw.get("symbol") or "")
         if symbol:
             self._clear_pending_entry_reservations_for_symbol(symbol)
+            if should_clear_exit_reservations:
+                self._clear_pending_exit_reservations_for_symbol(symbol)
             underlying_symbol = self._extract_option_underlying(symbol)
             if underlying_symbol and underlying_symbol != symbol:
                 self._clear_pending_entry_reservations_for_symbol(underlying_symbol)
+                if should_clear_exit_reservations:
+                    self._clear_pending_exit_reservations_for_symbol(underlying_symbol)
 
     def _on_strategy_signal(self, event: Event):
         """Handle strategy signal events.
@@ -5289,7 +5376,19 @@ class StrategyOrchestrator:
 
         if approved:
             self._signal_flow_counts["approved"] += 1
-            self.logger.info("Strategy signal approved for dispatch | %s", pivot_context)
+            if isinstance(signal, dict):
+                _strat = (
+                    signal.get("strategy_name")
+                    or signal.get("strategy_type")
+                    or signal.get("strategy_tag")
+                    or signal.get("strategy_id")
+                    or "signal"
+                )
+                _sym = signal.get("symbol", "")
+                _exec_label = f"{_strat} · {_sym}" if _sym else str(_strat)
+            else:
+                _exec_label = "signal dispatched"
+            self.logger.info("🎯 Strategy Executed: %s", _exec_label)
             # v27 SPEC-12: dispatch on a worker thread so the EventManager
             # dispatcher thread isn't frozen for ≤30s on a slow broker call.
             try:
@@ -5341,6 +5440,52 @@ class StrategyOrchestrator:
             self._entry_filter_gate = None
 
         return self._entry_filter_gate
+
+    def _get_eco_calendar(self) -> Any | None:
+        """Lazily resolve the S18 EconomicCalendar singleton."""
+        if self._eco_calendar_resolved:
+            return self._eco_calendar
+
+        self._eco_calendar_resolved = True
+        try:
+            from Spyder.SpyderS_Signals.SpyderS18_EconomicCalendar import get_economic_calendar
+        except ImportError:
+            try:
+                from SpyderS_Signals.SpyderS18_EconomicCalendar import get_economic_calendar  # type: ignore[no-redef]
+            except ImportError:
+                self.logger.debug("D31: S18_EconomicCalendar unavailable — eco gate disabled")
+                self._eco_calendar = None
+                return None
+
+        try:
+            self._eco_calendar = get_economic_calendar()
+        except Exception as exc:
+            self.logger.debug("D31: failed to init EconomicCalendar: %s", exc, exc_info=True)
+            self._eco_calendar = None
+
+        return self._eco_calendar
+
+    def _passes_eco_calendar_gate(self, signal: Any) -> tuple[bool, str]:
+        """Block new entries during tier-1 macro-event stand-down windows.
+
+        Closing trades always pass — the gate only guards new entries.
+        Returns ``(True, "")`` when trading should proceed.
+        """
+        if self._is_closing_trade_signal(signal):
+            return True, ""
+
+        eco = self._get_eco_calendar()
+        if eco is None:
+            return True, ""
+
+        try:
+            blocked, reason = eco.is_stand_down_active()
+            if blocked:
+                return False, reason
+        except Exception as exc:
+            self.logger.debug("D31: eco calendar gate error: %s", exc, exc_info=True)
+
+        return True, ""
 
     @staticmethod
     def _normalise_strategy_type_for_entry_gate(strategy_type: Any) -> str:
@@ -5595,6 +5740,11 @@ class StrategyOrchestrator:
                 "paper_startup_regime_wait",
                 "paper_startup:waiting_for_l09_regime_engine",
             )
+
+        # S18 economic calendar stand-down gate — block new entries near tier-1 events
+        eco_gate_ok, eco_gate_reason = self._passes_eco_calendar_gate(signal)
+        if not eco_gate_ok:
+            return False, "pre_risk", "eco_calendar_gate", eco_gate_reason
 
         market_gate_ok, market_gate_reason = self._passes_entry_trust_gate(signal)
         if not market_gate_ok:
@@ -6122,9 +6272,9 @@ class StrategyOrchestrator:
         constructor = MultiLegStrategyConstructor({})
         strikes = setup_payload.get("strikes") if isinstance(setup_payload.get("strikes"), dict) else {}
         if len(strikes) == 4:
+            now_et = _d31_now_et()
             expiration_dt = setup_payload.get("expiration")
             if not isinstance(expiration_dt, datetime):
-                now_et = _d31_now_et()
                 dte_fallback = setup_payload.get("dte")
                 if dte_fallback is None:
                     dte_fallback = 0 if self._is_zero_dte_signal(signal, now_et) else 30
@@ -6134,9 +6284,12 @@ class StrategyOrchestrator:
                     tzinfo=UTC,
                 )
 
+            expiration_dt = constructor._resolve_live_option_expiration(symbol, expiration_dt)
+
             dte_value = setup_payload.get("dte")
-            if dte_value is None:
-                dte_value = max((expiration_dt.date() - _d31_now_et().date()).days, 0)
+            resolved_dte = max((expiration_dt.date() - now_et.date()).days, 0)
+            if dte_value is None or int(dte_value) != resolved_dte:
+                dte_value = resolved_dte
             pricing_dte = max(int(dte_value), 1)
 
             legs = [
@@ -6723,6 +6876,56 @@ class StrategyOrchestrator:
             for key in keys_to_drop:
                 self._pending_entry_reservations.pop(key, None)
 
+    def _pending_exit_reservation_key(
+        self,
+        symbol: Any,
+        strategy_id: Any,
+    ) -> tuple[str, str] | None:
+        """Build a stable key for in-flight close reservations."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return None
+        normalized_strategy = str(strategy_id or "").strip().lower()
+        return normalized_symbol, normalized_strategy
+
+    def _reserve_pending_exit(self, symbol: Any, strategy_id: Any) -> bool:
+        """Reserve a same-symbol close slot until fill or terminal cleanup lands."""
+        key = self._pending_exit_reservation_key(symbol, strategy_id)
+        if key is None:
+            return False
+
+        now_monotonic = time.monotonic()
+        expires_at = now_monotonic + self._pending_exit_reservation_ttl_s
+        with self._pending_exit_reservations_lock:
+            existing_expiry = self._pending_exit_reservations.get(key)
+            if existing_expiry is not None and existing_expiry > now_monotonic:
+                return False
+            self._pending_exit_reservations[key] = expires_at
+            return True
+
+    def _clear_pending_exit_reservation(self, symbol: Any, strategy_id: Any) -> None:
+        """Clear a single in-flight close reservation."""
+        key = self._pending_exit_reservation_key(symbol, strategy_id)
+        if key is None:
+            return
+
+        with self._pending_exit_reservations_lock:
+            self._pending_exit_reservations.pop(key, None)
+
+    def _clear_pending_exit_reservations_for_symbol(self, symbol: Any) -> None:
+        """Clear all in-flight close reservations for a symbol once truth advances."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return
+
+        with self._pending_exit_reservations_lock:
+            keys_to_drop = [
+                key for key in self._pending_exit_reservations
+                if key[0] == normalized_symbol
+            ]
+            for key in keys_to_drop:
+                self._pending_exit_reservations.pop(key, None)
+
     def _clear_duplicate_entry_warning_state(self, symbol: Any, strategy_id: Any) -> None:
         """Reset duplicate-entry warning throttle after the duplicate block clears."""
         normalized_symbol = str(symbol or "").strip().upper()
@@ -6842,6 +7045,34 @@ class StrategyOrchestrator:
             if source is not None:
                 self._clear_pending_entry_reservations_for_symbol(symbol)
                 return source
+
+        # Fallback: consult H05 directly in case active_positions is still
+        # empty at startup (race between hydration and first D31 tick).
+        session_db = getattr(self._live_engine, "_session_db", None)
+        if session_db is not None:
+            get_open = getattr(session_db, "get_open_positions", None)
+            if callable(get_open):
+                try:
+                    for row in get_open():
+                        if not isinstance(row, dict):
+                            continue
+                        row_qty = int(row.get("quantity") or 0)
+                        if row_qty == 0:
+                            continue
+                        row_strategy = str(row.get("strategy") or "").strip().lower()
+                        if current_strategy and row_strategy and row_strategy != current_strategy:
+                            continue
+                        row_symbol = str(row.get("symbol") or "").strip()
+                        row_underlying = self._extract_option_underlying(row_symbol)
+                        if (
+                            row_symbol not in lookup_symbols
+                            and row_underlying not in lookup_symbols
+                        ):
+                            continue
+                        self._clear_pending_entry_reservations_for_symbol(symbol)
+                        return "h05_open_position"
+                except Exception:
+                    pass
 
         return None
 
@@ -6987,8 +7218,18 @@ class StrategyOrchestrator:
             self._clear_duplicate_entry_warning_state(symbol, strategy_id)
 
             normalized_strategy_id = str(strategy_id or "").strip().lower().replace("-", "_")
-            is_explicit_close_signal = self._is_closing_trade_signal(signal)
+            is_explicit_close_signal = self._is_closing_trade_signal(raw_signal_payload or signal)
             symbol_is_option_leg = bool(self._parse_occ_option_symbol(symbol))
+            reserved_pending_exit = False
+            if is_explicit_close_signal:
+                reserved_pending_exit = self._reserve_pending_exit(symbol, strategy_id)
+                if not reserved_pending_exit:
+                    self.logger.debug(
+                        "Duplicate close suppressed while exit remains in flight: symbol=%s strategy=%s",
+                        symbol,
+                        strategy_id,
+                    )
+                    return
             if (
                 is_paper_run
                 and "iron_condor" in normalized_strategy_id
@@ -7056,6 +7297,8 @@ class StrategyOrchestrator:
                     self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
                 else:
                     self._clear_pending_entry_reservation(symbol, strategy_id)
+                    if reserved_pending_exit:
+                        self._clear_pending_exit_reservation(symbol, strategy_id)
                     self.logger.warning(
                         "MidWalk did not fill: symbol=%s reason=%s error=%s | %s",
                         symbol,
@@ -7076,6 +7319,8 @@ class StrategyOrchestrator:
             # ── Path 2: market order via live engine ─────────────────────────
             if self._live_engine is None:
                 self._clear_pending_entry_reservation(symbol, strategy_id)
+                if reserved_pending_exit:
+                    self._clear_pending_exit_reservation(symbol, strategy_id)
                 self.logger.warning(
                     "No live engine and no bid/ask quote — signal dropped: symbol=%s | %s",
                     symbol,
@@ -7098,6 +7343,8 @@ class StrategyOrchestrator:
             status = result.get("status", "unknown") if isinstance(result, dict) else str(result)
             if status in ("rejected", "error"):
                 self._clear_pending_entry_reservation(symbol, strategy_id)
+                if reserved_pending_exit:
+                    self._clear_pending_exit_reservation(symbol, strategy_id)
                 reason = result.get("reason", "") if isinstance(result, dict) else ""
                 self.logger.warning(
                     "Market order rejected by live engine: symbol=%s reason=%s | %s",
@@ -7129,6 +7376,15 @@ class StrategyOrchestrator:
                     self._signal_value(signal, "strategy_name", ""),
                 ),
             )
+            if 'reserved_pending_exit' in locals() and reserved_pending_exit:
+                self._clear_pending_exit_reservation(
+                    self._signal_value(signal, "symbol", ""),
+                    self._signal_value(
+                        signal,
+                        "strategy_id",
+                        self._signal_value(signal, "strategy_name", ""),
+                    ),
+                )
             self.logger.error(
                 "Error dispatching approved signal: %s", exc, exc_info=True
             )

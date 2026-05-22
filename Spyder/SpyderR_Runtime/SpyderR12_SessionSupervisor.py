@@ -43,6 +43,7 @@ Usage::
 # ==============================================================================
 import logging  # noqa: F401
 import os
+import re
 import signal
 import threading
 import time
@@ -265,6 +266,7 @@ class SessionSupervisor:
         self._log_startup_profile("start_complete")
         self._end_startup_profile()
         self.logger.debug("✅ SessionSupervisor fully started in %s mode", self.mode)
+        self.logger.info("✅ Session started — %s", self.mode.capitalize())
 
         return True
 
@@ -484,11 +486,14 @@ class SessionSupervisor:
         if feed_status == "degraded" and quote_poll_interval_s is not None and quote_poll_interval_s > 0.0:
             # REST quote fallback is bursty compared with a true stream. Keep
             # the existing cadence-based widening for all modes, and apply a
-            # safer floor only to paper mode where the REST fallback is the
-            # steady-state market-data path.
+            # safer floor only to paper mode where the effective SPY freshness
+            # source can fall back to the dashboard bridge cadence. That path
+            # commonly lands on the 30 s heartbeat when fast quote refreshes
+            # are unavailable, so keep the gate above that cadence with a
+            # modest jitter buffer.
             degraded_rth_threshold_s = (quote_poll_interval_s * 5.0) + 1.0
             if self.mode == "paper":
-                degraded_rth_threshold_s = max(degraded_rth_threshold_s, 10.0)
+                degraded_rth_threshold_s = max(degraded_rth_threshold_s, 35.0)
             if rth_threshold_raw is None:
                 rth_threshold_s = max(rth_threshold_s, degraded_rth_threshold_s)
             elif rth_threshold_s < degraded_rth_threshold_s:
@@ -1230,6 +1235,49 @@ class SessionSupervisor:
 
         return []
 
+    @staticmethod
+    def _normalize_strategy_token(value: Any) -> str:
+        """Normalize strategy identifiers for cross-component flatten matching."""
+        text = str(value or "").strip()
+        if not text:
+            return ""
+
+        text = re.sub(r"_[0-9a-f]{8,}$", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"(?<!^)(?=[A-Z])", "_", text)
+        text = re.sub(r"[\s\-]+", "_", text)
+        text = re.sub(r"_+", "_", text).strip("_")
+        text = re.sub(r"(_adapter|_strategy)+$", "", text, flags=re.IGNORECASE)
+        return text.lower()
+
+    def _filter_positions_for_strategy(
+        self,
+        positions: list[dict[str, Any]],
+        strategy_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return only positions that belong to the requested strategy id."""
+        target = self._normalize_strategy_token(strategy_id)
+        if not target:
+            return positions
+
+        filtered: list[dict[str, Any]] = []
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+            candidates = (
+                position.get("strategy_id"),
+                position.get("strategy"),
+                position.get("strategy_name"),
+            )
+            normalized_candidates = {
+                self._normalize_strategy_token(candidate)
+                for candidate in candidates
+                if str(candidate or "").strip()
+            }
+            if target in normalized_candidates:
+                filtered.append(position)
+
+        return filtered
+
     def _get_positions_for_paper_carryover_manifest(self) -> list[dict[str, Any]]:
         """Resolve paper positions that were actually active at graceful shutdown."""
         if self.mode != "paper":
@@ -1339,7 +1387,13 @@ class SessionSupervisor:
             close_kwargs.pop("position_quantity", None)
             return close_position(symbol, **close_kwargs)
 
-    def _flatten_positions(self) -> None:
+    def _flatten_positions(
+        self,
+        *,
+        reason: str = "session_flatten",
+        strategy_id: str | None = None,
+        symbols: list[str] | None = None,
+    ) -> int:
         """Best-effort position flatten before shutdown.
 
         Calls ``broker.get_positions()`` to enumerate live positions, then
@@ -1349,13 +1403,22 @@ class SessionSupervisor:
         """
         try:
             raw = self._get_positions_for_flatten()
+            if strategy_id:
+                raw = self._filter_positions_for_strategy(raw, strategy_id)
+            if symbols:
+                symbol_set = {str(s or "").strip().upper() for s in symbols if s}
+                raw = [
+                    p for p in raw
+                    if str(p.get("symbol") or "").strip().upper() in symbol_set
+                ]
 
             if not raw:
                 self.logger.info("_flatten_positions: no open positions — nothing to do")
-                return
+                return 0
 
             self.logger.warning("Flattening %d open position(s)\u2026", len(raw))
             unverified: list[str] = []
+            closed = 0
             for pos in raw:
                 symbol: str = pos.get("symbol", "")
                 qty: int = int(pos.get("quantity", 0))
@@ -1365,7 +1428,7 @@ class SessionSupervisor:
                     result = self._submit_flatten_close(
                         symbol,
                         qty,
-                        reason="session_flatten",
+                        reason=reason,
                     )
                     if hasattr(self.broker, "close_position_verified"):
                         status = (result or {}).get("status")
@@ -1384,11 +1447,26 @@ class SessionSupervisor:
                                 order_id,
                             )
                         else:
+                            closed += 1
                             self.logger.info(
                                 "Flatten VERIFIED for %s (qty=%s) — broker id=%s",
                                 symbol, qty, order_id,
                             )
+                            # Evict from engine.active_positions immediately so
+                            # ExitMonitor doesn't re-fire a close on a symbol
+                            # that is already flat at the broker.  The R15 paper
+                            # flatten path bypasses FillReconciler, so the
+                            # normal ORDER_FILLED → record_fill → POSITION_UPDATED
+                            # chain never clears the map on its own.
+                            _eng = getattr(self, "engine", None)
+                            if _eng is not None:
+                                _lock = getattr(_eng, "_active_positions_lock", None)
+                                _pos_map = getattr(_eng, "active_positions", None)
+                                if _lock is not None and isinstance(_pos_map, dict):
+                                    with _lock:
+                                        _pos_map.pop(symbol, None)
                     else:
+                        closed += 1
                         order_id = (result or {}).get("order", {}).get("id", "?")
                         self.logger.info(
                             "Flatten order submitted for %s (qty=%s) — broker id=%s",
@@ -1421,8 +1499,10 @@ class SessionSupervisor:
                         "R12: failed to emit KILL_SWITCH after unverified flatten: %s",
                         exc,
                     )
+            return closed
         except Exception as exc:
             self.logger.warning("_flatten_positions raised: %s", exc)
+            return 0
 
     def _on_flatten_request(self, event: Any) -> None:
         """Handle FLATTEN_REQUEST events from scheduler/risk layers."""
@@ -1441,6 +1521,27 @@ class SessionSupervisor:
             self.logger.warning(
                 "Broker cutoff flatten guard closed %d at-risk short option symbol(s)",
                 closed,
+            )
+            return
+
+        if flatten_type == "strategy_group_flatten":
+            strategy_id = str(payload.get("strategy_id") or "").strip()
+            closed = self._flatten_positions(reason=reason, strategy_id=strategy_id or None)
+            self.logger.warning(
+                "Strategy group flatten closed %d position(s) for strategy=%s",
+                closed,
+                strategy_id or "unspecified",
+            )
+            return
+
+        if flatten_type == "symbols_flatten":
+            raw_symbols = payload.get("symbols") or []
+            target_symbols = [str(s).strip() for s in raw_symbols if str(s or "").strip()]
+            closed = self._flatten_positions(reason=reason, symbols=target_symbols or None)
+            self.logger.warning(
+                "Symbols flatten closed %d position(s) for symbols=%s",
+                closed,
+                target_symbols,
             )
             return
 

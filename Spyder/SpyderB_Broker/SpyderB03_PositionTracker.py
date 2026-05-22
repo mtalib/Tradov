@@ -460,7 +460,21 @@ class PositionTracker:
                                 except (AttributeError, TypeError):
                                     pass
             else:
-                # New position entry
+                # Guard against duplicate close fills creating ghost positions.
+                # A "to_close" fill against a symbol with no existing position
+                # means the position was already closed by a prior fill.
+                # Creating a new position here would invert the sign and corrupt
+                # H05 (e.g. short put → ghost long after a duplicate BUY_TO_CLOSE).
+                is_close_side = "to_close" in normalized_side or normalized_side in {"btc", "stc"}
+                if is_close_side:
+                    self.logger.warning(
+                        "record_fill: DUPLICATE CLOSE detected — no open position for %s "
+                        "(side=%s, qty=%+d); skipping ghost-position creation.",
+                        symbol, side, signed_qty,
+                    )
+                    return
+
+                # New position entry (open-side fill)
                 self.positions[symbol] = {
                     "symbol":            symbol,
                     "quantity":          signed_qty,

@@ -35,7 +35,16 @@ from collections import deque, defaultdict, OrderedDict
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-from numba import jit, prange
+try:
+    from numba import jit, prange
+except ImportError:
+    def jit(*args, **kwargs):  # type: ignore[misc]
+        if args and callable(args[0]):
+            return args[0]
+        return lambda f: f
+
+    def prange(*args, **kwargs):  # type: ignore[misc]
+        return range(*args)
 
 # ==============================================================================
 # LOCAL IMPORTS

@@ -112,7 +112,7 @@ def build_pill_stylesheet(category: str) -> tuple[str, str]:
         bg, border, fg = "#3a1055", "#9a30dd", "#cc88ff"
     elif normalized == "none" or normalized.endswith(": none") or normalized == "idle":
         bg, border, fg = "#3a3a3a", "#666666", "#aaaaaa"
-    elif any(token in normalized for token in ("range", "neutral", "choppy", "volatile", "cautious", "blocked")):
+    elif any(token in normalized for token in ("range", "neutral", "choppy", "volatile", "high vol", "cautious", "blocked")):
         bg, border, fg = "#3a2800", "#8a5a00", "#e09020"
     else:
         bg, border, fg = "#1e1e1e", "#444444", "#aaaaaa"

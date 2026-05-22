@@ -284,6 +284,11 @@ from Spyder.SpyderG_GUI.SpyderG133_CachedChartBarSeriesHelper import (  # noqa: 
     CachedChartBarSeries,
     build_cached_chart_bar_series,
 )
+from Spyder.SpyderG_GUI.SpyderG99_GUILogHandler import (  # noqa: E402
+    AllowlistDialog,
+    _GUI_INFO_ALLOWLIST as _GUI_INFO_ALLOWLIST_DEFAULT,
+    _GUI_MINIMAL_ALLOWLIST,
+)
 from Spyder.SpyderG_GUI.SpyderG56_ReadinessStartGatePresenter import (  # noqa: E402
     build_conditional_readiness_reason_dialog_presentation,
     build_start_trading_readiness_gate_presentation,
@@ -672,7 +677,7 @@ LIVE_DATA_LOADING_START_TIME = dt_time(9, 25)
 MARKET_OPEN_TIME = dt_time(9, 30)
 OPENING_DATA_WARMUP_END_TIME = dt_time(9, 33)
 MARKET_CLOSE_TIME = dt_time(16, 0)
-TRADIER_CONNECT_TIME = dt_time(9, 20)
+TRADIER_CONNECT_TIME = dt_time(9, 0)
 TRADIER_DISCONNECT_TIME = dt_time(16, 30)
 
 
@@ -966,6 +971,9 @@ class SpyderTradingDashboard(QMainWindow):
         # System log verbosity mode (NORMAL suppresses routine signal chatter,
         # DEBUG restores full stream for diagnostics).
         self.system_log_mode = "NORMAL"
+        # Active INFO allowlist — starts as the full default; user may narrow it
+        # via the ALLOWLIST dialog.  Stored here so it survives mode toggles.
+        self._gui_allowlist_active: tuple[str, ...] = _GUI_INFO_ALLOWLIST_DEFAULT
         self._signal_noise_loggers = (
             "SpyderS_Signals.SpyderS01_DIXCalculator",
             "Spyder.SpyderS_Signals.SpyderS01_DIXCalculator",
@@ -1663,11 +1671,11 @@ class SpyderTradingDashboard(QMainWindow):
             else:
                 off_hours_status = self.determine_data_status()
                 if off_hours_status == "PRE-OPEN":
-                    self.add_system_log("📡 PRE-OPEN LIVE SNAPSHOT ACTIVE - Tradier launch hydration only")
-                    self.add_system_log("Pre-open live snapshot hydrated from Tradier")
+                    self.add_system_log("📡 PRE-OPEN SNAPSHOT ACTIVE - Tradier launch quote refresh only")
+                    self.add_system_log("Pre-open snapshot refreshed from Tradier quotes")
                 elif off_hours_status == "AFTER-HOURS":
-                    self.logger.debug("🌙 AFTER-HOURS LIVE SNAPSHOT ACTIVE - Tradier launch hydration only")
-                    self.logger.debug("After-hours live snapshot hydrated from Tradier")
+                    self.logger.debug("🌙 AFTER-HOURS SNAPSHOT ACTIVE - Tradier launch quote refresh only")
+                    self.logger.debug("After-hours snapshot refreshed from Tradier quotes")
                 else:
                     self.add_system_log("📊 EOD MARKET DATA ACTIVE - Tradier API prices")
                     self.add_system_log("EOD market data from Tradier")
@@ -3598,15 +3606,21 @@ class SpyderTradingDashboard(QMainWindow):
                     cost_color = COLORS["positive"] if signed_cost >= 0 else COLORS["negative"]
 
                 child = QTreeWidgetItem(parent)
-                child.setText(0, f"  {leg.get('side','—').replace('_',' ').upper()}")
-                child.setText(1, strike_text)
-                child.setText(2, str(int(leg.get("quantity", 0))))
-                child.setText(3, price_text)
-                child.setText(4, cost_text)
-                child.setText(5, format_expiration_short(expiry_text) if expiry_text not in ("", "—") else "—")
+                action_text = str(leg.get("side", "—") or "—").replace("_", " ").upper()
+                child.setText(0, action_text)
+                child.setText(1, leg_symbol)
+                child.setText(2, strike_text)
+                child.setText(3, str(leg_qty))
+                child.setText(4, price_text)
+                child.setText(5, cost_text)
+                child.setText(6, format_expiration_short(expiry_text) if expiry_text not in ("", "—") else "—")
                 self._align_positions_data_row(child)
+                if action_text.startswith("SELL"):
+                    child.setForeground(0, QColor(COLORS["negative"]))
+                elif action_text.startswith("BUY"):
+                    child.setForeground(0, QColor(COLORS["positive"]))
                 if cost_color is not None:
-                    child.setForeground(4, QColor(cost_color))
+                    child.setForeground(5, QColor(cost_color))
 
     def _add_position_row(self, pos: dict) -> None:
         """Add a single Tradier position dict as a top-level row in positions_table."""
@@ -3631,16 +3645,17 @@ class SpyderTradingDashboard(QMainWindow):
     def _align_positions_data_row(self, item: QTreeWidgetItem) -> None:
         """Apply ORDERS & POSITIONS data-column alignment policy.
 
-        LEG is left aligned for easier scanning. STRIKE/QTY/EXPIRY are centered.
+        ACTION/LEG are left aligned for easier scanning. STRIKE/QTY/EXPIRY are centered.
         PRICE/COST/P&L are right aligned.
         """
         item.setTextAlignment(0, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
-        item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignCenter))
+        item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
         item.setTextAlignment(2, int(Qt.AlignmentFlag.AlignCenter))
-        item.setTextAlignment(3, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        item.setTextAlignment(3, int(Qt.AlignmentFlag.AlignCenter))
         item.setTextAlignment(4, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
-        item.setTextAlignment(5, int(Qt.AlignmentFlag.AlignCenter))
-        item.setTextAlignment(6, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        item.setTextAlignment(5, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        item.setTextAlignment(6, int(Qt.AlignmentFlag.AlignCenter))
+        item.setTextAlignment(7, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
 
     def _get_mode_session_db(self):
         """Return cached H05 session DB for the current trading mode."""
@@ -3977,23 +3992,26 @@ class SpyderTradingDashboard(QMainWindow):
             self.positions_table.setItemWidget(header_row, 0, row_widget)
             for spread_leg in spread_legs:
                 leg_row = QTreeWidgetItem(self.positions_table)
-                leg_row.setText(0, spread_leg.side_text)
-                leg_row.setText(1, spread_leg.strike_text)
-                leg_row.setText(2, spread_leg.quantity_text)
-                leg_row.setText(3, spread_leg.price_text)
-                leg_row.setText(5, spread_leg.expiry_text)
+                leg_row.setText(0, spread_leg.action_text)
+                leg_row.setText(1, spread_leg.leg_text)
+                leg_row.setText(2, spread_leg.strike_text)
+                leg_row.setText(3, spread_leg.quantity_text)
+                leg_row.setText(4, spread_leg.price_text)
+                leg_row.setText(6, spread_leg.expiry_text)
                 self._align_positions_data_row(leg_row)
                 for col in range(data_column_count):
                     leg_row.setForeground(col, QColor("#ffffff"))
+                if spread_leg.action_color:
+                    leg_row.setForeground(0, QColor(spread_leg.action_color))
 
                 if spread_leg.cost_text:
-                    leg_row.setText(4, spread_leg.cost_text)
+                    leg_row.setText(5, spread_leg.cost_text)
                     if spread_leg.cost_color:
-                        leg_row.setForeground(4, QColor(spread_leg.cost_color))
+                        leg_row.setForeground(5, QColor(spread_leg.cost_color))
                 if spread_leg.pnl_text:
-                    leg_row.setText(6, spread_leg.pnl_text)
+                    leg_row.setText(7, spread_leg.pnl_text)
                     if spread_leg.pnl_color:
-                        leg_row.setForeground(6, QColor(spread_leg.pnl_color))
+                        leg_row.setForeground(7, QColor(spread_leg.pnl_color))
 
         if fallback_positions_to_render:
             for restored_group in build_restored_position_group_presentations(
@@ -4012,31 +4030,62 @@ class SpyderTradingDashboard(QMainWindow):
 
                 for restored_row in restored_group.detail_rows:
                     row = QTreeWidgetItem(self.positions_table)
-                    row.setText(0, restored_row.symbol_text)
-                    row.setText(1, restored_row.strike_text)
-                    row.setText(2, restored_row.quantity_text)
-                    row.setText(3, restored_row.entry_price_text)
-                    row.setText(4, restored_row.cost_text)
-                    row.setText(5, restored_row.expiry_text)
-                    row.setText(6, restored_row.pnl_text)
+                    row.setText(0, restored_row.action_text)
+                    row.setText(1, restored_row.leg_text)
+                    row.setText(2, restored_row.strike_text)
+                    row.setText(3, restored_row.quantity_text)
+                    row.setText(4, restored_row.entry_price_text)
+                    row.setText(5, restored_row.cost_text)
+                    row.setText(6, restored_row.expiry_text)
+                    row.setText(7, restored_row.pnl_text)
                     self._align_positions_data_row(row)
 
                     for col in range(data_column_count):
                         row.setForeground(col, QColor("#ffffff"))
                         row.setToolTip(col, restored_row.tooltip_text)
 
-                    row.setForeground(0, QColor(restored_row.quantity_color))
-                    row.setForeground(4, QColor(restored_row.cost_color))
-                    row.setForeground(6, QColor(restored_row.pnl_color))
+                    row.setForeground(0, QColor(restored_row.action_color))
+                    row.setForeground(3, QColor(restored_row.quantity_color))
+                    row.setForeground(5, QColor(restored_row.cost_color))
+                    row.setForeground(7, QColor(restored_row.pnl_color))
 
     def _request_manual_close_spread(self, spread_id: str) -> None:
         """Queue a manual close request to the paper worker thread.
+
+        If the spread_id is a pipe-delimited list of OCC symbols (the format
+        assigned to D31/R04 iron condors by G17), a FLATTEN_REQUEST event is
+        published directly so R12 closes the exact four legs without touching
+        the legacy R08 worker.
 
         If the worker is running the close is forwarded via the Qt signal.
         If the worker is stopped (or not yet started) the spread is closed
         directly in the persisted state file so the position is not orphaned.
         """
         if not spread_id:
+            return
+
+        # ── D31/R04 iron condor path: id is "|"-delimited OCC leg symbols ─────
+        if "|" in spread_id:
+            symbols = [s.strip() for s in spread_id.split("|") if s.strip()]
+            self.add_system_log(
+                f"🖱️ Manual close requested for {len(symbols)}-leg position"
+            )
+            try:
+                from Spyder.SpyderA_Core.SpyderA05_EventManager import (  # noqa: PLC0415
+                    EventType,
+                    get_event_manager,
+                )
+                get_event_manager().emit(
+                    EventType.FLATTEN_REQUEST,
+                    {
+                        "type": "symbols_flatten",
+                        "symbols": symbols,
+                        "reason": "manual_close_dashboard",
+                    },
+                    source="Dashboard",
+                )
+            except Exception as exc:
+                self.logger.error("Manual close emit error: %s", exc)
             return
         if self._paper_worker is not None:
             self.add_system_log(f"🖱️ Manual close requested for spread {spread_id}")
@@ -5894,18 +5943,17 @@ class SpyderTradingDashboard(QMainWindow):
     def _on_paper_metrics(self, metrics: dict):
         """Handle paper P&L metrics update — push summary figures into account container."""
         equity_raw = metrics.get("equity", "")
-        realized_raw = metrics.get("realized_pnl", "")
 
         if equity_raw:
             try:
                 self._set_spyderbox_account_panel_values(settled=parse_money_text(str(equity_raw)))
             except (TypeError, ValueError):
                 pass
-        if realized_raw:
-            try:
-                self._set_spyderbox_account_panel_values(realized=parse_money_text(str(realized_raw)))
-            except (TypeError, ValueError):
-                pass
+        # Do NOT update realized P&L from the R08 legacy worker: its
+        # _total_realized_pnl accumulates across sessions and is NOT reset
+        # when H05 is reset, which causes stale carryover to overwrite the
+        # authoritative H05 value that _apply_spyderbox_paper_account_snapshot()
+        # already provides via the balance_updated → _on_balance_updated path.
 
         enriched = normalize_today_worker_metrics(metrics)
 
@@ -6237,9 +6285,15 @@ class SpyderTradingDashboard(QMainWindow):
                 buying=float(buying_power or 0.0),
             )
 
+            snapshot_applied = self._apply_spyderbox_paper_account_snapshot()
+
             # Reconcile idle PAPER account balances into visible SpyderBox P&L
             # so orphan account-level adjustments are not silently omitted.
-            if self.trading_mode == TradingMode.PAPER and not self.trading_active:
+            if (
+                self.trading_mode == TradingMode.PAPER
+                and not self.trading_active
+                and not snapshot_applied
+            ):
                 try:
                     realized_delta = derive_realized_pnl_delta_from_equity(
                         equity,
@@ -6259,6 +6313,34 @@ class SpyderTradingDashboard(QMainWindow):
 
         # Persist most recent live-account panel values for startup restore.
         self._remember_current_account_snapshot()
+
+    def _apply_spyderbox_paper_account_snapshot(self) -> bool:
+        """Apply the latest H05 paper snapshot to the SpyderBox account panel."""
+        try:
+            from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+
+            latest_snapshot = TradingSessionDB.for_paper().get_latest_snapshot()
+        except Exception as exc:
+            self.logger.debug("paper account snapshot refresh skipped: %s", exc)
+            return False
+
+        if not isinstance(latest_snapshot, dict):
+            return False
+
+        equity_raw = latest_snapshot.get("equity")
+        if equity_raw is None:
+            equity_raw = latest_snapshot.get("cash")
+        buying_raw = latest_snapshot.get("buying_power")
+        if buying_raw is None:
+            buying_raw = latest_snapshot.get("cash")
+
+        self._set_spyderbox_account_panel_values(
+            settled=float(equity_raw or 0.0),
+            buying=float(buying_raw or 0.0),
+            realized=float(latest_snapshot.get("realized_pnl") or 0.0),
+            unrealized=float(latest_snapshot.get("unrealized_pnl") or 0.0),
+        )
+        return True
 
     def _apply_paper_clean_slate_startup_guard(self) -> None:
         """Force PAPER account labels to baseline when no persisted state exists."""
@@ -6460,7 +6542,7 @@ class SpyderTradingDashboard(QMainWindow):
             )
             self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
             self.data_status_container.setToolTip(
-                "Pre-open live snapshot hydrated from Tradier — strategy hunting and entries remain blocked until 10:15 ET",
+                "Pre-open snapshot refreshed from Tradier quotes — strategy hunting and entries remain blocked until 10:15 ET",
             )
         elif status_type == "AFTER-HOURS":
             self.data_status_label.setText("AFTER-HRS")
@@ -6469,7 +6551,7 @@ class SpyderTradingDashboard(QMainWindow):
             )
             self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
             self.data_status_container.setToolTip(
-                "After-hours live snapshot hydrated from Tradier — regular-session strategy hunting and entries are closed",
+                "After-hours snapshot refreshed from Tradier quotes — regular-session strategy hunting and entries are closed",
             )
         elif status_type in ("LIVE", "REAL-TIME", "PAPER"):
             self.data_status_label.setText("EOD")
@@ -6584,10 +6666,8 @@ class SpyderTradingDashboard(QMainWindow):
         """
         if not hasattr(self, "mkt_provider_label"):
             return
-        if getattr(self, "mkt_data_connected", False) and is_market_hours():
+        if getattr(self, "mkt_data_connected", False):
             color = COLORS["positive"]
-        elif getattr(self, "mkt_data_connected", False):
-            color = COLORS["warning"]
         else:
             color = COLORS["negative"]
         self.mkt_provider_label.setText(provider.upper() + " DATA")
@@ -6611,14 +6691,6 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log("🔌 Market data feed manually disconnected")
         else:
             # Connect data feed
-            if not is_market_hours():
-                QMessageBox.information(
-                    self,
-                    "Market Closed",
-                    "Market is closed. Data feed available during trading hours:\n"
-                    "4:00 AM - 4:30 PM ET",
-                )
-                return
             self.add_system_log("🔄 Connecting market data feed...")
             if self.market_worker and self.market_worker.force_connect():
                 self.mkt_data_connected = True
@@ -6721,10 +6793,11 @@ class SpyderTradingDashboard(QMainWindow):
           - GEX: billions (S05 contract) → ×1e9 here → raw dollars → widget ÷1e9 → "B"
           - DEX: millions (S05 contract) → ×1e6 here → raw dollars → widget ÷1e6 → "M"
         """
-        self._last_custom_metrics_payload = self._merge_metrics_payload(
+        merged_metrics = self._merge_metrics_payload(
             getattr(self, "_last_custom_metrics_payload", {}),
             dict(metrics) if isinstance(metrics, dict) else {},
         )
+        self._last_custom_metrics_payload = merged_metrics
         self._persist_custom_metrics_snapshot()
 
         if not getattr(self, "_custom_metrics_live_announced", False):
@@ -6765,12 +6838,12 @@ class SpyderTradingDashboard(QMainWindow):
                 dlg.on_breadth_updated(breadth_payload)
 
         # Update the 5-pill regime bar from live S07 metrics.
-        self.update_regime_pills(metrics)
+        self.update_regime_pills(merged_metrics)
 
         # Sync REGIME traffic-light button in the SIGNAL MONITOR panel.
         if self.signal_panel is not None:
             signal_panel_plan = build_custom_metric_signal_panel_sync_plan(
-                metrics=metrics,
+                metrics=merged_metrics,
                 metric_routing=self._S07_METRIC_ROUTING,
                 regime_value=getattr(self, "_regime_value", "—"),
             )
@@ -7314,8 +7387,10 @@ class SpyderTradingDashboard(QMainWindow):
     def _refresh_paper_positions_after_update(self) -> None:
         """Refresh paper positions immediately and once more after H05 persistence settles."""
         self._refresh_positions_table()
+        self._apply_spyderbox_paper_account_snapshot()
         if QTimer is not None:
             QTimer.singleShot(150, self._refresh_positions_table)
+            QTimer.singleShot(150, self._apply_spyderbox_paper_account_snapshot)
 
     def _update_execution_health_display(self) -> None:
         """Refresh execution-health labels from rolling telemetry cache."""
@@ -7742,6 +7817,20 @@ class SpyderTradingDashboard(QMainWindow):
         for logger_name in self._signal_noise_loggers:
             logging.getLogger(logger_name).setLevel(plan.logger_level)
 
+        # Push the matching allowlist to every active GUILogHandler.
+        from Spyder.SpyderG_GUI.SpyderG99_GUILogHandler import GUILogHandler
+        _active_allowlist = (
+            _GUI_MINIMAL_ALLOWLIST
+            if plan.selected_mode == "MINIMAL"
+            else self._gui_allowlist_active
+        )
+        for _h in logging.getLogger().handlers:
+            if isinstance(_h, GUILogHandler):
+                _h.set_allowlist(_active_allowlist)
+
+        if hasattr(self, "system_log_minimal_btn") and self.system_log_minimal_btn is not None:
+            self.system_log_minimal_btn.setChecked(plan.minimal_button_checked)
+
         if hasattr(self, "system_log_normal_btn") and self.system_log_normal_btn is not None:
             self.system_log_normal_btn.setChecked(plan.normal_button_checked)
 
@@ -7752,9 +7841,30 @@ class SpyderTradingDashboard(QMainWindow):
             self.add_system_log(plan.announcement_message)
 
     def toggle_system_log_verbosity(self) -> None:
-        """Toggle system-log verbosity between NORMAL and DEBUG."""
-        new_mode = "DEBUG" if self.system_log_mode == "NORMAL" else "NORMAL"
+        """Cycle system-log verbosity: MINIMAL → NORMAL → DEBUG → MINIMAL."""
+        _cycle = {"MINIMAL": "NORMAL", "NORMAL": "DEBUG", "DEBUG": "MINIMAL"}
+        new_mode = _cycle.get(self.system_log_mode, "NORMAL")
         self._set_system_log_verbosity(new_mode, announce=True)
+
+    def _open_allowlist_dialog(self) -> None:
+        """Open the INFO allowlist dialog and apply the user's selection."""
+        from Spyder.SpyderG_GUI.SpyderG99_GUILogHandler import GUILogHandler
+
+        dlg = AllowlistDialog(parent=self, active=self._gui_allowlist_active)
+        if dlg.exec() != AllowlistDialog.DialogCode.Accepted:
+            return
+
+        selected = dlg.selected_prefixes()
+        self._gui_allowlist_active = selected
+
+        # Push the new allowlist to every GUILogHandler on the root logger.
+        for h in logging.getLogger().handlers:
+            if isinstance(h, GUILogHandler):
+                h.set_allowlist(selected)
+
+        label_count = len(selected)
+        summary = f"ℹ️ Allowlist updated — {label_count} module(s) enabled"
+        self.add_system_log(summary)
 
     def _resolve_veto_profile_path(self) -> Path:
         """Resolve config profile path used by the dashboard veto toggle."""

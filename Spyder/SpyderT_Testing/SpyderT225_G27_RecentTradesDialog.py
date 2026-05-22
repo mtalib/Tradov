@@ -50,7 +50,8 @@ def test_recent_trades_dialog_renders_trade_row() -> None:
 
     tree = getattr(dialog, "_table")
     assert [tree.headerItem().text(i) for i in range(tree.columnCount())] == [
-        "     LEG",
+        "ACTION",
+        "LEG",
         "STRIKE",
         "QTY",
         "PRICE",
@@ -66,10 +67,11 @@ def test_recent_trades_dialog_renders_trade_row() -> None:
     assert flat_summary.text(0) == (
         "2026-05-18 13:27:41 TRADE RECORD : SPY260617P00691500  |  ACTION: BUY TO OPEN"
     )
-    assert flat_detail.text(0).strip() == "SPY260617P00691500"
-    assert flat_detail.text(2) == "1"
-    assert flat_detail.text(3) == "$4.23"
-    assert flat_detail.text(6) == "$+0.00"
+    assert flat_detail.text(0) == "BUY TO OPEN"
+    assert flat_detail.text(1) == "SPY260617P00691500"
+    assert flat_detail.text(3) == "1"
+    assert flat_detail.text(4) == "$4.23"
+    assert flat_detail.text(7) == "$+0.00"
 
     summary = tree.topLevelItem(2)
     summary_widget = tree.itemWidget(summary, 0)
@@ -80,12 +82,12 @@ def test_recent_trades_dialog_renders_trade_row() -> None:
     assert any("STATUS: CLOSED" in text for text in label_texts)
     assert any("NET P&L -$38 (-25.7%)" in text for text in label_texts)
 
-    assert tree.topLevelItem(3).text(0).strip() == "Sell Put"
-    assert tree.topLevelItem(3).text(1) == "$581P"
-    assert tree.topLevelItem(3).text(3) == "$1.01"
-    assert tree.topLevelItem(3).text(4) == "-$101"
-    assert tree.topLevelItem(6).text(0).strip() == "Buy Call"
-    assert tree.topLevelItem(6).text(6) == "-$3"
+    assert tree.topLevelItem(3).text(0) == "SELL PUT"
+    assert tree.topLevelItem(3).text(2) == "$581P"
+    assert tree.topLevelItem(3).text(4) == "$1.01"
+    assert tree.topLevelItem(3).text(5) == "-$101"
+    assert tree.topLevelItem(6).text(0) == "BUY CALL"
+    assert tree.topLevelItem(6).text(7) == "-$3"
 
 
 def test_recent_trades_dialog_shows_empty_state() -> None:

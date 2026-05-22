@@ -43,10 +43,14 @@ from apscheduler.triggers.cron import CronTrigger
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 try:
-    from SpyderS_Signals.SpyderS01_DIXCalculator import SpyderDIXCalculator
+    try:
+        from Spyder.SpyderS_Signals.SpyderS01_DIXCalculator import SpyderDIXCalculator
+    except ImportError:
+        from SpyderS_Signals.SpyderS01_DIXCalculator import SpyderDIXCalculator
     from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
     from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 except ImportError:
+    SpyderDIXCalculator = None  # type: ignore[assignment,misc]
     SpyderLogger = logging
 
     class SpyderErrorHandler:
@@ -252,6 +256,10 @@ class SpyderDIXScheduler:
 
         # Initialize components
         # Demo mode reuses the real calculator (SpyderDIXDemo was never implemented)
+        if SpyderDIXCalculator is None:
+            raise ImportError(
+                "SpyderDIXCalculator unavailable — check SpyderS01_DIXCalculator imports"
+            )
         self.calculator = SpyderDIXCalculator()
 
         self.visualizer = SpyderDIXVisualizer(use_demo=self.config.use_demo)

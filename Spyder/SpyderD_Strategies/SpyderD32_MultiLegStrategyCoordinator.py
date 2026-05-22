@@ -42,7 +42,7 @@ Key Features:
 import os
 import asyncio
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -828,6 +828,107 @@ class MultiLegStrategyConstructor:
         self.config = config or {}
         self.logger = SpyderLogger.get_logger(f"{__name__}.StrategyConstructor")
 
+    def _get_live_option_expiration_dates(self, symbol: str) -> list[date]:
+        """Fetch live listed option expirations for the underlying symbol."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return []
+
+        try:
+            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+                create_tradier_client_from_env,
+            )
+
+            tradier = create_tradier_client_from_env()
+            response = tradier.get_option_expirations(normalized_symbol)
+        except Exception as exc:
+            self.logger.debug(
+                "Live option expirations unavailable for %s: %s",
+                normalized_symbol,
+                exc,
+            )
+            return []
+
+        raw_dates: list[str] | str = []
+        if isinstance(response, dict):
+            expirations_bucket = response.get("expirations")
+            if isinstance(expirations_bucket, dict):
+                raw_dates = expirations_bucket.get("date") or []
+
+        if isinstance(raw_dates, str):
+            raw_dates = [raw_dates]
+
+        parsed_dates: set[date] = set()
+        for raw_date in raw_dates if isinstance(raw_dates, list) else []:
+            text = str(raw_date or "").strip()
+            if not text:
+                continue
+            try:
+                parsed_dates.add(datetime.fromisoformat(text).date())
+            except ValueError:
+                continue
+
+        return sorted(parsed_dates)
+
+    @staticmethod
+    def _select_live_option_expiration(
+        available_expirations: list[date],
+        target_expiration: date,
+    ) -> date:
+        """Select the listed expiration closest to the requested target date."""
+        if not available_expirations:
+            return target_expiration
+
+        ordered = sorted(set(available_expirations))
+        if target_expiration in ordered:
+            return target_expiration
+
+        return min(
+            ordered,
+            key=lambda expiration_date: (
+                abs((expiration_date - target_expiration).days),
+                0 if expiration_date <= target_expiration else 1,
+                expiration_date,
+            ),
+        )
+
+    def _resolve_live_option_expiration(
+        self,
+        symbol: str,
+        target_expiration: datetime,
+    ) -> datetime:
+        """Snap a target expiration onto a live listed contract when available."""
+        available_expirations = self._get_live_option_expiration_dates(symbol)
+        if not available_expirations:
+            return target_expiration
+
+        target_date = target_expiration.date()
+        resolved_date = self._select_live_option_expiration(
+            available_expirations,
+            target_date,
+        )
+        if resolved_date != target_date:
+            self.logger.info(
+                "Resolved %s option expiration to listed contract: %s -> %s",
+                symbol,
+                target_date.isoformat(),
+                resolved_date.isoformat(),
+            )
+
+        return target_expiration.replace(
+            year=resolved_date.year,
+            month=resolved_date.month,
+            day=resolved_date.day,
+        )
+
+    def _resolve_strategy_expiration(self, dte: int) -> datetime:
+        """Resolve the target DTE to a listed expiration for the configured underlying."""
+        underlying_symbol = str(
+            self.config.get("underlying_symbol") or self.config.get("symbol") or "SPY"
+        ).upper()
+        target_expiration = datetime.now(UTC) + timedelta(days=max(int(dte), 0))
+        return self._resolve_live_option_expiration(underlying_symbol, target_expiration)
+
     def _get_live_option_chain_strikes(
         self,
         symbol: str,
@@ -851,6 +952,7 @@ class MultiLegStrategyConstructor:
             return {}
 
         strikes: dict[str, set[float]] = {"put": set(), "call": set()}
+        live_prices: dict[tuple[str, float], float] = {}
         for contract in chain or []:
             option_type = str(getattr(contract, "option_type", "") or "").strip().lower()
             if option_type not in strikes:
@@ -861,6 +963,18 @@ class MultiLegStrategyConstructor:
                 continue
             if strike > 0.0:
                 strikes[option_type].add(strike)
+                try:
+                    bid = float(getattr(contract, "bid", 0.0) or 0.0)
+                    ask = float(getattr(contract, "ask", 0.0) or 0.0)
+                    last = float(getattr(contract, "last", 0.0) or 0.0)
+                    mid = (bid + ask) / 2.0 if bid > 0.0 and ask > 0.0 else last
+                    if mid > 0.0:
+                        live_prices[(option_type, strike)] = mid
+                except (TypeError, ValueError):
+                    pass
+
+        # Store for _apply_live_chain_prices_to_legs (overwritten each fetch)
+        self._live_chain_prices_cache: dict[tuple[str, float], float] = live_prices
 
         return {
             option_type: sorted(values)
@@ -1039,7 +1153,7 @@ class MultiLegStrategyConstructor:
             long_call_strike = short_call_strike + wing_width
 
             # Create legs
-            expiration = datetime.now(UTC) + timedelta(days=dte)
+            expiration = self._resolve_strategy_expiration(dte)
             (
                 long_put_strike,
                 short_put_strike,
@@ -1065,6 +1179,9 @@ class MultiLegStrategyConstructor:
 
             # Estimate pricing and Greeks (simplified)
             self._estimate_legs_pricing_and_greeks(legs, underlying_price, iv, dte)
+            # Override estimated prices with live option chain mid prices where available
+            # (prevents fill-price vs mark-to-market discrepancy on paper fills)
+            self._apply_live_chain_prices_to_legs(legs)
 
             # Calculate strategy metrics
             net_credit = self._calculate_net_credit(legs)
@@ -1127,7 +1244,7 @@ class MultiLegStrategyConstructor:
             long_call_strike = atm_strike + wing_width
 
             # Create legs
-            expiration = datetime.now(UTC) + timedelta(days=dte)
+            expiration = self._resolve_strategy_expiration(dte)
 
             legs = [
                 OptionLeg('put', long_put_strike, 1, expiration),      # Long put
@@ -1203,7 +1320,7 @@ class MultiLegStrategyConstructor:
             long_call_strike = round(long_call_strike * 2) / 2
 
             # Create legs
-            expiration = datetime.now(UTC) + timedelta(days=dte)
+            expiration = self._resolve_strategy_expiration(dte)
 
             legs = [
                 OptionLeg('put', short_put_strike, -1, expiration),    # Short put (naked)
@@ -1334,6 +1451,33 @@ class MultiLegStrategyConstructor:
 
         except Exception as e:
             self.logger.error("Legs pricing estimation failed: %s", e, exc_info=True)
+
+    def _apply_live_chain_prices_to_legs(self, legs: list[OptionLeg]) -> None:
+        """Override estimated leg prices with live option chain mid prices where available.
+
+        Called immediately after _estimate_legs_pricing_and_greeks so that limit-order
+        prices submitted to PaperBroker reflect actual Tradier quotes rather than the
+        simplified Black-Scholes approximation.  This prevents the fill-price vs
+        mark-to-market discrepancy that caused ExitMonitor to fire within seconds of
+        opening a fresh iron condor.
+        """
+        cache: dict[tuple[str, float], float] = getattr(
+            self, "_live_chain_prices_cache", {}
+        )
+        if not cache:
+            return
+        for leg in legs:
+            key = (str(leg.option_type or "").lower(), float(leg.strike or 0.0))
+            live_price = cache.get(key)
+            if live_price is not None and live_price > 0.0:
+                self.logger.debug(
+                    "Leg %s %.1f: estimated price %.4f overridden with live chain mid %.4f",
+                    leg.option_type,
+                    leg.strike,
+                    leg.price,
+                    live_price,
+                )
+                leg.price = live_price
 
     def _calculate_net_credit(self, legs: list[OptionLeg]) -> float:
         """Calculate net credit/debit for the strategy"""
