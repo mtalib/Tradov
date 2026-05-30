@@ -30,6 +30,16 @@ def test_market_overview_symbols_match_dashboard_data_constant() -> None:
     assert get_market_overview_symbols() == MARKET_SYMBOLS
 
 
+def test_market_overview_tooltips_match_enhanced_widgets_constant() -> None:
+    """Enhanced widgets should reuse the canonical GUI tooltip descriptions."""
+    pytest.importorskip("PySide6")
+    from Spyder.SpyderG_GUI.SpyderG06_DashboardData import SYMBOL_DESCRIPTIONS as dashboard_tooltips
+    from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import SYMBOL_DESCRIPTIONS as enhanced_widget_tooltips
+
+    assert enhanced_widget_tooltips is dashboard_tooltips
+    assert get_market_overview_symbol_set().issubset(enhanced_widget_tooltips)
+
+
 def test_market_overview_symbols_match_trading_dashboard_constant() -> None:
     """Trading dashboard panel source must match canonical market-overview symbols."""
     pytest.importorskip("PySide6")

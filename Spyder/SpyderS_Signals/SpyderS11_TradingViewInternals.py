@@ -97,7 +97,8 @@ _SYMBOLS: dict[str, str] = {
     # NYMO is computed as an ADD-EMA oscillator proxy in SpyderS07.
 }
 
-_CSS_PRICE = 'span[class*="last-"]'
+_CSS_PRICE_PRIMARY = '[data-qa-id="symbol-last-value"]'
+_CSS_PRICE_FALLBACK = 'span[class*="last-"]'
 
 _USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -138,6 +139,7 @@ _NYMO_STRONG_BEAR = -60.0
 _NAV_TIMEOUT_MS  = 20_000
 _SEL_TIMEOUT_MS  = 25_000
 _TEXT_TIMEOUT_MS  =  5_000
+_FALLBACK_SEL_TIMEOUT_MS = 1_000
 _UINT64_MAX = float(2 ** 64)
 
 
@@ -265,15 +267,13 @@ class TradingViewInternals:
             ctx = browser.new_context(user_agent=_USER_AGENT)
             for name, url in _SYMBOLS.items():
                 try:
-                    pg = ctx.new_page()
-                    pg.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-                    pg.wait_for_selector(_CSS_PRICE, timeout=_SEL_TIMEOUT_MS)
+                    pg = self._open_symbol_page(ctx, url)
                     pages[name] = pg
                     logger.debug("TradingView tab opened: %s → %s", name.upper(), url)
                 except Exception as page_exc:
                     logger.warning(
                         "TradingView: failed to open tab for %s (%s) — symbol will show NaN.",
-                        name.upper(), page_exc,
+                        name.upper(), self._format_scrape_error(page_exc),
                     )
             if not pages:
                 raise RuntimeError("TradingView: all symbol pages failed to open — browser unusable.")  # noqa: E501
@@ -301,11 +301,14 @@ class TradingViewInternals:
             for name, pg in pages.items():
                 try:
                     pg.reload(wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-                    pg.wait_for_selector(_CSS_PRICE, timeout=_SEL_TIMEOUT_MS)
-                    raw = pg.locator(_CSS_PRICE).first.inner_text(timeout=_TEXT_TIMEOUT_MS)
+                    raw = self._read_price_text(pg)
                     result[name] = self._parse_price(raw)
                 except Exception as exc:
-                    logger.warning("Failed to scrape %s: %s", name.upper(), exc)
+                    logger.warning(
+                        "Failed to scrape %s: %s",
+                        name.upper(),
+                        self._format_scrape_error(exc),
+                    )
                     result[name] = float("nan")
 
             result["vold"] = self._normalise_vold(
@@ -336,7 +339,10 @@ class TradingViewInternals:
                 result_holder[0] = snapshot
 
             except Exception as exc:
-                logger.warning("TradingView scrape failed: %s — returning stubs.", exc)
+                logger.warning(
+                    "TradingView scrape failed: %s — returning stubs.",
+                    self._format_scrape_error(exc),
+                )
                 # On error, reset so next call re-launches the browser
                 close_browser()
                 result_holder[0] = None
@@ -356,6 +362,33 @@ class TradingViewInternals:
     def _refresh_all(self) -> dict[str, Any]:
         """Not used directly — scraping runs inside _browser_worker."""
         return {}
+
+    @staticmethod
+    def _open_symbol_page(context: Any, url: str) -> Any:
+        """Open a TradingView symbol page without blocking on the first price render."""
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+        return page
+
+    @staticmethod
+    def _read_price_text(page: Any) -> str:
+        """Return the visible TradingView last-price text for a symbol page."""
+        primary_locator = page.locator(_CSS_PRICE_PRIMARY).first
+        try:
+            primary_locator.wait_for(state="visible", timeout=_SEL_TIMEOUT_MS)
+            return primary_locator.inner_text(timeout=_TEXT_TIMEOUT_MS)
+        except Exception as primary_exc:
+            fallback_locator = page.locator(_CSS_PRICE_FALLBACK).first
+            try:
+                fallback_locator.wait_for(state="visible", timeout=_FALLBACK_SEL_TIMEOUT_MS)
+                return fallback_locator.inner_text(timeout=_TEXT_TIMEOUT_MS)
+            except Exception:
+                raise primary_exc
+
+    @staticmethod
+    def _format_scrape_error(exc: Exception) -> str:
+        """Collapse verbose Playwright call logs to their first summary line."""
+        return str(exc).splitlines()[0].strip()
 
     @staticmethod
     def _parse_price(text: str) -> float:

@@ -24,6 +24,8 @@ def build_custom_metric_widget_update_plan(
     """Return the widget payload for one S07 metric entry, if it is usable."""
     if not isinstance(entry, dict):
         return None
+    if bool(entry.get("stale")):
+        return None
 
     raw = entry.get("value")
     if raw is None or (isinstance(raw, float) and math.isnan(raw)):

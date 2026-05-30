@@ -46,13 +46,14 @@ def test_d31_registry_includes_first_wave_base_strategies():
         "VIXHedging",
         "BullCallSpread",
         "BearPutSpread",
+        "PutCreditSpread7",
     }
 
     missing = expected - set(orchestrator.available_strategies)
     assert not missing, f"Missing strategy registrations: {sorted(missing)}"
 
     for name in expected:
-        strategy_cls = orchestrator.available_strategies[name]
+        strategy_cls = orchestrator._resolve_registered_strategy_class(name)
         assert issubclass(strategy_cls, base_strategy_cls) or any(
             base.__name__ == "BaseStrategy" for base in strategy_cls.__mro__
         )
@@ -93,7 +94,7 @@ def test_d31_current_regime_weights_are_registry_reachable_and_constructible():
 
     risk_profile = SimpleNamespace(account_size=100000)
     for name in sorted(weighted_names):
-        cls = orchestrator.available_strategies[name]
+        cls = orchestrator._resolve_registered_strategy_class(name)
         try:
             instance = cls(name=name, event_manager=_StubEventManager(), risk_profile=risk_profile, config={})
         except TypeError:
@@ -135,6 +136,204 @@ def test_d31_lean_allowlist_keeps_debit_spread_extensions_disabled_without_flags
     assert "BearPutSpread" not in orchestrator.available_strategies
 
 
+def test_d31_lean_allowlist_enables_bullish_strangle_via_feature_flag(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_BULLISH_STRANGLE", "true")
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    assert "BullishStrangle" in orchestrator.lean_strategy_allowlist
+    assert "BullishStrangleStrategy" in orchestrator.lean_strategy_allowlist
+
+    orchestrator.lean_mode = True
+    orchestrator._initialize_strategy_registry()
+
+    assert "BullishStrangle" in orchestrator.available_strategies
+
+
+def test_d31_lean_allowlist_keeps_bullish_strangle_disabled_without_flag(monkeypatch):
+    monkeypatch.delenv("SPYDER_ENABLE_BULLISH_STRANGLE", raising=False)
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    assert "BullishStrangle" not in orchestrator.lean_strategy_allowlist
+    assert "BullishStrangleStrategy" not in orchestrator.lean_strategy_allowlist
+
+    orchestrator.lean_mode = True
+    orchestrator._initialize_strategy_registry()
+
+    assert "BullishStrangle" not in orchestrator.available_strategies
+
+
+def test_d31_lean_allowlist_enables_put_credit_spread_7_via_feature_flag(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", "true")
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    assert "PutCreditSpread7" in orchestrator.lean_strategy_allowlist
+    assert "PutCreditSpread7Strategy" in orchestrator.lean_strategy_allowlist
+
+    orchestrator.lean_mode = True
+    orchestrator._initialize_strategy_registry()
+
+    assert "PutCreditSpread7" in orchestrator.available_strategies
+
+
+def test_d31_lean_allowlist_keeps_put_credit_spread_7_disabled_without_flag(monkeypatch):
+    monkeypatch.delenv("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", raising=False)
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    assert "PutCreditSpread7" not in orchestrator.lean_strategy_allowlist
+    assert "PutCreditSpread7Strategy" not in orchestrator.lean_strategy_allowlist
+
+    orchestrator.lean_mode = True
+    orchestrator._initialize_strategy_registry()
+
+    assert "PutCreditSpread7" not in orchestrator.available_strategies
+
+
+def test_d31_registry_includes_butterfly_outside_lean_mode():
+    orchestrator = _make_orchestrator()
+
+    assert "Butterfly" in orchestrator.available_strategies
+    strategy_cls = orchestrator._resolve_registered_strategy_class("Butterfly")
+
+    assert strategy_cls is not None
+    assert strategy_cls.__name__ == "ButterflyStrategy"
+
+
+def test_d31_registry_includes_bullish_strangle_outside_lean_mode():
+    orchestrator = _make_orchestrator()
+
+    assert "BullishStrangle" in orchestrator.available_strategies
+    strategy_cls = orchestrator._resolve_registered_strategy_class("BullishStrangle")
+
+    assert strategy_cls is not None
+    assert strategy_cls.__name__ == "BullishStrangleStrategy"
+
+
+def test_d31_lean_allowlist_admits_butterfly_by_default(monkeypatch):
+    monkeypatch.delenv("SPYDER_ENABLE_BULL_CALL_SPREAD", raising=False)
+    monkeypatch.delenv("SPYDER_ENABLE_BEAR_PUT_SPREAD", raising=False)
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    assert "Butterfly" in orchestrator.lean_strategy_allowlist
+    assert "ButterflyStrategy" in orchestrator.lean_strategy_allowlist
+
+    orchestrator.lean_mode = True
+    orchestrator._initialize_strategy_registry()
+
+    assert "Butterfly" in orchestrator.available_strategies
+
+
+def test_d31_lean_weights_enable_butterfly_when_selector_flag_enabled(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_BUTTERFLY", "true")
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    orchestrator.lean_mode = True
+    orchestrator.market_regime.current_regime = mod.MarketRegime.SIDEWAYS_LOW_VOL
+    orchestrator._build_d30_consensus = MagicMock(return_value=SimpleNamespace())
+    orchestrator._d30_selector_init_attempted = True
+    orchestrator._d30_selector = SimpleNamespace(
+        select_strategy_from_consensus=lambda *_args, **_kwargs: SimpleNamespace(
+            selected_strategy=SimpleNamespace(value="butterfly"),
+            reason="Range/calm — Butterfly (feature-flag enabled)",
+            selector_feature_flag="SPYDER_ENABLE_BUTTERFLY",
+        )
+    )
+
+    weights = orchestrator._get_regime_strategy_weights()
+
+    assert weights == {"Butterfly": 1.0}
+    assert orchestrator._last_selector_feature_flag == "SPYDER_ENABLE_BUTTERFLY"
+
+
+def test_d31_lean_weights_enable_bullish_strangle_when_selector_flag_enabled(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_BULLISH_STRANGLE", "true")
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    orchestrator.lean_mode = True
+    orchestrator.market_regime.current_regime = mod.MarketRegime.RECOVERY
+    orchestrator._build_d30_consensus = MagicMock(return_value=SimpleNamespace())
+    orchestrator._d30_selector_init_attempted = True
+    orchestrator._d30_selector = SimpleNamespace(
+        select_strategy_from_consensus=lambda *_args, **_kwargs: SimpleNamespace(
+            selected_strategy=SimpleNamespace(value="bullish_strangle"),
+            reason="Recovery regime — Bullish Strangle (feature-flag enabled)",
+            selector_feature_flag="SPYDER_ENABLE_BULLISH_STRANGLE",
+        )
+    )
+
+    weights = orchestrator._get_regime_strategy_weights()
+
+    assert weights == {"BullishStrangle": 1.0}
+    assert orchestrator._last_selector_feature_flag == "SPYDER_ENABLE_BULLISH_STRANGLE"
+
+
+def test_d31_lean_weights_enable_put_credit_spread_7_when_selector_flag_enabled(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", "true")
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    monkeypatch.setattr(
+        mod.StrategyOrchestrator,
+        "_put_credit_spread_7_eligible_now",
+        staticmethod(lambda: True),
+    )
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    orchestrator.lean_mode = True
+    orchestrator.market_regime.current_regime = mod.MarketRegime.BULL_LOW_VOL
+    orchestrator._build_d30_consensus = MagicMock(return_value=SimpleNamespace())
+    orchestrator._d30_selector_init_attempted = True
+    orchestrator._d30_selector = SimpleNamespace(
+        select_strategy_from_consensus=lambda *_args, **_kwargs: SimpleNamespace(
+            selected_strategy=SimpleNamespace(value="put_credit_spread_7"),
+            reason="Bull trend — Put Credit Spread 7 (scheduled weekly entry, feature-flag enabled)",
+            selector_feature_flag="SPYDER_ENABLE_PUT_CREDIT_SPREAD_7",
+        )
+    )
+
+    weights = orchestrator._get_regime_strategy_weights()
+
+    assert weights == {"PutCreditSpread7": 1.0}
+    assert orchestrator._last_selector_feature_flag == "SPYDER_ENABLE_PUT_CREDIT_SPREAD_7"
+
+
+def test_d31_fallback_lean_strategy_enables_bullish_strangle_for_recovery(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_BULLISH_STRANGLE", "true")
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+    orchestrator.market_regime.current_regime = mod.MarketRegime.RECOVERY
+
+    assert orchestrator._fallback_lean_strategy_name() == "BullishStrangle"
+
+
+def test_d31_lean_allowlist_enables_calendar_spread_via_paper_flag(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_PAPER_CALENDAR_SPREAD_ROUTING", "true")
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    assert "CalendarSpread" in orchestrator.lean_strategy_allowlist
+    assert "CalendarSpreadStrategy" in orchestrator.lean_strategy_allowlist
+
+    orchestrator.lean_mode = True
+    orchestrator._initialize_strategy_registry()
+
+    assert "CalendarSpread" in orchestrator.available_strategies
+
+
 def test_d31_lean_weights_follow_d30_selector_output():
     mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
     orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
@@ -154,6 +353,48 @@ def test_d31_lean_weights_follow_d30_selector_output():
     weights = orchestrator._get_regime_strategy_weights()
 
     assert weights == {"BullPutSpread": 1.0}
+
+
+def test_d31_lean_weights_override_sideways_low_vol_to_calendar_spread_in_paper_mode(monkeypatch):
+    monkeypatch.setenv("SPYDER_ENABLE_PAPER_CALENDAR_SPREAD_ROUTING", "true")
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    orchestrator.lean_mode = True
+    orchestrator._audit_run_mode = "paper"
+    orchestrator.market_regime.current_regime = mod.MarketRegime.SIDEWAYS_LOW_VOL
+    orchestrator._build_d30_consensus = MagicMock(return_value=SimpleNamespace())
+    orchestrator._d30_selector_init_attempted = True
+    orchestrator._d30_selector = SimpleNamespace(
+        select_strategy_from_consensus=lambda *_args, **_kwargs: SimpleNamespace(
+            selected_strategy=SimpleNamespace(value="iron_condor"),
+            reason="Range/calm — Iron Condor",
+            selector_feature_flag=None,
+        )
+    )
+
+    weights = orchestrator._get_regime_strategy_weights()
+
+    assert weights == {"CalendarSpread": 1.0}
+
+
+def test_d31_selector_mapping_normalizes_legacy_calendar_spreads_value():
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+
+    assert mod.StrategyOrchestrator._map_selector_strategy_to_registry_name("calendar_spreads") == "CalendarSpread"
+
+
+def test_d31_selector_mapping_normalizes_bullish_strangle_value():
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+
+    assert mod.StrategyOrchestrator._map_selector_strategy_to_registry_name("bullish_strangle") == "BullishStrangle"
+
+
+def test_d31_selector_mapping_normalizes_put_credit_spread_7_value():
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+
+    assert mod.StrategyOrchestrator._map_selector_strategy_to_registry_name("put_credit_spread_7") == "PutCreditSpread7"
 
 
 def test_d31_evolved_credit_spread_adapter_maps_native_signal_to_base_signal():

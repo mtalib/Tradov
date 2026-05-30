@@ -15,6 +15,7 @@ from dataclasses import dataclass
 SUPPORTED_ENTRY_BLOCK_REASONS = {
     "entry_trust_gate_rejected",
     "validate_signal_rejected",
+    "zero_dte_eod_force_close",
 }
 
 
@@ -56,6 +57,23 @@ def build_entry_block_alert_presentation(
     normalized_reason = str(reason or "").strip().lower()
     if normalized_reason not in SUPPORTED_ENTRY_BLOCK_REASONS:
         return None
+
+    if normalized_reason == "zero_dte_eod_force_close":
+        summary_text = (
+            str(message or "").strip()
+            or "0DTE paper option still open after 15:55 ET"
+        )
+        detail_text = str(detail or "").strip()
+        compact_text = summary_text if len(summary_text) <= 64 else f"{summary_text[:61]}..."
+        system_log_message = f"⚠️ {summary_text}"
+        if detail_text:
+            system_log_message = f"{system_log_message}: {detail_text}"
+
+        return EntryBlockAlertPresentation(
+            digest=f"{normalized_reason}:{summary_text}:{detail_text}",
+            compact_display=f"BLOCK: {compact_text}",
+            system_log_message=system_log_message,
+        )
 
     detail_text = str(message or detail or normalized_reason).strip() or normalized_reason
     compact_text = detail_text if len(detail_text) <= 64 else f"{detail_text[:61]}..."

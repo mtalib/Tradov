@@ -17,7 +17,9 @@ def _build_dashboard_stub() -> SpyderTradingDashboard:
     dash._custom_metrics_live_announced = True
     dash._merge_metrics_payload = lambda current, incoming: {**current, **incoming}
     dash._persist_custom_metrics_snapshot = MagicMock()
-    dash.symbol_widgets = {"GEX": SimpleNamespace(update_data=MagicMock())}
+    dash.symbol_widgets = {
+        "GEX": SimpleNamespace(update_data=MagicMock(), set_unavailable=MagicMock())
+    }
     dash._update_liquidity_diagnostics_panel = MagicMock()
     dash.current_dialog = None
     dash.signal_panel = None
@@ -80,3 +82,19 @@ def test_on_custom_metrics_updated_skips_widget_when_helper_rejects(monkeypatch)
 
     dash.symbol_widgets["GEX"].update_data.assert_not_called()
     assert not hasattr(dash, "_cm_prev_GEX")
+
+
+def test_on_custom_metrics_updated_marks_stale_widget_unavailable(monkeypatch) -> None:
+    dash = _build_dashboard_stub()
+    helper = MagicMock()
+
+    monkeypatch.setattr(g05, "build_custom_metric_widget_update_plan", helper)
+
+    SpyderTradingDashboard._on_custom_metrics_updated(
+        dash,
+        {"GEX": {"value": 1.25, "stale": True}},
+    )
+
+    helper.assert_not_called()
+    dash.symbol_widgets["GEX"].set_unavailable.assert_called_once_with("STALE")
+    dash.symbol_widgets["GEX"].update_data.assert_not_called()

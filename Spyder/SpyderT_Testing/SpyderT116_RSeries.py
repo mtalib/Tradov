@@ -27,7 +27,7 @@ Coverage targets:
 """
 
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import time
@@ -183,6 +183,24 @@ class TestR04ExecuteOrderRejections(unittest.TestCase):
         oversized_qty = engine.config.max_position_size + 1
         result = engine.execute_order({"symbol": "SPY", "quantity": oversized_qty})
         self.assertEqual(result["status"], "rejected")
+
+    def test_rejected_when_generic_multileg_strategy_would_flatten_to_underlier(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+
+        result = engine.execute_order(
+            {
+                "symbol": "SPY",
+                "side": "buy",
+                "quantity": 1,
+                "strategy_id": "Butterfly",
+            }
+        )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("explicit option-leg routing", result["reason"])
 
     def test_execute_order_allows_explicit_close_when_entry_gates_would_block(self):
         from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
@@ -595,6 +613,114 @@ class TestR04PositionHydration(unittest.TestCase):
             self.assertEqual(engine.active_positions["SPY"]["quantity"], -7)
             self.assertEqual(engine.active_positions["SPY"]["strategy"], "iron_condor")
 
+    def test_monitor_positions_preserves_h05_hydration_metadata_when_broker_reports_same_symbol(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        symbol = "SPY"
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            db.upsert_position(
+                position_id=f"paper:{symbol}",
+                symbol=symbol,
+                strategy="butterfly",
+                quantity=8,
+                entry_price=1.56,
+                current_price=1.56,
+                status="OPEN",
+            )
+
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            broker.get_positions.return_value = [
+                {
+                    "symbol": symbol,
+                    "quantity": 8,
+                    "entry_price": 1.56,
+                    "current_price": 1.56,
+                }
+            ]
+            broker.get_account_balances.return_value = {
+                "account": {"balance": 100000.0}
+            }
+
+            db.save_paper_carryover_manifest(
+                [
+                    {
+                        "position_id": f"paper:{symbol}",
+                        "symbol": symbol,
+                        "strategy": "butterfly",
+                        "quantity": 8,
+                    }
+                ]
+            )
+
+            engine.set_session_db(db)
+            engine._monitor_positions()
+            hydrated_symbol = next(iter(engine.active_positions))
+
+            self.assertEqual(
+                engine.active_positions[hydrated_symbol]["position_source"],
+                "session_db_hydration",
+            )
+            self.assertEqual(engine.active_positions[hydrated_symbol]["strategy"], "butterfly")
+
+    def test_monitor_positions_preserves_active_session_origin_when_broker_reports_same_symbol(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        symbol = "SPY260529C00756000"
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            db.mark_paper_session_active("PAPER_20260529_121906", owner="unit-test")
+            db.upsert_position(
+                position_id=f"paper:{symbol}",
+                symbol=symbol,
+                strategy="butterfly",
+                quantity=8,
+                entry_price=1.54,
+                current_price=1.54,
+                status="OPEN",
+                opened_at=datetime.now(UTC) + timedelta(seconds=1),
+                expiration="2026-05-29",
+                strike=756.0,
+                option_type="call",
+            )
+
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            broker.get_positions.return_value = [
+                {
+                    "symbol": symbol,
+                    "quantity": 8,
+                    "entry_price": 1.54,
+                    "current_price": 1.54,
+                }
+            ]
+            broker.get_account_balances.return_value = {
+                "account": {"balance": 100000.0}
+            }
+
+            engine.set_session_db(db)
+            self.assertEqual(
+                engine.active_positions[symbol]["_paper_open_origin"],
+                "active_session",
+            )
+
+            engine._monitor_positions()
+
+            self.assertEqual(
+                engine.active_positions[symbol]["position_source"],
+                "session_db_hydration",
+            )
+            self.assertEqual(
+                engine.active_positions[symbol]["_paper_open_origin"],
+                "active_session",
+            )
+            self.assertEqual(engine.active_positions[symbol]["strategy"], "butterfly")
+
 
 class TestH05PositionPersistence(unittest.TestCase):
     """TradingSessionDB position upserts should track the latest net quantity."""
@@ -730,6 +856,154 @@ class TestH05PositionPersistence(unittest.TestCase):
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["opened_at"], current_opened.isoformat())
+
+    def test_resume_eligibility_rejects_next_day_zero_dte_carryover(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        class _ShutdownDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-25T21:05:00+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        class _RestartDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-26T14:05:00+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        with TemporaryDirectory() as tmpdir:
+            db = h05.TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            opened_at = datetime.fromisoformat("2026-05-25T19:12:46.979376+00:00")
+            db.upsert_position(
+                position_id="paper:SPY260526C00750000",
+                symbol="SPY260526C00750000",
+                strategy="butterfly",
+                quantity=-8,
+                entry_price=4.11,
+                current_price=4.09,
+                status="OPEN",
+                opened_at=opened_at,
+                expiration="2026-05-26",
+                strike=750.0,
+                option_type="call",
+            )
+
+            with patch.object(h05, "datetime", _ShutdownDateTime):
+                db.save_paper_carryover_manifest(
+                    [
+                        {
+                            "position_id": "paper:SPY260526C00750000",
+                            "symbol": "SPY260526C00750000",
+                            "strategy": "butterfly",
+                            "quantity": -8,
+                            "opened_at": opened_at.isoformat(),
+                            "expiration": "2026-05-26",
+                        }
+                    ],
+                    session_id="PAPER_20260525_170500",
+                )
+
+            with patch.object(h05, "datetime", _RestartDateTime):
+                rows = db.get_resume_eligible_open_positions()
+
+        self.assertEqual(rows, [])
+
+    def test_display_eligibility_keeps_next_day_zero_dte_carryover_visible(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        class _ShutdownDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-27T21:05:00+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        class _RestartDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-28T14:05:00+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        with TemporaryDirectory() as tmpdir:
+            db = h05.TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            opened_at = datetime.fromisoformat("2026-05-27T13:45:12.159158-04:00")
+            db.upsert_position(
+                position_id="paper:SPY260528C00748000",
+                symbol="SPY260528C00748000",
+                strategy="butterfly",
+                quantity=10,
+                entry_price=3.3317,
+                current_price=2.7450,
+                status="OPEN",
+                opened_at=opened_at,
+                expiration="2026-05-28",
+                strike=748.0,
+                option_type="call",
+            )
+
+            with patch.object(h05, "datetime", _ShutdownDateTime):
+                db.save_paper_carryover_manifest(
+                    [
+                        {
+                            "position_id": "paper:SPY260528C00748000",
+                            "symbol": "SPY260528C00748000",
+                            "strategy": "butterfly",
+                            "quantity": 10,
+                            "opened_at": opened_at.isoformat(),
+                            "expiration": "2026-05-28",
+                        }
+                    ],
+                    session_id="PAPER_20260527_170500",
+                )
+
+            with patch.object(h05, "datetime", _RestartDateTime):
+                resumable_rows = db.get_resume_eligible_open_positions()
+                visible_rows = db.get_display_eligible_paper_open_positions()
+
+        self.assertEqual(resumable_rows, [])
+        self.assertEqual(len(visible_rows), 1)
+        self.assertEqual(visible_rows[0]["position_id"], "paper:SPY260528C00748000")
+
+    def test_save_paper_carryover_manifest_skips_same_day_expiration_positions(self):
+        from Spyder.SpyderH_Storage import SpyderH05_TradingSessionDB as h05
+
+        class _SameDayDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                current = datetime.fromisoformat("2026-05-26T19:12:46.979376+00:00")
+                if tz is None:
+                    return current.replace(tzinfo=None)
+                return current.astimezone(tz)
+
+        with TemporaryDirectory() as tmpdir:
+            db = h05.TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+
+            with patch.object(h05, "datetime", _SameDayDateTime):
+                db.save_paper_carryover_manifest(
+                    [
+                        {
+                            "position_id": "paper:SPY260526C00750000",
+                            "symbol": "SPY260526C00750000",
+                            "strategy": "butterfly",
+                            "quantity": -8,
+                            "opened_at": "2026-05-26T19:12:46.979376+00:00",
+                            "expiration": "2026-05-26",
+                        }
+                    ],
+                    session_id="PAPER_20260526_151255",
+                )
+
+            manifest_rows = db._load_paper_carryover_manifest()
+
+        self.assertEqual(manifest_rows, [])
 
 
 class TestR04GetExecutionStatus(unittest.TestCase):
@@ -1011,6 +1285,72 @@ class TestR04PaperMarkToMarket(unittest.TestCase):
         self.assertIsNotNone(latest_snapshot)
         self.assertAlmostEqual(latest_snapshot["unrealized_pnl"], 429.22, places=2)
         self.assertAlmostEqual(latest_snapshot["equity"], 100429.22, places=2)
+
+    def test_monitor_positions_does_not_reopen_closed_paper_leg_from_stale_runtime_state(self):
+        from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import TradingMode
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_mark_to_market.db")
+            engine, broker, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+            engine.mode = TradingMode.PAPER
+            engine.set_session_db(db)
+            symbol = "SPY260528C00752000"
+            opened_at = datetime.fromisoformat("2026-05-28T10:46:42-04:00")
+            closed_at = datetime.fromisoformat("2026-05-28T11:27:36-04:00")
+
+            db.record_trade(
+                symbol=symbol,
+                trade_type="BTO",
+                side="buy_to_open",
+                quantity=8,
+                price=1.90,
+                strategy="butterfly",
+                expiration="2026-05-28",
+                strike=752.0,
+                option_type="call",
+            )
+            db.upsert_position(
+                position_id=f"paper:{symbol}",
+                symbol=symbol,
+                strategy="butterfly",
+                quantity=0,
+                entry_price=1.90,
+                current_price=2.29,
+                unrealized_pnl=0.0,
+                realized_pnl=307.28,
+                status="CLOSED",
+                opened_at=opened_at,
+                closed_at=closed_at,
+                expiration="2026-05-28",
+                strike=752.0,
+                option_type="call",
+            )
+            broker.get_positions.return_value = []
+            broker.get_account_balances.return_value = {
+                "account": {"balance": 100000.0}
+            }
+            broker._last_prices = {symbol: 2.29}
+            engine.active_positions = {
+                symbol: {
+                    "symbol": symbol,
+                    "quantity": 8,
+                    "entry_price": 1.90,
+                    "current_price": 2.29,
+                    "strategy": "butterfly",
+                    "expiration": "2026-05-28",
+                    "strike": 752.0,
+                    "option_type": "call",
+                    "opened_at": opened_at,
+                }
+            }
+
+            engine._monitor_positions()
+
+            open_rows = db.get_open_positions()
+
+        self.assertEqual(open_rows, [])
+        self.assertNotIn(symbol, engine.active_positions)
 
     def test_monitor_positions_fetches_live_quotes_for_paper_option_positions(self):
         from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB

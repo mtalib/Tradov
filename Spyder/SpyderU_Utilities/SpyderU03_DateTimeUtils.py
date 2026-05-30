@@ -1155,16 +1155,22 @@ def is_market_open(check_time: datetime | None = None, extended_hours: bool = Fa
     Returns:
         True if market is open, False otherwise
     """
-    trading_hours = TradingHours()
-
     if check_time is None:
         check_time = datetime.now(pytz.timezone(US_EASTERN))
 
-    if extended_hours:
-        return trading_hours.is_regular_hours(check_time) or trading_hours.is_extended_hours(
-            check_time
-        )
-    else:
+    try:
+        from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import get_trading_calendar
+
+        calendar = get_trading_calendar()
+        if extended_hours:
+            return bool(calendar.is_market_open(check_time) or calendar.is_extended_hours(check_time))
+        return bool(calendar.is_market_open(check_time))
+    except Exception:
+        trading_hours = TradingHours()
+        if extended_hours:
+            return trading_hours.is_regular_hours(check_time) or trading_hours.is_extended_hours(
+                check_time
+            )
         return trading_hours.is_regular_hours(check_time)
 
 
@@ -1807,15 +1813,20 @@ class TradingTimeUtils:
         else:
             dt = dt.astimezone(market_tz)
 
-        # Check if weekday (0=Monday, 6=Sunday)
-        if dt.weekday() >= 5:  # Saturday or Sunday
-            return False
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import get_trading_calendar
 
-        # Check market hours (9:30 AM - 4:00 PM ET)
-        market_open = dt.replace(hour=9, minute=30, second=0, microsecond=0)
-        market_close = dt.replace(hour=16, minute=0, second=0, microsecond=0)
+            return bool(get_trading_calendar().is_market_open(dt))
+        except Exception:
+            # Check if weekday (0=Monday, 6=Sunday)
+            if dt.weekday() >= 5:  # Saturday or Sunday
+                return False
 
-        return market_open <= dt <= market_close
+            # Check market hours (9:30 AM - 4:00 PM ET)
+            market_open = dt.replace(hour=9, minute=30, second=0, microsecond=0)
+            market_close = dt.replace(hour=16, minute=0, second=0, microsecond=0)
+
+            return market_open <= dt <= market_close
 
     @staticmethod
     def get_next_market_open(dt=None):

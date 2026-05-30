@@ -194,6 +194,17 @@ def test_format_metrics_includes_sector_breadth_and_quality_feed_entries():
         assert "quality" in formatted[key]
 
 
+def test_format_metrics_carries_quality_bucket_and_stale_metadata() -> None:
+    orch = _make_orch()
+    orch.metric_quality["BREADTH"].last_successful_update = datetime.now() - timedelta(seconds=600)
+
+    feed = orch._build_data_quality_feed({"TICK": 100.0}, [])
+    formatted = orch._format_metrics({"TICK": 100.0, "DATA_QUALITY_FEED": feed})
+
+    assert formatted["TICK"]["quality_bucket"] == "BREADTH"
+    assert formatted["TICK"]["stale"] is True
+
+
 def test_get_current_market_conditions_includes_new_fields():
     orch = _make_orch()
     orch.current_metrics.update({

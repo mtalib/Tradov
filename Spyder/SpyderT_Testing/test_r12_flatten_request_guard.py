@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -199,6 +200,100 @@ class TestTargetedShortOptionFlatten:
             "reason": "paper_orphan_carryover_strategy",
         }
 
+    def test_flatten_positions_persists_verified_paper_close_and_emits_refresh(self):
+        supervisor = SessionSupervisor(mode="paper", dry_run=True, skip_orphan_sweep=True)
+
+        with TemporaryDirectory() as tmpdir:
+            db = TradingSessionDB(Path(tmpdir) / "paper_positions.db")
+            opened_at = datetime.fromisoformat("2026-05-26T09:51:09-04:00")
+            db.upsert_position(
+                position_id="paper:SPY",
+                symbol="SPY",
+                strategy="butterfly",
+                quantity=10,
+                entry_price=750.7252,
+                current_price=749.16,
+                unrealized_pnl=-15.65,
+                status="OPEN",
+                opened_at=opened_at,
+            )
+
+            supervisor.engine = SimpleNamespace(
+                _session_db=db,
+                active_positions={"SPY": {"quantity": 10}},
+                _active_positions_lock=threading.Lock(),
+            )
+            supervisor.broker = SimpleNamespace(close_position_verified=MagicMock())
+            supervisor.em = MagicMock()
+            supervisor._get_positions_for_flatten = MagicMock(
+                return_value=[
+                    {
+                        "position_id": "paper:SPY",
+                        "symbol": "SPY",
+                        "strategy": "butterfly",
+                        "quantity": 10,
+                        "entry_price": 750.7252,
+                        "current_price": 749.16,
+                        "unrealized_pnl": -15.65,
+                        "status": "OPEN",
+                        "opened_at": opened_at.isoformat(),
+                    }
+                ]
+            )
+            supervisor._submit_flatten_close = MagicMock(
+                return_value={
+                    "status": "verified",
+                    "order": {"order": {"id": "PAPER-000001"}},
+                    "fill": {"order": {"status": "filled", "avg_fill_price": 749.16}},
+                }
+            )
+
+            closed = supervisor._flatten_positions(
+                reason="manual_close_dashboard",
+                symbols=["SPY"],
+            )
+
+            assert closed == 1
+            assert supervisor.engine.active_positions == {}
+            assert db.get_open_positions() == []
+
+            with db._connect() as conn:
+                row = conn.execute(
+                    "SELECT status, quantity, current_price, unrealized_pnl, realized_pnl FROM positions WHERE position_id = ?",
+                    ("paper:SPY",),
+                ).fetchone()
+
+            assert row["status"] == "CLOSED"
+            assert row["quantity"] == 0
+            assert row["current_price"] == 749.16
+            assert row["unrealized_pnl"] == 0.0
+            assert row["realized_pnl"] < 0.0
+            assert supervisor.em.emit.call_count == 2
+            request_call = supervisor.em.emit.call_args_list[0]
+            assert request_call.args == (
+                EventType.POSITION_UPDATED,
+                {
+                    "symbol": "SPY",
+                    "strategy_id": "butterfly",
+                    "strategy": "butterfly",
+                    "status": "CLOSE_REQUESTED",
+                    "reason": "manual_close_dashboard",
+                },
+            )
+            assert request_call.kwargs == {"source": "R12"}
+            closed_call = supervisor.em.emit.call_args_list[1]
+            assert closed_call.args == (
+                EventType.POSITION_UPDATED,
+                {
+                    "symbol": "SPY",
+                    "strategy_id": "butterfly",
+                    "strategy": "butterfly",
+                    "status": "CLOSED",
+                    "reason": "manual_close_dashboard",
+                },
+            )
+            assert closed_call.kwargs == {"source": "R12"}
+
 
 class TestFlattenSubscriptionCleanup:
     def test_stop_unsubscribes_flatten_handler(self):
@@ -212,6 +307,81 @@ class TestFlattenSubscriptionCleanup:
 
         supervisor.em.unsubscribe.assert_called_once_with("sub-1")
         assert supervisor._flatten_request_handler_id is None
+
+
+class TestManualCloseButterflyExpansion:
+    def test_flatten_positions_expands_single_leg_manual_close_to_butterfly_family(self):
+        supervisor = SessionSupervisor(mode="paper", dry_run=True, skip_orphan_sweep=True)
+        supervisor.broker = SimpleNamespace(close_position_verified=MagicMock())
+        supervisor.engine = SimpleNamespace(
+            active_positions={
+                "SPY260529C00757000": {"quantity": 70},
+                "SPY260529C00758000": {"quantity": -140},
+                "SPY260529C00759000": {"quantity": 70},
+                "SPY260529C00760000": {"quantity": 3},
+            },
+            _active_positions_lock=threading.Lock(),
+        )
+        supervisor._persist_verified_paper_flatten_close = MagicMock()
+        supervisor._get_positions_for_flatten = MagicMock(
+            return_value=[
+                {
+                    "position_id": "paper:SPY260529C00757000",
+                    "symbol": "SPY260529C00757000",
+                    "strategy": "butterfly",
+                    "quantity": 70,
+                    "expiration": "2026-05-29",
+                    "opened_at": "2026-05-29T10:53:01-04:00",
+                },
+                {
+                    "position_id": "paper:SPY260529C00758000",
+                    "symbol": "SPY260529C00758000",
+                    "strategy": "butterfly",
+                    "quantity": -140,
+                    "expiration": "2026-05-29",
+                    "opened_at": "2026-05-29T10:53:04-04:00",
+                },
+                {
+                    "position_id": "paper:SPY260529C00759000",
+                    "symbol": "SPY260529C00759000",
+                    "strategy": "butterfly",
+                    "quantity": 70,
+                    "expiration": "2026-05-29",
+                    "opened_at": "2026-05-29T10:53:06-04:00",
+                },
+                {
+                    "position_id": "paper:SPY260529C00760000",
+                    "symbol": "SPY260529C00760000",
+                    "strategy": "butterfly",
+                    "quantity": 3,
+                    "expiration": "2026-05-29",
+                    "opened_at": "2026-05-29T10:54:20-04:00",
+                },
+            ]
+        )
+        supervisor._submit_flatten_close = MagicMock(
+            side_effect=[
+                {"status": "verified", "order": {"order": {"id": "PAPER-1"}}},
+                {"status": "verified", "order": {"order": {"id": "PAPER-2"}}},
+                {"status": "verified", "order": {"order": {"id": "PAPER-3"}}},
+            ]
+        )
+
+        closed = supervisor._flatten_positions(
+            reason="manual_close_dashboard",
+            symbols=["SPY260529C00757000"],
+        )
+
+        assert closed == 3
+        assert [call.args[:2] for call in supervisor._submit_flatten_close.call_args_list] == [
+            ("SPY260529C00757000", 70),
+            ("SPY260529C00758000", -140),
+            ("SPY260529C00759000", 70),
+        ]
+        assert all(
+            call.kwargs == {"reason": "manual_close_dashboard"}
+            for call in supervisor._submit_flatten_close.call_args_list
+        )
 
 
 class TestPaperCarryoverManifestSource:

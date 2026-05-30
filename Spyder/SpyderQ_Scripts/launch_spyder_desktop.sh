@@ -31,10 +31,14 @@ fi
 # - Paper SessionSupervisor autostart is enabled so the desktop launch resumes
 #   the expected paper automation path by default.
 # - Deferred GUI autostart remains enabled for the dashboard handoff path.
+# - After-hours degraded-feed quote fallback is throttled by default so
+#   closed-market desktop launches do not poll core quotes every second.
 # - Keep it paper-only unless user explicitly overrides in environment.
 export SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR="${SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR:-1}"
 export SPYDER_A01_ALLOW_GUI_AUTOSTART="${SPYDER_A01_ALLOW_GUI_AUTOSTART:-1}"
 export SPYDER_A01_AUTOSTART_MODE="${SPYDER_A01_AUTOSTART_MODE:-paper}"
+export SPYDER_MAX_CONCURRENT_STRATEGIES="${SPYDER_MAX_CONCURRENT_STRATEGIES:-3}"
+export SPYDER_FEED_OFFHOURS_QUOTE_POLL_INTERVAL_S="${SPYDER_FEED_OFFHOURS_QUOTE_POLL_INTERVAL_S:-20.0}"
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "[$(date -Iseconds)] ERROR: Python binary missing: $PYTHON_BIN" >> "$LOG_FILE"

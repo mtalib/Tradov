@@ -50,7 +50,9 @@ import time
 import uuid
 import asyncio
 from collections.abc import Callable
+from datetime import UTC, date, datetime
 from typing import Any, Literal, cast
+from zoneinfo import ZoneInfo
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -62,6 +64,9 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 # ==============================================================================
 _DEFAULT_SYMBOLS = ["SPY", "SPX", "VIX"]
 _PAPER_ORCHESTRATOR_L09_DEFER_SECONDS = 0.25
+_PAPER_ZERO_DTE_FORCE_CLOSE_HOUR_ET = 15
+_PAPER_ZERO_DTE_FORCE_CLOSE_MINUTE_ET = 55
+_MANUAL_CLOSE_BUTTERFLY_CLUSTER_WINDOW_SECONDS = 10.0
 _PAPER_ORCHESTRATOR_L09_DEFER_CONFIG = {
     "defer_attribution_until_after_first_regime": True,
     "enable_quant_models": False,
@@ -903,14 +908,6 @@ class SessionSupervisor:
                 if self.mode != "paper" or self.engine is None:
                     return None
 
-                market_open_check = getattr(self.engine, "_is_market_open", None)
-                if callable(market_open_check):
-                    try:
-                        if not bool(market_open_check()):
-                            return {}
-                    except Exception:
-                        pass
-
                 active_positions = getattr(self.engine, "active_positions", {}) or {}
                 active_positions_lock = getattr(self.engine, "_active_positions_lock", None)
                 if active_positions_lock is not None:
@@ -935,6 +932,22 @@ class SessionSupervisor:
                     if normalized.get("cost_basis") in (None, ""):
                         normalized["cost_basis"] = normalized.get("entry_price", 0.0)
                     authoritative_positions[str(symbol)] = normalized
+
+                market_open_check = getattr(self.engine, "_is_market_open", None)
+                if callable(market_open_check):
+                    try:
+                        if not bool(market_open_check()):
+                            now_et = self._now_et()
+                            return {
+                                symbol: position
+                                for symbol, position in authoritative_positions.items()
+                                if self._should_surface_after_hours_zero_dte_position(
+                                    position,
+                                    now_et=now_et,
+                                )
+                            }
+                    except Exception:
+                        pass
 
                 return authoritative_positions
 
@@ -1278,6 +1291,159 @@ class SessionSupervisor:
 
         return filtered
 
+    @classmethod
+    def _position_strategy_tokens(cls, position: dict[str, Any]) -> set[str]:
+        """Return normalized strategy identifiers carried by one position row."""
+        if not isinstance(position, dict):
+            return set()
+
+        candidates = (
+            position.get("strategy_id"),
+            position.get("strategy"),
+            position.get("strategy_name"),
+        )
+        return {
+            cls._normalize_strategy_token(candidate)
+            for candidate in candidates
+            if str(candidate or "").strip()
+        }
+
+    @classmethod
+    def _is_butterfly_family_position(cls, position: dict[str, Any]) -> bool:
+        """Return True when a position belongs to a butterfly-family strategy."""
+        return any("butterfly" in token for token in cls._position_strategy_tokens(position))
+
+    @staticmethod
+    def _extract_option_underlying(symbol: str) -> str:
+        """Return the OCC-style underlying root for one option symbol."""
+        normalized = str(symbol or "").strip().upper()
+        if not normalized:
+            return ""
+
+        if "_" in normalized:
+            match = re.match(r"^([A-Z]{1,6})_\d{8}[CP]\d{8}$", normalized)
+            if match is not None:
+                return match.group(1)
+
+        if len(normalized) >= 16 and normalized[-15:-9].isdigit():
+            return normalized[:-15] or normalized
+
+        return normalized
+
+    @classmethod
+    def _resolve_position_option_underlying(cls, position: dict[str, Any]) -> str:
+        """Return the best-effort underlying root for one option position."""
+        symbol = str(position.get("symbol") or "").strip()
+        if not symbol:
+            return ""
+        return cls._extract_option_underlying(symbol)
+
+    @classmethod
+    def _resolve_position_option_expiration(cls, position: dict[str, Any]) -> date | None:
+        """Return the best-effort option expiration for one position row."""
+        symbol = str(position.get("symbol") or "").strip()
+        expiration = cls._coerce_option_expiration_date(
+            position.get("expiration")
+            or position.get("expiration_date")
+            or position.get("expiry")
+            or position.get("expiry_date")
+        )
+        if expiration is None and symbol:
+            expiration = cls._extract_option_expiration_date(symbol)
+        return expiration
+
+    @classmethod
+    def _resolve_position_opened_timestamp(cls, position: dict[str, Any]) -> float | None:
+        """Return a comparable epoch timestamp for one position's opened time."""
+        opened_at = cls._coerce_position_datetime(position.get("opened_at"))
+        if opened_at is None:
+            return None
+        if opened_at.tzinfo is None:
+            opened_at = opened_at.replace(tzinfo=UTC)
+        return opened_at.timestamp()
+
+    @classmethod
+    def _expand_manual_close_butterfly_symbols(
+        cls,
+        positions: list[dict[str, Any]],
+        symbols: list[str],
+    ) -> list[str]:
+        """Expand a dashboard manual-close leg into its full butterfly family when possible."""
+        requested_symbols = [str(symbol or "").strip() for symbol in symbols if str(symbol or "").strip()]
+        if not requested_symbols or not positions:
+            return requested_symbols
+
+        positions_by_symbol: dict[str, dict[str, Any]] = {}
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+            symbol = str(position.get("symbol") or "").strip()
+            if symbol:
+                positions_by_symbol.setdefault(symbol.upper(), position)
+
+        expanded_symbols: list[str] = []
+        seen_symbols: set[str] = set()
+
+        def _append_symbol(symbol: str) -> None:
+            normalized = str(symbol or "").strip()
+            if not normalized:
+                return
+            key = normalized.upper()
+            if key in seen_symbols:
+                return
+            seen_symbols.add(key)
+            expanded_symbols.append(normalized)
+
+        for symbol in requested_symbols:
+            _append_symbol(symbol)
+
+        safe_window_s = max(0.0, float(_MANUAL_CLOSE_BUTTERFLY_CLUSTER_WINDOW_SECONDS))
+        for symbol in requested_symbols:
+            target = positions_by_symbol.get(symbol.upper())
+            if target is None or not cls._is_butterfly_family_position(target):
+                continue
+
+            target_symbol = str(target.get("symbol") or "").strip()
+            if not cls._looks_like_option_symbol(target_symbol):
+                continue
+
+            target_underlying = cls._resolve_position_option_underlying(target)
+            target_expiration = cls._resolve_position_option_expiration(target)
+            target_opened_ts = cls._resolve_position_opened_timestamp(target)
+            target_strategy_tokens = cls._position_strategy_tokens(target)
+
+            if not target_underlying or target_expiration is None or not target_strategy_tokens:
+                continue
+
+            for candidate in positions:
+                if not isinstance(candidate, dict) or not cls._is_butterfly_family_position(candidate):
+                    continue
+
+                candidate_symbol = str(candidate.get("symbol") or "").strip()
+                if not candidate_symbol:
+                    continue
+                if not cls._looks_like_option_symbol(candidate_symbol):
+                    continue
+
+                candidate_strategy_tokens = cls._position_strategy_tokens(candidate)
+                if target_strategy_tokens.isdisjoint(candidate_strategy_tokens):
+                    continue
+                if cls._resolve_position_option_underlying(candidate) != target_underlying:
+                    continue
+                if cls._resolve_position_option_expiration(candidate) != target_expiration:
+                    continue
+
+                candidate_opened_ts = cls._resolve_position_opened_timestamp(candidate)
+                if target_opened_ts is not None and candidate_opened_ts is not None:
+                    if abs(candidate_opened_ts - target_opened_ts) > safe_window_s:
+                        continue
+                elif candidate_symbol.upper() != target_symbol.upper():
+                    continue
+
+                _append_symbol(candidate_symbol)
+
+        return expanded_symbols
+
     def _get_positions_for_paper_carryover_manifest(self) -> list[dict[str, Any]]:
         """Resolve paper positions that were actually active at graceful shutdown."""
         if self.mode != "paper":
@@ -1387,6 +1553,170 @@ class SessionSupervisor:
             close_kwargs.pop("position_quantity", None)
             return close_position(symbol, **close_kwargs)
 
+    def _emit_position_updated_event(
+        self,
+        *,
+        symbol: str,
+        strategy: str,
+        status: str,
+        reason: str,
+    ) -> None:
+        """Emit a normalized POSITION_UPDATED payload when event wiring is available."""
+        normalized_symbol = str(symbol or "").strip()
+        if not normalized_symbol:
+            return
+
+        event_manager = getattr(self, "em", None)
+        if event_manager is None:
+            return
+
+        normalized_strategy = str(strategy or "").strip()
+        normalized_status = str(status or "").strip().upper()
+        normalized_reason = str(reason or "").strip()
+
+        try:
+            from Spyder.SpyderA_Core.SpyderA05_EventManager import EventType
+
+            event_manager.emit(
+                EventType.POSITION_UPDATED,
+                {
+                    "symbol": normalized_symbol,
+                    "strategy_id": normalized_strategy,
+                    "strategy": normalized_strategy,
+                    "status": normalized_status,
+                    "reason": normalized_reason,
+                },
+                source="R12",
+            )
+        except Exception as exc:
+            self.logger.debug(
+                "Could not emit POSITION_UPDATED for %s status=%s: %s",
+                normalized_symbol,
+                normalized_status,
+                exc,
+            )
+
+    def _emit_manual_close_request_updates(
+        self,
+        positions: list[dict[str, Any]],
+        *,
+        reason: str,
+        fallback_strategy_id: str | None = None,
+    ) -> None:
+        """Emit an early manual-close marker so D31 can embargo same-strategy re-entry."""
+        if str(reason or "").strip().lower() != "manual_close_dashboard":
+            return
+
+        seen_keys: set[tuple[str, str]] = set()
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+
+            symbol = str(position.get("symbol") or "").strip()
+            strategy = str(
+                position.get("strategy")
+                or position.get("strategy_id")
+                or position.get("strategy_name")
+                or fallback_strategy_id
+                or ""
+            ).strip()
+            if not symbol or not strategy:
+                continue
+
+            anchor_symbol = str(
+                self._resolve_position_option_underlying(position) or symbol
+            ).strip().upper()
+            embargo_key = (anchor_symbol, strategy.lower())
+            if embargo_key in seen_keys:
+                continue
+            seen_keys.add(embargo_key)
+
+            self._emit_position_updated_event(
+                symbol=symbol,
+                strategy=strategy,
+                status="CLOSE_REQUESTED",
+                reason=reason,
+            )
+
+    def _persist_verified_paper_flatten_close(
+        self,
+        position: dict[str, Any],
+        result: dict[str, Any],
+        *,
+        reason: str,
+    ) -> None:
+        """Persist direct paper flatten closes that bypass FillReconciler."""
+        if self.mode != "paper":
+            return
+
+        engine = getattr(self, "engine", None)
+        session_db = getattr(engine, "_session_db", None) if engine is not None else None
+        if session_db is None:
+            return
+
+        symbol = str(position.get("symbol") or "").strip()
+        if not symbol:
+            return
+
+        qty = self._safe_int(position.get("quantity"))
+        fill_order = ((result or {}).get("fill") or {}).get("order") or {}
+        entry_price = self._safe_float(position.get("entry_price"))
+        close_price = (
+            self._safe_float(fill_order.get("avg_fill_price"))
+            or self._safe_float(position.get("current_price"))
+            or entry_price
+        )
+        strategy = str(
+            position.get("strategy")
+            or position.get("strategy_id")
+            or position.get("strategy_name")
+            or ""
+        )
+        option_type = str(position.get("option_type") or "").strip() or None
+        strike_raw = position.get("strike")
+        strike = None
+        if strike_raw not in (None, ""):
+            strike = self._safe_float(strike_raw)
+
+        try:
+            session_db.upsert_position(
+                position_id=str(position.get("position_id") or f"{self.mode}:{symbol}"),
+                symbol=symbol,
+                strategy=strategy,
+                quantity=0,
+                entry_price=entry_price,
+                current_price=close_price,
+                unrealized_pnl=0.0,
+                realized_pnl=self._calculate_paper_flatten_realized_pnl(
+                    symbol=symbol,
+                    quantity=qty,
+                    entry_price=entry_price,
+                    close_price=close_price,
+                    fallback_unrealized=self._safe_float(position.get("unrealized_pnl")),
+                    existing_realized=self._safe_float(position.get("realized_pnl")),
+                ),
+                status="CLOSED",
+                opened_at=self._coerce_position_datetime(position.get("opened_at")),
+                closed_at=datetime.now(UTC),
+                expiration=str(position.get("expiration") or "").strip() or None,
+                strike=strike,
+                option_type=option_type,
+            )
+        except Exception as exc:
+            self.logger.error(
+                "_persist_verified_paper_flatten_close failed for %s: %s",
+                symbol,
+                exc,
+            )
+            return
+
+        self._emit_position_updated_event(
+            symbol=symbol,
+            strategy=strategy,
+            status="CLOSED",
+            reason=reason,
+        )
+
     def _flatten_positions(
         self,
         *,
@@ -1406,6 +1736,8 @@ class SessionSupervisor:
             if strategy_id:
                 raw = self._filter_positions_for_strategy(raw, strategy_id)
             if symbols:
+                if str(reason or "").strip().lower() == "manual_close_dashboard":
+                    symbols = self._expand_manual_close_butterfly_symbols(raw, symbols)
                 symbol_set = {str(s or "").strip().upper() for s in symbols if s}
                 raw = [
                     p for p in raw
@@ -1415,6 +1747,12 @@ class SessionSupervisor:
             if not raw:
                 self.logger.info("_flatten_positions: no open positions — nothing to do")
                 return 0
+
+            self._emit_manual_close_request_updates(
+                raw,
+                reason=reason,
+                fallback_strategy_id=strategy_id,
+            )
 
             self.logger.warning("Flattening %d open position(s)\u2026", len(raw))
             unverified: list[str] = []
@@ -1465,6 +1803,11 @@ class SessionSupervisor:
                                 if _lock is not None and isinstance(_pos_map, dict):
                                     with _lock:
                                         _pos_map.pop(symbol, None)
+                            self._persist_verified_paper_flatten_close(
+                                pos,
+                                result,
+                                reason=reason,
+                            )
                     else:
                         closed += 1
                         order_id = (result or {}).get("order", {}).get("id", "?")
@@ -1597,12 +1940,146 @@ class SessionSupervisor:
             return 0
 
     @staticmethod
+    def _safe_float(value: Any) -> float:
+        """Convert mixed numeric payloads into float values."""
+        try:
+            return float(value)
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _coerce_position_datetime(value: Any) -> datetime | None:
+        """Parse persisted ISO timestamps back into datetime objects."""
+        if isinstance(value, datetime):
+            return value
+
+        text = str(value or "").strip()
+        if not text:
+            return None
+
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    @classmethod
+    def _calculate_paper_flatten_realized_pnl(
+        cls,
+        *,
+        symbol: str,
+        quantity: int,
+        entry_price: float,
+        close_price: float,
+        fallback_unrealized: float,
+        existing_realized: float,
+    ) -> float:
+        """Resolve realized P&L for direct paper flatten closes."""
+        if quantity and entry_price > 0.0 and close_price > 0.0:
+            multiplier = 100.0 if cls._looks_like_option_symbol(symbol) else 1.0
+            return existing_realized + ((close_price - entry_price) * quantity * multiplier)
+        return existing_realized + fallback_unrealized
+
+    @staticmethod
     def _looks_like_option_symbol(symbol: str) -> bool:
         """Heuristic option symbol check for OCC/Tradier-style contracts."""
         upper = symbol.upper()
         if "_" in upper:
             return True
         return len(upper) >= 15 and ("C" in upper or "P" in upper)
+
+    @staticmethod
+    def _now_et() -> datetime:
+        """Return the current time in US/Eastern."""
+        return datetime.now(ZoneInfo("America/New_York"))
+
+    @staticmethod
+    def _coerce_option_expiration_date(value: Any) -> date | None:
+        """Best-effort parse of persisted option expiration values."""
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+
+        text = str(value or "").strip()
+        if not text:
+            return None
+
+        for fmt in ("%Y-%m-%d", "%Y%m%d"):
+            try:
+                return datetime.strptime(text, fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    @classmethod
+    def _extract_option_expiration_date(cls, symbol: str) -> date | None:
+        """Parse OCC or underscore-style option symbols for expiration."""
+        normalized = str(symbol or "").strip().upper()
+        if not normalized:
+            return None
+
+        if "_" in normalized:
+            match = re.match(r"^[A-Z]{1,6}_(\d{8})[CP]\d{8}$", normalized)
+            if match is not None:
+                try:
+                    return datetime.strptime(match.group(1), "%Y%m%d").date()
+                except ValueError:
+                    return None
+
+        match = re.match(r"^[A-Z]{1,6}(\d{6})[CP]\d{8}$", normalized)
+        if match is None:
+            return None
+
+        try:
+            return datetime.strptime(match.group(1), "%y%m%d").date()
+        except ValueError:
+            return None
+
+    @classmethod
+    def _should_surface_after_hours_zero_dte_position(
+        cls,
+        position: dict[str, Any],
+        *,
+        now_et: datetime,
+    ) -> bool:
+        """Return True when a late after-hours startup should still expose a 0DTE option."""
+        if not isinstance(position, dict):
+            return False
+        if now_et.weekday() >= 5:
+            return False
+
+        cutoff = now_et.replace(
+            hour=_PAPER_ZERO_DTE_FORCE_CLOSE_HOUR_ET,
+            minute=_PAPER_ZERO_DTE_FORCE_CLOSE_MINUTE_ET,
+            second=0,
+            microsecond=0,
+        )
+        if now_et < cutoff:
+            return False
+
+        symbol = str(position.get("symbol") or "").strip().upper()
+        if not symbol or not cls._looks_like_option_symbol(symbol):
+            return False
+
+        try:
+            quantity = int(position.get("quantity") or 0)
+        except (TypeError, ValueError):
+            quantity = 0
+        if quantity == 0:
+            return False
+
+        expiration = cls._coerce_option_expiration_date(
+            position.get("expiration")
+            or position.get("expiration_date")
+            or position.get("expiry")
+            or position.get("expiry_date")
+        )
+        if expiration is None:
+            expiration = cls._extract_option_expiration_date(symbol)
+        if expiration is None:
+            return False
+
+        return expiration <= now_et.date()
 
 
 # ==============================================================================

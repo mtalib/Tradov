@@ -67,6 +67,10 @@ class MockZeroDTEStrategy(_BaseMockStrategy):
     pass
 
 
+class BrokenWingButterflyStrategy(_BaseMockStrategy):
+    pass
+
+
 class MockCalendarSpreadStrategy(_BaseMockStrategy):
     pass
 
@@ -109,6 +113,37 @@ def test_d31_rejects_add_strategy_when_horizon_bucket_cap_reached():
         orchestrator.add_strategy(MockCalendarSpreadStrategy, config={}, initial_allocation=0.1)
 
 
+def test_d31_defaults_bwb_to_ultra_short_bucket():
+    orchestrator = _make_orchestrator()
+    orchestrator.max_concurrent_strategies = 4
+    orchestrator.max_active_horizon_buckets = 3
+
+    strategy_id = orchestrator.add_strategy(
+        BrokenWingButterflyStrategy,
+        config={},
+        initial_allocation=0.1,
+    )
+
+    assert strategy_id in orchestrator.active_strategies
+    assert orchestrator.strategy_allocations[strategy_id].horizon_bucket == "ultra_short"
+
+    with pytest.raises(ValueError, match="Horizon-bucket already occupied"):
+        orchestrator.add_strategy(MockZeroDTEStrategy, config={}, initial_allocation=0.1)
+
+
+def test_d31_respects_explicit_longer_dte_override_for_bwb():
+    orchestrator = _make_orchestrator()
+
+    strategy_id = orchestrator.add_strategy(
+        BrokenWingButterflyStrategy,
+        config={"target_dte": 5},
+        initial_allocation=0.1,
+    )
+
+    assert strategy_id in orchestrator.active_strategies
+    assert orchestrator.strategy_allocations[strategy_id].horizon_bucket == "short"
+
+
 def test_d31_warns_when_unimplemented_overlay_flag_is_requested(monkeypatch):
     monkeypatch.setenv("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT", "true")
     mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
@@ -121,7 +156,7 @@ def test_d31_warns_when_unimplemented_overlay_flag_is_requested(monkeypatch):
 
     orchestrator = _make_orchestrator()
 
-    assert orchestrator.max_concurrent_strategies == 2
+    assert orchestrator.max_concurrent_strategies == 3
     assert orchestrator.max_active_horizon_buckets == 2
     mocked_logger.warning.assert_called_once()
     warning_text = mocked_logger.warning.call_args.args[0]

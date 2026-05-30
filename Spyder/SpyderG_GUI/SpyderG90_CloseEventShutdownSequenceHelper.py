@@ -37,8 +37,8 @@ def build_close_event_shutdown_sequence_plan() -> CloseEventShutdownSequencePlan
             QThreadShutdownSpec(
                 thread_attr="market_thread",
                 label="market_thread",
-                wait_ms=1500,
-                terminate_wait_ms=2000,
+                wait_ms=5000,
+                terminate_wait_ms=5000,
             ),
             QThreadShutdownSpec(
                 thread_attr="_paper_thread",

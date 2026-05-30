@@ -47,6 +47,7 @@ from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
 from Spyder.SpyderD_Strategies.SpyderD00_StrategyConstants import (
     StrategyLifecycleState,
 )
+from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import TradingHours
 
 # Optional pivot mean-reversion signal (S08). When the module is missing we
 # leave PIVOT_MR_SIGNAL_AVAILABLE = False and the worker silently falls back
@@ -2371,6 +2372,54 @@ class PaperTradingQtWorker(QObject):
             f"P&L=${realized:+,.2f}{commission_note}"
         )
         self._save_state()
+        self._emit_manual_close_position_updated(position, reason=reason, closer=closer)
+
+    def _emit_manual_close_position_updated(
+        self,
+        position: dict,
+        *,
+        reason: str,
+        closer: str,
+    ) -> None:
+        """Publish a manual-close POSITION_UPDATED event for D31 reentry embargoes."""
+        if str(reason or "").strip().upper() != "MANUAL_CLOSE":
+            return
+        if str(closer or "").strip().upper() != "USER":
+            return
+
+        symbol = str(
+            position.get("symbol")
+            or position.get("underlying_symbol")
+            or "SPY"
+        ).strip().upper()
+        strategy_id = str(
+            position.get("strategy_id")
+            or position.get("strategy")
+            or position.get("structure")
+            or ""
+        ).strip().lower()
+        if not symbol or not strategy_id:
+            return
+
+        try:
+            from Spyder.SpyderA_Core.SpyderA05_EventManager import (  # noqa: PLC0415
+                EventType,
+                get_event_manager,
+            )
+
+            get_event_manager().emit(
+                EventType.POSITION_UPDATED,
+                {
+                    "symbol": symbol,
+                    "strategy_id": strategy_id,
+                    "strategy": strategy_id,
+                    "status": "CLOSED",
+                    "reason": "manual_close_dashboard",
+                },
+                source="SpyderR08",
+            )
+        except Exception:
+            pass
 
     def _mark_spreads_mtm(self) -> None:
         """MTM all open spreads against live mids; auto-close on exit rules.
@@ -2391,6 +2440,9 @@ class PaperTradingQtWorker(QObject):
              that catches any position that survived through overnight).
         """
         if not self._open_spreads:
+            return
+        # Preserve the last in-session spread mark after the regular cash close.
+        if not self._is_spy_mtm_marking_hours():
             return
         try:
             stop_mult = float(
@@ -2503,6 +2555,14 @@ class PaperTradingQtWorker(QObject):
                     self._close_paper_credit_spread(
                         position, debit_to_close, reason=f"(DTE={dte} force-close)"
                     )
+
+    def _is_spy_mtm_marking_hours(self, now: datetime | None = None) -> bool:
+        """Return whether paper SPY spread MTM should keep updating."""
+        try:
+            current_dt = now if now is not None else datetime.now(UTC)
+            return bool(TradingHours().is_regular_hours(current_dt))
+        except Exception:
+            return True
 
     def _spreads_unrealized_pnl(self) -> float:
         """Best-effort unrealized P&L across all open spreads (last MTM refs)."""

@@ -1290,6 +1290,53 @@ class TestE21HMMRegimeDetector:
     def test_hmm_model_metrics_dataclass(self):
         assert hasattr(_e21, "HMMModelMetrics")
 
+    def test_prepare_features_returns_observations_by_features(self):
+        import numpy as np
+        import pandas as pd
+
+        det = _e21.HMMRegimeDetector(use_hmm=False)
+        returns_df = pd.DataFrame(
+            {"SPY": np.linspace(-0.02, 0.02, 30)},
+            index=pd.date_range("2026-01-01", periods=30, freq="D"),
+        )
+        vix_df = pd.DataFrame(
+            {"VIX": np.linspace(14.0, 20.0, 30)},
+            index=returns_df.index,
+        )
+
+        features = det._prepare_features(returns_df, None, vix_df)
+
+        assert features.shape == (30, 6)
+        assert np.isfinite(features).all()
+
+    def test_build_stationary_distribution_returns_normalized_weights(self):
+        import numpy as np
+
+        det = _e21.HMMRegimeDetector(use_hmm=False)
+
+        class _Model:
+            transmat_ = np.array(
+                [[0.8, 0.1, 0.1], [0.2, 0.7, 0.1], [0.1, 0.2, 0.7]],
+                dtype=float,
+            )
+            means_ = np.array([[1.0], [2.0], [3.0]], dtype=float)
+
+        stationary = det._build_stationary_distribution(_Model())
+
+        assert stationary is not None
+        weights, means = stationary
+        assert np.isclose(weights.sum(), 1.0)
+        assert np.isfinite(weights).all()
+        assert means.shape == (3, 1)
+
+    def test_regime_from_index_maps_legacy_state_order(self):
+        det = _e21.HMMRegimeDetector(use_hmm=False)
+
+        assert det._regime_from_index(0) is _e21.MarketRegime.BULL
+        assert det._regime_from_index(1) is _e21.MarketRegime.CHOP
+        assert det._regime_from_index(2) is _e21.MarketRegime.CRISIS
+        assert det._regime_from_index(99) is _e21.MarketRegime.UNKNOWN
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # E22 — KernelRegression

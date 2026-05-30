@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import math
+
 from Spyder.SpyderG_GUI.SpyderG108_CustomMetricBreadthDialogSyncHelper import (
     build_custom_metric_breadth_dialog_payload,
 )
@@ -45,3 +47,23 @@ def test_build_custom_metric_breadth_dialog_payload_rejects_missing_or_all_nan_c
             "NYMO": {"value": -12.0},
         }
     ) is None
+
+
+def test_build_custom_metric_breadth_dialog_payload_marks_stale_core_values_unavailable() -> None:
+    payload = build_custom_metric_breadth_dialog_payload(
+        {
+            "TICK": {"value": 1200.0, "stale": True},
+            "ADD": {"value": 250.0},
+            "TRIN": {"value": 0.86},
+            "NYMO": {"value": -12.0},
+            "BREADTH_REGIME": {"value": "risk_on", "stale": True},
+        }
+    )
+
+    assert payload is not None
+    assert math.isnan(payload["tick"])
+    assert math.isnan(payload["add"])
+    assert math.isnan(payload["trin"])
+    assert math.isnan(payload["nymo"])
+    assert payload["breadth_regime"] == ""
+    assert payload["stale"] is True

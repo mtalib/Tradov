@@ -512,6 +512,7 @@ def test_set_start_button_active_state_uses_helper_for_live_mode(
         {
             "has_start_button": True,
             "is_paper_mode": False,
+            "market_open": True,
             "automation_active_color": g05.COLORS["automation_active"],
         }
     ]
@@ -521,3 +522,43 @@ def test_set_start_button_active_state_uses_helper_for_live_mode(
     dash.start_btn.setText.assert_called_once_with("TRADING ACTIVE")
     dash.start_btn.setEnabled.assert_called_once_with(True)
     dash.start_btn.setToolTip.assert_called_once_with("live active tooltip")
+
+
+def test_set_start_button_active_state_uses_helper_for_after_hours_paper(
+    monkeypatch,
+) -> None:
+    dash = _build_dashboard_stub()
+    dash.trading_mode = TradingMode.PAPER
+
+    helper_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(g05, "is_market_hours", lambda: False)
+    monkeypatch.setattr(
+        g05,
+        "build_start_button_active_state_plan",
+        lambda **kwargs: helper_calls.append(dict(kwargs))
+        or SimpleNamespace(
+            action="render",
+            style_sheet="background-color: #004466; color: white;",
+            text="PAPER STANDBY",
+            enabled=True,
+            tooltip="after-hours paper tooltip",
+        ),
+    )
+
+    SpyderTradingDashboard._set_start_button_active_state(dash)
+
+    assert helper_calls == [
+        {
+            "has_start_button": True,
+            "is_paper_mode": True,
+            "market_open": False,
+            "automation_active_color": g05.COLORS["automation_active"],
+        }
+    ]
+    dash.start_btn.setStyleSheet.assert_called_once_with(
+        "background-color: #004466; color: white;"
+    )
+    dash.start_btn.setText.assert_called_once_with("PAPER STANDBY")
+    dash.start_btn.setEnabled.assert_called_once_with(True)
+    dash.start_btn.setToolTip.assert_called_once_with("after-hours paper tooltip")

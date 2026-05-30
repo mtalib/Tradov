@@ -21,20 +21,31 @@ def build_start_button_active_state_plan(
     *,
     has_start_button: bool,
     is_paper_mode: bool,
+    market_open: bool,
     automation_active_color: str,
 ) -> StartButtonActiveStatePlan:
     """Decide whether to render the steady-state active button and its copy."""
     if not has_start_button:
         return StartButtonActiveStatePlan(action="noop")
 
+    is_after_hours_paper = is_paper_mode and not market_open
+
     return StartButtonActiveStatePlan(
         action="render",
         style_sheet=f"background-color: {automation_active_color}; color: white;",
-        text="PAPER ACTIVE" if is_paper_mode else "TRADING ACTIVE",
+        text=(
+            "PAPER STANDBY"
+            if is_after_hours_paper
+            else ("PAPER ACTIVE" if is_paper_mode else "TRADING ACTIVE")
+        ),
         enabled=True,
         tooltip=(
-            "Paper trading session is active"
-            if is_paper_mode
-            else "Live trading session is active"
+            "Paper session is connected and waiting for market open"
+            if is_after_hours_paper
+            else (
+                "Paper trading session is active"
+                if is_paper_mode
+                else "Live trading session is active"
+            )
         ),
     )

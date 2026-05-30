@@ -103,6 +103,8 @@ ZDTE_SHORT_DELTA_TOLERANCE: float = 0.07  # accept 0.08 – 0.22
 ZDTE_WING_WIDTH_DOLLARS: float = 5.0
 ZDTE_MIN_TOTAL_CREDIT: float = 0.50     # combined put + call credit
 ZDTE_MAX_OPEN: int = 1
+DEFAULT_ZERO_DTE_PROFILE: str = "classic"
+MARK_SPY_PAPER_ZERO_DTE_PROFILE: str = "mark_spy_paper"
 
 # Shared exit rules
 PROFIT_TARGET_PCT: float = 0.50         # close at +50 % of credit
@@ -133,6 +135,47 @@ REGIME_VIX_SYMBOL: str = "VIX"          # Tradier accepts "VIX" directly
 BP_MAX_VIX: float = 30.0                # skip new bull-puts above this
 ZDTE_MAX_VIX: float = 35.0              # skip new 0DTE ICs above this
 
+ZERO_DTE_PROFILE_CONFIGS: dict[str, dict[str, Any]] = {
+    DEFAULT_ZERO_DTE_PROFILE: {
+        "target_short_delta": ZDTE_TARGET_SHORT_DELTA,
+        "short_delta_min": 0.08,
+        "short_delta_max": 0.22,
+        "wing_width_dollars": ZDTE_WING_WIDTH_DOLLARS,
+        "min_total_credit": ZDTE_MIN_TOTAL_CREDIT,
+        "entry_start_et": ZDTE_ENTRY_START_ET,
+        "entry_end_et": ZDTE_ENTRY_END_ET,
+        "hard_close_et": ZDTE_HARD_CLOSE_ET,
+        "max_open": ZDTE_MAX_OPEN,
+        "max_daily_entries": 3,
+        "max_vix": ZDTE_MAX_VIX,
+        "profit_target_pct": PROFIT_TARGET_PCT,
+        "stop_loss_multiple": STOP_LOSS_MULTIPLE,
+        "threat_buffer_pct": STRIKE_THREAT_PCT,
+        "threat_buffer_points": None,
+        "risk_pct_per_trade": RISK_PCT_PER_TRADE,
+        "max_contracts_cap": MAX_CONTRACTS_CAP,
+    },
+    MARK_SPY_PAPER_ZERO_DTE_PROFILE: {
+        "target_short_delta": 0.12,
+        "short_delta_min": 0.07,
+        "short_delta_max": 0.20,
+        "wing_width_dollars": 1.0,
+        "min_total_credit": 0.20,
+        "entry_start_et": time(9, 32),
+        "entry_end_et": time(14, 30),
+        "hard_close_et": time(15, 15),
+        "max_open": 4,
+        "max_daily_entries": 8,
+        "max_vix": 30.0,
+        "profit_target_pct": 0.30,
+        "stop_loss_multiple": 1.25,
+        "threat_buffer_pct": None,
+        "threat_buffer_points": 0.35,
+        "risk_pct_per_trade": 0.005,
+        "max_contracts_cap": 5,
+    },
+}
+
 # ---- Portfolio Greek ceilings (lightweight stand-in for SpyderE15) ----
 # Caps are expressed as absolute values per contract unit. Position Greeks
 # are captured at fill and summed across open positions. New entries that
@@ -140,6 +183,7 @@ ZDTE_MAX_VIX: float = 35.0              # skip new 0DTE ICs above this
 MAX_PORTFOLIO_DELTA: float = 50.0       # |Σ delta × 100 × contracts|
 MAX_PORTFOLIO_VEGA: float = 200.0       # |Σ vega × 100 × contracts|
 MAX_PORTFOLIO_GAMMA: float = 10.0       # |Σ gamma × 100 × contracts|
+MARK_SPY_PAPER_PORTFOLIO_GAMMA_CAP: float = 11.0
 
 
 # ==============================================================================
@@ -255,7 +299,14 @@ class StrategyAdapter:
 
     name: str = "StrategyAdapter"
     max_open: int = 1
+    max_daily_entries: int | None = None
     max_vix: float | None = None   # None → no regime gate
+    profit_target_pct: float = PROFIT_TARGET_PCT
+    stop_loss_multiple: float = STOP_LOSS_MULTIPLE
+    threat_buffer_pct: float | None = STRIKE_THREAT_PCT
+    threat_buffer_points: float | None = None
+    risk_pct_per_trade: float = RISK_PCT_PER_TRADE
+    max_contracts_cap: int = MAX_CONTRACTS_CAP
 
     def within_entry_window(self, now: datetime) -> bool:  # pragma: no cover
         # A15 (v14): Safe no-op default. Any concrete adapter overrides this;
@@ -332,17 +383,38 @@ class StrategyAdapter:
         loss / strike threat). Subclasses override and call super().
         """
         profit = pos.credit_received - cur_debit
-        if profit >= PROFIT_TARGET_PCT * pos.credit_received:
-            return f"profit_target ({PROFIT_TARGET_PCT:.0%})"
-        if profit <= -STOP_LOSS_MULTIPLE * pos.credit_received:
-            return f"stop_loss ({STOP_LOSS_MULTIPLE:.0%} credit)"
-        if pos.short_put_strike is not None and ctx.spy_price <= pos.short_put_strike * (
-            1.0 + STRIKE_THREAT_PCT
-        ):
+        if profit >= self.profit_target_pct * pos.credit_received:
+            return f"profit_target ({self.profit_target_pct:.0%})"
+        if profit <= -self.stop_loss_multiple * pos.credit_received:
+            return f"stop_loss ({self.stop_loss_multiple:.0%} credit)"
+
+        if self.threat_buffer_points is not None:
+            put_threat_price = (
+                pos.short_put_strike + self.threat_buffer_points
+                if pos.short_put_strike is not None
+                else None
+            )
+            call_threat_price = (
+                pos.short_call_strike - self.threat_buffer_points
+                if pos.short_call_strike is not None
+                else None
+            )
+        else:
+            threat_pct = self.threat_buffer_pct or STRIKE_THREAT_PCT
+            put_threat_price = (
+                pos.short_put_strike * (1.0 + threat_pct)
+                if pos.short_put_strike is not None
+                else None
+            )
+            call_threat_price = (
+                pos.short_call_strike * (1.0 - threat_pct)
+                if pos.short_call_strike is not None
+                else None
+            )
+
+        if put_threat_price is not None and ctx.spy_price <= put_threat_price:
             return f"short_put_threat @ {pos.short_put_strike:.0f}"
-        if pos.short_call_strike is not None and ctx.spy_price >= pos.short_call_strike * (
-            1.0 - STRIKE_THREAT_PCT
-        ):
+        if call_threat_price is not None and ctx.spy_price >= call_threat_price:
             return f"short_call_threat @ {pos.short_call_strike:.0f}"
         return None
 
@@ -422,11 +494,121 @@ class ZeroDTEAdapter(StrategyAdapter):
     """0DTE iron condor adapter (~0.15-Δ shorts, $5 wings)."""
 
     name = "ZeroDTE_IronCondor"
-    max_open = ZDTE_MAX_OPEN
-    max_vix = ZDTE_MAX_VIX
+
+    def __init__(self, profile_name: str = DEFAULT_ZERO_DTE_PROFILE) -> None:
+        normalized_profile = str(profile_name or DEFAULT_ZERO_DTE_PROFILE).strip().lower()
+        settings = ZERO_DTE_PROFILE_CONFIGS.get(normalized_profile)
+        if settings is None:
+            normalized_profile = DEFAULT_ZERO_DTE_PROFILE
+            settings = ZERO_DTE_PROFILE_CONFIGS[normalized_profile]
+
+        self.profile_name = normalized_profile
+        self.target_short_delta = float(settings["target_short_delta"])
+        self.short_delta_min = float(settings["short_delta_min"])
+        self.short_delta_max = float(settings["short_delta_max"])
+        self.wing_width_dollars = float(settings["wing_width_dollars"])
+        self.min_total_credit = float(settings["min_total_credit"])
+        self.entry_start_et = settings["entry_start_et"]
+        self.entry_end_et = settings["entry_end_et"]
+        self.hard_close_et = settings["hard_close_et"]
+        self.max_open = int(settings["max_open"])
+        self.max_daily_entries = int(settings["max_daily_entries"])
+        self.max_vix = float(settings["max_vix"])
+        self.profit_target_pct = float(settings["profit_target_pct"])
+        self.stop_loss_multiple = float(settings["stop_loss_multiple"])
+        threat_buffer_pct = settings.get("threat_buffer_pct")
+        self.threat_buffer_pct = (
+            None if threat_buffer_pct is None else float(threat_buffer_pct)
+        )
+        threat_buffer_points = settings.get("threat_buffer_points")
+        self.threat_buffer_points = (
+            None if threat_buffer_points is None else float(threat_buffer_points)
+        )
+        self.risk_pct_per_trade = float(settings["risk_pct_per_trade"])
+        self.max_contracts_cap = int(settings["max_contracts_cap"])
 
     def within_entry_window(self, now: datetime) -> bool:
-        return ZDTE_ENTRY_START_ET <= now.time() <= ZDTE_ENTRY_END_ET
+        return self.entry_start_et <= now.time() <= self.entry_end_et
+
+    def _find_short_leg(
+        self,
+        options: list[Any],
+        spot: float,
+        runner: PaperStrategyRunner,
+        option_type: str,
+    ) -> Any | None:
+        best = None
+        best_err = float("inf")
+        for option in options:
+            strike = float(runner.field_of(option, "strike", 0.0) or 0.0)
+            if strike <= 0:
+                continue
+            if option_type == "put" and strike >= spot:
+                continue
+            if option_type == "call" and strike <= spot:
+                continue
+
+            _, _, delta = runner.quote_of(option)
+            if delta == 0.0:
+                continue
+
+            abs_delta = abs(delta)
+            if abs_delta < self.short_delta_min or abs_delta > self.short_delta_max:
+                continue
+
+            err = abs(abs_delta - self.target_short_delta)
+            if err < best_err:
+                best = option
+                best_err = err
+
+        if best is not None:
+            return best
+
+        tolerance = max(
+            abs(self.short_delta_max - self.target_short_delta),
+            abs(self.target_short_delta - self.short_delta_min),
+        )
+        if option_type == "put":
+            return runner.find_put_by_delta(options, spot, self.target_short_delta, tolerance)
+        return runner.find_call_by_delta(options, spot, self.target_short_delta, tolerance)
+
+    def _short_leg_candidates(
+        self,
+        options: list[Any],
+        spot: float,
+        runner: PaperStrategyRunner,
+        option_type: str,
+    ) -> list[Any]:
+        candidates: list[tuple[float, Any]] = []
+        for option in options:
+            strike = float(runner.field_of(option, "strike", 0.0) or 0.0)
+            if strike <= 0:
+                continue
+            if option_type == "put" and strike >= spot:
+                continue
+            if option_type == "call" and strike <= spot:
+                continue
+
+            _, _, delta = runner.quote_of(option)
+            if delta == 0.0:
+                continue
+
+            abs_delta = abs(delta)
+            if abs_delta < self.short_delta_min or abs_delta > self.short_delta_max:
+                continue
+
+            err = abs(abs_delta - self.target_short_delta)
+            candidates.append((err, option))
+
+        candidates.sort(key=lambda item: item[0])
+        ordered = [option for _, option in candidates]
+        if ordered:
+            return ordered
+
+        fallback = self._find_short_leg(options, spot, runner, option_type)
+        if fallback is None:
+            return []
+        return [fallback]
 
     def evaluate_entry(
         self,
@@ -441,31 +623,59 @@ class ZeroDTEAdapter(StrategyAdapter):
             return None
         puts = [o for o in chain if str(runner.field_of(o, "option_type", "")).lower() == "put"]
         calls = [o for o in chain if str(runner.field_of(o, "option_type", "")).lower() == "call"]
-        sp = runner.find_put_by_delta(
-            puts, ctx.spy_price, ZDTE_TARGET_SHORT_DELTA, ZDTE_SHORT_DELTA_TOLERANCE,
-        )
-        sc = runner.find_call_by_delta(
-            calls, ctx.spy_price, ZDTE_TARGET_SHORT_DELTA, ZDTE_SHORT_DELTA_TOLERANCE,
-        )
-        if sp is None or sc is None:
+        put_candidates = self._short_leg_candidates(puts, ctx.spy_price, runner, "put")
+        call_candidates = self._short_leg_candidates(calls, ctx.spy_price, runner, "call")
+        if not put_candidates or not call_candidates:
             return None
+
+        selected: tuple[Any, Any, Any, Any, float] | None = None
+        selected_err: float | None = None
+        selected_credit: float | None = None
+        for sp in put_candidates:
+            sp_strike = float(runner.field_of(sp, "strike"))
+            lp = runner.find_strike(puts, sp_strike - self.wing_width_dollars)
+            if lp is None:
+                continue
+            sp_b, sp_a, sp_delta = runner.quote_of(sp)
+            lp_b, lp_a, _ = runner.quote_of(lp)
+            sp_fill = max(0.0, runner.mid(sp_b, sp_a) - FILL_SLIPPAGE_PER_LEG)
+            lp_fill = runner.mid(lp_b, lp_a) + FILL_SLIPPAGE_PER_LEG
+
+            for sc in call_candidates:
+                sc_strike = float(runner.field_of(sc, "strike"))
+                lc = runner.find_strike(calls, sc_strike + self.wing_width_dollars)
+                if lc is None:
+                    continue
+
+                sc_b, sc_a, sc_delta = runner.quote_of(sc)
+                lc_b, lc_a, _ = runner.quote_of(lc)
+                sc_fill = max(0.0, runner.mid(sc_b, sc_a) - FILL_SLIPPAGE_PER_LEG)
+                lc_fill = runner.mid(lc_b, lc_a) + FILL_SLIPPAGE_PER_LEG
+                credit = (sp_fill - lp_fill) + (sc_fill - lc_fill)
+                if credit < self.min_total_credit:
+                    continue
+
+                total_err = abs(abs(sp_delta) - self.target_short_delta) + abs(abs(sc_delta) - self.target_short_delta)
+                if (
+                    selected is None
+                    or total_err < (selected_err or float("inf"))
+                    or (
+                        selected_err is not None
+                        and abs(total_err - selected_err) < 1e-9
+                        and selected_credit is not None
+                        and credit > selected_credit
+                    )
+                ):
+                    selected = (sp, lp, sc, lc, credit)
+                    selected_err = total_err
+                    selected_credit = credit
+
+        if selected is None:
+            return None
+
+        sp, lp, sc, lc, credit = selected
         sp_strike = float(runner.field_of(sp, "strike"))
         sc_strike = float(runner.field_of(sc, "strike"))
-        lp = runner.find_strike(puts, sp_strike - ZDTE_WING_WIDTH_DOLLARS)
-        lc = runner.find_strike(calls, sc_strike + ZDTE_WING_WIDTH_DOLLARS)
-        if lp is None or lc is None:
-            return None
-        sp_b, sp_a, _ = runner.quote_of(sp)
-        lp_b, lp_a, _ = runner.quote_of(lp)
-        sc_b, sc_a, _ = runner.quote_of(sc)
-        lc_b, lc_a, _ = runner.quote_of(lc)
-        sp_fill = max(0.0, runner.mid(sp_b, sp_a) - FILL_SLIPPAGE_PER_LEG)
-        lp_fill = runner.mid(lp_b, lp_a) + FILL_SLIPPAGE_PER_LEG
-        sc_fill = max(0.0, runner.mid(sc_b, sc_a) - FILL_SLIPPAGE_PER_LEG)
-        lc_fill = runner.mid(lc_b, lc_a) + FILL_SLIPPAGE_PER_LEG
-        credit = (sp_fill - lp_fill) + (sc_fill - lc_fill)
-        if credit < ZDTE_MIN_TOTAL_CREDIT:
-            return None
         lp_strike = float(runner.field_of(lp, "strike"))
         lc_strike = float(runner.field_of(lc, "strike"))
         put_width = sp_strike - lp_strike
@@ -485,7 +695,16 @@ class ZeroDTEAdapter(StrategyAdapter):
             short_put_strike=sp_strike,
             short_call_strike=sc_strike,
             primary_symbol=str(runner.field_of(sp, "symbol", "")),
-            metadata={"spy_at_entry": ctx.spy_price, "strategy_type": "iron_condor"},
+            metadata={
+                "spy_at_entry": ctx.spy_price,
+                "strategy_type": "iron_condor",
+                "profile": self.profile_name,
+                "profit_target_pct": self.profit_target_pct,
+                "stop_loss_multiple": self.stop_loss_multiple,
+                "threat_buffer_points": self.threat_buffer_points,
+                "risk_pct_per_trade": self.risk_pct_per_trade,
+                "max_contracts_cap": self.max_contracts_cap,
+            },
         )
 
     def evaluate_exit(
@@ -497,9 +716,23 @@ class ZeroDTEAdapter(StrategyAdapter):
         base = super().evaluate_exit(pos, ctx, cur_debit)
         if base is not None:
             return base
-        if ctx.now.time() >= ZDTE_HARD_CLOSE_ET:
-            return "zdte_hard_close_15:30"
+        if ctx.now.time() >= self.hard_close_et:
+            return f"zdte_hard_close_{self.hard_close_et.strftime('%H:%M')}"
         return None
+
+
+def _prioritize_zero_dte_adapter(profile_name: str) -> bool:
+    """Return True when the ZeroDTE adapter should evaluate before BullPut."""
+    normalized_profile = str(profile_name or DEFAULT_ZERO_DTE_PROFILE).strip().lower()
+    return normalized_profile == MARK_SPY_PAPER_ZERO_DTE_PROFILE
+
+
+def _resolve_portfolio_gamma_cap(profile_name: str) -> float:
+    """Return the portfolio gamma ceiling for the selected ZeroDTE profile."""
+    normalized_profile = str(profile_name or DEFAULT_ZERO_DTE_PROFILE).strip().lower()
+    if normalized_profile == MARK_SPY_PAPER_ZERO_DTE_PROFILE:
+        return MARK_SPY_PAPER_PORTFOLIO_GAMMA_CAP
+    return MAX_PORTFOLIO_GAMMA
 
 
 # ==============================================================================
@@ -535,6 +768,7 @@ class PaperStrategyRunner:
         max_concurrent_positions: int = DEFAULT_MAX_CONCURRENT,
         enable_bull_put: bool = True,
         enable_zero_dte: bool = True,
+        zero_dte_profile: str = DEFAULT_ZERO_DTE_PROFILE,
         risk_manager: RiskManagerProtocol | None = None,
         starting_equity: float = DEFAULT_STARTING_EQUITY,
         adapters: list[StrategyAdapter] | None = None,
@@ -545,6 +779,9 @@ class PaperStrategyRunner:
         self._max_concurrent = max_concurrent_positions
         self._risk_manager = risk_manager
         self._starting_equity = float(starting_equity)
+        self._portfolio_delta_cap = MAX_PORTFOLIO_DELTA
+        self._portfolio_vega_cap = MAX_PORTFOLIO_VEGA
+        self._portfolio_gamma_cap = _resolve_portfolio_gamma_cap(zero_dte_profile)
         if sandbox_replayer is not None:
             logger.warning(
                 "PaperStrategyRunner: deferred replay service ignored by live-only policy"
@@ -553,6 +790,8 @@ class PaperStrategyRunner:
 
         self._positions: list[SimulatedPosition] = []
         self._cumulative_sim_pnl: float = 0.0
+        self._daily_entry_counts: dict[str, int] = {}
+        self._daily_entry_date: date | None = None
 
         # Simple per-strategy cooldown to avoid thrashing on rejected signals
         self._last_entry_attempt: dict[str, datetime] = {}
@@ -566,16 +805,22 @@ class PaperStrategyRunner:
             self._adapters: list[StrategyAdapter] = list(adapters)
         else:
             self._adapters = []
+            prioritize_zero_dte = enable_zero_dte and _prioritize_zero_dte_adapter(
+                zero_dte_profile,
+            )
+            if prioritize_zero_dte:
+                self._adapters.append(ZeroDTEAdapter(profile_name=zero_dte_profile))
             if enable_bull_put:
                 self._adapters.append(BullPutAdapter())
-            if enable_zero_dte:
-                self._adapters.append(ZeroDTEAdapter())
+            if enable_zero_dte and not prioritize_zero_dte:
+                self._adapters.append(ZeroDTEAdapter(profile_name=zero_dte_profile))
 
         logger.info(
             "PaperStrategyRunner initialised — adapters=%s max_concurrent=%d "
-            "risk_gate=%s starting_equity=$%.0f",
+            "zero_dte_profile=%s risk_gate=%s starting_equity=$%.0f",
             [a.name for a in self._adapters],
             max_concurrent_positions,
+            zero_dte_profile,
             "on" if risk_manager is not None else "off",
             self._starting_equity,
         )
@@ -613,7 +858,9 @@ class PaperStrategyRunner:
 
         Returns:
             A dict with keys: ``spy_price``, ``open_positions``,
-            ``closes_this_tick``, ``opens_this_tick``, ``sim_pnl``.
+            ``closes_this_tick``, ``opens_this_tick``, ``sim_pnl``,
+            ``top_no_entry_reason``, ``no_entry_reason_counts``, and
+            ``no_entry_reasons_by_adapter``.
         """
         if now_et is None:
             now = datetime.now(_ET_TZ)
@@ -622,12 +869,14 @@ class PaperStrategyRunner:
         else:
             now = now_et.astimezone(_ET_TZ)
 
+        self._reset_daily_entry_counts_if_needed(now.date())
+
         # 1) Pull SPY + VIX quotes in one batched call
         spy_quote, vix_price = self._get_spy_and_vix()
         if spy_quote is None:
             return {
                 "spy_price": 0.0,
-                "open_positions": len(self._positions),
+                "open_positions": self._count_open_total(),
                 "closes_this_tick": 0,
                 "opens_this_tick": 0,
                 "sim_pnl": self._cumulative_sim_pnl,
@@ -641,35 +890,52 @@ class PaperStrategyRunner:
         # 3) Entry evaluation — iterate adapters (respect overall + per-strategy caps)
         opens = 0
         no_entry_reasons: list[str] = []
+        no_entry_reasons_by_adapter: dict[str, str] = {}
+
+        def record_no_entry(adapter_name: str, reason: str) -> None:
+            no_entry_reasons.append(f"{adapter_name}:{reason}")
+            no_entry_reasons_by_adapter[adapter_name] = reason
+
         for adapter in self._adapters:
-            if len(self._positions) >= self._max_concurrent:
-                no_entry_reasons.append(f"{adapter.name}:max_concurrent_cap")
+            if self._count_open_total() >= self._max_concurrent:
+                record_no_entry(adapter.name, "max_concurrent_cap")
                 break
             if self._count_open(adapter.name) >= adapter.max_open:
-                no_entry_reasons.append(f"{adapter.name}:strategy_open_cap")
+                record_no_entry(adapter.name, "strategy_open_cap")
+                continue
+            if (
+                adapter.max_daily_entries is not None
+                and self._count_entries_today(adapter.name) >= adapter.max_daily_entries
+            ):
+                record_no_entry(adapter.name, "daily_entry_cap")
                 continue
             if not adapter.within_entry_window(now):
-                no_entry_reasons.append(f"{adapter.name}:outside_entry_window")
+                record_no_entry(adapter.name, "outside_entry_window")
                 continue
             if not self._cooldown_ok(adapter.name, now):
                 # When a strategy already has an open position, cooldown spam
                 # is not actionable. Suppress it so logs emphasize real gates.
                 if self._count_open(adapter.name) <= 0:
-                    no_entry_reasons.append(f"{adapter.name}:cooldown")
+                    record_no_entry(adapter.name, "cooldown")
                 continue
             opened, reject_reason = self._try_enter(adapter, ctx)
             if opened:
                 opens += 1
                 self._last_entry_attempt[adapter.name] = now
             else:
-                no_entry_reasons.append(f"{adapter.name}:{reject_reason}")
+                record_no_entry(adapter.name, reject_reason or "rejected")
 
         top_no_entry_reason = ""
         no_entry_reason_counts: dict[str, int] = {}
+        no_entry_details = ""
         if no_entry_reasons:
             counts = Counter(no_entry_reasons)
             top_no_entry_reason, _ = counts.most_common(1)[0]
             no_entry_reason_counts = dict(counts)
+            no_entry_details = ", ".join(
+                f"{adapter_name}:{reason}"
+                for adapter_name, reason in no_entry_reasons_by_adapter.items()
+            )
 
         if opens == 0 and no_entry_reasons:
             should_log_summary = (
@@ -678,11 +944,19 @@ class PaperStrategyRunner:
             )
             if should_log_summary:
                 self._last_no_entry_summary_ts = now
-                logger.info(
-                    "No-entry summary: adapters=%d top_reason=%s",
-                    len(self._adapters),
-                    top_no_entry_reason,
-                )
+                if len(no_entry_reasons_by_adapter) > 1 and no_entry_details:
+                    logger.info(
+                        "No-entry summary: adapters=%d top_reason=%s details=%s",
+                        len(self._adapters),
+                        top_no_entry_reason,
+                        no_entry_details,
+                    )
+                else:
+                    logger.info(
+                        "No-entry summary: adapters=%d top_reason=%s",
+                        len(self._adapters),
+                        top_no_entry_reason,
+                    )
 
         return {
             "spy_price": spy_price,
@@ -692,6 +966,7 @@ class PaperStrategyRunner:
             "sim_pnl": self._cumulative_sim_pnl,
             "top_no_entry_reason": top_no_entry_reason,
             "no_entry_reason_counts": no_entry_reason_counts,
+            "no_entry_reasons_by_adapter": dict(no_entry_reasons_by_adapter),
         }
 
     def close_all_positions(self, reason: str = "session_end") -> int:
@@ -796,6 +1071,21 @@ class PaperStrategyRunner:
     def _count_open(self, strategy: str) -> int:
         return sum(1 for p in self._positions if p.is_open and p.strategy == strategy)
 
+    def _count_open_total(self) -> int:
+        return sum(1 for p in self._positions if p.is_open)
+
+    def _reset_daily_entry_counts_if_needed(self, trading_day: date) -> None:
+        if self._daily_entry_date != trading_day:
+            self._daily_entry_date = trading_day
+            self._daily_entry_counts = {}
+
+    def _count_entries_today(self, strategy: str) -> int:
+        return int(self._daily_entry_counts.get(strategy, 0))
+
+    def _record_entry_today(self, strategy: str, trading_day: date) -> None:
+        self._reset_daily_entry_counts_if_needed(trading_day)
+        self._daily_entry_counts[strategy] = self._count_entries_today(strategy) + 1
+
     def _cooldown_ok(self, key: str, now: datetime) -> bool:
         last = self._last_entry_attempt.get(key)
         if last is None:
@@ -844,18 +1134,23 @@ class PaperStrategyRunner:
             pass
         return self._starting_equity + self._cumulative_sim_pnl
 
-    def _size_position(self, max_loss_per_contract: float) -> int:
-        """Risk-budget sizing: ``equity * RISK_PCT_PER_TRADE / max_loss``.
+    def _size_position(
+        self,
+        max_loss_per_contract: float,
+        risk_pct_per_trade: float = RISK_PCT_PER_TRADE,
+        max_contracts_cap: int = MAX_CONTRACTS_CAP,
+    ) -> int:
+        """Risk-budget sizing: ``equity * risk_pct_per_trade / max_loss``.
 
-        Returns an integer number of contracts in ``[1, MAX_CONTRACTS_CAP]``.
+        Returns an integer number of contracts in ``[1, max_contracts_cap]``.
         """
         if max_loss_per_contract <= 0:
             return 1
         equity = self._current_equity()
-        dollar_budget = equity * RISK_PCT_PER_TRADE
+        dollar_budget = equity * max(0.0, float(risk_pct_per_trade))
         dollar_risk_per_contract = max_loss_per_contract * SPY_CONTRACT_MULTIPLIER
         raw = int(dollar_budget // max(0.01, dollar_risk_per_contract))
-        return max(1, min(raw, MAX_CONTRACTS_CAP))
+        return max(1, min(raw, max(1, int(max_contracts_cap))))
 
     def _risk_gate(self, proposal: ProposedPosition, contracts: int) -> tuple[bool, str, int]:
         """Run E-Series risk validation. Returns (approved, reason, max_qty).
@@ -912,6 +1207,9 @@ class PaperStrategyRunner:
         """
         # Compute proposal Greeks at the sized quantity
         prop_d = prop_g = prop_v = 0.0
+        delta_cap = float(getattr(self, "_portfolio_delta_cap", MAX_PORTFOLIO_DELTA))
+        gamma_cap = float(getattr(self, "_portfolio_gamma_cap", MAX_PORTFOLIO_GAMMA))
+        vega_cap = float(getattr(self, "_portfolio_vega_cap", MAX_PORTFOLIO_VEGA))
         for leg in proposal.legs:
             sign = -1.0 if leg.side == "short" else 1.0
             prop_d += sign * leg.delta * contracts * SPY_CONTRACT_MULTIPLIER
@@ -921,12 +1219,12 @@ class PaperStrategyRunner:
         cur_d, cur_g, cur_v = self._portfolio_greeks()
         new_d, new_g, new_v = cur_d + prop_d, cur_g + prop_g, cur_v + prop_v
 
-        if abs(new_d) > MAX_PORTFOLIO_DELTA:
-            return f"portfolio_delta_cap (|{new_d:.1f}| > {MAX_PORTFOLIO_DELTA:.1f})"
-        if abs(new_g) > MAX_PORTFOLIO_GAMMA:
-            return f"portfolio_gamma_cap (|{new_g:.2f}| > {MAX_PORTFOLIO_GAMMA:.2f})"
-        if abs(new_v) > MAX_PORTFOLIO_VEGA:
-            return f"portfolio_vega_cap (|{new_v:.1f}| > {MAX_PORTFOLIO_VEGA:.1f})"
+        if abs(new_d) > delta_cap:
+            return f"portfolio_delta_cap (|{new_d:.1f}| > {delta_cap:.1f})"
+        if abs(new_g) > gamma_cap:
+            return f"portfolio_gamma_cap (|{new_g:.2f}| > {gamma_cap:.2f})"
+        if abs(new_v) > vega_cap:
+            return f"portfolio_vega_cap (|{new_v:.1f}| > {vega_cap:.1f})"
         return None
 
     def _try_enter(self, adapter: StrategyAdapter, ctx: MarketContext) -> tuple[bool, str]:
@@ -941,7 +1239,24 @@ class PaperStrategyRunner:
         if proposal is None:
             return False, "no_candidate"
 
-        contracts = self._size_position(proposal.max_loss)
+        try:
+            risk_pct_per_trade = float(
+                proposal.metadata.get("risk_pct_per_trade", RISK_PCT_PER_TRADE),
+            )
+        except (TypeError, ValueError):
+            risk_pct_per_trade = RISK_PCT_PER_TRADE
+        try:
+            max_contracts_cap = int(
+                float(proposal.metadata.get("max_contracts_cap", MAX_CONTRACTS_CAP)),
+            )
+        except (TypeError, ValueError):
+            max_contracts_cap = MAX_CONTRACTS_CAP
+
+        contracts = self._size_position(
+            proposal.max_loss,
+            risk_pct_per_trade=risk_pct_per_trade,
+            max_contracts_cap=max_contracts_cap,
+        )
 
         # 2) E-Series risk gate
         approved, reason, max_qty = self._risk_gate(proposal, contracts)
@@ -994,6 +1309,7 @@ class PaperStrategyRunner:
             metadata=dict(proposal.metadata),
         )
         self._positions.append(position)
+        self._record_entry_today(adapter.name, ctx.now.date())
         self._harness.record_trade(pnl=0.0, placed=True, filled=True, won=None)
 
         if proposal.strategy == "BullPutCreditSpread" and len(legs) >= 2:
@@ -1282,6 +1598,22 @@ def create_paper_strategy_runner_from_env(harness: Any) -> PaperStrategyRunner:
     except ValueError:
         starting_equity = DEFAULT_STARTING_EQUITY
 
+    zero_dte_profile = str(
+        os.environ.get("SPYDER_ZERO_DTE_PROFILE") or DEFAULT_ZERO_DTE_PROFILE,
+    ).strip().lower() or DEFAULT_ZERO_DTE_PROFILE
+    if zero_dte_profile not in ZERO_DTE_PROFILE_CONFIGS:
+        logger.warning(
+            "PaperStrategyRunner: unknown SPYDER_ZERO_DTE_PROFILE=%s; using %s",
+            zero_dte_profile,
+            DEFAULT_ZERO_DTE_PROFILE,
+        )
+        zero_dte_profile = DEFAULT_ZERO_DTE_PROFILE
+    zero_dte_settings = ZERO_DTE_PROFILE_CONFIGS[zero_dte_profile]
+    max_concurrent_positions = max(
+        DEFAULT_MAX_CONCURRENT,
+        BP_MAX_OPEN + int(zero_dte_settings.get("max_open", ZDTE_MAX_OPEN)),
+    )
+
     # Build the E-Series risk gate. Factory tolerates missing deps and
     # returns a RiskManager wired with defaults — good enough for paper.
     risk_manager: RiskManagerProtocol | None
@@ -1306,6 +1638,8 @@ def create_paper_strategy_runner_from_env(harness: Any) -> PaperStrategyRunner:
     return PaperStrategyRunner(
         data_client=client,
         harness=harness,
+        max_concurrent_positions=max_concurrent_positions,
+        zero_dte_profile=zero_dte_profile,
         risk_manager=risk_manager,
         starting_equity=starting_equity,
         sandbox_replayer=sandbox_replayer,

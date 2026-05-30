@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Focused tests for C01 startup fail-closed behavior."""
 
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import (
     DataFeedManager,
     DataFeedStatus,
@@ -40,10 +43,52 @@ def test_c01_start_fails_when_null_provider_has_no_quote_fallback(monkeypatch):
 
 def test_c01_null_provider_quote_fallback_defaults_to_one_second(monkeypatch):
     monkeypatch.delenv("SPYDER_FEED_QUOTE_POLL_INTERVAL_S", raising=False)
+    monkeypatch.delenv("SPYDER_FEED_OFFHOURS_QUOTE_POLL_INTERVAL_S", raising=False)
 
     feed = DataFeedManager(provider=NullProvider(), event_manager=_StubEventManager())
 
     assert feed._quote_poll_interval_s == 1.0
+    assert feed._quote_poll_interval_offhours_s == 20.0
+
+
+def test_c01_poll_quotes_fallback_uses_slower_offhours_interval(monkeypatch):
+    feed = DataFeedManager(provider=NullProvider(), event_manager=_StubEventManager())
+    feed.symbol_status = {"SPY": {}, "SPX": {}, "VIX": {}}
+
+    client = SimpleNamespace(
+        get_quotes=MagicMock(
+            return_value={
+                "quotes": {
+                    "quote": [
+                        {"symbol": "SPY", "last": 600.0},
+                        {"symbol": "SPX", "last": 5300.0},
+                        {"symbol": "VIX", "last": 18.0},
+                    ]
+                }
+            }
+        )
+    )
+    seen_symbols: list[str] = []
+
+    monkeypatch.setattr(feed, "_ensure_quote_client", lambda: client)
+    monkeypatch.setattr(feed, "_on_provider_data", lambda tick: seen_symbols.append(tick.symbol))
+    monkeypatch.setattr(
+        "Spyder.SpyderC_MarketData.SpyderC01_DataFeed._is_regular_market_hours",
+        lambda *_args, **_kwargs: False,
+    )
+
+    monotonic_values = iter((100.0, 105.0, 121.0))
+    monkeypatch.setattr(
+        "Spyder.SpyderC_MarketData.SpyderC01_DataFeed.time.monotonic",
+        lambda: next(monotonic_values),
+    )
+
+    feed._poll_quotes_fallback()
+    feed._poll_quotes_fallback()
+    feed._poll_quotes_fallback()
+
+    assert client.get_quotes.call_count == 2
+    assert seen_symbols == ["SPY", "SPX", "VIX", "SPY", "SPX", "VIX"]
 
 
 def test_c01_start_skips_settle_delay_when_running_degraded_quote_fallback(monkeypatch):

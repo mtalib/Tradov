@@ -143,6 +143,29 @@ class TestWarmCacheClassifiesNormally:
         )
 
 
+def test_get_execution_pill_state_returns_empty_values_until_regime_is_known() -> None:
+    _mod, orch = _make_orchestrator()
+    orch.market_regime.current_regime = None
+
+    assert orch.get_execution_pill_state() == {
+        "regime": "",
+        "stance": "",
+        "gate": "",
+        "gate_key": "",
+    }
+
+
+def test_get_execution_pill_state_hides_placeholder_regime_until_first_d31_update() -> None:
+    _mod, orch = _make_orchestrator()
+
+    assert orch.get_execution_pill_state() == {
+        "regime": "",
+        "stance": "",
+        "gate": "",
+        "gate_key": "",
+    }
+
+
 class TestNoSignalDispatchOnUnknown:
     """SPEC-5 downstream effect: signals must not be dispatched while regime UNKNOWN."""
 

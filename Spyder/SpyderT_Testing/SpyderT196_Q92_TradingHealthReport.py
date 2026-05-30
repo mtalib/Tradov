@@ -130,7 +130,7 @@ def test_collect_trading_health_surfaces_engine_dispatch_and_drop_artifacts(tmp_
         session_window={
             "primary_start_et": "09:20",
             "primary_end_et": "16:15",
-            "first_entry_not_before_et": "10:15",
+            "first_entry_not_before_et": "09:45",
             "zero_dte_no_new_risk_cutoff_et": "14:30",
             "broker_cutoff_et": "16:00",
         },

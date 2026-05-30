@@ -25,13 +25,22 @@ class RegimePillStatePlan:
 
 def _metric_value(metrics: Mapping[str, object], key: str, default: float) -> float:
     entry = metrics.get(key)
-    if not isinstance(entry, dict):
+    if not isinstance(entry, dict) or bool(entry.get("stale")):
         return default
 
     value = entry.get("value", default)
     if isinstance(value, float) and math.isnan(value):
         return default
     return float(value)
+
+
+def _metric_entry_is_live(metrics: Mapping[str, object], key: str) -> bool:
+    entry = metrics.get(key)
+    if not isinstance(entry, dict) or bool(entry.get("stale")):
+        return False
+
+    value = entry.get("value")
+    return value is not None and not (isinstance(value, float) and math.isnan(value))
 
 
 def _quote_last(snapshot: Mapping[str, object], key: str) -> float | None:
@@ -83,8 +92,8 @@ def build_regime_pill_state_plan(
     skew = _metric_value(metrics, "SKEW", 120.0)
     gex = _metric_value(metrics, "GEX", 0.0)
 
-    swan_live = isinstance(metrics.get("SWAN"), dict) and metrics["SWAN"].get("value") is not None
-    dix_live = isinstance(metrics.get("DIX"), dict) and metrics["DIX"].get("value") is not None
+    swan_live = _metric_entry_is_live(metrics, "SWAN")
+    dix_live = _metric_entry_is_live(metrics, "DIX")
     s07_live = swan_live and dix_live
 
     vix_new_regime = _classify_vix_regime(vix_snapshot)
@@ -113,7 +122,9 @@ def build_regime_pill_state_plan(
         regime = "BULL"
     elif dix <= 40 and swan >= 1.85:
         regime = "BEAR"
-    elif dix >= 43 and swan < 1.92:
+    elif (dix >= 43 and swan < 1.92) or (
+        vix_new_regime == "BULL" and swan < 1.7 and dix >= 41 and gex >= 0
+    ):
         regime = "BULL"
     else:
         regime = "RANGE"

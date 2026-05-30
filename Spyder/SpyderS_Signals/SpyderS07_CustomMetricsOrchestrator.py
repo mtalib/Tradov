@@ -55,7 +55,7 @@ from enum import Enum
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
 # ==============================================================================
@@ -203,6 +203,7 @@ class CustomMetricsOrchestrator(QObject):
     connection_status_changed = Signal(bool, str)
     error_occurred = Signal(str)
     stress_level_changed = Signal(str)  # New signal for stress level changes
+    update_interval_change_requested = Signal(int)
 
     def __init__(self, config: dict | None = None):
         """Initialize custom metrics orchestrator"""
@@ -314,6 +315,7 @@ class CustomMetricsOrchestrator(QObject):
 
         self._options_tradier_client = None
         self._options_tradier_env = None
+        self._options_chain_manager = None
         self._vol_surface_builder = None
         self._n09_gex_analyzer = None
         self._n11_flow_analyzer = None
@@ -385,6 +387,10 @@ class CustomMetricsOrchestrator(QObject):
         # take 5-10 seconds and freeze the Qt main thread if called here.
         # The dispatcher spawns a daemon thread so the event loop is never stalled.
         self.update_timer.timeout.connect(self._dispatch_metrics_update)
+        self.update_interval_change_requested.connect(
+            self._apply_update_interval,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self.update_timer.setInterval(self.current_update_interval * 1000)
 
         self.logger.debug("CustomMetricsOrchestrator initialized (Client ID: %s)", CLIENT_ID)
@@ -1794,12 +1800,7 @@ class CustomMetricsOrchestrator(QObject):
         """Load the live SPY options chain from N03, falling back to Tradier when needed."""
         chain_data = None
         try:
-            try:
-                chain_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
-            except ImportError:
-                chain_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
-
-            chain_manager = chain_module.OptionsChainManager()
+            chain_manager = self._get_options_chain_manager()
             chain_data = chain_manager.get_chain("SPY")
             if chain_data is not None:
                 if hasattr(chain_data, "empty") and not bool(chain_data.empty):
@@ -1861,6 +1862,19 @@ class CustomMetricsOrchestrator(QObject):
             return rows if rows else chain_data
         except Exception:
             return chain_data
+
+    def _get_options_chain_manager(self):
+        """Return a cached N03 options chain manager."""
+        if self._options_chain_manager is not None:
+            return self._options_chain_manager
+
+        try:
+            chain_module = importlib.import_module("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
+        except ImportError:
+            chain_module = importlib.import_module("SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")  # noqa: E501
+
+        self._options_chain_manager = chain_module.OptionsChainManager()
+        return self._options_chain_manager
 
     @staticmethod
     def _normalize_chain_rows(chain_source: Any) -> list[dict[str, Any]]:
@@ -2376,6 +2390,203 @@ class CustomMetricsOrchestrator(QObject):
             errors.append(f"options analytics update failed: {e}")
             return False
 
+    @staticmethod
+    def _coerce_vol_surface_expiry(expiry: Any) -> datetime | None:
+        """Normalize supported expiry payloads into timezone-aware datetimes."""
+        if hasattr(expiry, "to_pydatetime"):
+            expiry = expiry.to_pydatetime()
+
+        if isinstance(expiry, datetime):
+            dt_value = expiry
+        elif isinstance(expiry, str):
+            try:
+                dt_value = datetime.fromisoformat(expiry)
+            except ValueError:
+                return None
+        else:
+            return None
+
+        if dt_value.tzinfo is None:
+            return dt_value.replace(tzinfo=UTC)
+        return dt_value.astimezone(UTC)
+
+    @staticmethod
+    def _has_sufficient_vol_surface_rows(rows: list[dict[str, Any]]) -> bool:
+        """Return True when rows can support a basic term-structure surface."""
+        expiries = {
+            row["expiry"].date()
+            for row in rows
+            if isinstance(row.get("expiry"), datetime)
+        }
+        strikes = {
+            float(row["strike"])
+            for row in rows
+            if isinstance(row.get("strike"), (int, float))
+        }
+        return len(rows) >= 15 and len(expiries) >= 3 and len(strikes) >= 5
+
+    def _normalize_vol_surface_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Convert generic chain rows into N06 surface-builder input rows."""
+        normalized: dict[tuple[datetime, float, str], dict[str, Any]] = {}
+
+        for row in rows:
+            try:
+                strike = float(row.get("strike") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(strike) or strike <= 0:
+                continue
+
+            expiry = self._coerce_vol_surface_expiry(
+                row.get("expiry") or row.get("expiration") or row.get("expiration_date")
+            )
+            if expiry is None:
+                continue
+
+            raw_iv = row.get("implied_volatility")
+            if raw_iv is None:
+                raw_iv = row.get("iv")
+            if raw_iv is None:
+                raw_iv = row.get("smv_vol")
+
+            try:
+                implied_volatility = float(raw_iv)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(implied_volatility) or implied_volatility <= 0:
+                continue
+
+            option_type = str(row.get("option_type") or "").upper()
+            normalized[(expiry, strike, option_type)] = {
+                "strike": strike,
+                "expiry": expiry,
+                "option_type": option_type,
+                "implied_volatility": implied_volatility,
+                "volume": int(row.get("volume") or 0),
+                "open_interest": int(row.get("open_interest") or 0),
+            }
+
+        return list(normalized.values())
+
+    def _select_vol_surface_expirations(self, expirations: list[str]) -> list[str]:
+        """Pick expirations that best cover front, week, and 30-DTE nodes."""
+        from datetime import date as _date
+
+        today = datetime.now(UTC).date()
+
+        def _dte(expiration: str) -> int:
+            try:
+                return (_date.fromisoformat(expiration) - today).days
+            except Exception:
+                return 9999
+
+        valid = [expiration for expiration in expirations if _dte(expiration) >= 0]
+        if not valid:
+            return []
+
+        selected: list[str] = []
+        for target_dte in (0, 1, 7, 30):
+            nearest = min(valid, key=lambda expiration: abs(_dte(expiration) - target_dte))
+            if nearest not in selected:
+                selected.append(nearest)
+
+        for expiration in valid:
+            if expiration not in selected:
+                selected.append(expiration)
+            if len(selected) >= 6:
+                break
+
+        return selected
+
+    def _load_vol_surface_chain_dataframe(self):
+        """Load enough live SPY option rows to seed the volatility surface builder."""
+        import pandas as pd
+
+        base_rows = self._normalize_vol_surface_rows(
+            self._normalize_chain_rows(self._load_options_chain_dataframe())
+        )
+        if self._has_sufficient_vol_surface_rows(base_rows):
+            return pd.DataFrame(base_rows)
+
+        client = self._get_options_tradier_client()
+        if client is None:
+            raise ValueError("SPY vol surface chain unavailable")
+
+        expirations_response = client.get_option_expirations("SPY")
+        expirations = expirations_response.get("expirations", {}).get("date", [])
+        if isinstance(expirations, str):
+            expirations = [expirations]
+
+        selected_expirations = self._select_vol_surface_expirations(list(expirations))
+        if not selected_expirations:
+            raise ValueError("No SPY option expirations available for vol surface")
+
+        fetched_rows: list[dict[str, Any]] = []
+        for expiration in selected_expirations:
+            contracts = client.get_option_chain_with_greeks("SPY", expiration)
+            if not contracts:
+                continue
+
+            for contract in contracts:
+                fetched_rows.append(
+                    {
+                        "strike": getattr(contract, "strike", None),
+                        "expiry": getattr(contract, "expiration", expiration),
+                        "option_type": getattr(contract, "option_type", ""),
+                        "implied_volatility": getattr(contract, "iv", None),
+                        "volume": getattr(contract, "volume", 0),
+                        "open_interest": getattr(contract, "open_interest", 0),
+                    }
+                )
+
+        combined_rows = self._normalize_vol_surface_rows(base_rows + fetched_rows)
+        if not self._has_sufficient_vol_surface_rows(combined_rows):
+            raise ValueError(
+                "Insufficient SPY vol surface data "
+                f"({len(combined_rows)} rows across "
+                f"{len({row['expiry'].date() for row in combined_rows if isinstance(row.get('expiry'), datetime)})} expiries)"
+            )
+
+        return pd.DataFrame(combined_rows)
+
+    @staticmethod
+    def _should_refresh_vol_surface_snapshot(message: str) -> bool:
+        """Return True when the current surface should be rebuilt before use."""
+        text = str(message or "").strip().lower()
+        return "no surface available" in text or "term structure unavailable" in text
+
+    def _get_vol_surface_snapshot(self) -> dict[str, Any]:
+        """Return a current SPY vol-surface snapshot, rebuilding when absent or stale."""
+        builder = self._get_vol_surface_builder()
+        rebuild_required = False
+
+        try:
+            snapshot = builder.get_term_structure_snapshot("SPY")
+            age_ms = snapshot.get("surface_age_ms")
+            try:
+                snapshot_age_ms = float(age_ms)
+            except (TypeError, ValueError):
+                snapshot_age_ms = float("inf")
+
+            refresh_after_ms = float(getattr(self, "current_update_interval", 60)) * 1000.0
+            if math.isfinite(snapshot_age_ms) and snapshot_age_ms <= refresh_after_ms:
+                return snapshot
+            rebuild_required = True
+        except Exception as exc:
+            if not self._should_refresh_vol_surface_snapshot(str(exc)):
+                raise
+            rebuild_required = True
+
+        if rebuild_required:
+            spot = self._get_spy_spot()
+            if spot is None or spot <= 0:
+                raise ValueError("SPY spot unavailable for vol surface")
+
+            options_data = self._load_vol_surface_chain_dataframe()
+            builder.build_surface("SPY", options_data, spot)
+
+        return builder.get_term_structure_snapshot("SPY")
+
     def _update_vol_surface_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update volatility-surface term nodes and smile structure metrics."""
         metric_defaults = {
@@ -2393,8 +2604,7 @@ class CustomMetricsOrchestrator(QObject):
         updated_metrics.update({key: updated_metrics.get(key, value) for key, value in metric_defaults.items()})  # noqa: E501
 
         try:
-            builder = self._get_vol_surface_builder()
-            snapshot = builder.get_term_structure_snapshot("SPY")
+            snapshot = self._get_vol_surface_snapshot()
             updated_metrics["ATM_IV_0DTE"] = float(snapshot.get("atm_iv_0dte", float("nan")))
             updated_metrics["ATM_IV_1DTE"] = float(snapshot.get("atm_iv_1dte", float("nan")))
             updated_metrics["ATM_IV_7DTE"] = float(snapshot.get("atm_iv_7dte", float("nan")))
@@ -2493,10 +2703,15 @@ class CustomMetricsOrchestrator(QObject):
         # Adjust update frequency if needed
         if new_interval != self.current_update_interval:
             self.current_update_interval = new_interval
-            self.update_timer.setInterval(new_interval * 1000)
+            self.update_interval_change_requested.emit(int(new_interval))
             self.last_frequency_change = datetime.now(UTC)
 
             self.logger.debug("⚡ Update frequency adjusted to %ss (stress: %s)", new_interval, new_stress_level.value)  # noqa: E501
+
+    @Slot(int)
+    def _apply_update_interval(self, new_interval: int) -> None:
+        """Apply the update timer interval on the orchestrator's Qt thread."""
+        self.update_timer.setInterval(int(new_interval) * 1000)
 
     def _format_metrics(self, metrics: dict) -> dict:
         """Format metrics for display with enhanced information"""
@@ -2537,7 +2752,35 @@ class CustomMetricsOrchestrator(QObject):
         def _format_float(value: Any, digits: int = 2, suffix: str = "") -> str:
             return "---" if _is_nan(value) else f"{float(value):.{digits}f}{suffix}"
 
-        return {
+        def _resolve_quality_bucket_state(bucket_name: str) -> dict[str, Any] | None:
+            feed = metrics.get("DATA_QUALITY_FEED", {})
+            if isinstance(feed, dict):
+                feed_data = feed.get("data", {})
+                if isinstance(feed_data, dict):
+                    quality_buckets = feed_data.get("quality_buckets", {})
+                    if isinstance(quality_buckets, dict):
+                        bucket_state = quality_buckets.get(bucket_name)
+                        if isinstance(bucket_state, dict):
+                            return bucket_state
+
+            quality = self.metric_quality.get(bucket_name)
+            if quality is None:
+                return None
+
+            stale_threshold_sec = int(self.config.get("data_quality", {}).get("stale_after_sec", 180))
+            now_utc = datetime.now(UTC)
+            last_successful_update = quality.last_successful_update
+            if last_successful_update.tzinfo is None:
+                age_sec = (datetime.now() - last_successful_update).total_seconds()  # spyder: naive-ok
+            else:
+                age_sec = (now_utc - last_successful_update.astimezone(UTC)).total_seconds()
+
+            return {
+                "quality_score": quality.quality_score,
+                "stale": age_sec > stale_threshold_sec,
+            }
+
+        formatted_metrics = {
             "GEX": {
                 "value": metrics.get("GEX", 0),
                 "formatted": f"{metrics.get('GEX', 0):.1f}B",
@@ -2900,6 +3143,81 @@ class CustomMetricsOrchestrator(QObject):
                 "last_update": timestamp.isoformat()
             }
         }
+
+        quality_bucket_by_metric = {
+            "GEX": "GEX",
+            "DEX": "DEX",
+            "OGL": "OGL",
+            "DIX": "DIX",
+            "SWAN": "SWAN",
+            "SKEW": "SKEW",
+            "PCA-PROXY": "PCA-PROXY",
+            "PCA-IV": "PCA-IV",
+            "VEX": "VEX",
+            "CHEX": "CHEX",
+            "YIELD_10Y": "FRED",
+            "YIELD_SLOPE": "FRED",
+            "AAII_BULLISH": "SENTIMENT",
+            "NAAIM_EXPOSURE": "SENTIMENT",
+            "TICK": "BREADTH",
+            "ADD": "BREADTH",
+            "TRIN": "BREADTH",
+            "NYMO": "BREADTH",
+            "VOLD": "BREADTH",
+            "BREADTH_REGIME": "BREADTH",
+            "BREADTH_DEFENSIVE": "SECTOR_BREADTH",
+            "BREADTH_CYCLICAL": "SECTOR_BREADTH",
+            "BREADTH_SPREAD": "SECTOR_BREADTH",
+            "SECTOR_ADV_DEC": "SECTOR_BREADTH",
+            "SECTOR_MOMENTUM_DISPERSION": "SECTOR_BREADTH",
+            "PARTICIPATION_SCORE": "SECTOR_BREADTH",
+            "SECTOR_BREADTH": "SECTOR_BREADTH",
+            "IVR": "OPTIONS",
+            "ATM_IV": "OPTIONS",
+            "VRP": "OPTIONS",
+            "ATM_IV_0DTE": "VOL_SURFACE",
+            "ATM_IV_1DTE": "VOL_SURFACE",
+            "ATM_IV_7DTE": "VOL_SURFACE",
+            "ATM_IV_30DTE": "VOL_SURFACE",
+            "TERM_SLOPE_0_7": "VOL_SURFACE",
+            "TERM_SLOPE_7_30": "VOL_SURFACE",
+            "RR_25D": "VOL_SURFACE",
+            "FLY_25D": "VOL_SURFACE",
+            "SURFACE_CONFIDENCE": "VOL_SURFACE",
+            "ZERO_GAMMA": "DEALER_FLOW",
+            "WALL_CONFIDENCE": "DEALER_FLOW",
+            "VANNA_PRESSURE": "DEALER_FLOW",
+            "CHARM_PRESSURE": "DEALER_FLOW",
+            "FLOW_IMBALANCE": "DEALER_FLOW",
+            "DEALER_FLOW": "DEALER_FLOW",
+            "LIQUIDITY_DIAGNOSTICS": "LIQUIDITY",
+            "ADANOS_SENTIMENT": "MARKET_INTEL",
+            "NEWS_FLOW_EQUITIES": "MARKET_INTEL",
+            "NEWS_FLOW_MACRO": "MARKET_INTEL",
+            "NEWS_FLOW_VERDICT": "MARKET_INTEL",
+            "NEWS_FLOW_HEADLINE": "MARKET_INTEL",
+            "ECO_STAND_DOWN": "ECO_CALENDAR",
+            "ECO_NEXT_EVENT_NAME": "ECO_CALENDAR",
+            "ECO_NEXT_EVENT_MINUTES": "ECO_CALENDAR",
+        }
+
+        for metric_name, bucket_name in quality_bucket_by_metric.items():
+            entry = formatted_metrics.get(metric_name)
+            if not isinstance(entry, dict):
+                continue
+
+            bucket_state = _resolve_quality_bucket_state(bucket_name)
+            if not isinstance(bucket_state, dict):
+                continue
+
+            entry["quality_bucket"] = bucket_name
+            entry["stale"] = bool(bucket_state.get("stale", False))
+
+            bucket_quality = bucket_state.get("quality_score")
+            if isinstance(bucket_quality, (int, float)) and math.isfinite(float(bucket_quality)):
+                entry["quality"] = float(bucket_quality)
+
+        return formatted_metrics
 
     def _add_to_history(self, snapshot: MetricSnapshot):
         """Add snapshot to history with size management"""

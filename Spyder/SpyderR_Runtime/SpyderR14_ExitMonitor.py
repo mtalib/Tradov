@@ -31,10 +31,12 @@ import re
 import threading
 import time
 import uuid
+from datetime import date, datetime
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 from collections.abc import Callable  # noqa: F401
+from zoneinfo import ZoneInfo
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -47,6 +49,15 @@ from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager, EventT
 # ==============================================================================
 _DEFAULT_SWEEP_INTERVAL_S: float = 1.0
 _PENDING_GROUP_FLATTEN_TTL_S: float = 15.0
+_ZERO_DTE_EOD_FORCE_CLOSE_HOUR: int = 15
+_ZERO_DTE_EOD_FORCE_CLOSE_MINUTE: int = 55
+_ZERO_DTE_EOD_FORCE_CLOSE_REASON: str = "zero_dte_eod_force_close"
+_ZERO_DTE_EOD_FORCE_CLOSE_CUTOFF_LABEL: str = "15:55 ET"
+_BUTTERFLY_FAMILY_STRATEGY_TOKENS: frozenset[str] = frozenset({
+    "butterfly",
+    "broken_wing_butterfly",
+    "iron_butterfly",
+})
 
 
 # ==============================================================================
@@ -257,12 +268,19 @@ class ExitMonitor:
                 time.monotonic() + _PENDING_GROUP_FLATTEN_TTL_S
             )
 
-    def _has_pending_group_flatten(self, view: _PositionView) -> bool:
-        """Return True when a hydrated carryover strategy is already flattening."""
-        raw = view.raw if isinstance(view.raw, dict) else {}
-        if str(raw.get("position_source") or "").strip() != "session_db_hydration":
-            return False
+    def _reserve_pending_symbol_flatten(self, symbols: list[str]) -> None:
+        """Suppress duplicate symbol-level flatten requests while one is in flight."""
+        reservation_until = time.monotonic() + _PENDING_GROUP_FLATTEN_TTL_S
+        with self._pending_group_flatten_lock:
+            for symbol in symbols:
+                normalized_symbol = str(symbol or "").strip().upper()
+                if normalized_symbol:
+                    self._pending_group_flatten_reservations[
+                        f"symbol::{normalized_symbol}"
+                    ] = reservation_until
 
+    def _has_pending_group_flatten(self, view: _PositionView) -> bool:
+        """Return True when a grouped flatten is already in flight."""
         strategy_token = self._normalize_strategy_token(view.strategy_id)
         if not strategy_token:
             return False
@@ -277,6 +295,23 @@ class ExitMonitor:
                 return False
             return True
 
+    def _has_pending_symbol_flatten(self, symbol: str) -> bool:
+        """Return True when a targeted symbol flatten is already in flight."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return False
+
+        reservation_key = f"symbol::{normalized_symbol}"
+        now_monotonic = time.monotonic()
+        with self._pending_group_flatten_lock:
+            expiry = self._pending_group_flatten_reservations.get(reservation_key)
+            if expiry is None:
+                return False
+            if expiry <= now_monotonic:
+                self._pending_group_flatten_reservations.pop(reservation_key, None)
+                return False
+            return True
+
     def _should_flatten_orphaned_paper_strategy(
         self,
         strategy_id: str,
@@ -284,15 +319,592 @@ class ExitMonitor:
     ) -> bool:
         """Return True when a restored paper carryover should be closed as a group."""
         raw = view.raw if isinstance(view.raw, dict) else {}
-        if str(raw.get("position_source") or "").strip() != "session_db_hydration":
+        if not self._is_hydrated_carryover_position(raw):
             return False
 
         strategy_token = self._normalize_strategy_token(strategy_id)
-        if strategy_token != "iron_condor":
+        if strategy_token == "iron_condor":
+            symbol = str(view.symbol or raw.get("symbol") or "").strip().upper()
+            return bool(symbol) and len(symbol) >= 15 and ("C" in symbol or "P" in symbol)
+
+        if strategy_token in {
+            "butterfly",
+            "broken_wing_butterfly",
+            "iron_butterfly",
+        }:
+            expiration = self._resolve_position_expiration(raw, view.symbol)
+            if expiration is None:
+                return False
+            return expiration <= self._now_et().date()
+
+        return False
+
+    def _should_ignore_expected_paper_carryover_orphan(
+        self,
+        strategy_id: str,
+        view: _PositionView,
+    ) -> bool:
+        """Return True for valid butterfly-family carryovers restored from H05.
+
+        Butterfly-family paper positions are expected to persist across restart
+        without a live strategy instance. Those carryovers should remain visible
+        and duplicate-entry-protected, but should not raise startup orphan alerts.
+        """
+        raw = view.raw if isinstance(view.raw, dict) else {}
+        if self._is_hydrated_active_session_position(raw):
+            return True
+
+        if not self._is_hydrated_carryover_position(raw):
             return False
 
-        symbol = str(view.symbol or raw.get("symbol") or "").strip().upper()
-        return bool(symbol) and len(symbol) >= 15 and ("C" in symbol or "P" in symbol)
+        strategy_token = self._normalize_strategy_token(strategy_id)
+        if strategy_token not in {
+            "butterfly",
+            "broken_wing_butterfly",
+            "iron_butterfly",
+        }:
+            return False
+
+        expiration = self._resolve_position_expiration(raw, view.symbol)
+        if expiration is None:
+            return True
+
+        return expiration > self._now_et().date()
+
+    @staticmethod
+    def _resolve_paper_open_origin(raw: dict[str, Any]) -> str:
+        """Return the normalized paper restart origin label when present."""
+        return str(raw.get("_paper_open_origin") or "").strip().lower()
+
+    def _is_hydrated_active_session_position(self, raw: dict[str, Any]) -> bool:
+        """Return True for paper positions restored from the current active session."""
+        if str(raw.get("position_source") or "").strip() != "session_db_hydration":
+            return False
+        return self._resolve_paper_open_origin(raw) == "active_session"
+
+    def _is_hydrated_carryover_position(self, raw: dict[str, Any]) -> bool:
+        """Return True for paper restart rows that represent true carryover.
+
+        Legacy hydration rows may not have `_paper_open_origin`; keep treating
+        those as carryover so older persisted data preserves prior behavior.
+        """
+        if str(raw.get("position_source") or "").strip() != "session_db_hydration":
+            return False
+
+        origin = self._resolve_paper_open_origin(raw)
+        if origin:
+            return origin == "carryover"
+        return True
+
+    @staticmethod
+    def _now_et() -> datetime:
+        """Return the current time in US/Eastern."""
+        return datetime.now(ZoneInfo("America/New_York"))
+
+    @staticmethod
+    def _resolve_position_expiration(raw: dict[str, Any], symbol: str) -> date | None:
+        """Best-effort expiration date from persisted fields or OCC symbol."""
+        expiration_text = str(
+            raw.get("expiration")
+            or raw.get("expiration_date")
+            or ""
+        ).strip()
+        if expiration_text:
+            for fmt in ("%Y-%m-%d", "%Y%m%d"):
+                try:
+                    return datetime.strptime(expiration_text, fmt).date()
+                except ValueError:
+                    continue
+
+        normalized_symbol = str(symbol or "").strip().upper()
+        match = re.match(r"^[A-Z]{1,6}(\d{6})[CP]\d{8}$", normalized_symbol)
+        if match is None:
+            return None
+
+        try:
+            return datetime.strptime(match.group(1), "%y%m%d").date()
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _parse_occ_option_contract(symbol: str) -> dict[str, Any]:
+        """Parse an OCC option symbol into underlying, expiration, strike, and type."""
+        normalized = str(symbol or "").strip().upper()
+        match = re.match(r"^([A-Z]{1,6})(\d{6})([CP])(\d{8})$", normalized)
+        if match is None:
+            return {}
+
+        try:
+            expiration = datetime.strptime(match.group(2), "%y%m%d").date().isoformat()
+        except ValueError:
+            expiration = ""
+
+        return {
+            "underlying": match.group(1),
+            "expiration": expiration,
+            "option_type": "call" if match.group(3) == "C" else "put",
+            "strike": int(match.group(4)) / 1000.0,
+        }
+
+    def _build_position_view(self, symbol: str, raw_pos: Any) -> _PositionView:
+        """Normalize one raw position row into the ExitMonitor view shape."""
+        strategy_id: str = (
+            getattr(raw_pos, "strategy_id", None)
+            or (raw_pos.get("strategy_id") if isinstance(raw_pos, dict) else None)
+            or (raw_pos.get("strategy") if isinstance(raw_pos, dict) else None)
+            or (raw_pos.get("strategy_name") if isinstance(raw_pos, dict) else None)
+            or ""
+        )
+
+        return _PositionView(
+            symbol=symbol,
+            strategy_id=strategy_id,
+            quantity=float(
+                getattr(raw_pos, "quantity", None)
+                or (raw_pos.get("quantity", 0) if isinstance(raw_pos, dict) else 0)
+            ),
+            cost_basis=float(
+                getattr(raw_pos, "cost_basis", None)
+                or (raw_pos.get("cost_basis", 0.0) if isinstance(raw_pos, dict) else 0.0)
+                or (raw_pos.get("entry_price", 0.0) if isinstance(raw_pos, dict) else 0.0)
+            ),
+            current_price=float(
+                getattr(raw_pos, "current_price", None)
+                or (raw_pos.get("current_price", 0.0) if isinstance(raw_pos, dict) else 0.0)
+            ),
+            unrealized_pnl=float(
+                getattr(raw_pos, "unrealized_pnl", None)
+                or (raw_pos.get("unrealized_pnl", 0.0) if isinstance(raw_pos, dict) else 0.0)
+            ),
+            raw=raw_pos if isinstance(raw_pos, dict) else {},
+        )
+
+    def _should_force_flatten_zero_dte_option(
+        self,
+        view: _PositionView,
+        *,
+        now_et: datetime | None = None,
+    ) -> bool:
+        """Return True when a same-day option must be force-flattened at 15:55 ET."""
+        if abs(float(view.quantity or 0.0)) <= 0.0:
+            return False
+
+        if not self._parse_occ_option_contract(view.symbol):
+            return False
+
+        current_time = now_et or self._now_et()
+        cutoff = current_time.replace(
+            hour=_ZERO_DTE_EOD_FORCE_CLOSE_HOUR,
+            minute=_ZERO_DTE_EOD_FORCE_CLOSE_MINUTE,
+            second=0,
+            microsecond=0,
+        )
+        if current_time < cutoff:
+            return False
+
+        expiration = self._resolve_position_expiration(view.raw, view.symbol)
+        if expiration is not None:
+            return expiration <= current_time.date()
+
+        raw_days_to_expiry = view.raw.get("days_to_expiry") if isinstance(view.raw, dict) else None
+        try:
+            return int(raw_days_to_expiry) <= 0
+        except (TypeError, ValueError):
+            return False
+
+    def _collect_zero_dte_force_flatten_symbols(
+        self,
+        positions: dict[str, Any],
+    ) -> list[str]:
+        """Return same-day option symbols that must be force-flattened now."""
+        if not positions:
+            return []
+
+        now_et = self._now_et()
+        target_symbols: list[str] = []
+        for symbol, raw_pos in positions.items():
+            view = self._build_position_view(str(symbol), raw_pos)
+            if self._has_pending_group_flatten(view):
+                continue
+            if self._has_pending_symbol_flatten(view.symbol):
+                continue
+            if self._should_force_flatten_zero_dte_option(view, now_et=now_et):
+                target_symbols.append(view.symbol)
+        return target_symbols
+
+    def _resolve_butterfly_family_group_key(
+        self,
+        symbol: str,
+        raw_pos: dict[str, Any],
+    ) -> tuple[str, str, str, str] | None:
+        """Return a stable grouping key for butterfly-family option legs.
+
+        Hydrated paper carryovers still need grouped exit evaluation when a live
+        strategy instance is registered; if no strategy resolves, the orphan
+        cleanup path in ``_check_position`` remains responsible for them.
+        """
+
+        strategy_id = str(
+            raw_pos.get("strategy_id")
+            or raw_pos.get("strategy")
+            or raw_pos.get("strategy_name")
+            or ""
+        ).strip()
+        strategy_token = self._normalize_strategy_token(strategy_id)
+        if strategy_token not in _BUTTERFLY_FAMILY_STRATEGY_TOKENS:
+            return None
+
+        contract = self._parse_occ_option_contract(symbol)
+        if not contract:
+            return None
+
+        underlying = str(
+            raw_pos.get("underlying_symbol")
+            or contract.get("underlying")
+            or ""
+        ).strip().upper()
+        expiration = str(
+            raw_pos.get("expiration")
+            or raw_pos.get("expiration_date")
+            or contract.get("expiration")
+            or ""
+        ).strip()
+        if not underlying or not expiration:
+            return None
+
+        return (
+            strategy_id or strategy_token,
+            strategy_token,
+            underlying,
+            expiration,
+        )
+
+    def _build_butterfly_family_group_data(
+        self,
+        strategy_token: str,
+        views: list[_PositionView],
+    ) -> dict[str, Any] | None:
+        """Build group-level exit inputs for butterfly-family paper structures."""
+        expected_count = 4 if strategy_token == "iron_butterfly" else 3
+        if len(views) != expected_count:
+            return None
+
+        leg_rows: list[dict[str, Any]] = []
+        for view in views:
+            contract = self._parse_occ_option_contract(view.symbol)
+            if not contract:
+                return None
+            leg_rows.append(
+                {
+                    "view": view,
+                    "symbol": view.symbol,
+                    "quantity": int(view.quantity or 0),
+                    "entry_price": float(view.cost_basis or 0.0),
+                    "unrealized_pnl": float(view.unrealized_pnl or 0.0),
+                    "strike": float(
+                        view.raw.get("strike")
+                        or contract.get("strike")
+                        or 0.0
+                    ),
+                    "option_type": str(
+                        view.raw.get("option_type")
+                        or contract.get("option_type")
+                        or ""
+                    ).strip().lower(),
+                    "expiration": str(
+                        view.raw.get("expiration")
+                        or view.raw.get("expiration_date")
+                        or contract.get("expiration")
+                        or ""
+                    ).strip(),
+                }
+            )
+
+        if len({row["symbol"] for row in leg_rows}) != expected_count:
+            return None
+
+        total_unrealized_pnl = sum(row["unrealized_pnl"] for row in leg_rows)
+        entry_notional = abs(
+            sum(row["quantity"] * row["entry_price"] * 100.0 for row in leg_rows)
+        )
+        pnl_percent = (total_unrealized_pnl / entry_notional) if entry_notional > 0.0 else 0.0
+        expiration = self._resolve_position_expiration(views[0].raw, views[0].symbol)
+        if expiration is None:
+            return None
+
+        is_hydrated_carryover = all(
+            self._is_hydrated_carryover_position(view.raw)
+            for view in views
+        )
+
+        group_data: dict[str, Any] = {
+            "symbols": [row["symbol"] for row in leg_rows],
+            "entry_notional": entry_notional,
+            "unrealized_pnl": total_unrealized_pnl,
+            "pnl_percent": pnl_percent,
+            "days_to_expiry": max(0, (expiration - self._now_et().date()).days),
+            "days_held": 0,
+            "position_delta": 0.0,
+            "is_hydrated_carryover": is_hydrated_carryover,
+        }
+
+        if strategy_token in {"butterfly", "broken_wing_butterfly"}:
+            option_types = {row["option_type"] for row in leg_rows}
+            if len(option_types) != 1:
+                return None
+
+            long_rows = [row for row in leg_rows if row["quantity"] > 0]
+            short_rows = [row for row in leg_rows if row["quantity"] < 0]
+            if len(long_rows) != 2 or len(short_rows) != 1:
+                return None
+
+            body_row = short_rows[0]
+            body_qty = abs(body_row["quantity"])
+            if body_qty <= 0 or body_qty % 2 != 0:
+                return None
+            spread_qty = body_qty // 2
+            if any(abs(row["quantity"]) != spread_qty for row in long_rows):
+                return None
+
+            ascending = sorted(leg_rows, key=lambda row: row["strike"])
+            lower_row, middle_row, upper_row = ascending
+            if middle_row is not body_row:
+                return None
+
+            group_data.update(
+                {
+                    "quantity": spread_qty,
+                    "body_strike": middle_row["strike"],
+                    "lower_strike": lower_row["strike"],
+                    "upper_strike": upper_row["strike"],
+                    "option_type": middle_row["option_type"],
+                }
+            )
+            return group_data
+
+        grouped: dict[str, list[dict[str, Any]]] = {"put": [], "call": []}
+        for row in leg_rows:
+            option_type = row["option_type"]
+            if option_type not in grouped:
+                return None
+            grouped[option_type].append(row)
+
+        if len(grouped["put"]) != 2 or len(grouped["call"]) != 2:
+            return None
+
+        long_put = next((row for row in grouped["put"] if row["quantity"] > 0), None)
+        short_put = next((row for row in grouped["put"] if row["quantity"] < 0), None)
+        short_call = next((row for row in grouped["call"] if row["quantity"] < 0), None)
+        long_call = next((row for row in grouped["call"] if row["quantity"] > 0), None)
+        if any(row is None for row in (long_put, short_put, short_call, long_call)):
+            return None
+
+        spread_qty = abs(int(short_put["quantity"]))
+        if spread_qty <= 0:
+            return None
+        if any(abs(int(row["quantity"])) != spread_qty for row in leg_rows):
+            return None
+        if short_put["strike"] != short_call["strike"]:
+            return None
+
+        group_data.update(
+            {
+                "quantity": spread_qty,
+                "body_strike": short_put["strike"],
+                "atm_strike": short_put["strike"],
+                "long_put_strike": long_put["strike"],
+                "long_call_strike": long_call["strike"],
+            }
+        )
+        return group_data
+
+    def _should_close_butterfly_family_group(
+        self,
+        strategy_token: str,
+        strategy: Any,
+        group_data: dict[str, Any],
+    ) -> str | None:
+        """Return the flatten reason for a butterfly-family group when it should close."""
+        if (
+            bool(group_data.get("is_hydrated_carryover"))
+            and int(group_data.get("days_to_expiry", 0) or 0) <= 0
+            and float(group_data.get("unrealized_pnl", 0.0) or 0.0) > 0.0
+        ):
+            return "pre_carryover_profit_take"
+
+        evaluator = None
+        if strategy_token == "broken_wing_butterfly":
+            evaluator = getattr(strategy, "should_close_broken_wing_butterfly", None)
+        elif strategy_token == "iron_butterfly":
+            evaluator = getattr(strategy, "should_close_iron_butterfly", None)
+        elif strategy_token == "butterfly":
+            evaluator = getattr(strategy, "should_close_butterfly", None)
+
+        if not callable(evaluator):
+            return None
+
+        try:
+            should_close, reason = evaluator(group_data)
+        except Exception as exc:
+            self.logger.warning(
+                "butterfly-family group exit evaluation raised for %s: %s",
+                strategy_token,
+                exc,
+            )
+            return None
+
+        if not should_close:
+            return None
+        return str(reason or "exit_monitor_group_close")
+
+    def _emit_symbols_flatten_request(
+        self,
+        symbols: list[str],
+        *,
+        reason: str,
+    ) -> None:
+        """Request a runtime close of a specific set of open symbols."""
+        target_symbols = [
+            str(symbol).strip() for symbol in symbols if str(symbol or "").strip()
+        ]
+        if not target_symbols:
+            return
+
+        self.logger.info(
+            "ExitMonitor: requesting symbols flatten for %s (reason=%s)",
+            target_symbols,
+            reason,
+        )
+        self.em.emit(
+            event_type=EventType.FLATTEN_REQUEST,
+            data={
+                "type": "symbols_flatten",
+                "reason": reason,
+                "symbols": target_symbols,
+            },
+            source="ExitMonitor",
+        )
+
+    def _emit_zero_dte_force_close_risk_alert(self, symbols: list[str]) -> None:
+        """Emit an operator-visible alert when 0DTE paper options remain open after cutoff."""
+        target_symbols = [
+            str(symbol).strip() for symbol in symbols if str(symbol or "").strip()
+        ]
+        if not target_symbols:
+            return
+
+        symbol_count = len(target_symbols)
+        risk_alert_event_type = getattr(EventType, "RISK_ALERT", EventType.ALERT)
+        message = (
+            f"0DTE paper option{'s' if symbol_count != 1 else ''} still open after "
+            f"{_ZERO_DTE_EOD_FORCE_CLOSE_CUTOFF_LABEL} ({symbol_count})"
+        )
+
+        try:
+            self.em.emit(
+                event_type=risk_alert_event_type,
+                data={
+                    "severity": "warning",
+                    "reason": _ZERO_DTE_EOD_FORCE_CLOSE_REASON,
+                    "message": message,
+                    "detail": ", ".join(target_symbols),
+                    "symbols": target_symbols,
+                    "cutoff_et": _ZERO_DTE_EOD_FORCE_CLOSE_CUTOFF_LABEL,
+                },
+                source="ExitMonitor",
+            )
+        except Exception as exc:
+            self.logger.warning(
+                "ExitMonitor: failed to emit zero-DTE cutoff risk alert for %s: %s",
+                target_symbols,
+                exc,
+            )
+
+    def _handle_butterfly_family_groups(
+        self,
+        positions: dict[str, Any],
+    ) -> set[str]:
+        """Evaluate complete active butterfly-family groups before per-leg checks."""
+        grouped_views: dict[tuple[str, str, str, str], list[_PositionView]] = {}
+        for symbol, raw_pos in positions.items():
+            if not isinstance(raw_pos, dict):
+                continue
+            group_key = self._resolve_butterfly_family_group_key(str(symbol), raw_pos)
+            if group_key is None:
+                continue
+            grouped_views.setdefault(group_key, []).append(
+                self._build_position_view(str(symbol), raw_pos)
+            )
+
+        handled_symbols: set[str] = set()
+        for (_strategy_id, strategy_token, _underlying, _expiration), views in grouped_views.items():
+            strategy = self._resolve_strategy(views[0].strategy_id)
+            if strategy is None:
+                continue
+
+            group_data = self._build_butterfly_family_group_data(strategy_token, views)
+            if group_data is None:
+                continue
+
+            handled_symbols.update(group_data.get("symbols", []))
+            if any(self._has_pending_group_flatten(view) for view in views):
+                continue
+
+            reason = self._should_close_butterfly_family_group(
+                strategy_token,
+                strategy,
+                group_data,
+            )
+            if reason is None:
+                continue
+
+            self._reserve_pending_group_flatten(views[0].strategy_id)
+            self._emit_symbols_flatten_request(
+                list(group_data.get("symbols", [])),
+                reason=reason,
+            )
+
+        return handled_symbols
+
+    def _sweep_positions_snapshot(self, positions: dict[str, Any]) -> None:
+        """Sweep one normalized position snapshot."""
+        handled_symbols: set[str] = {
+            str(symbol)
+            for symbol in positions
+            if self._has_pending_symbol_flatten(str(symbol))
+        }
+
+        zero_dte_symbols = self._collect_zero_dte_force_flatten_symbols(
+            {
+                symbol: raw_pos
+                for symbol, raw_pos in positions.items()
+                if str(symbol) not in handled_symbols
+            }
+        )
+        if zero_dte_symbols:
+            self._reserve_pending_symbol_flatten(zero_dte_symbols)
+            self._emit_zero_dte_force_close_risk_alert(zero_dte_symbols)
+            self._emit_symbols_flatten_request(
+                zero_dte_symbols,
+                reason=_ZERO_DTE_EOD_FORCE_CLOSE_REASON,
+            )
+            handled_symbols.update(zero_dte_symbols)
+
+        remaining_positions = {
+            symbol: raw_pos
+            for symbol, raw_pos in positions.items()
+            if str(symbol) not in handled_symbols
+        }
+        handled_symbols.update(self._handle_butterfly_family_groups(remaining_positions))
+        for symbol, raw_pos in list(remaining_positions.items()):
+            if str(symbol) in handled_symbols:
+                continue
+            try:
+                self._check_position(symbol, raw_pos)
+            except Exception as exc:
+                self.logger.warning(
+                    "ExitMonitor: error processing position %s: %s", symbol, exc
+                )
 
     def _emit_strategy_group_flatten_request(
         self,
@@ -355,13 +967,7 @@ class ExitMonitor:
             if not positions:
                 return
 
-            for symbol, raw_pos in list(positions.items()):
-                try:
-                    self._check_position(symbol, raw_pos)
-                except Exception as exc:
-                    self.logger.warning(
-                        "ExitMonitor: error processing position %s: %s", symbol, exc
-                    )
+            self._sweep_positions_snapshot(positions)
             return
 
         if (
@@ -393,46 +999,15 @@ class ExitMonitor:
         if not positions:
             return
 
-        for symbol, raw_pos in list(positions.items()):
-            try:
-                self._check_position(symbol, raw_pos)
-            except Exception as exc:
-                self.logger.warning(
-                    "ExitMonitor: error processing position %s: %s", symbol, exc
-                )
+        self._sweep_positions_snapshot(positions)
 
     def _check_position(self, symbol: str, raw_pos: Any) -> None:
         """Evaluate a single position for exit conditions."""
-        strategy_id: str = (
-            getattr(raw_pos, "strategy_id", None)
-            or (raw_pos.get("strategy_id") if isinstance(raw_pos, dict) else None)
-            or (raw_pos.get("strategy") if isinstance(raw_pos, dict) else None)
-            or (raw_pos.get("strategy_name") if isinstance(raw_pos, dict) else None)
-            or ""
-        )
+        view = self._build_position_view(symbol, raw_pos)
+        strategy_id = view.strategy_id
 
-        view = _PositionView(
-            symbol=symbol,
-            strategy_id=strategy_id,
-            quantity=float(
-                getattr(raw_pos, "quantity", None)
-                or (raw_pos.get("quantity", 0) if isinstance(raw_pos, dict) else 0)
-            ),
-            cost_basis=float(
-                getattr(raw_pos, "cost_basis", None)
-                or (raw_pos.get("cost_basis", 0.0) if isinstance(raw_pos, dict) else 0.0)
-                or (raw_pos.get("entry_price", 0.0) if isinstance(raw_pos, dict) else 0.0)
-            ),
-            current_price=float(
-                getattr(raw_pos, "current_price", None)
-                or (raw_pos.get("current_price", 0.0) if isinstance(raw_pos, dict) else 0.0)
-            ),
-            unrealized_pnl=float(
-                getattr(raw_pos, "unrealized_pnl", None)
-                or (raw_pos.get("unrealized_pnl", 0.0) if isinstance(raw_pos, dict) else 0.0)
-            ),
-            raw=raw_pos if isinstance(raw_pos, dict) else {},
-        )
+        if self._has_pending_symbol_flatten(view.symbol):
+            return
 
         if self._has_pending_group_flatten(view):
             return
@@ -440,6 +1015,8 @@ class ExitMonitor:
         strategy = self._resolve_strategy(strategy_id)
 
         if strategy is None:
+            if self._should_ignore_expected_paper_carryover_orphan(strategy_id, view):
+                return
             self._handle_orphan(symbol, strategy_id, view)
             return
 

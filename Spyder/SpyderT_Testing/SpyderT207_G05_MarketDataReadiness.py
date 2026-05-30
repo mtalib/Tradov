@@ -106,6 +106,15 @@ def _build_required_live_snapshot() -> dict:
     return payload
 
 
+def _pin_dashboard_now(monkeypatch, hour: int, minute: int) -> None:
+    class _FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 5, 25, hour, minute, tzinfo=tz)
+
+    monkeypatch.setattr(g05, "datetime", _FakeDateTime)
+
+
 def test_on_market_data_updated_does_not_mark_ready_for_worker_snapshot(monkeypatch, tmp_path) -> None:
     dash = _build_dashboard_stub(tmp_path)
     handled_payloads: list[dict] = []
@@ -128,11 +137,13 @@ def test_apply_real_data_patch_does_not_mark_ready_before_live_refresh(monkeypat
     dash.real_data_active = False
     dash.update_with_real_data = MagicMock()
     dash.update_status_for_real_data = MagicMock()
+    created_timers = []
 
     class _FakeTimer:
         def __init__(self, *_args, **_kwargs) -> None:
             self.timeout = SimpleNamespace(connect=lambda *_a, **_k: None)
             self.started_with: int | None = None
+            created_timers.append(self)
 
         def start(self, interval: int) -> None:
             self.started_with = interval
@@ -148,6 +159,49 @@ def test_apply_real_data_patch_does_not_mark_ready_before_live_refresh(monkeypat
 
     assert dash.real_data_active is True
     assert dash._market_data_initialized is False
+    assert sorted(
+        timer.started_with for timer in created_timers if timer.started_with is not None
+    ) == [1000, 10000]
+    assert "✅ Market data loaded — system ready" not in dash._log_lines
+
+
+def test_apply_real_data_patch_skips_fast_quote_timer_outside_market_hours(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    dash = _build_dashboard_stub(tmp_path)
+    dash.real_data_active = False
+    dash.update_with_real_data = MagicMock()
+    dash.update_status_for_real_data = MagicMock()
+    created_timers = []
+
+    class _FakeTimer:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.timeout = SimpleNamespace(connect=lambda *_a, **_k: None)
+            self.started_with: int | None = None
+            created_timers.append(self)
+
+        def start(self, interval: int) -> None:
+            self.started_with = interval
+
+        def stop(self) -> None:
+            self.started_with = None
+
+        @staticmethod
+        def singleShot(_interval: int, _callback) -> None:
+            return None
+
+    monkeypatch.setattr(g05, "QTimer", _FakeTimer)
+    monkeypatch.setattr(g05, "is_market_hours", lambda: False)
+
+    dash.apply_real_data_patch()
+
+    assert dash.real_data_active is True
+    assert dash._market_data_initialized is False
+    assert getattr(dash, "_fast_quote_timer", None) is None
+    assert sorted(
+        timer.started_with for timer in created_timers if timer.started_with is not None
+    ) == [1000]
     assert "✅ Market data loaded — system ready" not in dash._log_lines
 
 
@@ -172,10 +226,14 @@ def test_update_with_real_data_does_not_mark_ready_for_partial_live_snapshot(tmp
     assert dash.connection_info.data_was_live is True
 
 
-def test_update_with_real_data_marks_ready_after_hydrated_live_snapshot(tmp_path) -> None:
+def test_update_with_real_data_marks_ready_after_hydrated_live_snapshot(
+    monkeypatch,
+    tmp_path,
+) -> None:
     dash = _build_dashboard_stub(tmp_path)
     payload = _build_required_live_snapshot()
     dash.data_file.write_text(json.dumps(payload), encoding="utf-8")
+    _pin_dashboard_now(monkeypatch, 10, 20)
 
     dash.update_with_real_data()
 
@@ -183,6 +241,50 @@ def test_update_with_real_data_marks_ready_after_hydrated_live_snapshot(tmp_path
     assert dash._log_lines == ["✅ Market data loaded — system ready"]
     assert dash.market_data["SPY"]["last"] == payload["SPY"]["last"]
     assert dash.connection_info.data_was_live is True
+
+
+def test_update_with_real_data_reports_entry_gate_before_embargo(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    dash = _build_dashboard_stub(tmp_path)
+    dash._resolve_first_entry_not_before_et = lambda: "09:45"
+    payload = _build_required_live_snapshot()
+    dash.data_file.write_text(json.dumps(payload), encoding="utf-8")
+    _pin_dashboard_now(monkeypatch, 9, 40)
+
+    dash.update_with_real_data()
+
+    assert dash._market_data_initialized is True
+    assert dash._log_lines == ["✅ Market data loaded — entry gate blocked until 09:45 ET"]
+
+
+def test_update_with_real_data_keeps_dia_visible_outside_market_hours(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    dash = _build_dashboard_stub(tmp_path)
+    dash.symbol_widgets["DIA"] = SimpleNamespace(
+        update_data=MagicMock(),
+        set_unavailable=MagicMock(),
+    )
+    payload = {
+        "DIA": {
+            "last": 506.12,
+            "change": 3.01,
+            "change_pct": 0.6,
+            "timestamp_ms": 1779494400133,
+        },
+        "_fetch_time_ms": 1779712458667,
+    }
+    dash.data_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    monkeypatch.setattr(g05, "is_market_hours", lambda: False)
+
+    dash.update_with_real_data()
+
+    dash.symbol_widgets["DIA"].update_data.assert_called_once_with(payload["DIA"])
+    dash.symbol_widgets["DIA"].set_unavailable.assert_not_called()
 
 
 def test_schedule_opening_runtime_startup_delays_worker_to_open_and_runtime_to_warmup(
@@ -256,12 +358,13 @@ def test_begin_opening_data_warmup_window_announces_wait_and_starts_quiet_worker
     dash.start_market_worker = MagicMock()
     dash._opening_data_warmup_started = False
     dash._session_supervisor = SimpleNamespace(is_running=False)
+    dash._build_entry_gate_embargo_message = lambda: "⏳ ENTRY gate remains blocked until 09:45 ET"
 
     dash._begin_opening_data_warmup_window()
 
     assert dash._log_lines == [
         "🟡 Establishing live connections and loading live data",
-        "⏳ ENTRY gate remains blocked until 10:15 ET",
+        "⏳ ENTRY gate remains blocked until 09:45 ET",
     ]
     dash.start_market_worker.assert_called_once_with(quiet_startup=True, announce=False)
     dash._schedule_runtime_followup_startup_tasks.assert_called_once_with()
@@ -304,7 +407,7 @@ def test_opening_warmup_system_log_suppresses_nonessential_lines(tmp_path) -> No
     ) is False
     assert SpyderTradingDashboard._should_suppress_opening_warmup_system_log(
         dash,
-        "⏳ ENTRY gate remains blocked until 10:15 ET",
+        "⏳ ENTRY gate remains blocked until 09:45 ET",
     ) is False
 
 
@@ -396,7 +499,7 @@ def test_refresh_startup_readiness_state_uses_helper_order(monkeypatch, tmp_path
     assert dash._dji_from_dia_multiplier == 101.2
 
 
-def test_schedule_runtime_followup_startup_tasks_waits_until_warmup_release(
+def test_schedule_runtime_followup_startup_tasks_starts_launch_hydration_quickly(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -414,7 +517,7 @@ def test_schedule_runtime_followup_startup_tasks_waits_until_warmup_release(
     SpyderTradingDashboard._schedule_runtime_followup_startup_tasks(dash)
 
     assert dash._startup_runtime_followups_scheduled is True
-    assert [call[0] for call in timer_calls] == [1000, 1000, 4000]
+    assert [call[0] for call in timer_calls] == [250, 250, 250]
 
 
 def test_trigger_initial_live_fetch_emits_fetch_request_even_when_probe_is_not_connected(
@@ -437,6 +540,28 @@ def test_trigger_initial_live_fetch_emits_fetch_request_even_when_probe_is_not_c
 
     dash._emit_market_worker_signal.assert_called_once_with("fetch_requested")
     assert timer_calls == []
+
+
+def test_trigger_initial_live_fetch_retries_quickly_when_worker_signal_is_not_ready(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    dash = _build_dashboard_stub(tmp_path)
+    dash.market_worker = SimpleNamespace(fetch_requested=SimpleNamespace(emit=MagicMock()))
+    dash._emit_market_worker_signal = MagicMock(return_value=False)
+    timer_calls: list[tuple[int, object]] = []
+
+    monkeypatch.setattr(
+        g05,
+        "QTimer",
+        SimpleNamespace(singleShot=lambda ms, cb: timer_calls.append((ms, cb))),
+    )
+
+    SpyderTradingDashboard._trigger_initial_live_fetch(dash)
+
+    dash._emit_market_worker_signal.assert_called_once_with("fetch_requested")
+    assert len(timer_calls) == 1
+    assert timer_calls[0][0] == g05.STARTUP_INITIAL_LIVE_FETCH_RETRY_DELAY_MS
 
 
 def test_determine_data_status_returns_pre_open_for_recent_live_launch_fetch(
@@ -485,6 +610,7 @@ def test_update_status_for_real_data_uses_pre_open_live_badge_when_fetch_is_rece
     tmp_path,
 ) -> None:
     dash = _build_dashboard_stub(tmp_path)
+    dash._resolve_first_entry_not_before_et = lambda: "09:45"
     dash.real_data_active = True
     dash.api_connected = False
     dash.determine_data_status = lambda: SpyderTradingDashboard.determine_data_status(dash)
@@ -509,7 +635,7 @@ def test_update_status_for_real_data_uses_pre_open_live_badge_when_fetch_is_rece
     SpyderTradingDashboard.update_status_for_real_data(dash)
 
     assert dash.data_status_label.text() == "PRE-OPEN"
-    assert "strategy hunting and entries remain blocked until 10:15 ET" in dash.data_status_container.tooltip
+    assert "strategy hunting and entries remain blocked until 09:45 ET" in dash.data_status_container.tooltip
     assert dash.connection_info.market_data_status == "PRE-OPEN"
 
 
@@ -548,12 +674,14 @@ def test_mark_market_data_ready_suppresses_system_ready_log_during_opening_warmu
 
 
 def test_complete_market_hours_launch_loading_window_replays_ready_log_after_release(
+    monkeypatch,
     tmp_path,
 ) -> None:
     dash = _build_dashboard_stub(tmp_path)
     dash._market_data_initialized = True
     dash._market_hours_launch_loading_hold_active = True
     dash._complete_opening_runtime_warmup = MagicMock()
+    _pin_dashboard_now(monkeypatch, 10, 20)
 
     SpyderTradingDashboard._complete_market_hours_launch_loading_window(dash)
 
@@ -657,6 +785,7 @@ def test_mark_market_data_ready_processes_queued_start_request(
         "QTimer",
         SimpleNamespace(singleShot=lambda _ms, cb: cb()),
     )
+    _pin_dashboard_now(monkeypatch, 10, 20)
 
     dash._mark_market_data_ready()
 

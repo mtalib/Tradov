@@ -1,18 +1,25 @@
-import os
+import sys
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from dotenv import load_dotenv
 from Spyder.SpyderB_Broker.SpyderB40_TradierClient import create_tradier_client_from_env
 
 def main():
-    load_dotenv()
+    load_dotenv(REPO_ROOT / ".env")
     client = create_tradier_client_from_env()
-    
+
     symbols = [
         "SPY260619P00690000",
         "SPY260619P00700000",
         "SPY260619C00770500",
         "SPY260619C00780500"
     ]
-    
+
     print("--- Batch Request ---")
     batch_quotes = client.get_quotes(symbols)
     # Tradier get_quotes might return a list or a dict depending on implementation.

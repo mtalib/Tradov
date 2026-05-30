@@ -503,16 +503,16 @@ def build_center_panel(dashboard: Any) -> QWidget:
         f"QGroupBox {{ color: {COLORS['text']}; font-weight: normal; }}",
     )
     signal_layout = QVBoxLayout()
-    # Nudge signal columns one more step right while keeping the panel compact.
-    signal_layout.setContentsMargins(16, 5, 0, 5)
+    # Keep the signal box compact so the system log can hold longer lines.
+    signal_layout.setContentsMargins(10, 5, 0, 5)
 
     dashboard.signal_panel = SignalMonitorPanel()
     signal_layout.addWidget(dashboard.signal_panel)
     signal_group.setLayout(signal_layout)
 
-    # Bias width one more step toward the log panel so long messages are less likely to clip.
-    logs_container_layout.addWidget(logs_group, 72)
-    logs_container_layout.addWidget(signal_group, 28)
+    # Bias width further toward the log panel while keeping signal labels readable.
+    logs_container_layout.addWidget(logs_group, 82)
+    logs_container_layout.addWidget(signal_group, 18)
     logs_container.setLayout(logs_container_layout)
 
     dashboard.paper_pnl_widget = None
@@ -1126,9 +1126,17 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
 def create_positions_table(dashboard: Any) -> QTreeWidget:
     """Create the positions tree widget."""
     tree = QTreeWidget()
-    columns = ["ACTION", "LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""]
+    columns = ["ACTION", "LEG", "STRIKE", "QTY", "PRICE", "CASH FLOW", "EXPIRY", "P&L", ""]
     tree.setColumnCount(len(columns))
     tree.setHeaderLabels(columns)
+    tree.headerItem().setToolTip(
+        5,
+        "Entry cash flow for each leg: SELL credits are positive, BUY debits are negative.",
+    )
+    tree.headerItem().setToolTip(
+        7,
+        "Current unrealized mark-to-market P&L for each leg or spread: green means gain, red means loss.",
+    )
 
     for col in range(len(columns)):
         tree.headerItem().setTextAlignment(col, Qt.AlignmentFlag.AlignCenter)
@@ -1143,7 +1151,7 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
     tree.setStyleSheet(
         f"""
             QTreeWidget {{
-                font-size: 11px;
+                font-size: 12px;
                 background-color: {COLORS["background"]};
                 border: none;
                 outline: none;
@@ -1185,9 +1193,9 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
     tree.setColumnWidth(2, 68)
     tree.setColumnWidth(3, 44)
     tree.setColumnWidth(4, 60)
-    tree.setColumnWidth(5, 68)
+    tree.setColumnWidth(5, 124)
     tree.setColumnWidth(6, 60)
-    tree.setColumnWidth(7, 92)
+    tree.setColumnWidth(7, 110)
     tree.header().setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
     tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     tree.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)

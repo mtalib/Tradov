@@ -54,6 +54,14 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 try:
+    from Spyder.SpyderD_Strategies.SpyderD39_PutCreditSpread7 import (
+        is_put_credit_spread_7_entry_window_open as _d31_put_credit_spread_7_entry_window_open,
+    )
+except Exception:
+    def _d31_put_credit_spread_7_entry_window_open(*_args, **_kwargs):
+        return False
+
+try:
     from Spyder.SpyderZ_Communication.SpyderZ02_MessageProtocol import (
         extract_agent_handoff_envelope as _extract_agent_handoff_envelope,
         validate_agent_handoff_envelope as _validate_agent_handoff_envelope,
@@ -147,16 +155,21 @@ try:
         "BullPutSpread": ("Spyder.SpyderD_Strategies.SpyderD06_BullPutSpread", "BullPutSpreadStrategy"),
         "BearCallSpread": ("Spyder.SpyderD_Strategies.SpyderD07_BearCallSpread", "BearCallSpreadStrategy"),
         "BullCallSpread": ("Spyder.SpyderD_Strategies.SpyderD35_BullCallSpread", "BullCallSpreadStrategy"),
+        "BullishStrangle": ("Spyder.SpyderD_Strategies.SpyderD37_BullishStrangle", "BullishStrangleStrategy"),
         "BearPutSpread": ("Spyder.SpyderD_Strategies.SpyderD36_BearPutSpread", "BearPutSpreadStrategy"),
+        "PutCreditSpread7": ("Spyder.SpyderD_Strategies.SpyderD39_PutCreditSpread7", "PutCreditSpread7Strategy"),
         "OpeningRangeBreakout": ("Spyder.SpyderD_Strategies.SpyderD08_OpeningRangeBreakout", "OpeningRangeBreakoutStrategy"),
         "GreeksBased": ("Spyder.SpyderD_Strategies.SpyderD09_GreeksBasedStrategy", "GreeksBasedStrategy"),
         "SpecializedZeroDTE": ("Spyder.SpyderD_Strategies.SpyderD11_SpecializedZeroDTE", "SpecializedZeroDTEStrategy"),
         "IronButterfly": ("Spyder.SpyderD_Strategies.SpyderD10_IronButterfly", "IronButterflyStrategy"),
+        "BrokenWingButterfly": ("Spyder.SpyderD_Strategies.SpyderD23_BrokenWingButterfly", "BrokenWingButterflyStrategy"),
+        "Butterfly": ("Spyder.SpyderD_Strategies.SpyderD24_Butterfly", "ButterflyStrategy"),
         "CalendarSpread": ("Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread", "CalendarSpreadStrategy"),
         "StraddleStrangle": ("Spyder.SpyderD_Strategies.SpyderD15_StraddleStrangle", "StraddleStrangleStrategy"),
         "RatioSpreads": ("Spyder.SpyderD_Strategies.SpyderD16_RatioSpreads", "RatioSpreadsStrategy"),
         "DiagonalSpread": ("Spyder.SpyderD_Strategies.SpyderD17_DiagonalSpread", "DiagonalSpreadStrategy"),
         "JadeLizard": ("Spyder.SpyderD_Strategies.SpyderD19_JadeLizard", "JadeLizardStrategy"),
+        "JadeLizardZero": ("Spyder.SpyderD_Strategies.SpyderD38_JadeLizardZero", "JadeLizardZeroStrategy"),
         "VerticalSpreadOptimizer": ("Spyder.SpyderD_Strategies.SpyderD20_VerticalSpreadOptimizer", "VerticalSpreadOptimizer"),
         "DoubleCalendar": ("Spyder.SpyderD_Strategies.SpyderD21_DoubleCalendar", "DoubleCalendarStrategy"),
         "AdaptiveVolatility": ("Spyder.SpyderD_Strategies.SpyderD22_AdaptiveVolatility", "AdaptiveVolatilityStrategy"),
@@ -508,11 +521,11 @@ except ImportError as e:
 # ==============================================================================
 
 # Portfolio management
-# Two-slot concurrency model: one long-term/swing strategy + one intraday/0DTE strategy
-# may run simultaneously. Each slot must occupy a different horizon bucket
-# (ultra_short for 0DTE/1DTE; short or swing for multi-day).
+# Three-slot concurrency model: keep room for one duplicate-blocked strategy
+# plus up to two different active strategy types, including a Mark 0DTE slot
+# when permitted by the overlay horizon contract below.
 # Override via env: SPYDER_MAX_CONCURRENT_STRATEGIES, SPYDER_MAX_ACTIVE_HORIZON_BUCKETS.
-MAX_CONCURRENT_STRATEGIES = 2
+MAX_CONCURRENT_STRATEGIES = 3
 MAX_ACTIVE_HORIZON_BUCKETS = 2  # one ultra_short (0DTE/1DTE) + one short/swing
 # v9 §10.4 dispatch-state pill (G05 DISPATCH badge): recency window in seconds
 # for FLOWING/BLOCKED/ERROR classification. Beyond this, state collapses to IDLE.
@@ -650,7 +663,7 @@ _D31_REGIME_POLICY_ALIASES = {
     "sideways_low_vol": "range_calm",
     "sideways_high_vol": "high_vol_mean_reversion",
     "crisis": "crisis_turbulent",
-    "recovery": "event_transition",
+    "recovery": "high_vol_mean_reversion",
     "low_volatility": "bull_trend",
     "unknown": "crisis_turbulent",
 }
@@ -850,13 +863,17 @@ class StrategyOrchestrator:
             "BullPutSpreadStrategy",
             "BearCallSpread",
             "BearCallSpreadStrategy",
+            "Butterfly",
+            "ButterflyStrategy",
             "IronCondor",
             "IronCondorStrategy",
             "IronButterfly",
             "IronButterflyStrategy",
+            "BrokenWingButterfly",
+            "BrokenWingButterflyStrategy",
         }
         # Opt-in extension: D34 PivotMeanReversion. Gated by env flag so the
-        # default lean posture remains the 4-strategy v5 contract; setting
+        # default lean posture remains the baseline lean allowlist contract; setting
         # SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true allows D30 to swap RANGE →
         # PivotMeanReversion when the S08 pivot signal is firing, otherwise
         # falls back to IronCondor for the same regime.
@@ -880,6 +897,25 @@ class StrategyOrchestrator:
             self.lean_strategy_allowlist.update({
                 "BearPutSpread",
                 "BearPutSpreadStrategy",
+            })
+        if os.getenv("SPYDER_ENABLE_BULLISH_STRANGLE", "").strip().lower() in {
+            "1", "true", "yes", "on", "y",
+        }:
+            self.lean_strategy_allowlist.update({
+                "BullishStrangle",
+                "BullishStrangleStrategy",
+            })
+        if os.getenv("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", "").strip().lower() in {
+            "1", "true", "yes", "on", "y",
+        }:
+            self.lean_strategy_allowlist.update({
+                "PutCreditSpread7",
+                "PutCreditSpread7Strategy",
+            })
+        if self._paper_calendar_spread_routing_flag_enabled():
+            self.lean_strategy_allowlist.update({
+                "CalendarSpread",
+                "CalendarSpreadStrategy",
             })
 
         # Portfolio state
@@ -1002,11 +1038,20 @@ class StrategyOrchestrator:
             )
         except (TypeError, ValueError):
             self._duplicate_entry_warning_interval_s = 300.0
+        try:
+            self._manual_close_reentry_embargo_s: float = max(
+                1.0,
+                float(os.getenv("SPYDER_D31_MANUAL_CLOSE_REENTRY_EMBARGO_S", "300")),
+            )
+        except (TypeError, ValueError):
+            self._manual_close_reentry_embargo_s = 300.0
         self._pending_entry_reservations: dict[tuple[str, str], float] = {}
         self._pending_entry_reservations_lock = threading.Lock()
         self._pending_exit_reservations: dict[tuple[str, str], float] = {}
         self._pending_exit_reservations_lock = threading.Lock()
         self._duplicate_entry_warning_last_monotonic: dict[tuple[str, str], float] = {}
+        self._manual_close_reentry_embargoes: dict[tuple[str, str], float] = {}
+        self._manual_close_reentry_embargo_lock = threading.Lock()
         self._signal_drop_audit_enabled: bool = str(
             os.getenv("SPYDER_D31_SIGNAL_DROP_AUDIT", "1")
         ).strip().lower() not in {"0", "false", "no", "off"}
@@ -1185,7 +1230,7 @@ class StrategyOrchestrator:
         self._seed_cache_from_disk()
 
     def _load_live_options_metrics_snapshot(self) -> dict[str, float | None]:
-        """Read ATM_IV/IVR from live_data.json with a short hot-path cache."""
+        """Read fresh ATM_IV/IVR hints from disk with a short hot-path cache."""
         now = time.monotonic()
         if (now - self._live_options_metrics_loaded_monotonic) < 5.0:
             return dict(self._live_options_metrics_snapshot)
@@ -1194,35 +1239,70 @@ class StrategyOrchestrator:
         try:
             from pathlib import Path as _Path
             import json as _json
+            max_snapshot_age_sec = 180.0
 
-            def _extract_options_metrics(_payload: Any) -> None:
-                if not isinstance(_payload, dict):
+            def _snapshot_is_fresh(*, _saved_at: Any = None, _file: Any = None) -> bool:
+                _saved_ts = self._coerce_float(_saved_at)
+                if _saved_ts is not None:
+                    return (time.time() - _saved_ts) <= max_snapshot_age_sec
+                if _file is None:
+                    return False
+                try:
+                    return (time.time() - float(_file.stat().st_mtime)) <= max_snapshot_age_sec
+                except OSError:
+                    return False
+
+            def _metric_entry_value(_entry: Any) -> float | None:
+                if not isinstance(_entry, dict) or bool(_entry.get("stale")):
+                    return None
+                for _field in ("value", "last"):
+                    _value = self._coerce_float(_entry.get(_field))
+                    if _value is not None:
+                        return _value
+                return None
+
+            def _extract_options_metrics(
+                _payload: Any,
+                *,
+                _saved_at: Any = None,
+                _file: Any = None,
+            ) -> None:
+                if not isinstance(_payload, dict) or not _snapshot_is_fresh(_saved_at=_saved_at, _file=_file):
                     return
                 _atm_iv_entry = _payload.get("ATM_IV")
                 _ivr_entry = _payload.get("IVR")
 
-                if snapshot["iv"] is None and isinstance(_atm_iv_entry, dict):
-                    _atm_iv_last = self._coerce_float(_atm_iv_entry.get("last"))
-                    if _atm_iv_last is not None:
-                        snapshot["iv"] = _atm_iv_last / 100.0 if _atm_iv_last > 1.0 else _atm_iv_last
+                if snapshot["iv"] is None:
+                    _atm_iv_value = _metric_entry_value(_atm_iv_entry)
+                    if _atm_iv_value is not None:
+                        snapshot["iv"] = _atm_iv_value / 100.0 if _atm_iv_value > 1.0 else _atm_iv_value
 
-                if snapshot["iv_rank"] is None and isinstance(_ivr_entry, dict):
-                    _ivr_last = self._coerce_float(_ivr_entry.get("last"))
-                    if _ivr_last is not None:
-                        snapshot["iv_rank"] = _ivr_last
+                if snapshot["iv_rank"] is None:
+                    _ivr_value = _metric_entry_value(_ivr_entry)
+                    if _ivr_value is not None:
+                        snapshot["iv_rank"] = _ivr_value
 
             _data_dir = _Path.home() / "Projects" / "Spyder" / "market_data"
+            _metrics_file = _data_dir / "overview_metrics_snapshot.json"
+            if _metrics_file.exists():
+                with open(_metrics_file, encoding="utf-8") as _f:
+                    _payload = _json.load(_f)
+                _metrics_payload = _payload.get("metrics") if isinstance(_payload, dict) else None
+                _saved_at = _payload.get("_saved_at") if isinstance(_payload, dict) else None
+                _extract_options_metrics(_metrics_payload, _saved_at=_saved_at, _file=_metrics_file)
+
             for _file_name, _nested_key in (("live_data.json", None), ("dashboard_snapshot.json", "data")):
+                if snapshot["iv"] is not None and snapshot["iv_rank"] is not None:
+                    break
                 _file = _data_dir / _file_name
                 if not _file.exists():
                     continue
                 with open(_file, encoding="utf-8") as _f:
                     _payload = _json.load(_f)
+                _saved_at = _payload.get("_saved_at") if isinstance(_payload, dict) else None
                 if _nested_key and isinstance(_payload, dict):
                     _payload = _payload.get(_nested_key)
-                _extract_options_metrics(_payload)
-                if snapshot["iv"] is not None and snapshot["iv_rank"] is not None:
-                    break
+                _extract_options_metrics(_payload, _saved_at=_saved_at, _file=_file)
         except Exception:
             snapshot = {"iv": None, "iv_rank": None}
 
@@ -1264,8 +1344,16 @@ class StrategyOrchestrator:
         reason: str,
         signal: Any | None = None,
         detail: str | None = None,
+        *,
+        update_dispatch_state: bool = True,
     ) -> None:
-        """Track and expose why strategy signals are dropped."""
+        """Track why strategy signals are dropped.
+
+        Most drops should surface through the shared DISPATCH badge. Duplicate
+        entry skips are intentionally quieter: they remain audited and counted
+        but should not advertise a global BLOCKED state for unrelated strategy
+        slots.
+        """
         _count_drop(stage, reason)
         self._signal_flow_counts["dropped"] += 1
         self._signal_drop_reasons[f"{stage}:{reason}"] += 1
@@ -1275,21 +1363,22 @@ class StrategyOrchestrator:
             signal=signal,
             detail=detail,
         )
-        # v9 §10.4: dispatch-state pill input. dispatch_exception is a system
-        # error, everything else is a guardrail block.
-        now_mono = time.monotonic()
-        if stage == "dispatch" and reason == "dispatch_exception":
-            self._last_dispatch_error = {
-                "reason": reason,
-                "detail": detail or "",
-                "monotonic_ts": now_mono,
-            }
-        else:
-            self._last_drop_event = {
-                "stage": stage,
-                "reason": reason,
-                "monotonic_ts": now_mono,
-            }
+        if update_dispatch_state:
+            # v9 §10.4: dispatch-state pill input. dispatch_exception is a
+            # system error, everything else is a guardrail block.
+            now_mono = time.monotonic()
+            if stage == "dispatch" and reason == "dispatch_exception":
+                self._last_dispatch_error = {
+                    "reason": reason,
+                    "detail": detail or "",
+                    "monotonic_ts": now_mono,
+                }
+            else:
+                self._last_drop_event = {
+                    "stage": stage,
+                    "reason": reason,
+                    "monotonic_ts": now_mono,
+                }
         self._log_signal_flow_summary_if_due()
 
     @staticmethod
@@ -1762,10 +1851,12 @@ class StrategyOrchestrator:
 
     def get_execution_pill_state(self) -> dict[str, Any]:
         """Return D31-owned posture labels for the G05 STANCE and GATE pills."""
+        if getattr(self, "_last_regime_update_ts", None) is None:
+            return {"regime": "", "stance": "", "gate": "", "gate_key": ""}
         current_regime = getattr(getattr(self, "market_regime", None), "current_regime", None)
         raw_regime = str(getattr(current_regime, "value", "") or "").strip().lower()
         if not raw_regime:
-            return {"regime": "", "stance": "CHOPPY", "gate": "RANGE CALM", "gate_key": "range_calm"}
+            return {"regime": "", "stance": "", "gate": "", "gate_key": ""}
         policy = self._get_regime_policy()
         regimes = policy.get("regimes", {}) if isinstance(policy, dict) else {}
         gate_key = self._normalize_regime_policy_key(raw_regime, regimes if isinstance(regimes, dict) else None)
@@ -2047,6 +2138,7 @@ class StrategyOrchestrator:
 
             strategy_name = strategy_class.__name__
             strategy_type = self._get_strategy_type(strategy_class)
+            config = self._apply_strategy_runtime_config_defaults(strategy_type, config)
             if self.lean_mode and strategy_name not in self.lean_strategy_allowlist:
                 raise ValueError(
                     f"Lean mode blocks strategy registration: {strategy_name}"
@@ -2549,7 +2641,7 @@ class StrategyOrchestrator:
                     _now_m = time.monotonic()
                     if _now_m - getattr(self, "_last_supervision_log_ts", 0.0) >= 300.0:
                         self.logger.info(
-                            "👁 Supervising %d position%s", _n, "s" if _n != 1 else ""
+                            "👁 Supervising %d active strateg%s", _n, "ies" if _n != 1 else "y"
                         )
                         self._last_supervision_log_ts = _now_m
 
@@ -2701,6 +2793,20 @@ class StrategyOrchestrator:
                 name = name[: -len(suffix)]
         return name or strategy_class.__name__
 
+    def _apply_strategy_runtime_config_defaults(
+        self,
+        strategy_name: str,
+        config: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Apply strategy defaults needed before admission-time classification."""
+        resolved = dict(config or {})
+        strategy_type_normalized = self._normalise_strategy_type_for_entry_gate(strategy_name)
+
+        if strategy_type_normalized in {"broken_wing_butterfly", "jade_lizard_zero"}:
+            resolved.setdefault("target_dte", 0)
+
+        return resolved
+
     def _resolve_horizon_bucket(self, strategy_name: str, config: dict[str, Any]) -> str:
         """Resolve strategy horizon bucket used for admission guardrails.
 
@@ -2714,6 +2820,14 @@ class StrategyOrchestrator:
         raw = str((config or {}).get("horizon_bucket", "")).strip().lower()
         if raw in {"ultra_short", "short", "swing"}:
             return raw
+
+        target_dte_raw = (config or {}).get("target_dte")
+        try:
+            target_dte = int(target_dte_raw)
+        except (TypeError, ValueError):
+            target_dte = None
+        if target_dte is not None and 0 <= target_dte <= 1:
+            return "ultra_short"
 
         normalized_name = strategy_name
         for suffix in ("Strategy", "Spyder", "D"):
@@ -2796,7 +2910,10 @@ class StrategyOrchestrator:
         if horizon_bucket != "ultra_short":
             return False
 
-        if len(self.active_strategies) != MAX_CONCURRENT_STRATEGIES:
+        # The overlay only exists to admit PMR as the third live strategy while
+        # bypassing the duplicate ultra_short horizon-bucket occupancy. It must
+        # not widen the portfolio to a fourth active strategy.
+        if len(self.active_strategies) != (MAX_CONCURRENT_STRATEGIES - 1):
             return False
 
         for alloc in self.strategy_allocations.values():
@@ -3607,15 +3724,48 @@ class StrategyOrchestrator:
         raw = str(strategy_value or "").strip().lower()
         strategy_map = {
             "bull_put_spread": "BullPutSpread",
+            "put_credit_spread_7": "PutCreditSpread7",
             "bear_call_spread": "BearCallSpread",
             "iron_condor": "IronCondor",
             "iron_butterfly": "IronButterfly",
+            "broken_wing_butterfly": "BrokenWingButterfly",
+            "bullish_strangle": "BullishStrangle",
+            "butterfly": "Butterfly",
             "bull_call_spread": "BullCallSpread",
             "bear_put_spread": "BearPutSpread",
+            "calendar_spread": "CalendarSpread",
+            "calendar_spreads": "CalendarSpread",
             "pivot_mean_reversion": "PivotMeanReversion",
             "no_trade": None,
         }
         return strategy_map.get(raw)
+
+    def _maybe_override_paper_calendar_spread_selection(
+        self,
+        strategy_name: str | None,
+        selector_reason: str,
+    ) -> tuple[str | None, str]:
+        """Optionally override low-vol paper lean selections to CalendarSpread."""
+        if strategy_name is None:
+            return None, selector_reason
+        if not self._paper_calendar_spread_routing_flag_enabled() or self._is_live_mode():
+            return strategy_name, selector_reason
+
+        regime = self.market_regime.current_regime
+        override_candidates = {
+            MarketRegime.BULL_LOW_VOL: {"BullPutSpread"},
+            MarketRegime.BEAR_LOW_VOL: {"BearCallSpread"},
+            MarketRegime.SIDEWAYS_LOW_VOL: {"IronCondor"},
+        }
+        allowed_sources = override_candidates.get(regime)
+        if not allowed_sources or strategy_name not in allowed_sources:
+            return strategy_name, selector_reason
+
+        # D31's non-lean regime weights already include CalendarSpread in these
+        # low-volatility regimes; this paper-only flag opts lean mode into the
+        # same family without changing any live defaults.
+        override_reason = f"paper_calendar_spread_override:{regime.value}:{selector_reason or strategy_name}"
+        return "CalendarSpread", override_reason
 
     def _fallback_lean_strategy_name(self) -> str | None:
         """Fallback lean mapping when D30 selector or consensus is unavailable."""
@@ -3629,13 +3779,23 @@ class StrategyOrchestrator:
         bear_put_enabled = str(os.getenv("SPYDER_ENABLE_BEAR_PUT_SPREAD", "")).strip().lower() in {
             "1", "true", "yes", "on", "y"
         }
+        bullish_strangle_enabled = str(
+            os.getenv("SPYDER_ENABLE_BULLISH_STRANGLE", "")
+        ).strip().lower() in {"1", "true", "yes", "on", "y"}
+        put_credit_spread_7_enabled = str(
+            os.getenv("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", "")
+        ).strip().lower() in {"1", "true", "yes", "on", "y"}
         pivot_enabled = str(os.getenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", "")).strip().lower() in {
             "1", "true", "yes", "on", "y"
         }
         pivot_payload = self._get_cached_pivot_signal_for_selector() or {}
         pivot_fired = bool(pivot_payload.get("fired", False))
 
+        if regime == MarketRegime.RECOVERY and bullish_strangle_enabled:
+            return "BullishStrangle"
         if regime in {MarketRegime.BULL_LOW_VOL, MarketRegime.BULL_HIGH_VOL, MarketRegime.RECOVERY}:
+            if put_credit_spread_7_enabled and self._put_credit_spread_7_eligible_now():
+                return "PutCreditSpread7"
             return "BullCallSpread" if bull_call_enabled else "BullPutSpread"
         if regime in {MarketRegime.BEAR_LOW_VOL, MarketRegime.BEAR_HIGH_VOL}:
             return "BearPutSpread" if bear_put_enabled else "BearCallSpread"
@@ -3644,9 +3804,24 @@ class StrategyOrchestrator:
                 return "PivotMeanReversion"
             return "IronCondor"
         if regime == MarketRegime.SIDEWAYS_HIGH_VOL:
+            if bullish_strangle_enabled and pivot_fired:
+                return "BullishStrangle"
             return "IronButterfly"
 
         return None
+
+    @staticmethod
+    def _put_credit_spread_7_eligible_now() -> bool:
+        """Return True when the weekly seven-DTE strategy is selectable now."""
+        if str(os.getenv("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", "")).strip().lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "y",
+        }:
+            return False
+        return bool(_d31_put_credit_spread_7_entry_window_open(_d31_now_et()))
 
     def _paper_fail_closed_selector_reason(
         self,
@@ -3684,6 +3859,10 @@ class StrategyOrchestrator:
                 strategy_value = getattr(getattr(selection, "selected_strategy", None), "value", None)
                 strategy_name = self._map_selector_strategy_to_registry_name(strategy_value)
                 reason = str(getattr(selection, "reason", strategy_value or "selector_result"))
+                strategy_name, reason = self._maybe_override_paper_calendar_spread_selection(
+                    strategy_name,
+                    reason,
+                )
                 fail_closed_reason = self._paper_fail_closed_selector_reason(strategy_name, reason)
                 if fail_closed_reason is not None:
                     self.logger.warning(
@@ -3697,9 +3876,14 @@ class StrategyOrchestrator:
                 self.logger.warning("D31 selector execution failed; using fallback map: %s", exc)
 
         fallback_name = self._fallback_lean_strategy_name()
+        fallback_reason = "fallback_lean_mapping"
+        fallback_name, fallback_reason = self._maybe_override_paper_calendar_spread_selection(
+            fallback_name,
+            fallback_reason,
+        )
         fail_closed_reason = self._paper_fail_closed_selector_reason(
             fallback_name,
-            "fallback_lean_mapping",
+            fallback_reason,
         )
         if fail_closed_reason is not None:
             self.logger.warning(
@@ -3707,7 +3891,7 @@ class StrategyOrchestrator:
                 fallback_name,
             )
             return None, f"paper_fail_closed:{fail_closed_reason}"
-        return fallback_name, "fallback_lean_mapping"
+        return fallback_name, fallback_reason
 
     def _get_regime_strategy_weights(self) -> dict[str, float]:
         """Get optimal strategy weights for current regime"""
@@ -3794,6 +3978,14 @@ class StrategyOrchestrator:
                 'RSIMeanReversion': 0.1,
             }
         }
+
+        if self._put_credit_spread_7_eligible_now():
+            bull_low_vol = regime_weights.get(MarketRegime.BULL_LOW_VOL)
+            if bull_low_vol is not None:
+                bull_low_vol['PutCreditSpread7'] = 0.25
+            bull_high_vol = regime_weights.get(MarketRegime.BULL_HIGH_VOL)
+            if bull_high_vol is not None:
+                bull_high_vol['PutCreditSpread7'] = 0.15
 
         return regime_weights.get(regime, {})
 
@@ -4969,6 +5161,9 @@ class StrategyOrchestrator:
             return
 
         symbol = str(data.get("symbol") or "")
+        strategy_id = str(data.get("strategy_id") or data.get("strategy") or "")
+        status = str(data.get("status") or "").strip().upper()
+        reason = str(data.get("reason") or "").strip().lower()
         if symbol:
             self._clear_pending_entry_reservations_for_symbol(symbol)
             self._clear_pending_exit_reservations_for_symbol(symbol)
@@ -4976,6 +5171,14 @@ class StrategyOrchestrator:
             if underlying_symbol and underlying_symbol != symbol:
                 self._clear_pending_entry_reservations_for_symbol(underlying_symbol)
                 self._clear_pending_exit_reservations_for_symbol(underlying_symbol)
+
+        if (
+            symbol
+            and strategy_id
+            and status in {"CLOSED", "CLOSE_REQUESTED"}
+            and reason == "manual_close_dashboard"
+        ):
+            self._record_manual_close_reentry_embargo(symbol, strategy_id)
 
     def _on_terminal_order_event(self, event: Event) -> None:
         """Release in-flight entry reservations when an order reaches terminal state."""
@@ -5322,6 +5525,37 @@ class StrategyOrchestrator:
             strategy_id = signal.get("strategy_id", signal.get("strategy_name", ""))
             side = signal.get("action", signal.get("side", "buy"))
             symbol = str(signal.get("symbol") or "")
+            if self._is_entry_action(side):
+                embargo_remaining_s = self._get_manual_close_reentry_embargo_remaining(
+                    symbol,
+                    strategy_id,
+                )
+                if embargo_remaining_s is not None:
+                    embargo_remaining = max(1, int(math.ceil(embargo_remaining_s)))
+                    embargo_detail = (
+                        f"symbol={symbol};strategy={strategy_id};"
+                        "embargo_source=manual_close_dashboard;"
+                        f"embargo_remaining_s={embargo_remaining}"
+                    )
+                    self.logger.warning(
+                        "Strategy signal blocked — manual close reentry embargo active: symbol=%s strategy=%s embargo_remaining_s=%s | %s",
+                        symbol,
+                        strategy_id,
+                        embargo_remaining,
+                        pivot_context,
+                    )
+                    self._record_signal_drop(
+                        "pre_dispatch",
+                        "manual_close_reentry_embargo",
+                        signal=signal,
+                        detail=embargo_detail,
+                    )
+                    self._record_signal_dispatch_outcome_safe(
+                        "dispatch_rejected",
+                        signal=signal,
+                        detail=embargo_detail,
+                    )
+                    return
             duplicate_source = self._get_duplicate_open_position_source(
                 symbol,
                 strategy_id,
@@ -5335,6 +5569,7 @@ class StrategyOrchestrator:
                     symbol,
                     strategy_id,
                     pivot_context,
+                    duplicate_source=duplicate_source,
                     stage="pre_dispatch",
                 )
                 self._record_signal_drop(
@@ -5342,6 +5577,7 @@ class StrategyOrchestrator:
                     "duplicate_open_position",
                     signal=signal,
                     detail=duplicate_detail,
+                    update_dispatch_state=False,
                 )
                 self._record_signal_dispatch_outcome_safe(
                     "dispatch_rejected",
@@ -5359,6 +5595,7 @@ class StrategyOrchestrator:
                     symbol,
                     strategy_id,
                     pivot_context,
+                    duplicate_source="pending_entry_reservation",
                     stage="pre_dispatch",
                 )
                 self._record_signal_drop(
@@ -5366,6 +5603,7 @@ class StrategyOrchestrator:
                     "duplicate_open_position",
                     signal=signal,
                     detail=duplicate_detail,
+                    update_dispatch_state=False,
                 )
                 self._record_signal_dispatch_outcome_safe(
                     "dispatch_rejected",
@@ -5501,8 +5739,16 @@ class StrategyOrchestrator:
         normalized = re.sub(r"_v\d+$", "", normalized)
 
         aliases = {
+            "bullishstrangle": "bullish_strangle",
+            "bullishstranglestrategy": "bullish_strangle",
             "bull_put_spread": "bull_put_credit_spread",
             "bear_call_spread": "bear_call_credit_spread",
+            "brokenwingbutterfly": "broken_wing_butterfly",
+            "ironbutterfly": "iron_butterfly",
+            "jadelizardzero": "jade_lizard_zero",
+            "jadelizardzerostrategy": "jade_lizard_zero",
+            "putcreditspread7": "put_credit_spread_7",
+            "putcreditspread7strategy": "put_credit_spread_7",
             "iron_condor": "iron_condor_defined_risk",
             "pivotmeanreversion": "pivot_mean_reversion",
             "pivot_mr": "pivot_mean_reversion",
@@ -5514,6 +5760,16 @@ class StrategyOrchestrator:
     def _overlay_slot_flag_enabled() -> bool:
         """Return True when the optional ODTE overlay flag is enabled."""
         return str(os.environ.get("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT", "")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    @staticmethod
+    def _paper_calendar_spread_routing_flag_enabled() -> bool:
+        """Return True when optional paper calendar spread routing is enabled."""
+        return str(os.environ.get("SPYDER_ENABLE_PAPER_CALENDAR_SPREAD_ROUTING", "")).strip().lower() in {
             "1",
             "true",
             "yes",
@@ -5801,7 +6057,7 @@ class StrategyOrchestrator:
         policy: dict[str, Any] = {
             "primary_start_et": "09:30",
             "primary_end_et": "16:15",
-            "first_entry_not_before_et": "10:15",
+            "first_entry_not_before_et": "09:45",
             "zero_dte_no_new_risk_cutoff_et": "14:30",
             "broker_cutoff_et": "16:00",
             "broker_cutoff_buffer_minutes": 10,
@@ -6020,7 +6276,7 @@ class StrategyOrchestrator:
         if current_time < start_et or current_time >= end_et:
             return False, "session_window:outside_primary_window"
 
-        first_entry_not_before = self._session_time("first_entry_not_before_et", "10:15")
+        first_entry_not_before = self._session_time("first_entry_not_before_et", "09:45")
         if self._is_opening_trade_signal(signal) and current_time < first_entry_not_before:
             return False, "session_window:first_entry_embargo"
 
@@ -6028,10 +6284,10 @@ class StrategyOrchestrator:
         if self._is_live_mode() and fail_closed_live and not self._has_valid_broker_cutoff():
             return False, "session_window:missing_broker_cutoff_live"
 
-        if self._is_short_option_entry(signal) and self._is_zero_dte_signal(signal, now_et):
+        if self._is_opening_trade_signal(signal) and self._is_zero_dte_signal(signal, now_et):
             cutoff = self._session_time("zero_dte_no_new_risk_cutoff_et", "14:30")
             if current_time >= cutoff:
-                return False, "session_window:zero_dte_short_cutoff"
+                return False, "session_window:zero_dte_no_new_risk_cutoff"
 
         return True, ""
 
@@ -6220,6 +6476,91 @@ class StrategyOrchestrator:
             "expiration": expiration_dt,
             "dte": int(dte_value) if dte_value is not None else None,
             "target_credit": target_credit,
+        }
+
+    def _extract_iron_butterfly_setup_payload(self, signal: dict[str, Any]) -> dict[str, Any]:
+        """Extract explicit iron-butterfly strikes and expiry hints when present."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        setup = metadata.get("setup") if isinstance(metadata.get("setup"), dict) else {}
+        strikes_source = setup.get("strikes") if isinstance(setup.get("strikes"), dict) else {}
+
+        normalized_strikes: dict[str, float] = {}
+        key_map = {
+            "put_long": ("put_long", "long_put", "long_put_strike"),
+            "put_short": ("put_short", "short_put", "short_put_strike", "atm_strike"),
+            "call_short": ("call_short", "short_call", "short_call_strike", "atm_strike"),
+            "call_long": ("call_long", "long_call", "long_call_strike"),
+        }
+        sources = (signal, metadata, setup, strikes_source)
+        for normalized_key, candidates in key_map.items():
+            for source in sources:
+                if not isinstance(source, dict):
+                    continue
+                for candidate in candidates:
+                    value = self._coerce_float(source.get(candidate))
+                    if value is not None:
+                        normalized_strikes[normalized_key] = float(value)
+                        break
+                if normalized_key in normalized_strikes:
+                    break
+
+        expiration_value = (
+            setup.get("expiration_time")
+            or signal.get("expiration")
+            or signal.get("expiration_date")
+            or metadata.get("expiration")
+            or metadata.get("expiration_date")
+        )
+        expiration_dt = self._coerce_datetime(expiration_value)
+
+        dte_value = None
+        for key in ("target_dte", "dte", "days_to_expiry", "days_to_expiration"):
+            for source in (signal, metadata, setup):
+                if not isinstance(source, dict):
+                    continue
+                dte_value = self._coerce_float(source.get(key))
+                if dte_value is not None:
+                    break
+            if dte_value is not None:
+                break
+        if dte_value is None and expiration_dt is not None:
+            now_et = _d31_now_et()
+            try:
+                dte_value = float((expiration_dt.date() - now_et.date()).days)
+            except Exception:
+                dte_value = None
+
+        target_credit = (
+            self._coerce_float(setup.get("credit"))
+            or self._coerce_float(setup.get("credit_received"))
+            or self._coerce_float(metadata.get("expected_credit"))
+            or self._coerce_float(signal.get("price"))
+            or self._coerce_float(signal.get("entry_price"))
+        )
+
+        return {
+            "strikes": normalized_strikes,
+            "expiration": expiration_dt,
+            "dte": int(dte_value) if dte_value is not None else None,
+            "target_credit": target_credit,
+        }
+
+    def _extract_calendar_spread_setup_payload(self, signal: dict[str, Any]) -> dict[str, Any]:
+        """Extract serialized calendar setup payload for explicit paper leg routing."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        setup_source = signal.get("setup")
+        if not isinstance(setup_source, dict):
+            setup_source = metadata.get("setup")
+        setup = setup_source if isinstance(setup_source, dict) else {}
+        near_leg = setup.get("near_leg") if isinstance(setup.get("near_leg"), dict) else {}
+        far_leg = setup.get("far_leg") if isinstance(setup.get("far_leg"), dict) else {}
+        calendar_type = str(
+            setup.get("calendar_type") or metadata.get("calendar_type") or ""
+        ).strip().lower()
+        return {
+            "calendar_type": calendar_type,
+            "near_leg": near_leg,
+            "far_leg": far_leg,
         }
 
     def _build_multileg_market_analysis(
@@ -6461,19 +6802,23 @@ class StrategyOrchestrator:
             )
             return
 
-        accepted_order_ids: list[str] = []
+        accepted_leg_orders: list[dict[str, Any]] = []
         for leg_order in leg_orders:
             result = self._live_engine.execute_order(leg_order)
             status = result.get("status", "unknown") if isinstance(result, dict) else str(result)
             if status in {"rejected", "error", "timeout"}:
-                for accepted_order_id in accepted_order_ids:
-                    try:
-                        self._live_engine.cancel_order(accepted_order_id)
-                    except Exception:
-                        pass
+                rollback_failures = self._rollback_paper_multileg_entry_orders(
+                    accepted_leg_orders,
+                    strategy_label="Paper iron condor",
+                    symbol=symbol,
+                    strategy_id=strategy_id,
+                    pivot_context=pivot_context,
+                )
                 self._clear_pending_entry_reservation(symbol, strategy_id)
                 reason = result.get("reason", "") if isinstance(result, dict) else ""
                 detail = f"leg={leg_order.get('leg_role')};status={status};reason={reason or status}"
+                if rollback_failures:
+                    detail = f"{detail};rollback={'|'.join(rollback_failures)}"
                 self.logger.warning(
                     "Paper iron condor leg rejected: %s symbol=%s strategy=%s | %s",
                     detail,
@@ -6494,12 +6839,1253 @@ class StrategyOrchestrator:
                 )
                 return
 
+            tracked_leg_order = dict(leg_order)
             order_id = result.get("order_id") if isinstance(result, dict) else None
             if order_id:
-                accepted_order_ids.append(str(order_id))
+                tracked_leg_order["_accepted_order_id"] = str(order_id)
+            accepted_leg_orders.append(tracked_leg_order)
 
         self.logger.info(
             "Paper iron condor dispatched as four option legs: symbol=%s strategy=%s qty=%d | %s",
+            symbol,
+            strategy_id,
+            quantity,
+            pivot_context,
+        )
+        self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
+
+    def _build_paper_iron_butterfly_leg_orders(
+        self,
+        signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+    ) -> list[dict[str, Any]]:
+        """Decompose an iron-butterfly structure into explicit option-leg orders."""
+        setup_payload = self._extract_iron_butterfly_setup_payload(signal)
+        strikes = setup_payload.get("strikes") if isinstance(setup_payload.get("strikes"), dict) else {}
+        if len(strikes) != 4:
+            return []
+
+        market_analysis = self._build_multileg_market_analysis(signal, symbol)
+        if market_analysis is None:
+            return []
+
+        try:
+            from Spyder.SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
+                MultiLegStrategyConstructor,
+                OptionLeg,
+            )
+        except Exception as exc:
+            self.logger.warning("Paper iron butterfly construction unavailable: %s", exc)
+            return []
+
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+        except Exception as exc:
+            self.logger.warning("Option symbol formatting unavailable: %s", exc)
+            return []
+
+        constructor = MultiLegStrategyConstructor({})
+        expiration_dt = self._resolve_paper_multileg_expiration(
+            signal,
+            symbol,
+            constructor,
+            setup_payload.get("expiration"),
+            setup_payload.get("dte"),
+        )
+        now_et = _d31_now_et()
+        resolved_dte = max((expiration_dt.date() - now_et.date()).days, 0)
+        pricing_dte = max(int(resolved_dte or setup_payload.get("dte") or 1), 1)
+
+        legs = [
+            OptionLeg("put", float(strikes["put_long"]), 1, expiration_dt),
+            OptionLeg("put", float(strikes["put_short"]), -1, expiration_dt),
+            OptionLeg("call", float(strikes["call_short"]), -1, expiration_dt),
+            OptionLeg("call", float(strikes["call_long"]), 1, expiration_dt),
+        ]
+        constructor._estimate_legs_pricing_and_greeks(
+            legs,
+            float(market_analysis.underlying_price),
+            float(market_analysis.implied_volatility),
+            pricing_dte,
+        )
+        try:
+            constructor._get_live_option_chain_strikes(
+                symbol,
+                expiration_dt.date().isoformat(),
+            )
+            constructor._apply_live_chain_prices_to_legs(legs)
+        except Exception as exc:
+            self.logger.debug(
+                "Paper iron butterfly live-chain pricing unavailable for %s: %s",
+                symbol,
+                exc,
+            )
+
+        target_credit = self._coerce_float(setup_payload.get("target_credit"))
+        estimated_credit = constructor._calculate_net_credit(legs)
+        if target_credit is not None and target_credit > 0.0 and estimated_credit > 0.0:
+            scale = target_credit / estimated_credit
+            for leg in legs:
+                leg.price *= scale
+
+        leg_roles = ["long_put", "short_put", "short_call", "long_call"]
+        is_closing_signal = self._is_closing_trade_signal(signal)
+        orders: list[dict[str, Any]] = []
+        for index, leg in enumerate(legs):
+            expiry = leg.expiration.date() if isinstance(leg.expiration, datetime) else now_et.date()
+            option_symbol = DateTimeUtils.format_option_symbol(
+                symbol,
+                expiry,
+                "C" if str(leg.option_type).lower() == "call" else "P",
+                float(leg.strike),
+            )
+            if is_closing_signal:
+                side = "sell_to_close" if int(leg.quantity) > 0 else "buy_to_close"
+            else:
+                side = "buy_to_open" if int(leg.quantity) > 0 else "sell_to_open"
+
+            contracts = max(abs(int(leg.quantity)) * max(int(quantity), 1), 1)
+            limit_price = round(max(float(getattr(leg, "price", 0.0) or 0.01), 0.01), 2)
+            option_details = self._parse_occ_option_symbol(option_symbol)
+            orders.append(
+                {
+                    "symbol": option_symbol,
+                    "side": side,
+                    "quantity": contracts,
+                    "order_type": "limit",
+                    "price": limit_price,
+                    "strategy_id": strategy_id,
+                    "multileg_leg_execution": True,
+                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_strategy": str(strategy_id or "iron_butterfly"),
+                    "leg_role": leg_roles[index] if index < len(leg_roles) else f"leg_{index + 1}",
+                    "expiration": option_details.get("expiration"),
+                    "strike": option_details.get("strike"),
+                    "option_type": option_details.get("option_type"),
+                }
+            )
+        return orders
+
+    def _dispatch_paper_iron_butterfly(
+        self,
+        signal: Any,
+        raw_signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+        pivot_context: str,
+    ) -> None:
+        """Dispatch a paper iron butterfly as four explicit option-leg orders."""
+        is_closing_signal = self._is_closing_trade_signal(raw_signal)
+
+        def _clear_reservation() -> None:
+            if is_closing_signal:
+                self._clear_pending_exit_reservation(symbol, strategy_id)
+            else:
+                self._clear_pending_entry_reservation(symbol, strategy_id)
+
+        if self._live_engine is None:
+            _clear_reservation()
+            self.logger.warning(
+                "Paper iron butterfly dropped — no live engine wired: symbol=%s | %s",
+                symbol,
+                pivot_context,
+            )
+            self._record_signal_drop(
+                "dispatch",
+                "no_live_engine_for_paper_iron_butterfly",
+                signal=signal,
+            )
+            self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+            return
+
+        leg_orders = self._build_paper_iron_butterfly_leg_orders(
+            raw_signal,
+            symbol,
+            quantity,
+            strategy_id,
+        )
+        if len(leg_orders) != 4:
+            _clear_reservation()
+            detail = "paper iron butterfly routing could not derive four explicit option legs"
+            self.logger.warning(
+                "Paper iron butterfly rejected — %s: symbol=%s strategy=%s | %s",
+                detail,
+                symbol,
+                strategy_id,
+                pivot_context,
+            )
+            self._record_signal_drop(
+                "dispatch",
+                "paper_iron_butterfly_structure_missing",
+                signal=signal,
+                detail=detail,
+            )
+            self._record_signal_dispatch_outcome_safe(
+                "dispatch_rejected",
+                signal=signal,
+                detail=detail,
+            )
+            return
+
+        accepted_leg_orders: list[dict[str, Any]] = []
+        for leg_order in leg_orders:
+            result = self._live_engine.execute_order(leg_order)
+            status = result.get("status", "unknown") if isinstance(result, dict) else str(result)
+            if status in {"rejected", "error", "timeout"}:
+                rollback_failures: list[str] = []
+                if not is_closing_signal:
+                    rollback_failures = self._rollback_paper_multileg_entry_orders(
+                        accepted_leg_orders,
+                        strategy_label="Paper iron butterfly",
+                        symbol=symbol,
+                        strategy_id=strategy_id,
+                        pivot_context=pivot_context,
+                    )
+                _clear_reservation()
+                reason = result.get("reason", "") if isinstance(result, dict) else ""
+                detail = f"leg={leg_order.get('leg_role')};status={status};reason={reason or status}"
+                if rollback_failures:
+                    detail = f"{detail};rollback={'|'.join(rollback_failures)}"
+                self.logger.warning(
+                    "Paper iron butterfly leg rejected: %s symbol=%s strategy=%s | %s",
+                    detail,
+                    symbol,
+                    strategy_id,
+                    pivot_context,
+                )
+                self._record_signal_drop(
+                    "dispatch",
+                    "paper_iron_butterfly_leg_rejected",
+                    signal=signal,
+                    detail=detail,
+                )
+                self._record_signal_dispatch_outcome_safe(
+                    "dispatch_rejected",
+                    signal=signal,
+                    detail=detail,
+                )
+                return
+
+            tracked_leg_order = dict(leg_order)
+            order_id = result.get("order_id") if isinstance(result, dict) else None
+            if order_id:
+                tracked_leg_order["_accepted_order_id"] = str(order_id)
+            accepted_leg_orders.append(tracked_leg_order)
+
+        self.logger.info(
+            "Paper iron butterfly dispatched as four option legs: symbol=%s strategy=%s qty=%d | %s",
+            symbol,
+            strategy_id,
+            quantity,
+            pivot_context,
+        )
+        self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
+
+    def _extract_butterfly_family_setup_payload(self, signal: dict[str, Any]) -> dict[str, Any]:
+        """Extract Butterfly/BWB setup metadata for explicit paper leg routing."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        strategy_value = (
+            signal.get("strategy_type")
+            or metadata.get("strategy_type")
+            or signal.get("strategy_id")
+            or metadata.get("strategy_id")
+            or ""
+        )
+        normalized_strategy_key = self._normalise_strategy_type_for_entry_gate(strategy_value)
+
+        def _float_value(*keys: str) -> float | None:
+            for source in (signal, metadata):
+                for key in keys:
+                    if key not in source:
+                        continue
+                    candidate = self._coerce_float(source.get(key))
+                    if candidate is not None:
+                        return candidate
+            return None
+
+        expiration_dt = None
+        for source in (signal, metadata):
+            for key in ("expiration", "expiry", "expiration_date", "expiry_date"):
+                if key not in source:
+                    continue
+                expiration_dt = self._coerce_datetime(source.get(key))
+                if expiration_dt is not None:
+                    break
+                expiration_date = self._coerce_date(source.get(key))
+                if expiration_date is not None:
+                    expiration_dt = datetime.combine(
+                        expiration_date,
+                        datetime.min.time(),
+                        tzinfo=UTC,
+                    )
+                    break
+            if expiration_dt is not None:
+                break
+
+        dte_value = _float_value(
+            "target_dte",
+            "days_to_expiry",
+            "days_to_expiration",
+            "dte",
+        )
+
+        if normalized_strategy_key == "butterfly":
+            structure = str(
+                signal.get("structure") or metadata.get("structure") or "long_call_butterfly"
+            ).strip().lower()
+            option_type = "put" if "put" in structure else "call"
+            lower_strike = _float_value("lower_strike")
+            body_strike = _float_value("body_strike")
+            upper_strike = _float_value("upper_strike")
+            if None in {lower_strike, body_strike, upper_strike}:
+                return {}
+            return {
+                "strategy_key": normalized_strategy_key,
+                "option_type": option_type,
+                "expiration": expiration_dt,
+                "dte": int(dte_value) if dte_value is not None else None,
+                "target_premium": _float_value("expected_debit", "target_debit", "debit"),
+                "premium_kind": "debit",
+                "legs": [
+                    {"role": "lower_call", "strike": lower_strike, "quantity": 1},
+                    {"role": "body_call", "strike": body_strike, "quantity": -2},
+                    {"role": "upper_call", "strike": upper_strike, "quantity": 1},
+                ],
+            }
+
+        if normalized_strategy_key == "broken_wing_butterfly":
+            upper_wing_strike = _float_value("upper_wing_strike")
+            body_strike = _float_value("body_strike")
+            lower_wing_strike = _float_value("lower_wing_strike")
+            if None in {upper_wing_strike, body_strike, lower_wing_strike}:
+                return {}
+            return {
+                "strategy_key": normalized_strategy_key,
+                "option_type": "put",
+                "expiration": expiration_dt,
+                "dte": int(dte_value) if dte_value is not None else None,
+                "target_premium": _float_value("expected_credit", "target_credit", "credit"),
+                "premium_kind": "credit",
+                "legs": [
+                    {"role": "upper_put", "strike": upper_wing_strike, "quantity": 1},
+                    {"role": "body_put", "strike": body_strike, "quantity": -2},
+                    {"role": "lower_put", "strike": lower_wing_strike, "quantity": 1},
+                ],
+            }
+
+        return {}
+
+    def _resolve_paper_multileg_expiration(
+        self,
+        signal: dict[str, Any],
+        symbol: str,
+        constructor: Any,
+        expiration_dt: datetime | None,
+        dte_value: int | None,
+    ) -> datetime:
+        """Resolve a paper multileg expiration to a listed contract date when possible."""
+        now_et = _d31_now_et()
+        resolved_expiration = expiration_dt
+        if isinstance(resolved_expiration, datetime) and resolved_expiration.tzinfo is None:
+            resolved_expiration = resolved_expiration.replace(tzinfo=UTC)
+
+        if not isinstance(resolved_expiration, datetime):
+            fallback_dte = dte_value
+            if fallback_dte is None:
+                fallback_dte = 0 if self._is_zero_dte_signal(signal, now_et) else 30
+            resolved_expiration = datetime.combine(
+                now_et.date() + timedelta(days=max(int(fallback_dte), 0)),
+                datetime.min.time(),
+                tzinfo=UTC,
+            )
+
+        try:
+            return constructor._resolve_live_option_expiration(symbol, resolved_expiration)
+        except Exception:
+            return resolved_expiration
+
+    def _build_paper_butterfly_family_leg_orders(
+        self,
+        signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+    ) -> list[dict[str, Any]]:
+        """Decompose Butterfly/BWB paper signals into explicit option-leg orders."""
+        setup_payload = self._extract_butterfly_family_setup_payload(signal)
+        if not setup_payload:
+            return []
+
+        market_analysis = self._build_multileg_market_analysis(signal, symbol)
+        if market_analysis is None:
+            return []
+
+        try:
+            from Spyder.SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
+                MultiLegStrategyConstructor,
+                OptionLeg,
+            )
+        except Exception as exc:
+            self.logger.warning("Paper butterfly-family routing unavailable: %s", exc)
+            return []
+
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+        except Exception as exc:
+            self.logger.warning("Option symbol formatting unavailable: %s", exc)
+            return []
+
+        constructor = MultiLegStrategyConstructor({})
+        expiration_dt = self._resolve_paper_multileg_expiration(
+            signal,
+            symbol,
+            constructor,
+            setup_payload.get("expiration"),
+            setup_payload.get("dte"),
+        )
+        now_et = _d31_now_et()
+        pricing_dte = max((expiration_dt.date() - now_et.date()).days, 1)
+
+        legs = [
+            OptionLeg(
+                str(setup_payload["option_type"]),
+                float(leg_spec["strike"]),
+                int(leg_spec["quantity"]),
+                expiration_dt,
+            )
+            for leg_spec in setup_payload["legs"]
+        ]
+        constructor._estimate_legs_pricing_and_greeks(
+            legs,
+            float(market_analysis.underlying_price),
+            float(market_analysis.implied_volatility),
+            pricing_dte,
+        )
+        try:
+            constructor._get_live_option_chain_strikes(
+                symbol,
+                expiration_dt.date().isoformat(),
+            )
+            constructor._apply_live_chain_prices_to_legs(legs)
+        except Exception as exc:
+            self.logger.debug(
+                "Paper butterfly-family live-chain pricing unavailable for %s: %s",
+                symbol,
+                exc,
+            )
+
+        target_premium = self._coerce_float(setup_payload.get("target_premium"))
+        estimated_net_credit = constructor._calculate_net_credit(legs)
+        if target_premium is not None and target_premium > 0.0:
+            scale = None
+            if setup_payload.get("premium_kind") == "debit":
+                estimated_debit = max(-estimated_net_credit, 0.0)
+                if estimated_debit > 0.0:
+                    scale = target_premium / estimated_debit
+            else:
+                estimated_credit = max(estimated_net_credit, 0.0)
+                if estimated_credit > 0.0:
+                    scale = target_premium / estimated_credit
+
+            if scale is not None and scale > 0.0:
+                for leg in legs:
+                    leg.price *= scale
+
+        is_closing_signal = self._is_closing_trade_signal(signal)
+        orders: list[dict[str, Any]] = []
+        for leg_spec, leg in zip(setup_payload["legs"], legs, strict=False):
+            expiry = leg.expiration.date() if isinstance(leg.expiration, datetime) else now_et.date()
+            option_type = str(getattr(leg, "option_type", setup_payload["option_type"]).lower())
+            option_symbol = DateTimeUtils.format_option_symbol(
+                symbol,
+                expiry,
+                "C" if option_type == "call" else "P",
+                float(leg.strike),
+            )
+            if is_closing_signal:
+                side = "sell_to_close" if int(leg.quantity) > 0 else "buy_to_close"
+            else:
+                side = "buy_to_open" if int(leg.quantity) > 0 else "sell_to_open"
+
+            contracts = max(abs(int(leg.quantity)) * max(int(quantity), 1), 1)
+            limit_price = round(max(float(getattr(leg, "price", 0.0) or 0.01), 0.01), 2)
+            option_details = self._parse_occ_option_symbol(option_symbol)
+            orders.append(
+                {
+                    "symbol": option_symbol,
+                    "side": side,
+                    "quantity": contracts,
+                    "order_type": "limit",
+                    "price": limit_price,
+                    "strategy_id": strategy_id,
+                    "multileg_leg_execution": True,
+                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_strategy": str(strategy_id or setup_payload.get("strategy_key")),
+                    "leg_role": str(leg_spec["role"]),
+                    "expiration": option_details.get("expiration"),
+                    "strike": option_details.get("strike"),
+                    "option_type": option_details.get("option_type"),
+                }
+            )
+        return orders
+
+    @staticmethod
+    def _build_paper_multileg_entry_rollback_order(
+        accepted_leg_order: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Build a compensating close for an already-submitted paper entry leg."""
+        side = str(accepted_leg_order.get("side") or "").strip().lower().replace("-", "_")
+        side_map = {
+            "buy_to_open": "sell_to_close",
+            "sell_to_open": "buy_to_close",
+        }
+        compensating_side = side_map.get(side)
+        if compensating_side is None:
+            return None
+
+        rollback_order = dict(accepted_leg_order)
+        for transient_key in (
+            "_accepted_order_id",
+            "order_id",
+            "timestamp",
+            "correlation_id",
+            "price",
+            "limit_price",
+            "stop_price",
+        ):
+            rollback_order.pop(transient_key, None)
+
+        rollback_order["side"] = compensating_side
+        rollback_order["order_type"] = "market"
+        rollback_order["rollback_compensation"] = True
+        rollback_order["multileg_leg_execution"] = True
+        return rollback_order
+
+    def _rollback_paper_multileg_entry_orders(
+        self,
+        accepted_leg_orders: list[dict[str, Any]],
+        strategy_label: str,
+        symbol: str,
+        strategy_id: Any,
+        pivot_context: str,
+    ) -> list[str]:
+        """Cancel pending paper entry legs or close them if they already filled."""
+        failures: list[str] = []
+        for accepted_leg_order in reversed(accepted_leg_orders):
+            leg_role = str(accepted_leg_order.get("leg_role") or "leg")
+            accepted_order_id = str(accepted_leg_order.get("_accepted_order_id") or "").strip()
+
+            cancelled = False
+            if accepted_order_id:
+                try:
+                    cancelled = bool(self._live_engine.cancel_order(accepted_order_id))
+                except Exception as exc:
+                    self.logger.warning(
+                        "%s rollback cancel raised for %s (%s): %s",
+                        strategy_label,
+                        leg_role,
+                        accepted_order_id,
+                        exc,
+                    )
+
+            if cancelled:
+                continue
+
+            rollback_order = self._build_paper_multileg_entry_rollback_order(accepted_leg_order)
+            if rollback_order is None:
+                failures.append(f"{leg_role}:no_compensating_close")
+                continue
+
+            try:
+                rollback_result = self._live_engine.execute_order(rollback_order)
+            except Exception as exc:
+                failures.append(f"{leg_role}:exception:{exc}")
+                continue
+
+            rollback_status = (
+                rollback_result.get("status", "unknown")
+                if isinstance(rollback_result, dict)
+                else str(rollback_result)
+            )
+            if rollback_status in {"rejected", "error", "timeout"}:
+                rollback_reason = (
+                    rollback_result.get("reason", "") if isinstance(rollback_result, dict) else ""
+                )
+                failures.append(
+                    f"{leg_role}:{rollback_status}:{rollback_reason or rollback_status}"
+                )
+
+        if failures:
+            self.logger.critical(
+                "%s rollback left unmatched entry legs: symbol=%s strategy=%s failures=%s | %s",
+                strategy_label,
+                symbol,
+                strategy_id,
+                failures,
+                pivot_context,
+            )
+        return failures
+
+    def _reject_paper_multileg_dispatch(
+        self,
+        signal: Any,
+        raw_signal: dict[str, Any],
+        symbol: str,
+        strategy_id: Any,
+        pivot_context: str,
+        reason_code: str,
+        detail: str,
+        strategy_label: str,
+    ) -> None:
+        """Reject paper multileg dispatches that would otherwise flatten into underliers."""
+        if self._is_closing_trade_signal(raw_signal):
+            self._clear_pending_exit_reservation(symbol, strategy_id)
+        else:
+            self._clear_pending_entry_reservation(symbol, strategy_id)
+        self.logger.warning(
+            "%s rejected — %s: symbol=%s strategy=%s | %s",
+            strategy_label,
+            detail,
+            symbol,
+            strategy_id,
+            pivot_context,
+        )
+        self._record_signal_drop(
+            "dispatch",
+            reason_code,
+            signal=signal,
+            detail=detail,
+        )
+        self._record_signal_dispatch_outcome_safe(
+            "dispatch_rejected",
+            signal=signal,
+            detail=detail,
+        )
+
+    def _dispatch_paper_butterfly_family(
+        self,
+        signal: Any,
+        raw_signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+        pivot_context: str,
+    ) -> None:
+        """Dispatch Butterfly/BWB paper entries as explicit option-leg orders."""
+        normalized_strategy_key = self._normalise_strategy_type_for_entry_gate(strategy_id)
+        is_closing_signal = self._is_closing_trade_signal(raw_signal)
+        strategy_label = (
+            "Paper broken wing butterfly"
+            if normalized_strategy_key == "broken_wing_butterfly"
+            else "Paper butterfly"
+        )
+
+        if self._live_engine is None:
+            self._reject_paper_multileg_dispatch(
+                signal=signal,
+                raw_signal=raw_signal,
+                symbol=symbol,
+                strategy_id=strategy_id,
+                pivot_context=pivot_context,
+                reason_code=f"{normalized_strategy_key}_no_live_engine",
+                detail="no live engine wired for explicit paper option-leg routing",
+                strategy_label=strategy_label,
+            )
+            return
+
+        leg_orders = self._build_paper_butterfly_family_leg_orders(
+            raw_signal,
+            symbol,
+            quantity,
+            strategy_id,
+        )
+        if len(leg_orders) != 3:
+            reason_key = normalized_strategy_key or "paper_butterfly_family"
+            self._reject_paper_multileg_dispatch(
+                signal=signal,
+                raw_signal=raw_signal,
+                symbol=symbol,
+                strategy_id=strategy_id,
+                pivot_context=pivot_context,
+                reason_code=f"{reason_key}_structure_missing",
+                detail="paper butterfly-family routing could not derive three explicit option legs",
+                strategy_label=strategy_label,
+            )
+            return
+
+        accepted_leg_orders: list[dict[str, Any]] = []
+        for leg_order in leg_orders:
+            result = self._live_engine.execute_order(leg_order)
+            status = result.get("status", "unknown") if isinstance(result, dict) else str(result)
+            if status in {"rejected", "error", "timeout"}:
+                rollback_failures: list[str] = []
+                if not is_closing_signal:
+                    rollback_failures = self._rollback_paper_multileg_entry_orders(
+                        accepted_leg_orders,
+                        strategy_label=strategy_label,
+                        symbol=symbol,
+                        strategy_id=strategy_id,
+                        pivot_context=pivot_context,
+                    )
+                detail = str(leg_order.get("leg_role") or "leg")
+                reason = result.get("reason", "") if isinstance(result, dict) else ""
+                rejection_detail = f"leg={detail};status={status};reason={reason or status}"
+                if rollback_failures:
+                    rejection_detail = f"{rejection_detail};rollback={'|'.join(rollback_failures)}"
+                self._reject_paper_multileg_dispatch(
+                    signal=signal,
+                    raw_signal=raw_signal,
+                    symbol=symbol,
+                    strategy_id=strategy_id,
+                    pivot_context=pivot_context,
+                    reason_code=f"{normalized_strategy_key}_leg_rejected",
+                    detail=rejection_detail,
+                    strategy_label=strategy_label,
+                )
+                return
+
+            tracked_leg_order = dict(leg_order)
+            order_id = result.get("order_id") if isinstance(result, dict) else None
+            if order_id:
+                tracked_leg_order["_accepted_order_id"] = str(order_id)
+            accepted_leg_orders.append(tracked_leg_order)
+
+        self.logger.info(
+            "%s dispatched as three option legs: symbol=%s strategy=%s qty=%d | %s",
+            strategy_label,
+            symbol,
+            strategy_id,
+            quantity,
+            pivot_context,
+        )
+        self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
+
+    def _build_paper_calendar_spread_leg_orders(
+        self,
+        signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+    ) -> list[dict[str, Any]]:
+        """Decompose a serialized calendar spread into explicit option-leg orders."""
+        setup_payload = self._extract_calendar_spread_setup_payload(signal)
+        near_leg = setup_payload.get("near_leg") if isinstance(setup_payload.get("near_leg"), dict) else {}
+        far_leg = setup_payload.get("far_leg") if isinstance(setup_payload.get("far_leg"), dict) else {}
+        if not near_leg or not far_leg:
+            return []
+
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+        except Exception as exc:
+            self.logger.warning("Option symbol formatting unavailable: %s", exc)
+            return []
+
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        action = str(
+            signal.get("action")
+            or metadata.get("action")
+            or signal.get("side")
+            or metadata.get("side")
+            or ""
+        ).strip().lower()
+        is_closing_signal = self._is_closing_trade_signal(signal)
+        if not is_closing_signal and action not in {
+            "buy",
+            "buy_to_open",
+            "sell",
+            "sell_to_open",
+            "enter",
+            "open",
+            "long",
+        }:
+            return []
+
+        orders: list[dict[str, Any]] = []
+        for leg_role, leg in (("near_leg", near_leg), ("far_leg", far_leg)):
+            expiry = self._coerce_date(leg.get("expiry"))
+            strike = self._coerce_float(leg.get("strike"))
+            option_type = str(leg.get("option_type") or "").strip().lower()
+            direction = int(self._coerce_float(leg.get("position")) or 0)
+            leg_contracts = int(self._coerce_float(leg.get("contracts")) or abs(direction) or 1)
+            if expiry is None or strike is None or option_type not in {"call", "put"} or direction == 0:
+                return []
+
+            option_symbol = DateTimeUtils.format_option_symbol(
+                symbol,
+                expiry,
+                "C" if option_type == "call" else "P",
+                float(strike),
+            )
+            if is_closing_signal:
+                side = "sell_to_close" if direction > 0 else "buy_to_close"
+            else:
+                side = "buy_to_open" if direction > 0 else "sell_to_open"
+
+            contracts = max(abs(leg_contracts) * max(int(quantity), 1), 1)
+            limit_price = round(
+                max(
+                    self._coerce_float(leg.get("price"))
+                    or self._coerce_float(leg.get("premium"))
+                    or 0.01,
+                    0.01,
+                ),
+                2,
+            )
+            option_details = self._parse_occ_option_symbol(option_symbol)
+            orders.append(
+                {
+                    "symbol": option_symbol,
+                    "side": side,
+                    "quantity": contracts,
+                    "order_type": "limit",
+                    "price": limit_price,
+                    "strategy_id": strategy_id,
+                    "multileg_leg_execution": True,
+                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_strategy": str(strategy_id or "calendar_spread"),
+                    "leg_role": leg_role,
+                    "expiration": option_details.get("expiration"),
+                    "strike": option_details.get("strike"),
+                    "option_type": option_details.get("option_type"),
+                    "calendar_type": setup_payload.get("calendar_type") or None,
+                }
+            )
+        return orders
+
+    def _dispatch_paper_calendar_spread(
+        self,
+        signal: Any,
+        raw_signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+        pivot_context: str,
+    ) -> None:
+        """Dispatch a paper calendar spread as two explicit option-leg orders."""
+        is_closing_signal = self._is_closing_trade_signal(raw_signal)
+
+        def _clear_reservation() -> None:
+            if is_closing_signal:
+                self._clear_pending_exit_reservation(symbol, strategy_id)
+            else:
+                self._clear_pending_entry_reservation(symbol, strategy_id)
+
+        if self._live_engine is None:
+            _clear_reservation()
+            self.logger.warning(
+                "Paper calendar spread dropped — no live engine wired: symbol=%s | %s",
+                symbol,
+                pivot_context,
+            )
+            self._record_signal_drop(
+                "dispatch",
+                "no_live_engine_for_paper_calendar_spread",
+                signal=signal,
+            )
+            self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+            return
+
+        leg_orders = self._build_paper_calendar_spread_leg_orders(
+            raw_signal,
+            symbol,
+            quantity,
+            strategy_id,
+        )
+        if len(leg_orders) != 2:
+            _clear_reservation()
+            detail = "paper calendar spread routing could not derive two explicit option legs"
+            self.logger.warning(
+                "Paper calendar spread rejected — %s: symbol=%s strategy=%s | %s",
+                detail,
+                symbol,
+                strategy_id,
+                pivot_context,
+            )
+            self._record_signal_drop(
+                "dispatch",
+                "paper_calendar_spread_structure_missing",
+                signal=signal,
+                detail=detail,
+            )
+            self._record_signal_dispatch_outcome_safe(
+                "dispatch_rejected",
+                signal=signal,
+                detail=detail,
+            )
+            return
+
+        accepted_leg_orders: list[dict[str, Any]] = []
+        for leg_order in leg_orders:
+            result = self._live_engine.execute_order(leg_order)
+            status = result.get("status", "unknown") if isinstance(result, dict) else str(result)
+            if status in {"rejected", "error", "timeout"}:
+                rollback_failures: list[str] = []
+                if not is_closing_signal:
+                    rollback_failures = self._rollback_paper_multileg_entry_orders(
+                        accepted_leg_orders,
+                        strategy_label="Paper calendar spread",
+                        symbol=symbol,
+                        strategy_id=strategy_id,
+                        pivot_context=pivot_context,
+                    )
+                _clear_reservation()
+                reason = result.get("reason", "") if isinstance(result, dict) else ""
+                detail = f"leg={leg_order.get('leg_role')};status={status};reason={reason or status}"
+                if rollback_failures:
+                    detail = f"{detail};rollback={'|'.join(rollback_failures)}"
+                self.logger.warning(
+                    "Paper calendar spread leg rejected: %s symbol=%s strategy=%s | %s",
+                    detail,
+                    symbol,
+                    strategy_id,
+                    pivot_context,
+                )
+                self._record_signal_drop(
+                    "dispatch",
+                    "paper_calendar_spread_leg_rejected",
+                    signal=signal,
+                    detail=detail,
+                )
+                self._record_signal_dispatch_outcome_safe(
+                    "dispatch_rejected",
+                    signal=signal,
+                    detail=detail,
+                )
+                return
+
+            tracked_leg_order = dict(leg_order)
+            order_id = result.get("order_id") if isinstance(result, dict) else None
+            if order_id:
+                tracked_leg_order["_accepted_order_id"] = str(order_id)
+            accepted_leg_orders.append(tracked_leg_order)
+
+        self.logger.info(
+            "Paper calendar spread dispatched as two option legs: symbol=%s strategy=%s qty=%d | %s",
+            symbol,
+            strategy_id,
+            quantity,
+            pivot_context,
+        )
+        self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
+
+    def _extract_serialized_multileg_setup_payload(self, signal: dict[str, Any]) -> dict[str, Any]:
+        """Extract serialized explicit-leg metadata for paper-safe multileg routing."""
+        metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
+        strategy_candidates = [
+            signal.get("strategy_id"),
+            metadata.get("strategy_id"),
+            signal.get("strategy_name"),
+            metadata.get("strategy_name"),
+            signal.get("strategy_type"),
+            metadata.get("strategy_type"),
+        ]
+        normalized_candidates = {
+            self._normalise_strategy_type_for_entry_gate(candidate)
+            for candidate in strategy_candidates
+            if candidate
+        }
+        if "put_credit_spread_7" in normalized_candidates:
+            normalized_strategy_key = "put_credit_spread_7"
+        elif "bullish_strangle" in normalized_candidates:
+            normalized_strategy_key = "bullish_strangle"
+        elif "jade_lizard_zero" in normalized_candidates:
+            normalized_strategy_key = "jade_lizard_zero"
+        else:
+            return {}
+
+        def _float_value(*keys: str) -> float | None:
+            for source in (signal, metadata):
+                for key in keys:
+                    if key not in source:
+                        continue
+                    candidate = self._coerce_float(source.get(key))
+                    if candidate is not None:
+                        return candidate
+            return None
+
+        expiration_dt = None
+        for source in (signal, metadata):
+            for key in ("expiration", "expiry", "expiration_date", "expiry_date"):
+                if key not in source:
+                    continue
+                expiration_dt = self._coerce_datetime(source.get(key))
+                if expiration_dt is not None:
+                    break
+                expiration_date = self._coerce_date(source.get(key))
+                if expiration_date is not None:
+                    expiration_dt = datetime.combine(
+                        expiration_date,
+                        datetime.min.time(),
+                        tzinfo=UTC,
+                    )
+                    break
+            if expiration_dt is not None:
+                break
+
+        dte_value = _float_value(
+            "target_dte",
+            "days_to_expiry",
+            "days_to_expiration",
+            "dte",
+        )
+
+        legs_source = metadata.get("legs")
+        if not isinstance(legs_source, list) or not legs_source:
+            return {}
+
+        normalized_legs: list[dict[str, Any]] = []
+        for index, leg in enumerate(legs_source, start=1):
+            if not isinstance(leg, dict):
+                return {}
+
+            option_type = str(leg.get("option_type") or leg.get("right") or "").strip().lower()
+            strike = self._coerce_float(leg.get("strike"))
+            quantity_value = int(self._coerce_float(leg.get("contracts") or leg.get("quantity") or 1) or 1)
+            position_value = str(leg.get("position") or leg.get("side") or "").strip().lower()
+
+            if position_value in {"long", "buy", "buy_to_open"}:
+                signed_quantity = max(abs(quantity_value), 1)
+            elif position_value in {"short", "sell", "sell_to_open"}:
+                signed_quantity = -max(abs(quantity_value), 1)
+            else:
+                signed_quantity = int(self._coerce_float(leg.get("quantity") or 0) or 0)
+
+            if option_type not in {"call", "put"} or strike is None or signed_quantity == 0:
+                return {}
+
+            leg_expiration = None
+            for key in ("expiration", "expiry", "expiration_date", "expiry_date"):
+                if key not in leg:
+                    continue
+                leg_expiration = self._coerce_datetime(leg.get(key))
+                if leg_expiration is not None:
+                    break
+                leg_expiry_date = self._coerce_date(leg.get(key))
+                if leg_expiry_date is not None:
+                    leg_expiration = datetime.combine(
+                        leg_expiry_date,
+                        datetime.min.time(),
+                        tzinfo=UTC,
+                    )
+                    break
+
+            normalized_legs.append(
+                {
+                    "role": str(
+                        leg.get("role") or f"{'long' if signed_quantity > 0 else 'short'}_{option_type}_{index}"
+                    ),
+                    "option_type": option_type,
+                    "strike": strike,
+                    "quantity": signed_quantity,
+                    "premium": self._coerce_float(leg.get("price") or leg.get("premium")) or 0.01,
+                    "expiration": leg_expiration or expiration_dt,
+                }
+            )
+
+        return {
+            "strategy_key": normalized_strategy_key,
+            "expiration": expiration_dt,
+            "dte": int(dte_value) if dte_value is not None else None,
+            "legs": normalized_legs,
+        }
+
+    def _build_paper_serialized_multileg_leg_orders(
+        self,
+        signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+    ) -> list[dict[str, Any]]:
+        """Decompose serialized long-vol structures into explicit paper leg orders."""
+        setup_payload = self._extract_serialized_multileg_setup_payload(signal)
+        if not setup_payload:
+            return []
+
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
+        except Exception as exc:
+            self.logger.warning("Option symbol formatting unavailable: %s", exc)
+            return []
+
+        expiration_dt = setup_payload.get("expiration")
+        if isinstance(expiration_dt, datetime) and expiration_dt.tzinfo is None:
+            expiration_dt = expiration_dt.replace(tzinfo=UTC)
+
+        now_et = _d31_now_et()
+        if not isinstance(expiration_dt, datetime):
+            fallback_dte = setup_payload.get("dte")
+            if fallback_dte is None:
+                fallback_dte = 30
+            expiration_dt = datetime.combine(
+                now_et.date() + timedelta(days=max(int(fallback_dte), 0)),
+                datetime.min.time(),
+                tzinfo=UTC,
+            )
+
+        is_closing_signal = self._is_closing_trade_signal(signal)
+        orders: list[dict[str, Any]] = []
+        for leg in setup_payload["legs"]:
+            leg_expiration = leg.get("expiration")
+            if isinstance(leg_expiration, datetime):
+                if leg_expiration.tzinfo is None:
+                    leg_expiration = leg_expiration.replace(tzinfo=UTC)
+            else:
+                leg_expiration = expiration_dt
+
+            expiry = leg_expiration.date() if isinstance(leg_expiration, datetime) else now_et.date()
+            option_symbol = DateTimeUtils.format_option_symbol(
+                symbol,
+                expiry,
+                "C" if str(leg["option_type"]).lower() == "call" else "P",
+                float(leg["strike"]),
+            )
+            if is_closing_signal:
+                side = "sell_to_close" if int(leg["quantity"]) > 0 else "buy_to_close"
+            else:
+                side = "buy_to_open" if int(leg["quantity"]) > 0 else "sell_to_open"
+
+            contracts = max(abs(int(leg["quantity"])) * max(int(quantity), 1), 1)
+            limit_price = round(max(float(leg.get("premium", 0.0) or 0.01), 0.01), 2)
+            option_details = self._parse_occ_option_symbol(option_symbol)
+            orders.append(
+                {
+                    "symbol": option_symbol,
+                    "side": side,
+                    "quantity": contracts,
+                    "order_type": "limit",
+                    "price": limit_price,
+                    "strategy_id": strategy_id,
+                    "multileg_leg_execution": True,
+                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_strategy": str(strategy_id or setup_payload.get("strategy_key")),
+                    "leg_role": str(leg["role"]),
+                    "expiration": option_details.get("expiration"),
+                    "strike": option_details.get("strike"),
+                    "option_type": option_details.get("option_type"),
+                }
+            )
+        return orders
+
+    def _dispatch_paper_serialized_multileg(
+        self,
+        signal: Any,
+        raw_signal: dict[str, Any],
+        symbol: str,
+        quantity: int,
+        strategy_id: Any,
+        pivot_context: str,
+    ) -> None:
+        """Dispatch serialized multileg paper signals as explicit option-leg orders."""
+        normalized_strategy_key = self._normalise_strategy_type_for_entry_gate(strategy_id)
+        is_closing_signal = self._is_closing_trade_signal(raw_signal)
+
+        def _clear_reservation() -> None:
+            if is_closing_signal:
+                self._clear_pending_exit_reservation(symbol, strategy_id)
+            else:
+                self._clear_pending_entry_reservation(symbol, strategy_id)
+
+        if self._live_engine is None:
+            _clear_reservation()
+            self.logger.warning(
+                "Paper %s dropped — no live engine wired: symbol=%s | %s",
+                normalized_strategy_key or "serialized_multileg",
+                symbol,
+                pivot_context,
+            )
+            self._record_signal_drop(
+                "dispatch",
+                f"no_live_engine_for_paper_{normalized_strategy_key or 'serialized_multileg'}",
+                signal=signal,
+            )
+            self._record_signal_dispatch_outcome_safe("dispatch_rejected", signal=signal)
+            return
+
+        leg_orders = self._build_paper_serialized_multileg_leg_orders(
+            raw_signal,
+            symbol,
+            quantity,
+            strategy_id,
+        )
+        if len(leg_orders) < 2:
+            _clear_reservation()
+            reason_key = normalized_strategy_key or "serialized_multileg"
+            detail = "paper serialized multileg routing could not derive explicit option legs"
+            self.logger.warning(
+                "Paper %s rejected — %s: symbol=%s strategy=%s | %s",
+                reason_key,
+                detail,
+                symbol,
+                strategy_id,
+                pivot_context,
+            )
+            self._record_signal_drop(
+                "dispatch",
+                f"paper_{reason_key}_structure_missing",
+                signal=signal,
+                detail=detail,
+            )
+            self._record_signal_dispatch_outcome_safe(
+                "dispatch_rejected",
+                signal=signal,
+                detail=detail,
+            )
+            return
+
+        accepted_leg_orders: list[dict[str, Any]] = []
+        for leg_order in leg_orders:
+            result = self._live_engine.execute_order(leg_order)
+            status = result.get("status", "unknown") if isinstance(result, dict) else str(result)
+            if status in {"rejected", "error", "timeout"}:
+                rollback_failures: list[str] = []
+                if not is_closing_signal:
+                    rollback_failures = self._rollback_paper_multileg_entry_orders(
+                        accepted_leg_orders,
+                        strategy_label=f"Paper {normalized_strategy_key or 'serialized_multileg'}",
+                        symbol=symbol,
+                        strategy_id=strategy_id,
+                        pivot_context=pivot_context,
+                    )
+                _clear_reservation()
+                reason = result.get("reason", "") if isinstance(result, dict) else ""
+                reason_key = normalized_strategy_key or "serialized_multileg"
+                detail = f"leg={leg_order.get('leg_role')};status={status};reason={reason or status}"
+                if rollback_failures:
+                    detail = f"{detail};rollback={'|'.join(rollback_failures)}"
+                self.logger.warning(
+                    "Paper %s leg rejected: %s symbol=%s strategy=%s | %s",
+                    reason_key,
+                    detail,
+                    symbol,
+                    strategy_id,
+                    pivot_context,
+                )
+                self._record_signal_drop(
+                    "dispatch",
+                    f"paper_{reason_key}_leg_rejected",
+                    signal=signal,
+                    detail=detail,
+                )
+                self._record_signal_dispatch_outcome_safe(
+                    "dispatch_rejected",
+                    signal=signal,
+                    detail=detail,
+                )
+                return
+
+            tracked_leg_order = dict(leg_order)
+            order_id = result.get("order_id") if isinstance(result, dict) else None
+            if order_id:
+                tracked_leg_order["_accepted_order_id"] = str(order_id)
+            accepted_leg_orders.append(tracked_leg_order)
+
+        self.logger.info(
+            "Paper %s dispatched as %d option legs: symbol=%s strategy=%s qty=%d | %s",
+            normalized_strategy_key or "serialized_multileg",
+            len(leg_orders),
             symbol,
             strategy_id,
             quantity,
@@ -6519,27 +8105,21 @@ class StrategyOrchestrator:
         if supervisor is None:
             return 0
 
-        position_tracker = getattr(supervisor, "position_tracker", None)
-        if position_tracker is None and hasattr(supervisor, "engine"):
-            engine = supervisor.engine
-            position_tracker = engine.position_tracker if hasattr(engine, "position_tracker") else None
-        if position_tracker is None:
+        positions = self._get_pin_risk_positions(supervisor)
+        if not positions:
             return 0
 
-        raw_positions = getattr(position_tracker, "positions", None)
-        if isinstance(raw_positions, dict):
-            positions = list(raw_positions.values())
-        elif isinstance(raw_positions, list):
-            positions = raw_positions
-        else:
-            positions = []
-
         spy_last = self._get_spy_last_price()
+        long_coverage_by_bucket: dict[tuple[str, str, str], float] = {}
+        at_risk_shorts: list[tuple[tuple[str, str, str], float, float]] = []
         at_risk_count = 0
         for position in positions:
             if isinstance(position, dict):
                 quantity = self._coerce_float(position.get("quantity"))
                 option_symbol = str(position.get("option_symbol") or position.get("symbol") or "")
+                raw_option_type = position.get("option_type") or position.get("right")
+                raw_strike = position.get("strike")
+                raw_underlying = position.get("underlying") or position.get("root_symbol")
                 expiry = self._coerce_date(
                     position.get("expiry")
                     or position.get("expiration")
@@ -6552,6 +8132,12 @@ class StrategyOrchestrator:
                     getattr(position, "option_symbol", "")
                     or getattr(position, "symbol", "")
                 )
+                raw_option_type = getattr(position, "option_type", None) or getattr(position, "right", None)
+                raw_strike = getattr(position, "strike", None)
+                raw_underlying = (
+                    getattr(position, "underlying", None)
+                    or getattr(position, "root_symbol", None)
+                )
                 expiry = self._coerce_date(
                     getattr(position, "expiry", None)
                     or getattr(position, "expiration", None)
@@ -6559,23 +8145,180 @@ class StrategyOrchestrator:
                     or getattr(position, "expiration_date", None)
                 )
 
-            if quantity is None or quantity >= 0:
-                continue
             if not option_symbol:
                 continue
+
+            option_details = self._parse_occ_option_symbol(option_symbol)
+            if expiry is None:
+                expiry = self._coerce_date(option_details.get("expiration"))
             if expiry is not None and expiry != now_et.date():
                 continue
 
-            strike = self._extract_option_strike(option_symbol)
-            if strike is None or spy_last is None or spy_last <= 0:
+            option_type = str(raw_option_type or option_details.get("option_type") or "").strip().lower()
+            if option_type == "c":
+                option_type = "call"
+            elif option_type == "p":
+                option_type = "put"
+
+            strike = self._coerce_float(raw_strike)
+            if strike is None:
+                strike = self._coerce_float(option_details.get("strike"))
+            if strike is None:
+                strike = self._extract_option_strike(option_symbol)
+
+            underlying = str(
+                raw_underlying
+                or option_details.get("underlying")
+                or self._extract_option_underlying(option_symbol)
+            ).strip().upper()
+            expiry_key = expiry.isoformat() if expiry is not None else ""
+            bucket_key = (underlying, expiry_key, option_type)
+
+            if quantity is None:
+                continue
+
+            if quantity > 0:
+                if self._is_assignment_covering_long_option(option_type, strike, spy_last):
+                    long_coverage_by_bucket[bucket_key] = (
+                        long_coverage_by_bucket.get(bucket_key, 0.0) + quantity
+                    )
+                continue
+
+            if strike is None or spy_last is None or spy_last <= 0 or option_type not in {"call", "put"}:
                 at_risk_count += 1
                 continue
 
             distance_pct = abs(spy_last - strike) / max(spy_last, 1e-6)
             if distance_pct <= 0.003:
-                at_risk_count += 1
+                at_risk_shorts.append((bucket_key, abs(quantity), distance_pct))
+
+        for bucket_key, short_quantity, _distance_pct in sorted(
+            at_risk_shorts,
+            key=lambda item: item[2],
+        ):
+            available_coverage = long_coverage_by_bucket.get(bucket_key, 0.0)
+            if available_coverage + 1e-9 >= short_quantity:
+                long_coverage_by_bucket[bucket_key] = max(
+                    0.0,
+                    available_coverage - short_quantity,
+                )
+                continue
+            long_coverage_by_bucket[bucket_key] = 0.0
+            at_risk_count += 1
 
         return at_risk_count
+
+    def _get_pin_risk_positions(self, supervisor: Any) -> list[Any]:
+        """Return the best available open-position inventory for pin-risk checks.
+
+        In paper mode, prefer authoritative runtime or persisted session-db
+        positions and avoid falling back to the non-authoritative PositionTracker
+        when those surfaces report no open positions.
+        """
+        engine = getattr(supervisor, "engine", None)
+        mode = str(getattr(supervisor, "mode", "") or "").strip().lower()
+
+        if engine is not None:
+            try:
+                if hasattr(engine, "get_active_positions_snapshot"):
+                    raw_positions = engine.get_active_positions_snapshot()
+                else:
+                    raw_positions = getattr(engine, "active_positions", {})
+            except Exception:
+                raw_positions = None
+
+            if isinstance(raw_positions, dict):
+                active_positions = list(raw_positions.values())
+            elif isinstance(raw_positions, list):
+                active_positions = raw_positions
+            else:
+                active_positions = []
+
+            if active_positions:
+                return active_positions
+
+            if mode == "paper":
+                persisted_positions = self._get_pin_risk_paper_session_rows(engine)
+                if persisted_positions is not None:
+                    return persisted_positions
+                return []
+
+        position_tracker = getattr(supervisor, "position_tracker", None)
+        if position_tracker is None and engine is not None:
+            position_tracker = getattr(engine, "position_tracker", None)
+        if position_tracker is None:
+            return []
+
+        raw_positions = getattr(position_tracker, "positions", None)
+        if isinstance(raw_positions, dict):
+            return list(raw_positions.values())
+        if isinstance(raw_positions, list):
+            return raw_positions
+        return []
+
+    def _get_pin_risk_paper_session_rows(self, engine: Any) -> list[dict[str, Any]] | None:
+        """Return persisted paper open positions when runtime state is empty."""
+        session_db = getattr(engine, "_session_db", None)
+        if session_db is None:
+            return None
+
+        selector_names: list[str] = []
+        has_active_marker = getattr(session_db, "has_active_paper_session_marker", None)
+        active_session_marker: bool | None = None
+        if callable(has_active_marker):
+            try:
+                active_session_marker = bool(has_active_marker())
+            except Exception:
+                active_session_marker = None
+
+        get_active_open = getattr(session_db, "get_active_paper_open_positions", None)
+        get_resume_open = getattr(session_db, "get_resume_eligible_open_positions", None)
+        get_open = getattr(session_db, "get_open_positions", None)
+
+        if active_session_marker is True:
+            if callable(get_active_open):
+                selector_names.append("get_active_paper_open_positions")
+            if callable(get_resume_open):
+                selector_names.append("get_resume_eligible_open_positions")
+        elif active_session_marker is False:
+            if callable(get_resume_open):
+                selector_names.append("get_resume_eligible_open_positions")
+        else:
+            if callable(get_active_open):
+                selector_names.append("get_active_paper_open_positions")
+            if callable(get_resume_open):
+                selector_names.append("get_resume_eligible_open_positions")
+
+        if not selector_names and callable(get_open):
+            selector_names.append("get_open_positions")
+
+        for selector_name in selector_names:
+            get_rows = getattr(session_db, selector_name, None)
+            if not callable(get_rows):
+                continue
+            try:
+                rows = get_rows()
+            except Exception:
+                continue
+            if isinstance(rows, list):
+                return [row for row in rows if isinstance(row, dict)]
+        return []
+
+    @staticmethod
+    def _is_assignment_covering_long_option(
+        option_type: str,
+        strike: float | None,
+        spot_price: float | None,
+    ) -> bool:
+        """Return whether a long option is exercisable enough to cover assignment."""
+        if strike is None or spot_price is None or spot_price <= 0:
+            return False
+        normalized_type = str(option_type or "").strip().lower()
+        if normalized_type == "call":
+            return spot_price > strike
+        if normalized_type == "put":
+            return spot_price < strike
+        return False
 
     def _emit_event_safe(self, event_type: Any, payload: dict[str, Any], severity: str = "normal") -> None:
         """Emit events through whichever EventManager API is available."""
@@ -6822,6 +8565,53 @@ class StrategyOrchestrator:
         normalized_strategy = str(strategy_id or "").strip().lower()
         return (normalized_symbol, normalized_strategy)
 
+    def _record_manual_close_reentry_embargo(self, symbol: Any, strategy_id: Any) -> None:
+        """Prevent immediate re-entry after an operator-initiated manual close."""
+        normalized_strategy = str(strategy_id or "").strip().lower()
+        if not normalized_strategy:
+            return
+
+        candidate_symbols: list[str] = []
+        normalized_symbol = str(symbol or "").strip().upper()
+        if normalized_symbol:
+            candidate_symbols.append(normalized_symbol)
+
+        underlying_symbol = self._extract_option_underlying(symbol)
+        if underlying_symbol:
+            normalized_underlying = str(underlying_symbol).strip().upper()
+            if normalized_underlying and normalized_underlying not in candidate_symbols:
+                candidate_symbols.append(normalized_underlying)
+
+        if not candidate_symbols:
+            return
+
+        expires_at = time.monotonic() + self._manual_close_reentry_embargo_s
+        with self._manual_close_reentry_embargo_lock:
+            for candidate_symbol in candidate_symbols:
+                key = self._pending_entry_reservation_key(candidate_symbol, normalized_strategy)
+                if key is not None:
+                    self._manual_close_reentry_embargoes[key] = expires_at
+
+    def _get_manual_close_reentry_embargo_remaining(
+        self,
+        symbol: Any,
+        strategy_id: Any,
+    ) -> float | None:
+        """Return remaining manual-close embargo seconds for a symbol/strategy."""
+        key = self._pending_entry_reservation_key(symbol, strategy_id)
+        if key is None:
+            return None
+
+        now_monotonic = time.monotonic()
+        with self._manual_close_reentry_embargo_lock:
+            expires_at = self._manual_close_reentry_embargoes.get(key)
+            if expires_at is None:
+                return None
+            if expires_at <= now_monotonic:
+                self._manual_close_reentry_embargoes.pop(key, None)
+                return None
+            return expires_at - now_monotonic
+
     def _has_pending_entry_reservation(self, symbol: Any, strategy_id: Any) -> bool:
         """Return True when the same entry is already reserved for dispatch/fill."""
         key = self._pending_entry_reservation_key(symbol, strategy_id)
@@ -6942,9 +8732,10 @@ class StrategyOrchestrator:
         strategy_id: Any,
         pivot_context: str,
         *,
+        duplicate_source: str,
         stage: str,
     ) -> None:
-        """Throttle repeated duplicate-entry warnings for the same symbol/strategy."""
+        """Throttle duplicate-entry bookkeeping without operator-facing warnings."""
         normalized_symbol = str(symbol or "").strip().upper()
         normalized_strategy = str(strategy_id or "").strip().lower()
         key = (normalized_symbol, normalized_strategy)
@@ -6954,21 +8745,7 @@ class StrategyOrchestrator:
             return
 
         self._duplicate_entry_warning_last_monotonic[key] = now_mono
-        if stage == "dispatch":
-            self.logger.warning(
-                "Duplicate entry blocked — open position already active: symbol=%s strategy=%s | %s",
-                symbol,
-                strategy_id,
-                pivot_context,
-            )
-            return
-
-        self.logger.warning(
-            "Strategy signal blocked — existing or in-flight entry already active: symbol=%s strategy=%s | %s",
-            symbol,
-            strategy_id,
-            pivot_context,
-        )
+        return
 
     def _get_duplicate_open_position_source(
         self,
@@ -7050,29 +8827,69 @@ class StrategyOrchestrator:
         # empty at startup (race between hydration and first D31 tick).
         session_db = getattr(self._live_engine, "_session_db", None)
         if session_db is not None:
-            get_open = getattr(session_db, "get_open_positions", None)
-            if callable(get_open):
+            selector_names: list[str] = []
+            has_active_marker = getattr(session_db, "has_active_paper_session_marker", None)
+            active_session_marker: bool | None = None
+            if callable(has_active_marker):
                 try:
-                    for row in get_open():
-                        if not isinstance(row, dict):
-                            continue
-                        row_qty = int(row.get("quantity") or 0)
-                        if row_qty == 0:
-                            continue
-                        row_strategy = str(row.get("strategy") or "").strip().lower()
-                        if current_strategy and row_strategy and row_strategy != current_strategy:
-                            continue
-                        row_symbol = str(row.get("symbol") or "").strip()
-                        row_underlying = self._extract_option_underlying(row_symbol)
-                        if (
-                            row_symbol not in lookup_symbols
-                            and row_underlying not in lookup_symbols
-                        ):
-                            continue
-                        self._clear_pending_entry_reservations_for_symbol(symbol)
-                        return "h05_open_position"
+                    active_session_marker = bool(has_active_marker())
                 except Exception:
-                    pass
+                    active_session_marker = None
+
+            get_active_open = getattr(session_db, "get_active_paper_open_positions", None)
+            get_resume_open = getattr(session_db, "get_resume_eligible_open_positions", None)
+            get_open = getattr(session_db, "get_open_positions", None)
+
+            if active_session_marker is True:
+                if callable(get_active_open):
+                    selector_names.append("get_active_paper_open_positions")
+                if callable(get_resume_open):
+                    selector_names.append("get_resume_eligible_open_positions")
+            elif active_session_marker is False:
+                if callable(get_resume_open):
+                    selector_names.append("get_resume_eligible_open_positions")
+            else:
+                if callable(get_active_open):
+                    selector_names.append("get_active_paper_open_positions")
+                if callable(get_resume_open):
+                    selector_names.append("get_resume_eligible_open_positions")
+
+            if not selector_names and callable(get_open):
+                selector_names.append("get_open_positions")
+
+            for selector_name in selector_names:
+                get_rows = getattr(session_db, selector_name, None)
+                if not callable(get_rows):
+                    continue
+                try:
+                    rows = get_rows()
+                except Exception:
+                    continue
+
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    row_qty = int(row.get("quantity") or 0)
+                    if row_qty == 0:
+                        continue
+                    row_strategy = str(row.get("strategy") or "").strip().lower()
+                    if current_strategy and row_strategy and row_strategy != current_strategy:
+                        continue
+                    row_symbol = str(row.get("symbol") or "").strip()
+                    row_underlying = self._extract_option_underlying(row_symbol)
+                    if (
+                        row_symbol not in lookup_symbols
+                        and row_underlying not in lookup_symbols
+                    ):
+                        continue
+                    row_origin = str(row.get("_paper_open_origin") or "").strip().lower()
+                    self._clear_pending_entry_reservations_for_symbol(symbol)
+                    if (
+                        selector_name == "get_resume_eligible_open_positions"
+                        or row_origin == "carryover"
+                    ):
+                        return "persisted_carryover"
+                    return "h05_open_position"
 
         return None
 
@@ -7201,6 +9018,7 @@ class StrategyOrchestrator:
                     symbol,
                     strategy_id,
                     pivot_context,
+                    duplicate_source=duplicate_source,
                     stage="dispatch",
                 )
                 self._record_signal_drop(
@@ -7208,6 +9026,7 @@ class StrategyOrchestrator:
                     "duplicate_open_position",
                     signal=signal,
                     detail=duplicate_detail,
+                    update_dispatch_state=False,
                 )
                 self._record_signal_dispatch_outcome_safe(
                     "dispatch_rejected",
@@ -7218,6 +9037,7 @@ class StrategyOrchestrator:
             self._clear_duplicate_entry_warning_state(symbol, strategy_id)
 
             normalized_strategy_id = str(strategy_id or "").strip().lower().replace("-", "_")
+            normalized_strategy_key = self._normalise_strategy_type_for_entry_gate(strategy_id)
             is_explicit_close_signal = self._is_closing_trade_signal(raw_signal_payload or signal)
             symbol_is_option_leg = bool(self._parse_occ_option_symbol(symbol))
             reserved_pending_exit = False
@@ -7236,6 +9056,67 @@ class StrategyOrchestrator:
                 and not (is_explicit_close_signal and symbol_is_option_leg)
             ):
                 self._dispatch_paper_iron_condor(
+                    signal=signal,
+                    raw_signal=raw_signal_payload,
+                    symbol=str(symbol),
+                    quantity=quantity,
+                    strategy_id=strategy_id,
+                    pivot_context=pivot_context,
+                )
+                return
+
+            if (
+                is_paper_run
+                and normalized_strategy_key in {"bullish_strangle", "jade_lizard_zero", "put_credit_spread_7"}
+                and not symbol_is_option_leg
+            ):
+                self._dispatch_paper_serialized_multileg(
+                    signal=signal,
+                    raw_signal=raw_signal_payload,
+                    symbol=str(symbol),
+                    quantity=quantity,
+                    strategy_id=strategy_id,
+                    pivot_context=pivot_context,
+                )
+                return
+
+            if (
+                is_paper_run
+                and normalized_strategy_key in {"butterfly", "broken_wing_butterfly"}
+                and not symbol_is_option_leg
+            ):
+                self._dispatch_paper_butterfly_family(
+                    signal=signal,
+                    raw_signal=raw_signal_payload,
+                    symbol=str(symbol),
+                    quantity=quantity,
+                    strategy_id=strategy_id,
+                    pivot_context=pivot_context,
+                )
+                return
+
+            if (
+                is_paper_run
+                and normalized_strategy_key == "iron_butterfly"
+                and not symbol_is_option_leg
+            ):
+                self._dispatch_paper_iron_butterfly(
+                    signal=signal,
+                    raw_signal=raw_signal_payload,
+                    symbol=str(symbol),
+                    quantity=quantity,
+                    strategy_id=strategy_id,
+                    pivot_context=pivot_context,
+                )
+                return
+
+            if (
+                is_paper_run
+                and self._paper_calendar_spread_routing_flag_enabled()
+                and normalized_strategy_key in {"calendarspread", "calendar_spread"}
+                and not symbol_is_option_leg
+            ):
+                self._dispatch_paper_calendar_spread(
                     signal=signal,
                     raw_signal=raw_signal_payload,
                     symbol=str(symbol),

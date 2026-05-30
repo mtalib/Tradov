@@ -6,7 +6,7 @@ from __future__ import annotations
 
 OPENING_WARMUP_ALLOWED_PREFIXES = (
     "🟡 Establishing live connections",
-    "⏳ ENTRY gate remains blocked until 10:15 ET",
+    "⏳ ENTRY gate remains blocked until",
 )
 
 ALWAYS_VISIBLE_PREFIXES: tuple[str, ...] = ()

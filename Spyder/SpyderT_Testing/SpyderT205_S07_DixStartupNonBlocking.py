@@ -173,3 +173,39 @@ def test_s02_stop_ignores_scheduler_not_running() -> None:
     scheduler.logger.debug.assert_called_once_with(
         "DIX Scheduler stop skipped; scheduler not running"
     )
+
+
+def test_s02_get_latest_dix_can_skip_refresh_when_cache_missing() -> None:
+    scheduler_cls = _load_real_dix_scheduler_class()
+    scheduler = scheduler_cls.__new__(scheduler_cls)
+    scheduler.latest_result = None
+    scheduler.logger = SimpleNamespace(
+        debug=_CallSpy(),
+        info=_CallSpy(),
+    )
+    scheduler.run_scheduled_calculation = _CallSpy()
+
+    result = scheduler_cls.get_latest_dix(scheduler, allow_calculation=False)
+
+    assert result is None
+    scheduler.run_scheduled_calculation.assert_not_called()
+    scheduler.logger.info.assert_not_called()
+    scheduler.logger.debug.assert_called_once_with(
+        "No recent DIX cache available; skipping fresh calculation"
+    )
+
+
+def test_s02_morning_check_uses_cache_only() -> None:
+    scheduler_cls = _load_real_dix_scheduler_class()
+    scheduler = scheduler_cls.__new__(scheduler_cls)
+    scheduler.logger = SimpleNamespace(
+        debug=_CallSpy(),
+        info=_CallSpy(),
+    )
+    scheduler.config = SimpleNamespace(enable_email_alerts=False)
+    scheduler.get_latest_dix = _CallSpy()
+
+    scheduler_cls._morning_check(scheduler)
+
+    scheduler.get_latest_dix.assert_called_once_with(allow_calculation=False)
+    scheduler.logger.info.assert_not_called()

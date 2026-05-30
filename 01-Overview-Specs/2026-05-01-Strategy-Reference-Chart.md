@@ -3,15 +3,16 @@
 
 ---
 
-## ✅ LIVE / PAPER APPROVED — Lean Mode Allowlist (4 strategies)
+## ✅ LIVE / PAPER APPROVED — Lean Mode Allowlist (5 strategies)
 
 These are the **only strategies that can execute trades** in the current paper/live system.
-D31 runs exactly **one strategy at a time** mapped from the detected market regime.
+D31 admits the baseline lean allowlist, with at most one `ultra_short` slot and one `short`/`swing` slot active at once.
 
 | Strategy | Module | Structure | Holding Period | Regime Gate | IV Rank | VIX Gate | Signal / Entry Trigger | Other Conditions |
 |---|---|---|---|---|---|---|---|---|
 | **Iron Condor** | D02 | Short OTM call spread + short OTM put spread | 21–45 DTE (target 30 DTE) | Sideways Low Vol only | 40–80 (optimal 60) | Not gated | Neutral directional bias; expected-move ratio 0.8–1.2; vol skew < 5% | Min credit $0.30; max spread width $10; delta target ±0.16 |
 | **Iron Butterfly** | D10 | Short ATM straddle + OTM wings | 10–35 DTE (target 25 DTE) | Sideways High Vol only | 30–75 (optimal 50) | Not gated | Neutral; price expected to pin near ATM | Min credit $0.50; wing width 5–15 pts; expected-move ratio < 0.8; max delta ±0.05 |
+| **Broken Wing Butterfly** | D23 | Bullish-neutral put broken wing butterfly with asymmetric wings | Same-day / 0DTE by default (`target_dte = 0`) | Recovery mode or high-volatility with bullish pivot support | 25–80 (optimal 45) | Not gated | Bullish-neutral tape, supportive downside skew, contained expected move | Min credit $0.15; min P(profit) 55%; default upper/lower widths 1 / 3 |
 | **Bull Put Spread** | D06 | Short higher-strike put + long lower-strike put | 20–45 DTE | Bull regime (any vol) | Inherits CreditSpread (D03) | Not gated | **RSI < 50** (not overbought) + upward momentum > 0.1% | Min premium $0.50; min P(profit) 65%; delta targets −0.30 / −0.15; max 5 positions |
 | **Bear Call Spread** | D07 | Short lower-strike call + long higher-strike call | 20–45 DTE | Bear regime (any vol) | Inherits CreditSpread (D03) | Not gated | **RSI > 50** (not oversold) + downward momentum < −0.1% | Min premium $0.50; min P(profit) 65%; delta targets 0.30 / 0.15; max 5 positions |
 
@@ -23,8 +24,10 @@ D31 runs exactly **one strategy at a time** mapped from the detected market regi
 | Bull High Vol | Bull Put Spread |
 | Bear Low Vol | Bear Call Spread |
 | Bear High Vol | Bear Call Spread |
+| Recovery Mode | Broken Wing Butterfly |
 | Sideways Low Vol | Iron Condor |
 | Sideways High Vol | Iron Butterfly |
+| High Volatility + bullish pivot signal | Broken Wing Butterfly |
 | Crisis / Event Transition | **HARD HALT — no new entries** |
 
 ### Holding Period Breakdown
@@ -33,13 +36,14 @@ D31 runs exactly **one strategy at a time** mapped from the detected market regi
 |---|---|---|---|
 | **Iron Condor** | 21–45 DTE (target 30) | Close at 21 DTE remaining **or** 25–50% of max credit collected | **~1–3 weeks** |
 | **Iron Butterfly** | 10–35 DTE (target 25) | Close at 10–15 DTE remaining **or** 25% profit target | **~1–2 weeks** |
+| **Broken Wing Butterfly** | 0 DTE (same-day listed expiration) | Close on profit target, stop-loss, downside test, or by end of session | **Intraday / same session** |
 | **Bull Put Spread** | 20–45 DTE | Close ≤ 5 DTE remaining **or** 25% profit; stop at 2× credit received | **~2–5 weeks** |
 | **Bear Call Spread** | 20–45 DTE | Close ≤ 5 DTE remaining **or** 25% profit; stop at 2× credit received | **~2–5 weeks** |
 
-> All 4 strategies are **premium-selling, multi-week holds** — none are intraday or single-day positions.
-> Profit targets typically close positions in **1–3 weeks**. The outer bound (45 DTE entry held near expiry) is ~5–6 weeks.
+> Four baseline strategies remain **premium-selling, multi-week holds**.
+> Broken Wing Butterfly is the approved `ultra_short` exception and defaults to same-day expiry.
 
-### Universal Pre-Trade Gates (all 4 strategies)
+### Universal Pre-Trade Gates (all approved lean strategies)
 
 All strategies must pass every gate before any order is submitted:
 

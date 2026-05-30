@@ -408,9 +408,14 @@ class SpyderDIXScheduler:
 
             return None
 
-    def get_latest_dix(self) -> dict | None:
+    def get_latest_dix(self, allow_calculation: bool = True) -> dict | None:
         """
         Get the latest DIX calculation result.
+
+        Args:
+            allow_calculation: When True, run a fresh calculation if no recent
+                cached result is available. Callers that must stay non-blocking
+                should pass False.
 
         Returns:
             Dictionary with latest DIX data or None
@@ -426,6 +431,10 @@ class SpyderDIXScheduler:
                     "timestamp": self.latest_result.timestamp,
                     "age_hours": age.total_seconds() / 3600,
                 }
+
+        if not allow_calculation:
+            self.logger.debug("No recent DIX cache available; skipping fresh calculation")
+            return None
 
         # Try to calculate now
         self.logger.info("No recent DIX data, calculating now...")
@@ -482,7 +491,7 @@ class SpyderDIXScheduler:
         """Morning check using cached DIX data."""
         self.logger.debug("Running morning DIX check...")
 
-        dix_data = self.get_latest_dix()
+        dix_data = self.get_latest_dix(allow_calculation=False)
 
         if dix_data:
             self.logger.info(

@@ -164,6 +164,40 @@ def test_s07_liquidity_diagnostics_accepts_list_payload_fallback(monkeypatch):
     assert payload["data"]["source"] == "SpyderB40_TradierClient"
 
 
+def test_s07_load_options_chain_dataframe_reuses_cached_manager():
+    orch = CustomMetricsOrchestrator(config={"auto_start": False})
+    init_calls: list[str] = []
+    chain_df = pd.DataFrame(
+        [
+            {
+                "symbol": "SPY",
+                "strike": 585.0,
+                "option_type": "CALL",
+                "open_interest": 100,
+                "volume": 50,
+            }
+        ]
+    )
+
+    n03_module = _ensure_mod("Spyder.SpyderN_OptionsAnalytics.SpyderN03_OptionsChainManager")
+
+    class _FakeOptionsChainManager:
+        def __init__(self) -> None:
+            init_calls.append("init")
+
+        def get_chain(self, _symbol: str):
+            return chain_df
+
+    n03_module.OptionsChainManager = _FakeOptionsChainManager
+
+    first = orch._load_options_chain_dataframe()
+    second = orch._load_options_chain_dataframe()
+
+    assert init_calls == ["init"]
+    assert first is chain_df
+    assert second is chain_df
+
+
 def test_s07_deduped_issue_logging_suppresses_repeated_messages():
     orch = CustomMetricsOrchestrator(config={"auto_start": False})
     orch.logger.warning = MagicMock()

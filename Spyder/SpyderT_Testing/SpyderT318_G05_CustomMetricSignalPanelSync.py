@@ -126,3 +126,32 @@ def test_on_custom_metrics_updated_uses_merged_metrics_for_regime_and_signal_pan
     ]
     dash.signal_panel.update_regime.assert_called_once_with("BULL", 1.65, 43.0, 135.5, 4.5)
     dash.signal_panel.update_live_data.assert_called_once_with({"GEX": 4.5, "SWAN": 1.65})
+
+
+def test_on_custom_metrics_updated_clears_stale_signal_panel_live_keys(monkeypatch) -> None:
+    dash = _build_dashboard_stub()
+    dash.signal_panel = SimpleNamespace(
+        update_regime=MagicMock(),
+        update_live_data=MagicMock(),
+        _live={"GEX": 1.25, "SWAN": 2.1},
+    )
+
+    monkeypatch.setattr(
+        g05,
+        "build_custom_metric_signal_panel_sync_plan",
+        lambda **_kwargs: SimpleNamespace(
+            regime_value="NEUTRAL",
+            swan=1.9,
+            dix=42.0,
+            skew=120.0,
+            gex=0.0,
+            live_data={},
+            clear_live_keys=("GEX",),
+        ),
+    )
+
+    SpyderTradingDashboard._on_custom_metrics_updated(dash, {"GEX": {"value": 1.25, "stale": True}})
+
+    dash.signal_panel.update_regime.assert_called_once_with("NEUTRAL", 1.9, 42.0, 120.0, 0.0)
+    dash.signal_panel.update_live_data.assert_not_called()
+    assert dash.signal_panel._live == {"SWAN": 2.1}

@@ -62,13 +62,48 @@ def test_on_balance_updated_reconciles_idle_paper_realized_delta() -> None:
     dash._refresh_pnl_table.assert_called_once_with({"today_pnl": "$+0.00"})
 
 
-def test_on_balance_updated_applies_latest_paper_snapshot_when_active(monkeypatch) -> None:
+def test_on_balance_updated_prefers_live_paper_cache_when_active(monkeypatch) -> None:
     dash = SpyderTradingDashboard.__new__(SpyderTradingDashboard)
     dash.trading_mode = TradingMode.PAPER
     dash.trading_active = True
     dash._paper_initial_capital = 100000.0
+    dash._portfolio_summary_cache = {
+        "equity": 100245.0,
+        "cash": 100000.0,
+        "realized_pnl": 0.0,
+        "unrealized_pnl": 245.0,
+        "spreads_unrealized_pnl": 245.0,
+        "open_spreads_detail": [{"id": "spread-1"}],
+    }
     dash._pnl_stats_by_mode = {TradingMode.PAPER: {"today_pnl": "$+0.00"}}
     dash._refresh_pnl_table = MagicMock()
+    dash._get_mode_session_db = MagicMock(return_value=object())
+    dash._is_paper_session_active_for_display = MagicMock(return_value=True)
+    dash._apply_spyderbox_paper_account_snapshot = MagicMock(return_value=True)
+    dash._set_spyderbox_account_panel_values = MagicMock()
+
+    SpyderTradingDashboard._on_balance_updated(dash, "paper", 99850.0, 99850.0)
+
+    dash._set_spyderbox_account_panel_values.assert_called_once_with(
+        settled=100245.0,
+        buying=100000.0,
+        realized=0.0,
+        unrealized=245.0,
+    )
+    dash._apply_spyderbox_paper_account_snapshot.assert_not_called()
+    dash._refresh_pnl_table.assert_not_called()
+
+
+def test_on_balance_updated_applies_latest_paper_snapshot_when_active_without_live_cache(monkeypatch) -> None:
+    dash = SpyderTradingDashboard.__new__(SpyderTradingDashboard)
+    dash.trading_mode = TradingMode.PAPER
+    dash.trading_active = True
+    dash._paper_initial_capital = 100000.0
+    dash._portfolio_summary_cache = {}
+    dash._pnl_stats_by_mode = {TradingMode.PAPER: {"today_pnl": "$+0.00"}}
+    dash._refresh_pnl_table = MagicMock()
+    dash._get_mode_session_db = MagicMock(return_value=object())
+    dash._is_paper_session_active_for_display = MagicMock(return_value=True)
     dash._apply_spyderbox_paper_account_snapshot = MagicMock(return_value=True)
     dash._set_spyderbox_account_panel_values = MagicMock()
 

@@ -20,7 +20,7 @@ def test_build_close_event_shutdown_sequence_plan_returns_qthread_specs() -> Non
     plan = build_close_event_shutdown_sequence_plan()
 
     assert tuple((spec.thread_attr, spec.label, spec.wait_ms, spec.terminate_wait_ms) for spec in plan.qthread_shutdown_specs) == (
-        ("market_thread", "market_thread", 1500, 2000),
+        ("market_thread", "market_thread", 5000, 5000),
         ("_paper_thread", "paper_thread", 3000, 5000),
         ("_readiness_worker_thread", "readiness_worker_thread", 3000, 5000),
     )

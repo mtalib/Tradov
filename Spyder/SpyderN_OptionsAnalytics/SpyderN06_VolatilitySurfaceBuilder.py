@@ -449,6 +449,7 @@ class VolatilitySurfaceBuilder:
         # Prepare data for interpolation
         points = np.array([[p.moneyness, p.time_to_expiry] for p in surface_points])
         values = np.array([p.implied_volatility for p in surface_points])
+        points, values = self._deduplicate_interpolation_inputs(points, values)
 
         # Choose interpolation method
         if self.interpolation_method == InterpolationMethod.RBF:
@@ -466,12 +467,43 @@ class VolatilitySurfaceBuilder:
 
         return surface
 
+    def _deduplicate_interpolation_inputs(self, points: np.ndarray,
+                                         values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Collapse duplicate surface coordinates by averaging their IV values."""
+        if len(points) <= 1:
+            return points, values
+
+        rounded_points = np.round(points.astype(float), decimals=10)
+        unique_points, inverse = np.unique(rounded_points, axis=0, return_inverse=True)
+
+        if len(unique_points) == len(points):
+            return points, values
+
+        aggregated_values = np.zeros(len(unique_points), dtype=float)
+        counts = np.zeros(len(unique_points), dtype=int)
+        np.add.at(aggregated_values, inverse, values)
+        np.add.at(counts, inverse, 1)
+
+        self.logger.debug(
+            "Collapsed %d duplicate surface coordinates into %d unique points",
+            len(points) - len(unique_points),
+            len(unique_points),
+        )
+        return unique_points, aggregated_values / counts
+
     def _rbf_interpolation(self, points: np.ndarray, values: np.ndarray,
                           moneyness_grid: np.ndarray,
                           time_grid: np.ndarray) -> np.ndarray:
         """Radial Basis Function interpolation"""
         # Create RBF interpolator
-        rbf = RBFInterpolator(points, values, kernel='thin_plate_spline')
+        try:
+            rbf = RBFInterpolator(points, values, kernel='thin_plate_spline')
+        except np.linalg.LinAlgError as exc:
+            self.logger.warning(
+                "RBF interpolation failed with singular matrix; falling back to linear interpolation: %s",
+                exc,
+            )
+            return self._linear_interpolation(points, values, moneyness_grid, time_grid)
 
         # Interpolate on grid
         grid_points = np.column_stack([moneyness_grid.ravel(), time_grid.ravel()])

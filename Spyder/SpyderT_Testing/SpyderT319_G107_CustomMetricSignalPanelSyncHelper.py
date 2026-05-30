@@ -59,3 +59,28 @@ def test_build_custom_metric_signal_panel_sync_plan_uses_defaults_and_skips_bad_
     assert plan.skew == 130.0
     assert plan.gex == 0.0
     assert plan.live_data == {}
+
+
+def test_build_custom_metric_signal_panel_sync_plan_clears_stale_live_keys() -> None:
+    plan = build_custom_metric_signal_panel_sync_plan(
+        metrics={
+            "SWAN": {"value": 2.1, "stale": True},
+            "DIX": {"value": 43.5},
+            "GEX": {"value": 1.25, "stale": True},
+            "NYMO": {"value": -20.0},
+        },
+        metric_routing={
+            "GEX": ("GEX", 1.0),
+            "NYMO": ("NYMO", 1.0),
+            "SWAN": ("SWAN", 1.0),
+        },
+        regime_value="RISK OFF",
+    )
+
+    assert plan.regime_value == "RISK OFF"
+    assert plan.swan == 1.9
+    assert plan.dix == 43.5
+    assert plan.skew == 120.0
+    assert plan.gex == 0.0
+    assert plan.live_data == {"NYMO": -20.0}
+    assert plan.clear_live_keys == ("GEX", "SWAN")

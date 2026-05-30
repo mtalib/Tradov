@@ -158,7 +158,7 @@ class SkewDataThread(QThread):
 
     def run(self):
         """Main thread loop"""
-        while self.running:
+        while self.running and not self.isInterruptionRequested():
             try:
                 # Fetch SKEW data
                 data = self.fetch_skew_data()
@@ -167,8 +167,16 @@ class SkewDataThread(QThread):
             except Exception as e:
                 self.error_occurred.emit(str(e))
 
-            # Sleep for update interval
-            self.msleep(self.update_interval)
+            # Sleep in short chunks so dialog close can interrupt promptly.
+            self._sleep_until_next_update()
+
+    def _sleep_until_next_update(self) -> None:
+        """Sleep until the next update while remaining interruption-aware."""
+        remaining_ms = max(int(self.update_interval), 0)
+        while remaining_ms > 0 and self.running and not self.isInterruptionRequested():
+            sleep_ms = min(remaining_ms, 100)
+            self.msleep(sleep_ms)
+            remaining_ms -= sleep_ms
 
     def fetch_skew_data(self) -> SkewData | None:
         """Fetch latest SKEW data"""
@@ -259,6 +267,7 @@ class SkewDataThread(QThread):
     def stop(self):
         """Stop the thread"""
         self.running = False
+        self.requestInterruption()
 
 
 # ==============================================================================
@@ -1332,7 +1341,8 @@ class SkewMonitorDialog(QDialog):
     def closeEvent(self, event):
         """Handle dialog close"""
         self.stop_monitoring()
-        self.data_thread.wait()
+        if self.data_thread.isRunning() and not self.data_thread.wait(1000):
+            logger.warning("SKEW data thread did not stop within 1000ms during dialog close")
         event.accept()
 
 

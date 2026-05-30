@@ -568,6 +568,29 @@ class B1PaperBrokerClosePosTest(unittest.TestCase):
         self.assertEqual(order.get("side", ""), "buy_to_close",
                          "Option close must use 'buy_to_close' side")
 
+    def test_close_long_option_position_uses_sell_to_close_and_full_quantity(self) -> None:
+        from Spyder.SpyderR_Runtime.SpyderR15_PaperBroker import PaperBroker
+
+        broker = PaperBroker()
+        sym = "SPY240620C00500000"
+        result = broker.close_position(sym, position_quantity=2)
+        order = broker._orders.get(result["order"]["id"], {})
+        self.assertEqual(order.get("side", ""), "sell_to_close",
+                         "Long option close must use 'sell_to_close' when quantity is positive")
+        self.assertEqual(order.get("quantity", 0), 2,
+                         "Long option close must preserve the full signed quantity")
+
+    def test_close_short_equity_position_uses_buy_side_and_full_quantity(self) -> None:
+        from Spyder.SpyderR_Runtime.SpyderR15_PaperBroker import PaperBroker
+
+        broker = PaperBroker()
+        result = broker.close_position("SPY", position_quantity=-10)
+        order = broker._orders.get(result["order"]["id"], {})
+        self.assertEqual(order.get("side", ""), "buy",
+                         "Short equity close must use 'buy' when quantity is negative")
+        self.assertEqual(order.get("quantity", 0), 10,
+                         "Short equity close must preserve the full signed quantity")
+
     def test_close_position_returns_empty_dict_for_no_position_no_force(self) -> None:
         """close_position with force=False still submits an order (PaperBroker tracks via B03)."""
         from Spyder.SpyderR_Runtime.SpyderR15_PaperBroker import PaperBroker

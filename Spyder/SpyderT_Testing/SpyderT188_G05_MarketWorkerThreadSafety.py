@@ -41,7 +41,7 @@ def test_invoke_market_worker_slot_queues_to_running_worker_thread(monkeypatch) 
     dash.market_worker.pause_periodic_updates.assert_not_called()
 
 
-def test_invoke_market_worker_slot_calls_directly_without_running_thread(monkeypatch) -> None:
+def test_invoke_market_worker_slot_returns_false_without_running_thread(monkeypatch) -> None:
     dash = _build_dashboard_stub()
     direct_slot = MagicMock()
     dash.market_worker = SimpleNamespace(pause_periodic_updates=direct_slot)
@@ -52,8 +52,8 @@ def test_invoke_market_worker_slot_calls_directly_without_running_thread(monkeyp
 
     monkeypatch.setattr(g05.QMetaObject, "invokeMethod", _unexpected_invoke_method)
 
-    assert dash._invoke_market_worker_slot("pause_periodic_updates") is True
-    direct_slot.assert_called_once_with()
+    assert dash._invoke_market_worker_slot("pause_periodic_updates") is False
+    direct_slot.assert_not_called()
 
 
 def test_invoke_market_worker_slot_uses_helper_for_queue_path(monkeypatch) -> None:
@@ -145,6 +145,38 @@ def test_check_api_connection_uses_quote_probe(monkeypatch) -> None:
     assert client.calls == [["SPY"]]
 
 
+def test_build_market_data_client_reuses_cached_client(monkeypatch) -> None:
+    import dotenv
+
+    class _TradingEnvironment:
+        LIVE = "live"
+
+    class _Client:
+        init_calls: list[tuple[str, str, object]] = []
+
+        def __init__(self, api_key: str, account_id: str, environment: object) -> None:
+            self.api_key = api_key
+            self.account_id = account_id
+            self.environment = environment
+            self.__class__.init_calls.append((api_key, account_id, environment))
+
+    monkeypatch.setattr(g18, "TRADIER_AVAILABLE", True)
+    monkeypatch.setattr(g18, "TradierClient", _Client)
+    monkeypatch.setattr(g18, "TradingEnvironment", _TradingEnvironment)
+    monkeypatch.setattr(g18, "_TRADIER_CLIENT_CACHE", {})
+    monkeypatch.setattr(dotenv, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setenv("TRADIER_LIVE_API_KEY", "test-key")
+    monkeypatch.setenv("TRADIER_LIVE_ACCOUNT_ID", "test-account")
+    monkeypatch.setenv("TRADIER_API_KEY", "test-key")
+    monkeypatch.setenv("TRADIER_ACCOUNT_ID", "test-account")
+
+    first_client = g18._build_market_data_client()
+    second_client = g18._build_market_data_client()
+
+    assert first_client is second_client
+    assert _Client.init_calls == [("test-key", "test-account", "live")]
+
+
 def test_market_worker_start_queues_initial_full_fetch_after_successful_probe(monkeypatch) -> None:
     timer_instances = []
 
@@ -153,6 +185,10 @@ def test_market_worker_start_queues_initial_full_fetch_after_successful_probe(mo
             self.timeout = SimpleNamespace(connect=lambda *_a, **_k: None)
             self.started_intervals: list[int] = []
             timer_instances.append(self)
+
+        @staticmethod
+        def singleShot(*_args, **_kwargs) -> None:
+            return None
 
         def start(self, interval: int) -> None:
             self.started_intervals.append(interval)
@@ -173,7 +209,7 @@ def test_market_worker_start_queues_initial_full_fetch_after_successful_probe(mo
     worker.heartbeat_received = SimpleNamespace(emit=MagicMock())
 
     monkeypatch.setattr(g18, "QTimer", _FakeTimer)
-    monkeypatch.setattr(g18, "is_tradier_window", lambda: True)
+    monkeypatch.setattr(g18, "is_market_hours", lambda: True)
     monkeypatch.setattr(g18, "check_api_connection", lambda: (True, "Tradier API (PAPER)"))
 
     ThreadSafeMarketDataWorker.start(worker)

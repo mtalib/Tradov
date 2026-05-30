@@ -9,6 +9,7 @@ Purpose: Pure presentation helpers for paper positions tree rows
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, date as dt_date, datetime, tzinfo
 from typing import Any
@@ -39,8 +40,13 @@ class RestoredPaperPositionPresentation:
 class RestoredPaperPositionGroupPresentation:
     """Grouped restored-position rows shown under one summary header."""
 
+    timestamp_text: str
     summary_text: str
+    pnl_text: str
+    pnl_color: str
     detail_rows: Sequence[RestoredPaperPositionPresentation]
+    cash_held_text: str = ""
+    close_symbols: Sequence[str] = ()
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,7 @@ class PaperSpreadHeaderPresentation:
     summary_text: str
     pnl_text: str
     pnl_color: str
+    cash_held_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -139,11 +146,11 @@ def format_expiration_short(expiration: str) -> str:
 
 
 def format_signed_dollars(value: float, decimals: int | None = None) -> str:
-    """Format a signed dollar amount with dynamic decimals by default."""
+    """Format a signed dollar amount with two decimals by default."""
     abs_value = abs(float(value))
     resolved_decimals = decimals
     if resolved_decimals is None:
-        resolved_decimals = 0 if abs_value.is_integer() else 2
+        resolved_decimals = 2
     return f"{'+' if value >= 0 else '-'}${abs_value:,.{resolved_decimals}f}"
 
 
@@ -166,6 +173,117 @@ def _action_prefix_from_side(raw_side: str) -> str:
     return ""
 
 
+def _normalize_strategy_display_token(value: Any) -> str:
+    """Normalize strategy or structure identifiers for display mapping."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", text)
+    text = re.sub(r"[\s\-]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text.lower()
+
+
+def format_strategy_display_name(value: Any) -> str:
+    """Map strategy identifiers into concise dashboard labels."""
+    normalized = _normalize_strategy_display_token(value)
+    if not normalized:
+        return "PAPER FILL"
+    if "broken_wing_butterfly" in normalized:
+        return "Broken-Butterfly"
+    if normalized == "iron_butterfly":
+        return "Iron-Butterfly"
+    if "butterfly" in normalized:
+        return "Reg-Butterfly"
+    return str(value or "paper_fill").replace("_", " ").upper()
+
+
+def _resolve_position_strategy_value(position: Mapping[str, Any]) -> Any:
+    """Return the most specific persisted strategy identifier for a position."""
+    return (
+        position.get("strategy_id")
+        or position.get("strategy_name")
+        or position.get("strategy")
+        or "paper_fill"
+    )
+
+
+def _position_supports_manual_close(position: Mapping[str, Any]) -> bool:
+    """Return True when the restored position is a butterfly-family artifact."""
+    return "butterfly" in _normalize_strategy_display_token(_resolve_position_strategy_value(position))
+
+
+def _signed_position_quantity(position: Mapping[str, Any]) -> int:
+    """Return signed quantity using explicit side metadata when available."""
+    raw_quantity = position.get("quantity")
+    if raw_quantity in (None, ""):
+        raw_quantity = position.get("qty")
+    quantity = coerce_int(raw_quantity, 0)
+    side = str(
+        position.get("side")
+        or position.get("position_side")
+        or position.get("action")
+        or ""
+    ).strip().lower()
+    if side.startswith(("sell", "short")):
+        return -abs(quantity)
+    if side.startswith(("buy", "long")):
+        return abs(quantity)
+    return quantity
+
+
+def _position_contract_multiplier(position: Mapping[str, Any]) -> float:
+    """Return the option-equity multiplier for one restored position row."""
+    option_type = (
+        str(position.get("option_type") or "").upper()[:1]
+        or _occ_option_flag(str(position.get("symbol") or ""))
+    )
+    return 100.0 if option_type in {"P", "C"} else 1.0
+
+
+def _position_total_entry_cost_dollars(position: Mapping[str, Any]) -> float | None:
+    """Return signed entry cost dollars for one restored position row."""
+    entry_price = coerce_float(position.get("entry_price", position.get("price")), None)
+    if entry_price is None:
+        return None
+
+    quantity = _signed_position_quantity(position)
+    if quantity == 0:
+        return None
+
+    return entry_price * quantity * _position_contract_multiplier(position)
+
+
+def _position_cash_held_candidate_dollars(position: Mapping[str, Any]) -> float | None:
+    """Return one best-effort cash-held candidate from a restored position row."""
+    direct_candidate = coerce_float(
+        position.get("cash_held_dollars", position.get("buying_power_held")),
+        None,
+    )
+    if direct_candidate is not None and direct_candidate > 0:
+        return direct_candidate
+
+    direct_candidate = coerce_float(position.get("max_loss_dollars"), None)
+    if direct_candidate is not None and direct_candidate > 0:
+        return direct_candidate
+
+    quantity = max(abs(_signed_position_quantity(position)), 1)
+    max_loss_per_contract = coerce_float(position.get("max_loss_per_contract"), None)
+    if max_loss_per_contract is not None and max_loss_per_contract > 0:
+        return max_loss_per_contract * quantity
+
+    per_share_risk = coerce_float(position.get("max_loss"), None)
+    if per_share_risk is None:
+        per_share_risk = coerce_float(position.get("expected_debit"), None)
+    if per_share_risk is None:
+        per_share_risk = coerce_float(position.get("debit"), None)
+    if per_share_risk is not None and per_share_risk > 0:
+        return per_share_risk * 100.0 * quantity
+
+    return None
+
+
 def build_restored_position_presentations(
     positions: Sequence[Mapping[str, Any]] | None,
     colors: Mapping[str, str],
@@ -181,7 +299,8 @@ def build_restored_position_presentations(
         display_quantity = abs(quantity)
         entry_price = coerce_float(position.get("entry_price"), 0.0) or 0.0
         current_price = coerce_float(position.get("current_price"), None)
-        strategy = str(position.get("strategy", "") or "paper_fill")
+        strategy = str(_resolve_position_strategy_value(position) or "paper_fill")
+        strategy_label = format_strategy_display_name(strategy)
         status = str(position.get("status", "OPEN") or "OPEN").upper()
         lifecycle_state = str(position.get("lifecycle_state") or "").strip()
         if not lifecycle_state:
@@ -228,7 +347,7 @@ def build_restored_position_presentations(
                         else f"ACTIVE PAPER POSITION ({lifecycle_state})"
                     )
                     + " : "
-                    f"{strategy.replace('_', ' ').upper()}  |  "
+                    f"{strategy_label}  |  "
                     f"STATUS: {status}  |  OPENED: {opened_text}  |  MARK: ${mark_price:,.2f}"
                 ),
                 action_text=action_text,
@@ -247,7 +366,7 @@ def build_restored_position_presentations(
                 tooltip_text=(
                     f"Symbol: {symbol}\n"
                     f"Action: {action_text}\n"
-                    f"Strategy: {strategy}\n"
+                    f"Strategy: {strategy_label}\n"
                     f"Status: {status}\n"
                     f"Opened: {opened_text}\n"
                     f"Average entry: ${entry_price:,.2f}\n"
@@ -288,12 +407,16 @@ def build_restored_position_group_presentations(
     positions: Sequence[Mapping[str, Any]] | None,
     colors: Mapping[str, str],
     *,
+    today: dt_date | None = None,
+    eastern_timezone: tzinfo = UTC,
     cluster_window_seconds: float = 10.0,
 ) -> Sequence[RestoredPaperPositionGroupPresentation]:
     """Group related restored positions under one summary header when practical."""
     normalized_positions = [position for position in positions or [] if isinstance(position, Mapping)]
     if not normalized_positions:
         return []
+
+    reference_today = today or datetime.now(UTC).astimezone(eastern_timezone).date()
 
     def _cluster_identity(position: Mapping[str, Any]) -> tuple[str, str, str, str, str]:
         symbol = str(position.get("symbol") or "")
@@ -351,29 +474,72 @@ def build_restored_position_group_presentations(
         if not detail_rows:
             continue
 
-        if len(group) == 1:
-            summary_text = detail_rows[0].summary_text
+        first = group[0]
+        lifecycle_state = _resolve_restored_position_lifecycle_state(first)
+        strategy = format_strategy_display_name(_resolve_position_strategy_value(first))
+        status = str(first.get("status") or "OPEN").strip().upper()
+        expiration = str(first.get("expiration") or "").strip()
+        opened_ts = coerce_timestamp(first.get("opened_at"))
+        timestamp_text = ""
+        reference_date = reference_today
+        if opened_ts is not None:
+            try:
+                opened_dt = datetime.fromtimestamp(opened_ts, UTC).astimezone(eastern_timezone)
+                timestamp_text = opened_dt.strftime("%Y-%m-%d %H:%M")
+                reference_date = opened_dt.date()
+            except (OSError, OverflowError, ValueError):
+                timestamp_text = ""
+
+        dte = format_days_to_expiration(expiration, reference_date)
+        if lifecycle_state == "CARRIED OVER":
+            summary_text = f"ACTIVE TRADE CARRIED OVER : {strategy}  |  DTE: {dte}  |  STATUS: {status}"
         else:
-            first = group[0]
-            lifecycle_state = _resolve_restored_position_lifecycle_state(first)
-            strategy = str(first.get("strategy") or "paper_fill").replace("_", " ").upper()
-            status = str(first.get("status") or "OPEN").strip().upper()
-            opened_at = str(first.get("opened_at") or "").strip()
-            opened_text = opened_at[:19].replace("T", " ") if opened_at else "--"
-            summary_prefix = (
-                "ACTIVE PAPER POSITION (CARRIED OVER)"
-                if lifecycle_state == "CARRIED OVER"
-                else f"ACTIVE PAPER POSITION ({lifecycle_state})"
-            )
-            summary_text = (
-                f"{summary_prefix} : {strategy}  |  "
-                f"STATUS: {status}  |  OPENED: {opened_text}  |  TRADES: {len(group)}"
-            )
+            summary_text = f"STRATEGY {lifecycle_state} : {strategy}  |  DTE: {dte}  |  STATUS: {status}"
+
+        mtm_pnl = sum(coerce_float(position.get("unrealized_pnl"), 0.0) or 0.0 for position in group)
+
+        cash_held_basis_dollars = None
+        for position in group:
+            candidate = _position_cash_held_candidate_dollars(position)
+            if candidate is not None and candidate > 0:
+                cash_held_basis_dollars = max(cash_held_basis_dollars or 0.0, candidate)
+
+        net_entry_cost_dollars = 0.0
+        saw_entry_cost = False
+        for position in group:
+            entry_cost = _position_total_entry_cost_dollars(position)
+            if entry_cost is None:
+                continue
+            net_entry_cost_dollars += entry_cost
+            saw_entry_cost = True
+
+        credit_dollars = abs(net_entry_cost_dollars) if saw_entry_cost and net_entry_cost_dollars < 0 else 0.0
+        if cash_held_basis_dollars is None and saw_entry_cost and net_entry_cost_dollars != 0:
+            cash_held_basis_dollars = abs(net_entry_cost_dollars)
+
+        pnl_basis_dollars = credit_dollars if credit_dollars > 0 else (cash_held_basis_dollars or 0.0)
+        pnl_percent = (mtm_pnl / pnl_basis_dollars * 100.0) if pnl_basis_dollars > 0 else 0.0
+        cash_held_text = f"CASH HELD: ${cash_held_basis_dollars or 0.0:,.2f}"
+        pnl_text = f"NET P&L {format_signed_dollars(mtm_pnl)} ({pnl_percent:+.1f}%)"
+
+        seen_symbols: set[str] = set()
+        close_symbols: list[str] = []
+        if any(_position_supports_manual_close(position) for position in group):
+            for position in group:
+                symbol = str(position.get("symbol") or "").strip()
+                if symbol and symbol not in seen_symbols:
+                    seen_symbols.add(symbol)
+                    close_symbols.append(symbol)
 
         presentations.append(
             RestoredPaperPositionGroupPresentation(
+                timestamp_text=timestamp_text,
                 summary_text=summary_text,
+                pnl_text=pnl_text,
+                pnl_color=colors["positive"] if mtm_pnl >= 0 else colors["negative"],
                 detail_rows=detail_rows,
+                cash_held_text=cash_held_text,
+                close_symbols=tuple(close_symbols),
             )
         )
 
@@ -390,7 +556,7 @@ def build_paper_spread_tree_presentation(
     closed: bool = False,
 ) -> tuple[PaperSpreadHeaderPresentation, Sequence[PaperSpreadLegPresentation]]:
     """Build display-ready header and leg rows for one paper spread."""
-    structure = str(spread.get("structure") or spread.get("type") or "SPREAD").replace("_", " ").upper()
+    structure = format_strategy_display_name(spread.get("structure") or spread.get("type") or "SPREAD")
     lifecycle_state = str(spread.get("lifecycle_state") or default_lifecycle_state)
     quantity = coerce_int(spread.get("qty"), 0)
     mtm_pnl = coerce_float(spread.get("mtm_pnl"), None)
@@ -431,11 +597,70 @@ def build_paper_spread_tree_presentation(
             timestamp_text = ""
 
     dte = format_days_to_expiration(expiration, reference_date)
+    raw_legs = spread.get("legs") or []
 
     credit_dollars = coerce_float(spread.get("credit_received"), None)
     if credit_dollars is None:
         credit_dollars = credit * 100.0 * max(quantity, 1)
-    pnl_percent = (mtm_pnl / credit_dollars * 100.0) if credit_dollars > 0 else 0.0
+
+    cash_held_basis_dollars = coerce_float(
+        spread.get("cash_held_dollars", spread.get("buying_power_held")),
+        None,
+    )
+    if cash_held_basis_dollars is None:
+        cash_held_basis_dollars = coerce_float(spread.get("max_loss_dollars"), None)
+    if cash_held_basis_dollars is None:
+        max_loss_per_contract = coerce_float(spread.get("max_loss_per_contract"), None)
+        if max_loss_per_contract is not None and max_loss_per_contract > 0:
+            cash_held_basis_dollars = max_loss_per_contract * max(abs(quantity), 1)
+    if cash_held_basis_dollars is None:
+        per_share_risk = coerce_float(spread.get("max_loss"), None)
+        if per_share_risk is None:
+            per_share_risk = coerce_float(spread.get("expected_debit"), None)
+        if per_share_risk is None:
+            per_share_risk = coerce_float(spread.get("debit"), None)
+        if per_share_risk is not None and per_share_risk > 0:
+            cash_held_basis_dollars = per_share_risk * 100.0 * max(abs(quantity), 1)
+    if cash_held_basis_dollars is None and isinstance(raw_legs, list):
+        total_entry_cost = 0.0
+        saw_leg_cost = False
+        for raw_leg in raw_legs:
+            if not isinstance(raw_leg, Mapping):
+                continue
+            leg_cost = coerce_float(raw_leg.get("cost"), None)
+            if leg_cost is not None:
+                total_entry_cost += leg_cost
+                saw_leg_cost = True
+                continue
+
+            leg_price = coerce_float(
+                raw_leg.get("price", raw_leg.get("entry_price", raw_leg.get("premium"))),
+                None,
+            )
+            if leg_price is None:
+                continue
+
+            leg_qty = abs(coerce_int(raw_leg.get("qty", raw_leg.get("quantity", quantity)), quantity))
+            leg_side = str(
+                raw_leg.get("side")
+                or raw_leg.get("action")
+                or raw_leg.get("position")
+                or raw_leg.get("name")
+                or ""
+            ).strip().lower()
+            sign = -1.0 if leg_side.startswith(("sell", "short")) else 1.0
+            total_entry_cost += leg_price * 100.0 * leg_qty * sign
+            saw_leg_cost = True
+
+        if saw_leg_cost and total_entry_cost > 0:
+            cash_held_basis_dollars = total_entry_cost
+
+    pnl_basis_dollars = credit_dollars if credit_dollars > 0 else (cash_held_basis_dollars or 0.0)
+    pnl_percent = (mtm_pnl / pnl_basis_dollars * 100.0) if pnl_basis_dollars > 0 else 0.0
+
+    cash_held_dollars = None if closed else cash_held_basis_dollars
+
+    cash_held_text = f"CASH HELD: ${cash_held_dollars or 0.0:,.2f}"
 
     if closed:
         summary_text = (
@@ -456,12 +681,12 @@ def build_paper_spread_tree_presentation(
     header = PaperSpreadHeaderPresentation(
         timestamp_text=timestamp_text,
         summary_text=summary_text,
+        cash_held_text=cash_held_text,
         pnl_text=f"NET P&L {format_signed_dollars(mtm_pnl)} ({pnl_percent:+.1f}%)",
         pnl_color=colors["positive"] if mtm_pnl >= 0 else colors["negative"],
     )
 
     normalized_legs: list[dict[str, Any]] = []
-    raw_legs = spread.get("legs") or []
     if isinstance(raw_legs, list):
         for raw_leg in raw_legs:
             if not isinstance(raw_leg, Mapping):
@@ -562,6 +787,15 @@ def build_paper_spread_tree_presentation(
         if price is None and cost is not None and leg_qty > 0:
             price = abs(cost) / (leg_qty * 100.0)
 
+        display_cost = None
+        if cost is not None:
+            if action_text.startswith(("SELL", "SHORT")):
+                display_cost = abs(cost)
+            elif action_text.startswith(("BUY", "LONG")):
+                display_cost = -abs(cost)
+            else:
+                display_cost = cost
+
         leg_presentations.append(
             PaperSpreadLegPresentation(
                 action_text=action_text,
@@ -571,8 +805,8 @@ def build_paper_spread_tree_presentation(
                 quantity_text=str(leg_qty),
                 price_text=(f"${abs(price):,.2f}" if price is not None else ""),
                 expiry_text=expiry_display,
-                cost_text=(format_signed_dollars(cost) if cost is not None else ""),
-                cost_color=(colors["positive"] if cost is not None and cost >= 0 else colors["negative"] if cost is not None else None),
+                cost_text=(format_signed_dollars(display_cost) if display_cost is not None else ""),
+                cost_color=(colors["positive"] if display_cost is not None and display_cost >= 0 else colors["negative"] if display_cost is not None else None),
                 pnl_text=(format_signed_dollars(pnl) if pnl is not None else ""),
                 pnl_color=(colors["positive"] if pnl is not None and pnl >= 0 else colors["negative"] if pnl is not None else None),
             )

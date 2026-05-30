@@ -91,6 +91,18 @@ def test_apply_proven_real_data_pattern_logs_dia_and_vxv_detail(
     dash.update_data_status.assert_called_once_with("EOD")
 
 
+def test_seed_optional_symbol_placeholders_marks_tnx_unavailable(tmp_path: Path) -> None:
+    dash = _build_dashboard_stub(tmp_path)
+    dash.symbol_widgets["TNX"] = SimpleNamespace(
+        price_label=SimpleNamespace(text=lambda: "---"),
+        set_unavailable=MagicMock(),
+    )
+
+    SpyderTradingDashboard._seed_optional_symbol_placeholders(dash)
+
+    dash.symbol_widgets["TNX"].set_unavailable.assert_called_once_with("N/A")
+
+
 def test_restore_snapshot_falls_back_to_eod_cache_outside_market_hours(
     monkeypatch,
     tmp_path: Path,
@@ -248,6 +260,10 @@ def test_restore_snapshot_hydrates_cached_market_overview_metrics(
         "GEX": {"value": 1.5, "status": "cached"},
         "NYMO": {"value": -20.5},
     }
+    dash._METRICS_SNAPSHOT_FILE.write_text(
+        json.dumps({"_saved_at": time.time(), "metrics": {}}),
+        encoding="utf-8",
+    )
     dash._SNAPSHOT_FILE.write_text(
         json.dumps(
             {
@@ -276,6 +292,52 @@ def test_restore_snapshot_hydrates_cached_market_overview_metrics(
     dash.symbol_widgets["GEX"].update_data.assert_called_once()
     dash.symbol_widgets["NYMO"].update_data.assert_called_once()
     assert any("Market Overview metrics" in line for line in dash._log_lines)
+
+
+def test_restore_snapshot_skips_stale_cached_market_overview_metrics(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    dash = _build_dashboard_stub(tmp_path)
+    dash._build_cached_metrics_fallback_payload = lambda: {
+        "GEX": {"value": 1.5, "status": "cached"},
+    }
+    dash._METRICS_SNAPSHOT_FILE.write_text(
+        json.dumps(
+            {
+                "_saved_at": time.time() - (SpyderTradingDashboard._CUSTOM_METRICS_SNAPSHOT_MAX_AGE_SECONDS + 1),
+                "metrics": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    dash._SNAPSHOT_FILE.write_text(
+        json.dumps(
+            {
+                "_saved_at": time.time(),
+                "trading_mode": "PAPER",
+                "account_by_mode": {"PAPER": {}, "LIVE": {}},
+                "pnl_stats_by_mode": {"PAPER": {}, "LIVE": {}},
+                "data": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "eod_snapshot.json").write_text(
+        json.dumps(
+            {
+                "SPY": {"last": 742.31, "change": 4.13, "change_pct": 0.56, "timestamp_ms": 1778704182000},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(g05, "is_market_hours", lambda: False)
+
+    SpyderTradingDashboard._restore_snapshot(dash)
+
+    dash.symbol_widgets["GEX"].update_data.assert_not_called()
+    assert any("Skipped cached Market Overview metrics" in line for line in dash._log_lines)
 
 
 def test_restore_snapshot_applies_live_account_snapshot_only(

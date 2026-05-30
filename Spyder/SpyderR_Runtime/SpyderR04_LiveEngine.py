@@ -1252,7 +1252,19 @@ class LiveEngine:
             # _active_positions_lock because any thread already holding a reference
             # to the old dict continues to see stale data and concurrent writes are
             # lost.
-            new_map = {p["symbol"]: p for p in positions}
+            with self._active_positions_lock:
+                existing_positions = {
+                    symbol: dict(position)
+                    for symbol, position in self.active_positions.items()
+                    if isinstance(position, dict)
+                }
+            new_map = {
+                p["symbol"]: self._merge_active_position_metadata(
+                    existing_positions.get(p["symbol"]),
+                    p,
+                )
+                for p in positions
+            }
             with self._active_positions_lock:
                 self.active_positions.clear()
                 self.active_positions.update(new_map)
@@ -1389,7 +1401,10 @@ class LiveEngine:
             with self._active_positions_lock:
                 for position in positions:
                     symbol = position["symbol"]
-                    self.active_positions[symbol] = position
+                    self.active_positions[symbol] = self._merge_active_position_metadata(
+                        self.active_positions.get(symbol),
+                        position,
+                    )
 
             if self._mode_name() == "paper":
                 positions = self._mark_paper_positions_to_market()
@@ -1410,6 +1425,34 @@ class LiveEngine:
         import copy
         with self._active_positions_lock:
             return copy.deepcopy(self.active_positions)
+
+    @staticmethod
+    def _merge_active_position_metadata(
+        existing: dict[str, Any] | None,
+        incoming: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Preserve carryover and strategy metadata across position refreshes."""
+        merged = dict(incoming)
+        if not isinstance(existing, dict):
+            return merged
+
+        for key in (
+            "position_source",
+            "_paper_open_origin",
+            "strategy_id",
+            "strategy",
+            "strategy_name",
+            "opened_at",
+            "order_id",
+            "underlying_symbol",
+            "expiration",
+            "strike",
+            "option_type",
+        ):
+            if merged.get(key) in (None, "") and existing.get(key) not in (None, ""):
+                merged[key] = existing.get(key)
+
+        return merged
 
     def _check_heartbeat(self):
         """Check broker connection heartbeat."""
@@ -1481,6 +1524,18 @@ class LiveEngine:
                 check_name="risk_reducing_order",
                 result=SafetyCheckResult.PASSED,
                 message="Risk-reducing order bypasses entry-only safety gates",
+                timestamp=datetime.now(_ET),
+            )
+
+        if self._would_flatten_multileg_strategy(order):
+            strategy_id = order.get("strategy_id") or order.get("strategy") or "multi_leg"
+            return SafetyCheck(
+                check_name="multileg_dispatch",
+                result=SafetyCheckResult.FAILED,
+                message=(
+                    f"Multi-leg option strategy {strategy_id} requires explicit "
+                    "option-leg routing"
+                ),
                 timestamp=datetime.now(_ET),
             )
 
@@ -1823,6 +1878,44 @@ class LiveEngine:
         # Options typically have format: SPY240315C00450000
         return len(symbol) > 10 and any(c in symbol for c in ['C', 'P'])
 
+    def _would_flatten_multileg_strategy(self, order: dict[str, Any]) -> bool:
+        """Detect generic order submissions that would flatten multileg strategies."""
+        if order.get("multileg_leg_execution"):
+            return False
+
+        symbol = str(order.get("symbol") or "").strip().upper()
+        option_symbol = str(order.get("option_symbol") or "").strip().upper()
+        if self._is_option_symbol(symbol) or self._is_option_symbol(option_symbol):
+            return False
+
+        strategy_candidates = [
+            order.get("strategy_id"),
+            order.get("strategy"),
+            order.get("strategy_name"),
+        ]
+        normalized_candidates = {
+            re.sub(r"[^a-z0-9]+", "_", str(candidate or "").strip().lower()).strip("_")
+            for candidate in strategy_candidates
+            if str(candidate or "").strip()
+        }
+        if not normalized_candidates:
+            return False
+
+        multileg_keywords = (
+            "spread",
+            "condor",
+            "butterfly",
+            "calendar",
+            "straddle",
+            "strangle",
+            "lizard",
+            "ratio",
+        )
+        return any(
+            any(keyword in candidate for keyword in multileg_keywords)
+            for candidate in normalized_candidates
+        )
+
     @staticmethod
     def _parse_occ_option_symbol(symbol: str) -> dict[str, Any]:
         """Parse an OCC option symbol into underlying, expiration, strike, and type."""
@@ -1857,12 +1950,14 @@ class LiveEngine:
 
     def _is_market_open(self) -> bool:
         """Check if market is open (ET-aware; honours early-close calendar)."""
-        from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import get_trading_calendar
         now_et = datetime.now(_ET)
-        now_t = now_et.time()
-        cal = get_trading_calendar()
-        close_time = cal.get_market_close(now_et.date())
-        return MARKET_OPEN <= now_t <= close_time
+        try:
+            from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import get_trading_calendar
+
+            return bool(get_trading_calendar().is_market_open(now_et))
+        except Exception:
+            now_t = now_et.time()
+            return MARKET_OPEN <= now_t <= MARKET_CLOSE
 
     def _is_trading_allowed(self) -> bool:
         """Check if trading is allowed at current time (ET-aware)."""
@@ -2282,7 +2377,7 @@ class LiveEngine:
             self.logger.warning("Paper account snapshot persistence failed: %s", exc)
 
     def _paper_position_has_session_lineage(self, symbol: str) -> bool:
-        """Return True when a paper position still has H05 backing."""
+        """Return True when a paper position still has live/open H05 backing."""
         if self._mode_name() != "paper" or self._session_db is None:
             return True
 
@@ -2300,6 +2395,19 @@ class LiveEngine:
                     if row_symbol == normalized_symbol:
                         return True
 
+            get_latest_position = getattr(
+                self._session_db,
+                "get_latest_position_for_symbol",
+                None,
+            )
+            if callable(get_latest_position):
+                latest_row = get_latest_position(normalized_symbol)
+                latest_status = str(
+                    (latest_row or {}).get("status") or ""
+                ).strip().upper()
+                if latest_status == "CLOSED":
+                    return False
+
             has_trade_history = getattr(self._session_db, "has_trade_history_for_symbol", None)
             if callable(has_trade_history):
                 return bool(has_trade_history(normalized_symbol))
@@ -2311,7 +2419,7 @@ class LiveEngine:
             )
             return True
 
-        return True
+        return False
 
     def _get_paper_option_quote_client(self) -> Any | None:
         """Return a lazy live-data client for internal paper mark-to-market."""
@@ -2909,7 +3017,17 @@ class LiveEngine:
                             ),
                             "unrealized_pnl": float(row.get("unrealized_pnl") or 0.0),
                             "realized_pnl": float(row.get("realized_pnl") or 0.0),
+                            "strategy_id": str(
+                                row.get("strategy_id")
+                                or row.get("strategy")
+                                or row.get("strategy_name")
+                                or ""
+                            ),
                             "strategy": str(row.get("strategy") or ""),
+                            "strategy_name": str(
+                                row.get("strategy_name") or row.get("strategy") or ""
+                            ),
+                            "position_source": "session_db_hydration",
                             "opened_at": self._coerce_datetime(row.get("opened_at")),
                             "expiration": str(row.get("expiration") or "") or None,
                             "strike": (
@@ -3217,7 +3335,9 @@ class LiveEngine:
             if quantity == 0:
                 self.active_positions.pop(symbol, None)
             else:
-                self.active_positions[symbol] = {
+                self.active_positions[symbol] = self._merge_active_position_metadata(
+                    self.active_positions.get(symbol),
+                    {
                     "symbol": symbol,
                     "quantity": quantity,
                     "entry_price": entry_price,
@@ -3229,7 +3349,8 @@ class LiveEngine:
                     "expiration": expiration or None,
                     "strike": strike,
                     "option_type": option_type or None,
-                }
+                    },
+                )
 
         if self._session_db is None:
             return

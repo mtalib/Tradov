@@ -138,6 +138,7 @@ MAX_CORRELATED_RISK = 0.30           # Maximum correlated risk exposure
 class MultiLegStrategyType(Enum):
     """Types of multi-leg strategies"""
     IRON_CONDOR = "iron_condor"
+    BUTTERFLY = "butterfly"
     IRON_BUTTERFLY = "iron_butterfly"
     JADE_LIZARD = "jade_lizard"
     BIG_LIZARD = "big_lizard"
@@ -1069,6 +1070,8 @@ class MultiLegStrategyConstructor:
                 return self._construct_iron_condor(market_analysis, days_to_expiration)
             elif strategy_type == MultiLegStrategyType.IRON_BUTTERFLY:
                 return self._construct_iron_butterfly(market_analysis, days_to_expiration)
+            elif strategy_type == MultiLegStrategyType.BROKEN_WING_BUTTERFLY:
+                return self._construct_broken_wing_butterfly(market_analysis, days_to_expiration)
             elif strategy_type == MultiLegStrategyType.JADE_LIZARD:
                 return self._construct_jade_lizard(market_analysis, days_to_expiration)
             else:
@@ -1203,7 +1206,7 @@ class MultiLegStrategyConstructor:
             net_theta = sum(leg.theta * leg.quantity for leg in legs)
             net_vega = sum(leg.vega * leg.quantity for leg in legs)
 
-            return MultiLegStructure(
+            structure = MultiLegStructure(
                 strategy_type=MultiLegStrategyType.IRON_CONDOR,
                 legs=legs,
                 net_credit=net_credit,
@@ -1219,6 +1222,11 @@ class MultiLegStrategyConstructor:
                 body_width=short_call_strike - short_put_strike,
                 risk_reward_ratio=max_loss / max_profit if max_profit > 0 else 0
             )
+            return self._attach_broker_routing_metadata(
+                structure,
+                underlying_symbol,
+                expiration,
+            )
 
         except Exception as e:
             self.logger.error("Iron Condor construction failed: %s", e, exc_info=True)
@@ -1228,6 +1236,9 @@ class MultiLegStrategyConstructor:
                                 dte: int) -> MultiLegStructure:
         """Construct Iron Butterfly strategy"""
         try:
+            underlying_symbol = str(
+                self.config.get("underlying_symbol") or self.config.get("symbol") or "SPY"
+            ).upper()
             underlying_price = market_analysis.underlying_price
             iv = market_analysis.implied_volatility
 
@@ -1275,7 +1286,7 @@ class MultiLegStrategyConstructor:
             net_theta = sum(leg.theta * leg.quantity for leg in legs)
             net_vega = sum(leg.vega * leg.quantity for leg in legs)
 
-            return MultiLegStructure(
+            structure = MultiLegStructure(
                 strategy_type=MultiLegStrategyType.IRON_BUTTERFLY,
                 legs=legs,
                 net_credit=net_credit,
@@ -1291,10 +1302,125 @@ class MultiLegStrategyConstructor:
                 body_width=0.0,  # No body width in butterfly
                 risk_reward_ratio=max_loss / max_profit if max_profit > 0 else 0
             )
+            return self._attach_broker_routing_metadata(
+                structure,
+                underlying_symbol,
+                expiration,
+            )
 
         except Exception as e:
             self.logger.error("Iron Butterfly construction failed: %s", e, exc_info=True)
             raise
+
+    def _construct_broken_wing_butterfly(self, market_analysis: MarketEnvironmentAnalysis,
+                                       dte: int) -> MultiLegStructure:
+        """Construct a bullish put broken wing butterfly strategy."""
+        try:
+            underlying_symbol = str(
+                self.config.get("underlying_symbol") or self.config.get("symbol") or "SPY"
+            ).upper()
+            underlying_price = market_analysis.underlying_price
+            iv = market_analysis.implied_volatility
+
+            strike_increment = float(self.config.get("strike_increment", 1.0) or 1.0)
+            upper_width = max(
+                strike_increment,
+                float(self.config.get("bwb_upper_width", 1.0) or 1.0),
+            )
+            lower_width = max(
+                upper_width + strike_increment,
+                float(self.config.get("bwb_lower_width", 3.0) or 3.0),
+            )
+            body_offset = max(
+                strike_increment,
+                float(self.config.get("bwb_body_offset", strike_increment) or strike_increment),
+            )
+
+            body_strike = float(
+                np.floor((underlying_price - body_offset) / strike_increment) * strike_increment
+            )
+            upper_wing_strike = body_strike + upper_width
+            lower_wing_strike = body_strike - lower_width
+
+            expiration = self._resolve_strategy_expiration(dte)
+            legs = [
+                OptionLeg("put", upper_wing_strike, 1, expiration),
+                OptionLeg("put", body_strike, -2, expiration),
+                OptionLeg("put", lower_wing_strike, 1, expiration),
+            ]
+
+            self._estimate_legs_pricing_and_greeks(legs, underlying_price, iv, max(1, dte or 1))
+            self._apply_live_chain_prices_to_legs(legs)
+
+            net_credit = self._calculate_net_credit(legs)
+            max_profit = upper_width + net_credit
+            max_loss = max(0.0, (lower_width - upper_width) - net_credit)
+            downside_breakeven = body_strike - upper_width - net_credit
+            probability = self._estimate_probability_profit(
+                underlying_price,
+                [downside_breakeven],
+                market_analysis.expected_move,
+            )
+
+            net_delta = sum(leg.delta * leg.quantity for leg in legs)
+            net_gamma = sum(leg.gamma * leg.quantity for leg in legs)
+            net_theta = sum(leg.theta * leg.quantity for leg in legs)
+            net_vega = sum(leg.vega * leg.quantity for leg in legs)
+
+            structure = MultiLegStructure(
+                strategy_type=MultiLegStrategyType.BROKEN_WING_BUTTERFLY,
+                legs=legs,
+                net_credit=net_credit,
+                max_profit=max_profit,
+                max_loss=max_loss,
+                breakeven_points=[downside_breakeven],
+                probability_profit=probability,
+                net_delta=net_delta,
+                net_gamma=net_gamma,
+                net_theta=net_theta,
+                net_vega=net_vega,
+                wing_width=lower_width,
+                body_width=upper_width,
+                risk_reward_ratio=max_loss / max(max_profit, 0.01),
+            )
+            return self._attach_broker_routing_metadata(
+                structure,
+                underlying_symbol,
+                expiration,
+            )
+        except Exception as e:
+            self.logger.error("Broken Wing Butterfly construction failed: %s", e, exc_info=True)
+            raise
+
+    def _attach_broker_routing_metadata(
+        self,
+        structure: MultiLegStructure,
+        underlying_symbol: str,
+        expiration: datetime,
+        contracts: int = 1,
+    ) -> MultiLegStructure:
+        """Attach broker-facing metadata needed by D32 combo routing."""
+        expiration_str = expiration.date().isoformat()
+        structure.underlying_symbol = str(underlying_symbol or "SPY").upper()
+        structure.expiration_date = expiration_str
+        structure.contracts = max(1, int(contracts or 1))
+
+        try:
+            from Spyder.SpyderB_Broker.SpyderB40_TradierClient import build_option_symbol
+        except Exception as exc:
+            self.logger.debug("D32 broker metadata unavailable: %s", exc)
+            return structure
+
+        for leg in structure.legs:
+            option_char = "P" if str(leg.option_type or "").lower() == "put" else "C"
+            leg.action = "buy_to_open" if leg.quantity > 0 else "sell_to_open"
+            leg.option_symbol = build_option_symbol(
+                structure.underlying_symbol,
+                expiration_str,
+                option_char,
+                float(leg.strike),
+            )
+        return structure
 
     def _construct_jade_lizard(self, market_analysis: MarketEnvironmentAnalysis,
                              dte: int) -> MultiLegStructure:
@@ -1928,7 +2054,8 @@ class MultiLegStrategyCoordinator:
         """Validate strategy structure meets requirements"""
         try:
             # Check net credit is reasonable
-            if structure.net_credit < 0.5:  # Minimum $0.50 credit
+            min_credit = 0.15 if structure.strategy_type == MultiLegStrategyType.BROKEN_WING_BUTTERFLY else 0.5
+            if structure.net_credit < min_credit:
                 self.logger.debug(f"Net credit too low: ${structure.net_credit:.2f}")
                 return False
 
@@ -2095,7 +2222,11 @@ class MultiLegStrategyCoordinator:
         Returns:
             Tradier order ID on success, ``None`` on failure.
         """
-        from Spyder.SpyderB_Broker.SpyderB40_TradierClient import OptionLeg
+        from Spyder.SpyderB_Broker.SpyderB40_TradierClient import (
+            OptionLeg as BrokerOptionLeg,
+            OrderSide,
+            build_option_symbol,
+        )
 
         s = strategy_structure
         strategy_type = s.strategy_type
@@ -2132,16 +2263,59 @@ class MultiLegStrategyCoordinator:
 
             # ----- Jade Lizard and other multi-leg structures ---------------
             if s.legs:
-                tradier_legs = [
-                    OptionLeg(
-                        option_symbol=leg.option_symbol,
-                        side=leg.action,  # sell_to_open / buy_to_open
-                        quantity=s.contracts,
+                contracts = max(1, abs(int(getattr(s, "contracts", 1) or 1)))
+                underlying_symbol = str(
+                    getattr(s, "underlying_symbol", self.config.get("symbol") or "SPY")
+                ).upper()
+                expiration = str(getattr(s, "expiration_date", "") or "")
+                if not expiration and s.legs:
+                    leg_expiration = getattr(s.legs[0], "expiration", None)
+                    if isinstance(leg_expiration, datetime):
+                        expiration = leg_expiration.date().isoformat()
+                    elif isinstance(leg_expiration, date):
+                        expiration = leg_expiration.isoformat()
+                    elif leg_expiration is not None:
+                        expiration = str(leg_expiration)
+
+                side_map = {
+                    "buy_to_open": OrderSide.BUY_TO_OPEN,
+                    "sell_to_open": OrderSide.SELL_TO_OPEN,
+                    "buy_to_close": OrderSide.BUY_TO_CLOSE,
+                    "sell_to_close": OrderSide.SELL_TO_CLOSE,
+                }
+                tradier_legs = []
+                for leg in s.legs:
+                    action = getattr(leg, "action", "")
+                    side = side_map.get(str(action).lower())
+                    if side is None:
+                        side = OrderSide.BUY_TO_OPEN if leg.quantity > 0 else OrderSide.SELL_TO_OPEN
+
+                    option_symbol = getattr(leg, "option_symbol", "")
+                    if not option_symbol and expiration:
+                        option_symbol = build_option_symbol(
+                            underlying_symbol,
+                            expiration,
+                            "P" if str(leg.option_type or "").lower() == "put" else "C",
+                            float(leg.strike),
+                        )
+                    if not option_symbol:
+                        self.logger.error(
+                            "Missing OCC symbol for %s leg %.2f",
+                            leg.option_type,
+                            leg.strike,
+                        )
+                        return None
+
+                    tradier_legs.append(
+                        BrokerOptionLeg(
+                            option_symbol=option_symbol,
+                            side=side,
+                            quantity=max(1, abs(int(leg.quantity))) * contracts,
+                        )
                     )
-                    for leg in s.legs
-                ]
+
                 result = self.order_manager.submit_multileg_order(
-                    symbol=s.underlying_symbol,
+                    symbol=underlying_symbol,
                     legs=tradier_legs,
                     order_type="credit" if s.net_credit > 0 else "debit",
                     price=abs(s.net_credit),

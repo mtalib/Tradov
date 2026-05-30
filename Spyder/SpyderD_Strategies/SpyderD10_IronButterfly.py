@@ -236,6 +236,8 @@ class IronButterflyStrategy(BaseStrategy):
         self.stop_loss = self.config.get('stop_loss', IB_STOP_LOSS)
         self.min_dte = self.config.get('min_dte', IB_MIN_DTE)
         self.max_dte = self.config.get('max_dte', IB_MAX_DTE)
+        configured_target_dte = int(self.config.get('target_dte', IB_OPTIMAL_DTE))
+        self.target_dte = max(int(self.min_dte), min(configured_target_dte, int(self.max_dte)))
         self.wing_width = self.config.get('wing_width', IB_OPTIMAL_WING_WIDTH)
         self.atm_tolerance = self.config.get('atm_tolerance', IB_ATM_TOLERANCE)
 
@@ -269,11 +271,11 @@ class IronButterflyStrategy(BaseStrategy):
         if market_data is None or market_data.empty:
             return []
         try:
-            analysis = self.analyze_iron_butterfly_opportunity(market_data)
-            if not analysis.market_suitable or analysis.confidence_score <= 0.0:
+            setup = self.build_iron_butterfly_setup(market_data)
+            if setup is None or setup.setup_quality_score <= 0.0:
                 return []
 
-            score = analysis.confidence_score
+            score = setup.setup_quality_score
             if score >= 0.8:
                 strength = SignalStrength.VERY_STRONG
             elif score >= 0.6:
@@ -285,10 +287,11 @@ class IronButterflyStrategy(BaseStrategy):
 
             current_price = float(market_data["close"].iloc[-1])
             now = datetime.now(UTC)
+            strategy_symbol = str(self.config.get('symbol') or 'SPY').upper()
             signal = TradingSignal(
                 signal_id=str(uuid.uuid4()),
                 signal_type=SignalType.SELL,
-                symbol="SPY",
+                symbol=strategy_symbol,
                 strength=strength,
                 confidence=score,
                 entry_price=current_price,
@@ -298,20 +301,154 @@ class IronButterflyStrategy(BaseStrategy):
                 timestamp=now,
                 expires_at=now + timedelta(minutes=30),
                 metadata={
+                    "strategy_id":          "IronButterfly",
                     "strategy_tag":         "iron_butterfly",
                     "strategy_type":        "iron_butterfly",
-                    "atm_strike":           analysis.atm_strike_recommendation,
-                    "optimal_wing_width":   analysis.optimal_wing_width,
-                    "iv_rank":              analysis.iv_analysis.get("iv_rank"),
+                    "action":               "sell",
+                    "atm_strike":           setup.atm_strike,
+                    "short_put_strike":     setup.atm_strike,
+                    "short_call_strike":    setup.atm_strike,
+                    "long_put_strike":      setup.long_put_strike,
+                    "long_call_strike":     setup.long_call_strike,
+                    "optimal_wing_width":   setup.wing_width,
+                    "expected_credit":      setup.expected_credit,
+                    "breakeven_lower":      setup.breakeven_lower,
+                    "breakeven_upper":      setup.breakeven_upper,
+                    "expiration_date":      setup.expiration_date.isoformat(),
+                    "target_dte":           setup.days_to_expiry,
+                    "days_to_expiry":       setup.days_to_expiry,
+                    "iv_rank":              setup.iv_rank,
                     "confidence_score":     score,
-                    "setup_recommendation": analysis.setup_recommendation,
-                    "risk_warnings":        analysis.risk_warnings,
+                    "setup_recommendation": self.current_analysis.setup_recommendation if self.current_analysis else "",  # noqa: E501
+                    "risk_warnings":        self.current_analysis.risk_warnings if self.current_analysis else [],
+                    "setup": {
+                        "strikes": {
+                            "put_long": setup.long_put_strike,
+                            "put_short": setup.atm_strike,
+                            "call_short": setup.atm_strike,
+                            "call_long": setup.long_call_strike,
+                        },
+                        "credit": setup.expected_credit,
+                        "dte": setup.days_to_expiry,
+                        "expiration_time": setup.expiration_date.isoformat(),
+                    },
                 },
             )
             return [signal]
         except Exception as exc:
             self.logger.error("generate_signals failed: %s", exc, exc_info=True)
             return []
+
+    def build_iron_butterfly_setup(
+        self,
+        market_data: pd.DataFrame,
+        option_chain: pd.DataFrame = None,
+    ) -> IronButterflySetup | None:
+        """Build a concrete Iron Butterfly setup for dispatchable routing."""
+        if market_data is None or market_data.empty:
+            return None
+
+        analysis = self.analyze_iron_butterfly_opportunity(market_data, option_chain)
+        if not analysis.market_suitable or analysis.confidence_score <= 0.0:
+            return None
+
+        current_price = float(market_data['close'].iloc[-1])
+        atm_strike = analysis.atm_strike_recommendation
+        if atm_strike is None:
+            atm_strike = round(current_price * 2.0) / 2.0
+
+        wing_width = analysis.optimal_wing_width
+        if wing_width is None or float(wing_width) <= 0.0:
+            wing_width = float(self.wing_width)
+
+        atm_strike = round(float(atm_strike), 2)
+        wing_width = round(float(wing_width), 2)
+        long_put_strike = round(atm_strike - wing_width, 2)
+        long_call_strike = round(atm_strike + wing_width, 2)
+        expiration_date = datetime.now(UTC) + timedelta(days=max(int(self.target_dte), 0))
+
+        current_iv = analysis.iv_analysis.get('current_iv')
+        if current_iv is None or np.isnan(float(current_iv)):
+            current_iv = market_data.get('iv', pd.Series([0.20])).iloc[-1]
+        if current_iv is None or np.isnan(float(current_iv)):
+            current_iv = 0.20
+
+        expected_credit = self._estimate_iron_butterfly_credit(
+            current_price,
+            atm_strike,
+            long_put_strike,
+            long_call_strike,
+            float(current_iv),
+            int(self.target_dte),
+            expiration_date,
+        )
+        breakeven_lower = round(atm_strike - expected_credit, 2)
+        breakeven_upper = round(atm_strike + expected_credit, 2)
+        max_loss = round(max(wing_width - expected_credit, 0.0), 2)
+
+        iv_rank = analysis.iv_analysis.get('iv_rank')
+        if iv_rank is None or np.isnan(float(iv_rank)):
+            iv_rank = 0.0
+
+        return IronButterflySetup(
+            underlying_price=current_price,
+            atm_strike=atm_strike,
+            long_put_strike=long_put_strike,
+            long_call_strike=long_call_strike,
+            expiration_date=expiration_date,
+            days_to_expiry=int(self.target_dte),
+            wing_width=wing_width,
+            expected_credit=expected_credit,
+            max_profit=expected_credit,
+            max_loss=max_loss,
+            breakeven_lower=breakeven_lower,
+            breakeven_upper=breakeven_upper,
+            probability_of_profit=max(0.3, min(0.9, float(analysis.confidence_score))),
+            iv_rank=float(iv_rank),
+            time_decay_rate=float(analysis.time_decay_analysis.get('estimated_daily_theta') or 0.0),
+            setup_quality_score=float(analysis.confidence_score),
+        )
+
+    def _estimate_iron_butterfly_credit(
+        self,
+        underlying_price: float,
+        atm_strike: float,
+        long_put_strike: float,
+        long_call_strike: float,
+        implied_vol: float,
+        target_dte: int,
+        expiration_date: datetime,
+    ) -> float:
+        """Estimate an iron butterfly entry credit for setup serialization."""
+        try:
+            from Spyder.SpyderD_Strategies.SpyderD32_MultiLegStrategyCoordinator import (
+                MultiLegStrategyConstructor,
+                OptionLeg,
+            )
+
+            constructor = MultiLegStrategyConstructor({})
+            legs = [
+                OptionLeg('put', long_put_strike, 1, expiration_date),
+                OptionLeg('put', atm_strike, -1, expiration_date),
+                OptionLeg('call', atm_strike, -1, expiration_date),
+                OptionLeg('call', long_call_strike, 1, expiration_date),
+            ]
+            constructor._estimate_legs_pricing_and_greeks(
+                legs,
+                float(underlying_price),
+                float(implied_vol),
+                max(int(target_dte), 1),
+            )
+            estimated_credit = constructor._calculate_net_credit(legs)
+            if estimated_credit > 0.0:
+                credit_ceiling = max((long_call_strike - atm_strike) - 0.01, 0.01)
+                return round(float(min(estimated_credit, credit_ceiling)), 2)
+        except Exception as exc:
+            self.logger.debug("Iron Butterfly credit estimation fallback: %s", exc)
+
+        time_value = float(underlying_price) * float(implied_vol) * np.sqrt(max(int(target_dte), 1) / 365.0)
+        fallback_credit = min(max(time_value * 0.18, IB_MIN_CREDIT), max((long_call_strike - atm_strike) - 0.01, 0.01))  # noqa: E501
+        return round(float(fallback_credit), 2)
 
     def validate_signal(self, signal: Any) -> bool:
         """Basic safety gate for external signals."""

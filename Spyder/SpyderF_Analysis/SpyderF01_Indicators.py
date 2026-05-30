@@ -36,10 +36,10 @@ import numpy as np
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
+from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
 from Spyder.SpyderU_Utilities.SpyderU08_Validators import Validators
-from Spyder.SpyderI_Integration.SpyderI03_ConfigManager import ConfigManager
 from Spyder.SpyderM_Monitoring.SpyderM01_SystemMonitor import SystemMonitor
 
 class TrendDirection(Enum):
@@ -119,13 +119,13 @@ class TechnicalIndicators:
 
     def __init__(
         self,
-        config_manager: ConfigManager | None = None,
+        config_manager: Any | None = None,
         monitor: SystemMonitor | None = None,
     ):
         """Initialize with configuration support."""
         self.logger = SpyderLogger.get_logger(__name__)
         self.error_handler = SpyderErrorHandler()
-        self.config_manager = config_manager or ConfigManager()
+        self.config_manager = config_manager or get_config_manager()
         self.monitor = monitor or SystemMonitor()
         self.validators = Validators()
 
@@ -141,7 +141,7 @@ class TechnicalIndicators:
     def _load_config(self):
         """Load configuration from ConfigManager."""
         try:
-            config = self.config_manager.get_config("indicators", {})
+            config = self._get_optional_config_section("indicators")
 
             # Default periods
             self.default_sma_period = config.get("default_sma_period", 20)
@@ -164,14 +164,44 @@ class TechnicalIndicators:
             self.cache_ttl_seconds = config.get("cache_ttl_seconds", 300)
 
             # Feature flags
-            self.use_talib = self.config_manager.is_feature_enabled("use_talib")
-            self.use_ml_signals = self.config_manager.is_feature_enabled(
-                "ml_indicator_signals"
-            )
+            self.use_talib = self._is_feature_enabled("use_talib")
+            self.use_ml_signals = self._is_feature_enabled("ml_indicator_signals")
 
         except Exception as e:
             self.logger.warning("Could not load config, using defaults: %s", e)
             self._set_defaults()
+
+    def _get_optional_config_section(self, section_name: str) -> dict[str, Any]:
+        """Return a config section from either the A03 singleton or legacy managers."""
+        get_config = getattr(self.config_manager, "get_config", None)
+        if callable(get_config):
+            try:
+                section = get_config(section_name)
+            except TypeError:
+                section = None
+            if isinstance(section, dict):
+                return section
+
+        for registry_name in ("configs", "config_data"):
+            registry = getattr(self.config_manager, registry_name, None)
+            if not isinstance(registry, dict):
+                continue
+            section = registry.get(section_name, {})
+            if isinstance(section, dict):
+                return section
+
+        return {}
+
+    def _is_feature_enabled(self, key: str) -> bool:
+        """Return a feature flag when the config manager exposes that helper."""
+        checker = getattr(self.config_manager, "is_feature_enabled", None)
+        if not callable(checker):
+            return False
+
+        try:
+            return bool(checker(key))
+        except Exception:
+            return False
 
     def _set_defaults(self):
         """Set default configuration values."""
@@ -827,8 +857,7 @@ if __name__ == "__main__":
     data["low"] = data[["open", "low", "close"]].min(axis=1)
 
     # Initialize indicators
-    config_manager = ConfigManager()
-    indicators = TechnicalIndicators(config_manager)
+    indicators = TechnicalIndicators(get_config_manager())
 
     # Calculate individual indicators
     sma = indicators.sma(data["close"], 20)

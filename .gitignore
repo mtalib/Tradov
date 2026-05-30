@@ -248,6 +248,16 @@ coverage.xml
 test_results/
 test_data/
 
+# Root-generated test and audit artifacts
+/bandit-report.txt
+/bandit_results.txt
+/run_log.txt
+/test_output.txt
+/test_results.txt
+/files.txt
+/updated_files.txt
+/diff_part_*
+
 # ==============================================================================
 # DOCUMENTATION
 # ==============================================================================

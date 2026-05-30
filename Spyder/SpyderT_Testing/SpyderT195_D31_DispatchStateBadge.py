@@ -119,7 +119,7 @@ def test_dispatch_rejected_persisted_to_decision_audit(orc):
     assert latest.get("symbol") == "SPY"
 
 
-def test_duplicate_dispatch_rejected_detail_persisted_for_hydrated_carryover(orc):
+def test_duplicate_dispatch_rejected_detail_persisted_without_blocking_dispatch_state(orc):
     class _HydratedPositionEngine:
         def get_active_positions_snapshot(self):
             return {
@@ -159,6 +159,8 @@ def test_duplicate_dispatch_rejected_detail_persisted_for_hydrated_carryover(orc
     assert rejected[-1].get("detail") == (
         "symbol=SPY;strategy=iron_condor;duplicate_source=persisted_carryover"
     )
+    state = orc.get_dispatch_state()
+    assert state["state"] == "IDLE"
 
 
 # ---------------------------------------------------------------------------

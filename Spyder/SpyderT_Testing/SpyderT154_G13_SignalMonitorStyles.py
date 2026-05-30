@@ -14,7 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets as g13
 
 try:
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QVBoxLayout
 
     HAS_QT = True
 except ImportError:  # pragma: no cover
@@ -47,11 +47,53 @@ class TestSignalMonitorStyles(unittest.TestCase):
     def test_signal_monitor_panel_buttons_have_non_empty_stylesheet(self):
         """SignalMonitorPanel buttons should carry explicit custom styling."""
         panel = g13.SignalMonitorPanel()
-        style = panel.vix_button.styleSheet()
+        style = panel.ai_button.styleSheet()
 
         self.assertTrue(style.strip())
-        self.assertIn("padding-left: 25px;", style)
-        self.assertIn("font-size: 11px;", style)
+        self.assertIn("padding: 0px 0px 0px 22px;", style)
+        self.assertIn("font-size: 12px;", style)
+        self.assertEqual(panel.ai_button.minimumWidth(), 0)
+        self.assertEqual(panel.ai_button.height(), 24)
+
+        panel.close()
+
+    def test_signal_monitor_panel_keeps_only_decision_state_buttons(self):
+        """SignalMonitorPanel should expose only the consolidated decision-state pills."""
+        panel = g13.SignalMonitorPanel()
+        labels = sorted(button.text() for button in panel.findChildren(g13.TrafficLightButton))
+
+        self.assertEqual(
+            labels,
+            sorted([
+                "AI DECISION",
+                "DIVERGENCE",
+                "HMM",
+                "RISK TRIGGERS",
+                "RSI CONFLUENCE",
+            ]),
+        )
+        self.assertEqual(panel.hmm_button.status, "yellow")
+
+        panel.close()
+
+    def test_signal_monitor_panel_uses_single_column_priority_stack(self):
+        """SignalMonitorPanel should stack the five buttons in a single priority column."""
+        panel = g13.SignalMonitorPanel()
+        layout = panel.layout()
+
+        self.assertIsInstance(layout, QVBoxLayout)
+        self.assertEqual(panel.minimumHeight(), 130)
+        self.assertEqual(layout.count(), 5)
+        self.assertEqual(
+            [layout.itemAt(index).widget().text() for index in range(layout.count())],
+            [
+                "AI DECISION",
+                "RISK TRIGGERS",
+                "HMM",
+                "RSI CONFLUENCE",
+                "DIVERGENCE",
+            ],
+        )
 
         panel.close()
 

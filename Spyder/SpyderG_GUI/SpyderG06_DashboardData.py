@@ -119,6 +119,180 @@ SYMBOL_DESCRIPTIONS = {
 }
 
 
+MARKET_SIGNAL_DIALOG_METADATA: dict[str, dict[str, object]] = {
+    "VIX": {
+        "full_name": "VIX - CBOE Volatility Index",
+        "description": SYMBOL_DESCRIPTIONS["VIX"],
+        "concept": "Market's expectation of future volatility, often called the 'fear gauge'",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: VIX < 15 (Low volatility, calm markets)"},
+            {"color": "neutral", "text": "Yellow: VIX 15-20 (Normal volatility)"},
+            {"color": "negative", "text": "Red: VIX > 20 (High volatility, market stress)"},
+        ],
+    },
+    "GEX": {
+        "full_name": "GEX - Gamma Exposure",
+        "description": SYMBOL_DESCRIPTIONS["GEX"],
+        "concept": "Measures hedging pressure from options market makers; negative GEX increases volatility",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: Positive GEX (>$1B) - Volatility suppression"},
+            {"color": "neutral", "text": "Yellow: Near zero (-$1B to $1B) - Transitional"},
+            {"color": "negative", "text": "Red: Negative GEX (<-$1B) - Volatility expansion"},
+        ],
+    },
+    "DIX": {
+        "full_name": "DIX - Dark Pool Index",
+        "description": SYMBOL_DESCRIPTIONS["DIX"],
+        "concept": "Tracks institutional buying; high DIX suggests smart money accumulation",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: DIX > 45% (Bullish institutional buying)"},
+            {"color": "neutral", "text": "Yellow: DIX 40-45% (Neutral)"},
+            {"color": "negative", "text": "Red: DIX < 40% (Bearish, lack of institutional support)"},
+        ],
+    },
+    "OGL": {
+        "full_name": "OGL - Zero Gamma Level",
+        "description": SYMBOL_DESCRIPTIONS["OGL"],
+        "concept": "Key support/resistance level based on options positioning; acts as a magnet for price",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: SPY > OGL + 0.5% (Bullish positioning)"},
+            {"color": "neutral", "text": "Yellow: SPY within +/-0.5% of OGL (Neutral zone)"},
+            {"color": "negative", "text": "Red: SPY < OGL - 0.5% (Bearish positioning)"},
+        ],
+    },
+    "DEX": {
+        "full_name": "DEX - Delta Exposure",
+        "description": SYMBOL_DESCRIPTIONS["DEX"],
+        "concept": "Measures directional hedging flow; indicates market maker positioning bias",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: Positive DEX (>$500M) - Bullish flow"},
+            {"color": "neutral", "text": "Yellow: Neutral (-$500M to $500M)"},
+            {"color": "negative", "text": "Red: Negative DEX (<-$500M) - Bearish flow"},
+        ],
+    },
+    "SWAN": {
+        "full_name": "BLACK SWAN RISK INDICATOR",
+        "description": SYMBOL_DESCRIPTIONS["SWAN"],
+        "concept": "Monitors multiple factors to detect potential for rare, extreme market events",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: SWAN Score < 2.0 (Minimal tail risk)"},
+            {"color": "neutral", "text": "Yellow: SWAN Score 2.0-3.0 (Elevated tail risk)"},
+            {"color": "negative", "text": "Red: SWAN Score > 3.0 (Extreme tail risk warning)"},
+        ],
+    },
+    "SKEW": {
+        "full_name": "SKEW - CBOE SKEW Index",
+        "description": SYMBOL_DESCRIPTIONS["SKEW"],
+        "concept": "Tracks the relative cost of out-of-the-money puts vs calls; high skew indicates elevated tail risk",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: SKEW < 125 (Normal tail risk)"},
+            {"color": "neutral", "text": "Yellow: SKEW 125-135 (Elevated tail risk)"},
+            {"color": "negative", "text": "Red: SKEW > 135 (Extreme tail risk)"},
+        ],
+    },
+}
+
+
+MARKET_BREADTH_DIALOG_METADATA: dict[str, dict[str, object]] = {
+    "$TICK": {
+        "full_name": "NYSE TICK - Intraday Breadth Impulse",
+        "description": SYMBOL_DESCRIPTIONS["$TICK"],
+        "concept": "Tracks the real-time balance of upticking versus downticking NYSE stocks, which helps identify intraday breadth surges and flushes.",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: Above +600 signals broad buying pressure"},
+            {"color": "neutral", "text": "Yellow: Between -600 and +600 signals mixed breadth"},
+            {"color": "warning", "text": "Orange: Below -600 signals oversold breadth pressure"},
+            {"color": "negative", "text": "Red: Below -1000 signals an extreme bear-flush impulse"},
+        ],
+    },
+    "$ADD": {
+        "full_name": "NYSE ADD - Advance/Decline Line",
+        "description": SYMBOL_DESCRIPTIONS["$ADD"],
+        "concept": "Measures net advancing issues across the NYSE, which shows whether participation is broadening or narrowing beneath index price action.",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: Above +500 signals broad participation to the upside"},
+            {"color": "neutral", "text": "Yellow: Between -500 and +500 signals balanced participation"},
+            {"color": "negative", "text": "Red: Below -500 signals broad participation to the downside"},
+        ],
+    },
+    "$TRIN": {
+        "full_name": "NYSE TRIN - Arms Index",
+        "description": SYMBOL_DESCRIPTIONS["$TRIN"],
+        "concept": "Compares advancing versus declining volume; lower values usually support bullish participation while higher values signal defensive or bearish pressure.",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: Below 0.70 signals strong bullish participation"},
+            {"color": "neutral", "text": "Yellow: Between 0.70 and 1.50 signals balanced volume breadth"},
+            {"color": "negative", "text": "Red: Above 1.50 signals bearish or defensive breadth pressure"},
+        ],
+    },
+    "NYMO": {
+        "full_name": "NYMO - NYSE McClellan Oscillator",
+        "description": SYMBOL_DESCRIPTIONS["NYMO"],
+        "concept": "Summarizes breadth momentum over multiple sessions and helps distinguish sustained participation from short-lived intraday extremes.",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: Above +40 signals strong breadth momentum"},
+            {"color": "neutral", "text": "Yellow: Between -40 and +40 signals neutral breadth momentum"},
+            {"color": "negative", "text": "Red: Below -40 signals weak or washed-out breadth momentum"},
+        ],
+    },
+    "$VOLD": {
+        "full_name": "NYSE VOLD - Up/Down Volume Delta",
+        "description": SYMBOL_DESCRIPTIONS["$VOLD"],
+        "concept": "Measures whether advancing volume or declining volume is dominating intraday tape participation.",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: Positive delta signals buyers controlling more volume"},
+            {"color": "neutral", "text": "Yellow: Near-flat delta signals mixed tape participation"},
+            {"color": "negative", "text": "Red: Negative delta signals sellers controlling more volume"},
+        ],
+    },
+    "RVOL": {
+        "full_name": "RVOL - Relative Volume",
+        "description": SYMBOL_DESCRIPTIONS["RVOL"],
+        "concept": "Compares current session participation with the instrument's typical volume so moves can be judged as sponsored, normal, or thin.",
+        "signal_colors": [
+            {"color": "positive", "text": "Green: Above 1.5x signals expanding participation"},
+            {"color": "neutral", "text": "Yellow: Between 0.8x and 1.5x signals normal participation"},
+            {"color": "warning", "text": "Orange: Below 0.8x signals thin participation and lower conviction"},
+        ],
+    },
+}
+
+
+MARKET_OVERVIEW_DIALOG_METADATA: dict[str, dict[str, object]] = {
+    **MARKET_SIGNAL_DIALOG_METADATA,
+    **MARKET_BREADTH_DIALOG_METADATA,
+}
+
+
+def _copy_dialog_metadata(metadata: dict[str, object]) -> dict[str, object]:
+    """Return a detached copy of shared dialog metadata."""
+    return {
+        "full_name": str(metadata["full_name"]),
+        "description": str(metadata["description"]),
+        "concept": str(metadata["concept"]),
+        "signal_colors": [
+            {"color": str(color_info["color"]), "text": str(color_info["text"])}
+            for color_info in metadata.get("signal_colors", [])
+        ],
+    }
+
+
+def get_market_signal_dialog_metadata(symbol: str) -> dict[str, object] | None:
+    """Return shared dialog metadata for market metrics mirrored across dashboard surfaces."""
+    metadata = MARKET_SIGNAL_DIALOG_METADATA.get(symbol)
+    if metadata is None:
+        return None
+    return _copy_dialog_metadata(metadata)
+
+
+def get_market_overview_dialog_metadata(symbol: str) -> dict[str, object] | None:
+    """Return shared dialog metadata for Market Overview rows with richer framing."""
+    metadata = MARKET_OVERVIEW_DIALOG_METADATA.get(symbol)
+    if metadata is None:
+        return None
+    return _copy_dialog_metadata(metadata)
+
+
 # ==============================================================================
 # ENUMS
 # ==============================================================================

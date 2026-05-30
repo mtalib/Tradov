@@ -112,15 +112,14 @@ _STANCE_TIPS: dict[str, str] = {
     "BULLISH": (
         "<b>BULLISH STANCE</b><br><br>"
         "D31 maps BULL regime &rarr; BULLISH stance<br><br>"
-        "<b>Permitted strategy:</b> SpyderD06_BullPutSpread"
+        "<b>Execution note:</b> final strategy remains controlled by the active "
+        "Strategy Gate and feature flags."
     ),
     "CHOPPY": (
         "<b>CHOPPY STANCE</b><br><br>"
         "D31 maps BEAR / RANGE / VOLATILE &rarr; CHOPPY stance<br>"
-        "Specific strategy is determined by Strategy Gate:<br><br>"
-        "&bull; BEAR &rarr; SpyderD07_BearCallSpread<br>"
-        "&bull; RANGE &rarr; SpyderD02_IronCondor<br>"
-        "&bull; VOLATILE &rarr; SpyderD10_IronButterfly"
+        "Specific strategy is determined by the active Strategy Gate and "
+        "feature flags. See the DISPATCH tooltip for the flag-resolved map."
     ),
     "CRISIS": (
         "<b>CRISIS STANCE</b><br><br>"
@@ -237,20 +236,64 @@ def _build_pill_presentation(
     )
 
 
-def _build_strategy_list(pivot_enabled: bool) -> str:
+def _build_strategy_list(
+    bull_call_enabled: bool,
+    bear_put_enabled: bool,
+    butterfly_enabled: bool,
+    pivot_enabled: bool,
+    overlay_enabled: bool,
+) -> str:
+    bull_strategy = (
+        "SpyderD15_BullCallSpread"
+        if bull_call_enabled else
+        "SpyderD06_BullPutSpread"
+    )
+    bear_strategy = (
+        "SpyderD16_BearPutSpread"
+        if bear_put_enabled else
+        "SpyderD07_BearCallSpread"
+    )
+    range_strategy = "SpyderD02_IronCondor"
+    if pivot_enabled and butterfly_enabled:
+        range_strategy = (
+            "SpyderD02_IronCondor "
+            "(or SpyderD34_PivotMeanReversion when "
+            "SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true and S08 pivot_signal.fired=true; "
+            "otherwise SpyderD24_Butterfly when SPYDER_ENABLE_BUTTERFLY=true)"
+        )
+    elif pivot_enabled:
+        range_strategy = (
+            "SpyderD02_IronCondor "
+            "(or SpyderD34_PivotMeanReversion when "
+            "SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true and S08 pivot_signal.fired=true)"
+        )
+    elif butterfly_enabled:
+        range_strategy = (
+            "SpyderD02_IronCondor "
+            "(or SpyderD24_Butterfly when SPYDER_ENABLE_BUTTERFLY=true)"
+        )
+    volatile_strategy = (
+        "SpyderD10_IronButterfly "
+        "(or SpyderD23_BrokenWingButterfly for recovery / bullish-pivot entries)"
+    )
     return (
         "<b>Permitted strategies:</b><br>"
-        "&bull; <b>BULL:</b> SpyderD06_BullPutSpread<br>"
-        "&bull; <b>BEAR:</b> SpyderD07_BearCallSpread<br>"
-        "&bull; <b>RANGE:</b> SpyderD02_IronCondor<br>"
-        "&bull; <b>VOLATILE:</b> SpyderD10_IronButterfly"
-        + (
-            "<br>&bull; <b>SIDEWAYS:</b> SpyderD34_PivotMeanReversion"
-            if pivot_enabled else ""
-        )
+        f"&bull; <b>BULL:</b> {bull_strategy}<br>"
+        f"&bull; <b>BEAR:</b> {bear_strategy}<br>"
+        f"&bull; <b>RANGE:</b> {range_strategy}<br>"
+        f"&bull; <b>VOLATILE:</b> {volatile_strategy}"
         + "<br><br>"
-        "<b>Concurrency limit:</b> Max 2 strategies open "
-        "(one long-term/swing + one intraday/0DTE)"
+        "<b>Concurrency limit:</b> D31 allows up to 3 strategy slots total. "
+        "Baseline admission still uses two horizon buckets "
+        "(one short/swing + one ultra_short)."
+        + "<br><b>Duplicate handling:</b> Same symbol/strategy duplicates are skipped silently "
+        "and do not flip DISPATCH to BLOCKED."
+        + (
+            "<br><b>Overlay path:</b> "
+            "SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true enables only the narrow "
+            "third-slot ultra_short PivotMeanReversion overlay admission path."
+            if overlay_enabled else ""
+        )
     )
 
 
@@ -266,7 +309,11 @@ def build_regime_pill_bar_presentation(
     execution_gate_key: str,
     s07_live: bool,
     swan: float,
+    bull_call_enabled: bool,
+    bear_put_enabled: bool,
+    butterfly_enabled: bool,
     pivot_enabled: bool,
+    overlay_enabled: bool,
     panel_color: str,
     border_color: str,
 ) -> RegimePillBarPresentation:
@@ -296,7 +343,15 @@ def build_regime_pill_bar_presentation(
         f"&bull; <b>GATE</b>: {gate} (source: D31 policy bucket={execution_gate_key or 'n/a'})<br>"
         f"&bull; <b>DISPATCH</b>: {dispatch_label} (source: D31 execution state, 120s recency window)"
     )
-    dispatch_tooltip_parts.append(_build_strategy_list(pivot_enabled))
+    dispatch_tooltip_parts.append(
+        _build_strategy_list(
+            bull_call_enabled=bull_call_enabled,
+            bear_put_enabled=bear_put_enabled,
+            butterfly_enabled=butterfly_enabled,
+            pivot_enabled=pivot_enabled,
+            overlay_enabled=overlay_enabled,
+        )
+    )
     dispatch_pill = PillPresentation(
         text=f'DISPATCH: <span style="color: {dispatch_foreground};">{dispatch_label}</span>',
         stylesheet=dispatch_stylesheet,

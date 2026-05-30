@@ -113,3 +113,22 @@ def test_g05_handle_risk_alert_event_uses_dispatch_helper(monkeypatch) -> None:
     assert dash._last_entry_block_ts == 123.0
     assert dash.logged_messages == ["system log"]
     assert dash.compact_updates == ["BLOCK: compact"]
+
+
+def test_g05_handle_risk_alert_event_displays_zero_dte_force_close_alert() -> None:
+    dash = _build_dashboard_stub()
+
+    with patch("Spyder.SpyderG_GUI.SpyderG05_TradingDashboard.QTimer.singleShot", side_effect=lambda _ms, cb: cb()):
+        dash._handle_risk_alert_event(
+            {
+                "reason": "zero_dte_eod_force_close",
+                "message": "0DTE paper options still open after 15:55 ET (2)",
+                "detail": "SPY260528C00754000, SPY260528C00756000",
+            }
+        )
+
+    assert dash.logged_messages == [
+        "⚠️ 0DTE paper options still open after 15:55 ET (2): "
+        "SPY260528C00754000, SPY260528C00756000"
+    ]
+    assert dash.compact_updates == ["BLOCK: 0DTE paper options still open after 15:55 ET (2)"]

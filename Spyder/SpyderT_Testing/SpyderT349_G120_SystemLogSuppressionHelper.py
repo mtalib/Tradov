@@ -17,6 +17,9 @@ def test_should_suppress_opening_warmup_system_log_text_keeps_allowed_prefix() -
     assert should_suppress_opening_warmup_system_log_text(
         "🟡 Establishing live connections and loading live data"
     ) is False
+    assert should_suppress_opening_warmup_system_log_text(
+        "⏳ ENTRY gate remains blocked until 10:30 ET"
+    ) is False
 
 
 def test_should_suppress_after_hours_system_log_text_for_quiet_prefix() -> None:

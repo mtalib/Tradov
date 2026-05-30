@@ -1,14 +1,15 @@
 from pathlib import Path
-import os
 import sys
 
-# Add current directory to path just in case
-sys.path.append(os.getcwd())
+# Add repo root to the import path so the script works from its new location.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from Spyder.SpyderH_Storage.SpyderH05_TradingSessionDB import TradingSessionDB
 from Spyder.SpyderG_GUI.SpyderG17_PaperPositionResolver import restore_paper_spreads_from_positions
 
-db_path = Path('data/spyder_paper.db')
+db_path = REPO_ROOT / 'data' / 'spyder_paper.db'
 if not db_path.exists():
     print(f"Error: Database not found at {db_path}")
     sys.exit(1)

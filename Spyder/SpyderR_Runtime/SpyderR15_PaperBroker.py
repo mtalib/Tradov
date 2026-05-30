@@ -330,14 +330,21 @@ class PaperBroker:
         return an empty list here (same as Tradier would if none exist)."""
         return []
 
-    def close_position(self, symbol: str, force: bool = False) -> dict[str, Any]:
+    def close_position(
+        self,
+        symbol: str,
+        force: bool = False,
+        *,
+        urgency: str = "IMMEDIATE",
+        reason: str = "close_position",
+        position_quantity: int | None = None,
+    ) -> dict[str, Any]:
         """Close a paper position by placing an offsetting market order.
 
         Matches the ``BrokerProtocol.close_position`` signature so that
         ``SessionSupervisor._flatten_positions`` works identically in paper
-        and live mode.  Because PaperBroker defers position-state tracking to
-        B03/P01, this method always submits a synthetic close order — the
-        reconciler and PositionTracker will handle the resulting fill event.
+        and live mode. If a signed ``position_quantity`` is supplied, the
+        offsetting side and full order size are derived from that quantity.
 
         Args:
             symbol: The security symbol to close.
@@ -347,7 +354,14 @@ class PaperBroker:
         Returns:
             Tradier-shaped order response dict, or ``{}`` on no-op.
         """
-        self.logger.info("PaperBroker.close_position: %s (force=%s)", symbol, force)
+        self.logger.info(
+            "PaperBroker.close_position: %s (force=%s urgency=%s reason=%s qty=%s)",
+            symbol,
+            force,
+            urgency,
+            reason,
+            position_quantity,
+        )
         # C8 (v18): use OCC shape validation instead of a naive single-char
         # membership test which false-positives on equity tickers like "PG",
         # "CP", "PCG" etc.  OCC option symbols are at least 15 chars long and
@@ -367,11 +381,20 @@ class PaperBroker:
             )
 
         is_option = _is_occ_option(symbol)
-        side = "buy_to_close" if is_option else "sell"
+        signed_qty = int(position_quantity or 0)
+        quantity = abs(signed_qty) or 1
+        if signed_qty:
+            if is_option:
+                side = "sell_to_close" if signed_qty > 0 else "buy_to_close"
+            else:
+                side = "sell" if signed_qty > 0 else "buy"
+        else:
+            side = "buy_to_close" if is_option else "sell"
+
         return self.place_order(
             symbol=symbol,
             side=side,
-            quantity=1,
+            quantity=quantity,
             order_type="market",
             tag=f"paper-close-{symbol}-{int(time.time())}",
         )
@@ -382,6 +405,7 @@ class PaperBroker:
         timeout_s: float = 10.0,
         urgency: str = "IMMEDIATE",
         reason: str = "close_position_verified",
+        position_quantity: int | None = None,
     ) -> dict[str, Any]:
         """A23 (v14): close and wait for the fill before returning.
 
@@ -389,7 +413,12 @@ class PaperBroker:
         after ``_fill_delay``) up to ``timeout_s``. This is sufficient for
         simulation; the live broker uses a Future-based event wait.
         """
-        response = self.close_position(symbol)
+        response = self.close_position(
+            symbol,
+            urgency=urgency,
+            reason=reason,
+            position_quantity=position_quantity,
+        )
         oid = ((response or {}).get("order") or {}).get("id")
         if not oid:
             return {

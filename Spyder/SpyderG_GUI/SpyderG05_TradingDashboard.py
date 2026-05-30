@@ -50,6 +50,7 @@ CONNECTION MONITORING:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import html as _html
 import json
 import math
 import os
@@ -679,6 +680,10 @@ OPENING_DATA_WARMUP_END_TIME = dt_time(9, 33)
 MARKET_CLOSE_TIME = dt_time(16, 0)
 TRADIER_CONNECT_TIME = dt_time(9, 0)
 TRADIER_DISCONNECT_TIME = dt_time(16, 30)
+STARTUP_METRICS_ORCHESTRATOR_DELAY_MS = 250
+STARTUP_REAL_DATA_PATTERN_DELAY_MS = 250
+STARTUP_INITIAL_LIVE_FETCH_DELAY_MS = 250
+STARTUP_INITIAL_LIVE_FETCH_RETRY_DELAY_MS = 1000
 
 
 @lru_cache(maxsize=1)
@@ -696,10 +701,15 @@ def is_tradier_window(now_et: datetime | None = None) -> bool:
 def is_market_hours(now_et: datetime | None = None) -> bool:
     """Return True only during regular trading hours (9:30 AM – 4:00 PM ET), Mon–Fri."""
     current_et = now_et or datetime.now(_get_eastern_timezone())
-    if current_et.weekday() >= 5:
-        return False
-    t = current_et.time()
-    return MARKET_OPEN_TIME <= t <= MARKET_CLOSE_TIME
+    try:
+        from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import get_trading_calendar
+
+        return bool(get_trading_calendar().is_market_open(current_et))
+    except Exception:
+        if current_et.weekday() >= 5:
+            return False
+        t = current_et.time()
+        return MARKET_OPEN_TIME <= t <= MARKET_CLOSE_TIME
 
 
 def _is_preconnect_idle_window(now_et: datetime | None = None) -> bool:
@@ -929,12 +939,12 @@ class SpyderTradingDashboard(QMainWindow):
         startup_hms  = datetime.now(et_tz).strftime("%H:%M:%S")
         self.system_logs.extend([
             f"[{startup_hms}] {'=' * 56}",
-            f"[{startup_hms}] 🚀 SPYDER DASHBOARD STARTED: {startup_time}",
+            f"[{startup_hms}] 🚀SPYDER DASHBOARD LAUNCHED: {startup_time}",
             f"[{startup_hms}] {'=' * 56}",
         ])
         # Emit startup marker through module logger as well so it appears in
         # the unified log stream (not only the in-widget system log buffer).
-        self.logger.info("🚀 SPYDER DASHBOARD STARTED: %s", startup_time)
+        self.logger.info("🚀SPYDER DASHBOARD LAUNCHED: %s", startup_time)
         # Startup readiness/config warmup is deferred until after first paint so
         # the initial dashboard render is not blocked by A03 validation work.
         self._startup_readiness_state = {
@@ -1263,11 +1273,6 @@ class SpyderTradingDashboard(QMainWindow):
         else:
             QTimer.singleShot(2000, self._start_optional_signal_refresh_timer)
 
-        # Log the actual dashboard initialization time (ET)
-        _et_tz = _get_eastern_timezone()
-        init_time = datetime.now(_et_tz).strftime("%H:%M:%S ET")
-        self.add_system_log(f"🚀 Dashboard initialized at {init_time}")
-        self.logger.info("🚀 Dashboard initialized at %s", init_time)
         if launch_loading_hold_active:
             self._schedule_after_launch_loading_hold(
                 self._refresh_startup_readiness_state,
@@ -1278,6 +1283,8 @@ class SpyderTradingDashboard(QMainWindow):
         QTimer.singleShot(200, self.setup_white_tooltips)
         # Re-emit once after startup burst so users can still see startup state
         # when the system log is rapidly populated by module initialization.
+        _et_tz = _get_eastern_timezone()
+        init_time = datetime.now(_et_tz).strftime("%H:%M:%S ET")
         QTimer.singleShot(12000, lambda: self._emit_sticky_startup_marker(init_time))
 
         # Ensure snapshot save also runs on full app shutdown paths.
@@ -1287,10 +1294,6 @@ class SpyderTradingDashboard(QMainWindow):
                 app.aboutToQuit.connect(self._on_app_about_to_quit)
             except Exception as _quit_hook_err:  # noqa: BLE001
                 logger.debug("Could not connect aboutToQuit snapshot hook: %s", _quit_hook_err)
-
-        self.logger.info(
-            "Enhanced Dashboard initialized with Tradier API connection detection and heartbeat monitoring",  # noqa: E501
-        )
 
     def _emit_sticky_startup_marker(self, init_time: str) -> None:
         """Emit a one-time delayed startup marker for dashboard visibility."""
@@ -1446,7 +1449,44 @@ class SpyderTradingDashboard(QMainWindow):
         market_data_ready_during_hold = bool(getattr(self, "_market_data_initialized", False))
         self._complete_opening_runtime_warmup()
         if market_data_ready_during_hold:
-            self.add_system_log("✅ Market data loaded — system ready")
+            self.add_system_log(self._build_market_data_ready_log_message())
+
+    def _resolve_first_entry_not_before_et(self) -> str:
+        """Return the configured first-entry embargo time in ET HH:MM format."""
+        fallback = "09:45"
+        try:
+            from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
+
+            cfg = get_config_manager()
+            configured = cfg.get(
+                "autonomous_readiness.session_window.first_entry_not_before_et",
+                fallback,
+            )
+        except Exception:
+            configured = fallback
+
+        text = str(configured or fallback).strip()
+        try:
+            return datetime.strptime(text, "%H:%M").strftime("%H:%M")
+        except Exception:
+            return fallback
+
+    def _build_entry_gate_embargo_message(self, now_et: datetime | None = None) -> str | None:
+        """Return operator copy when new entries are still embargoed."""
+        current_et = now_et or datetime.now(_get_eastern_timezone())
+        embargo_text = self._resolve_first_entry_not_before_et()
+        embargo_time = datetime.strptime(embargo_text, "%H:%M").time()
+        if current_et.time() >= embargo_time:
+            return None
+        return f"⏳ ENTRY gate remains blocked until {embargo_text} ET"
+
+    def _build_market_data_ready_log_message(self, now_et: datetime | None = None) -> str:
+        """Describe whether fresh data is ready for monitoring or entry execution."""
+        embargo_message = self._build_entry_gate_embargo_message(now_et)
+        if embargo_message is None:
+            return "✅ Market data loaded — system ready"
+        embargo_text = embargo_message.removeprefix("⏳ ENTRY gate remains blocked until ")
+        return f"✅ Market data loaded — entry gate blocked until {embargo_text}"
 
     def _begin_opening_data_warmup_window(self) -> None:
         """Start live-data connections and quiet market-data hydration."""
@@ -1459,9 +1499,9 @@ class SpyderTradingDashboard(QMainWindow):
         if getattr(self, "_session_supervisor", None) is not None and not getattr(self, "trading_active", False):
             self._set_start_button_loading_live_data_state()
         self.add_system_log("🟡 Establishing live connections and loading live data")
-        self.add_system_log(
-            "⏳ ENTRY gate remains blocked until 10:15 ET"
-        )
+        embargo_message = self._build_entry_gate_embargo_message()
+        if embargo_message is not None:
+            self.add_system_log(embargo_message)
         self.start_market_worker(quiet_startup=True, announce=False)
         # Run the same prewarm tasks during the opening window so live_data.json
         # and S07 options analytics are already hydrated before the entry gate opens.
@@ -1510,9 +1550,18 @@ class SpyderTradingDashboard(QMainWindow):
             self._trigger_initial_live_fetch()
             return
 
-        QTimer.singleShot(1000, self._start_metrics_orchestrator)
-        QTimer.singleShot(1000, self.apply_proven_real_data_pattern)
-        QTimer.singleShot(4000, self._trigger_initial_live_fetch)
+        QTimer.singleShot(
+            STARTUP_METRICS_ORCHESTRATOR_DELAY_MS,
+            self._start_metrics_orchestrator,
+        )
+        QTimer.singleShot(
+            STARTUP_REAL_DATA_PATTERN_DELAY_MS,
+            self.apply_proven_real_data_pattern,
+        )
+        QTimer.singleShot(
+            STARTUP_INITIAL_LIVE_FETCH_DELAY_MS,
+            self._trigger_initial_live_fetch,
+        )
 
     def create_api_connection(self) -> bool:
         """Check Tradier API connectivity.
@@ -1550,8 +1599,12 @@ class SpyderTradingDashboard(QMainWindow):
             return
         if self.market_worker and _retry < 6:
             # The worker thread or its signals may not be ready yet. Retry a few
-            # times so launch hydration still gets an initial fetch attempt.
-            QTimer.singleShot(5000, lambda: self._trigger_initial_live_fetch(_retry + 1))
+            # times so launch hydration still gets an initial fetch attempt
+            # without sitting idle for several seconds after startup.
+            QTimer.singleShot(
+                STARTUP_INITIAL_LIVE_FETCH_RETRY_DELAY_MS,
+                lambda: self._trigger_initial_live_fetch(_retry + 1),
+            )
 
     # ==========================================================================
     # REAL DATA INTEGRATION PATTERN (UNCHANGED)
@@ -1636,6 +1689,8 @@ class SpyderTradingDashboard(QMainWindow):
     def apply_real_data_patch(self):
         """Apply real data patch using the proven working pattern"""
         try:
+            market_hours_open = is_market_hours()
+
             # Stop the worker-owned standby emitter once file-backed data takes over.
             if hasattr(self, "market_worker") and self.market_worker:
                 if self._invoke_market_worker_slot("pause_periodic_updates"):
@@ -1650,11 +1705,20 @@ class SpyderTradingDashboard(QMainWindow):
             # Runs in the market worker thread via fast_fetch_requested so it
             # doesn't block the UI.  The full fetch (balance + options + chart)
             # still happens every 30 s via the heartbeat.
-            self._fast_quote_timer = QTimer()
-            self._fast_quote_timer.timeout.connect(
-                lambda: self._emit_market_worker_signal("fast_fetch_requested")
-            )
-            self._fast_quote_timer.start(10_000)  # every 10 seconds
+            if market_hours_open:
+                self._fast_quote_timer = QTimer()
+                self._fast_quote_timer.timeout.connect(
+                    lambda: self._emit_market_worker_signal("fast_fetch_requested")
+                )
+                self._fast_quote_timer.start(10_000)  # every 10 seconds
+            else:
+                fast_quote_timer = getattr(self, "_fast_quote_timer", None)
+                if fast_quote_timer is not None:
+                    try:
+                        fast_quote_timer.stop()
+                    except Exception:
+                        pass
+                self._fast_quote_timer = None
 
             self.real_data_active = True
 
@@ -1665,7 +1729,7 @@ class SpyderTradingDashboard(QMainWindow):
             self.update_status_for_real_data()
 
             # Log success with market-hours-aware wording.
-            if is_market_hours():
+            if market_hours_open:
                 self.add_system_log("🔥 REAL MARKET DATA ACTIVE - Tradier API prices")
                 self.add_system_log("Real-time market data from Tradier")
             else:
@@ -1692,7 +1756,7 @@ class SpyderTradingDashboard(QMainWindow):
 
         self._market_data_initialized = True
         if not getattr(self, "_suppress_market_data_ready_log", False):
-            self.add_system_log("✅ Market data loaded — system ready")
+            self.add_system_log(self._build_market_data_ready_log_message())
 
         if getattr(self, "_queued_trading_start", False):
             if QTimer is not None:
@@ -1732,6 +1796,11 @@ class SpyderTradingDashboard(QMainWindow):
         active_state_plan = build_start_button_active_state_plan(
             has_start_button=start_btn is not None,
             is_paper_mode=self.trading_mode == TradingMode.PAPER,
+            market_open=(
+                bool(is_market_hours())
+                if self.trading_mode == TradingMode.PAPER
+                else True
+            ),
             automation_active_color=str(COLORS["automation_active"]),
         )
 
@@ -2262,7 +2331,7 @@ class SpyderTradingDashboard(QMainWindow):
             fetch_time = _market_data_datetime_from_epoch_ms(live_data.get("_fetch_time_ms"))
             if fetch_time is not None:
                 self.connection_info.last_market_data_fetch_time = fetch_time
-            if fetch_time is not None:
+            if fetch_time is not None and is_market_hours():
                 for symbol in ("DIA",):
                     entry = live_data.get(symbol)
                     if not isinstance(entry, dict):
@@ -2435,7 +2504,7 @@ class SpyderTradingDashboard(QMainWindow):
                         self._set_start_button_loading_live_data_state()
                 left: 10px;
                 padding: 0 5px 0 5px;
-                    "⏳ ENTRY gate remains blocked until 10:15 ET"
+                    "⏳ ENTRY gate remains blocked until 09:45 ET"
             QPushButton {{
                 background-color: {COLORS["panel"]};
                 color: {COLORS["text"]};
@@ -2527,7 +2596,7 @@ class SpyderTradingDashboard(QMainWindow):
 
     def _seed_optional_symbol_placeholders(self) -> None:
         """Set explicit placeholders for optional Market Overview symbols."""
-        optional_symbols = ("WRS", "PSR", "PCA-PROXY", "PCA-IV", "NYMO", "$VOLD")
+        optional_symbols = ("WRS", "PSR", "PCA-PROXY", "PCA-IV", "NYMO", "$VOLD", "TNX")
         for sym in optional_symbols:
             widget = self.symbol_widgets.get(sym) if hasattr(self, "symbol_widgets") else None
             if widget is None or not hasattr(widget, "price_label"):
@@ -3821,16 +3890,34 @@ class SpyderTradingDashboard(QMainWindow):
         if db is None:
             return []
 
+        trading_active = self._is_paper_session_active_for_display(db)
+
         try:
             rows = load_paper_open_positions(
                 db,
-                trading_active=bool(getattr(self, "trading_active", False)),
+                trading_active=trading_active,
             )
         except Exception as exc:
             self.add_system_log(f"⚠️ Could not load paper open positions: {exc}")
             return []
 
         return rows if isinstance(rows, list) else []
+
+    def _is_paper_session_active_for_display(self, db=None) -> bool:
+        """Return True when the paper dashboard should use active-session rows."""
+        trading_active = bool(getattr(self, "trading_active", False))
+        if db is None:
+            db = self._get_mode_session_db()
+        if db is None:
+            return trading_active
+
+        has_active_marker = getattr(db, "has_active_paper_session_marker", None)
+        if callable(has_active_marker):
+            try:
+                trading_active = trading_active or bool(has_active_marker())
+            except Exception:
+                trading_active = bool(getattr(self, "trading_active", False))
+        return trading_active
 
     @staticmethod
     def _parse_occ_option_contract(symbol: str) -> dict:
@@ -3848,6 +3935,117 @@ class SpyderTradingDashboard(QMainWindow):
             positions,
             default_lifecycle_state=default_lifecycle_state,
         )
+
+    def _build_positions_summary_row_widget(
+        self,
+        *,
+        timestamp_text: str,
+        summary_text: str,
+        cash_held_text: str,
+        pnl_text: str,
+        pnl_color: str,
+        close_btn: QPushButton | None = None,
+    ) -> QWidget:
+        """Build the standard cyan summary row used above paper position legs."""
+        row_widget = QWidget(self.positions_table)
+        row_widget.setMinimumHeight(22)
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(6, 0, 6, 0)
+        row_layout.setSpacing(6)
+        row_font = self.orders_title_label.font()
+        title_font = self.orders_title_label.font()
+        if title_font.pointSizeF() > 0:
+            row_font.setPointSizeF(max(title_font.pointSizeF() - 1.0, 9.0))
+        elif title_font.pointSize() > 0:
+            row_font.setPointSize(max(title_font.pointSize() - 1, 9))
+        row_font.setBold(False)
+
+        if timestamp_text:
+            timestamp_label = QLabel(timestamp_text, row_widget)
+            timestamp_label.setFont(row_font)
+            timestamp_label.setMinimumWidth(
+                timestamp_label.fontMetrics().horizontalAdvance("2026-05-12 00:00")
+            )
+            timestamp_label.setStyleSheet(
+                f"color: {COLORS.get('cyan', '#00ffff')}; font-weight: normal;"
+            )
+            row_layout.addWidget(timestamp_label, 0)
+
+        summary_label = QLabel(summary_text, row_widget)
+        summary_label.setFont(row_font)
+        summary_label.setStyleSheet(
+            f"color: {COLORS.get('cyan', '#00ffff')}; font-weight: normal;"
+        )
+        row_layout.addWidget(summary_label, 1)
+
+        metrics_widget = QWidget(row_widget)
+        metrics_layout = QHBoxLayout(metrics_widget)
+        metrics_layout.setContentsMargins(0, 0, 0, 0)
+        metrics_layout.setSpacing(0)
+
+        if cash_held_text:
+            cash_held_prefix_text = ""
+            cash_held_amount_text = cash_held_text
+            if cash_held_text.startswith("CASH HELD: "):
+                cash_held_prefix_text = "CASH HELD: "
+                cash_held_amount_text = cash_held_text[len(cash_held_prefix_text):]
+
+            if cash_held_prefix_text:
+                cash_held_prefix_label = QLabel(cash_held_prefix_text, metrics_widget)
+                cash_held_prefix_label.setFont(row_font)
+                cash_held_prefix_label.setMinimumWidth(
+                    cash_held_prefix_label.fontMetrics().horizontalAdvance(cash_held_prefix_text)
+                )
+                cash_held_prefix_label.setStyleSheet(
+                    f"color: {COLORS.get('cyan', '#00ffff')}; font-weight: normal;"
+                )
+                metrics_layout.addWidget(cash_held_prefix_label, 0, Qt.AlignmentFlag.AlignRight)
+
+            cash_held_amount_label = QLabel(cash_held_amount_text, metrics_widget)
+            cash_held_amount_label.setFont(row_font)
+            cash_held_amount_label.setMinimumWidth(
+                cash_held_amount_label.fontMetrics().horizontalAdvance(cash_held_amount_text)
+            )
+            cash_held_amount_label.setStyleSheet("color: #ffffff; font-weight: normal;")
+            metrics_layout.addWidget(cash_held_amount_label, 0, Qt.AlignmentFlag.AlignRight)
+            metrics_layout.addSpacing(
+                cash_held_amount_label.fontMetrics().horizontalAdvance("          ")
+            )
+
+        pnl_prefix_text = ""
+        pnl_amount_text = pnl_text
+        pnl_suffix_text = ""
+        if pnl_text.startswith("NET P&L "):
+            pnl_prefix_text = "NET P&L"
+            pnl_amount_text = pnl_text[len("NET P&L "):]
+            pnl_amount_text, separator, pnl_suffix_text = pnl_amount_text.partition(" ")
+            if separator and pnl_suffix_text:
+                pnl_suffix_text = f" {pnl_suffix_text}"
+
+        if pnl_prefix_text:
+            pnl_prefix_label = QLabel(f"{pnl_prefix_text} ", metrics_widget)
+            pnl_prefix_label.setFont(row_font)
+            pnl_prefix_label.setStyleSheet(
+                f"color: {COLORS.get('cyan', '#00ffff')}; font-weight: normal;"
+            )
+            metrics_layout.addWidget(pnl_prefix_label, 0, Qt.AlignmentFlag.AlignRight)
+
+        pnl_amount_label = QLabel(pnl_amount_text, metrics_widget)
+        pnl_amount_label.setFont(row_font)
+        pnl_amount_label.setStyleSheet(f"color: {pnl_color}; font-weight: normal;")
+        metrics_layout.addWidget(pnl_amount_label, 0, Qt.AlignmentFlag.AlignRight)
+
+        if pnl_suffix_text:
+            pnl_suffix_label = QLabel(pnl_suffix_text, metrics_widget)
+            pnl_suffix_label.setFont(row_font)
+            pnl_suffix_label.setStyleSheet(f"color: {pnl_color}; font-weight: normal;")
+            metrics_layout.addWidget(pnl_suffix_label, 0, Qt.AlignmentFlag.AlignRight)
+
+        if close_btn is not None:
+            metrics_layout.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignRight)
+
+        row_layout.addWidget(metrics_widget, 0, Qt.AlignmentFlag.AlignRight)
+        return row_widget
 
     def _render_paper_spreads_in_tree(
         self,
@@ -3901,7 +4099,7 @@ class SpyderTradingDashboard(QMainWindow):
             if fallback_positions:
                 fallback_lifecycle_state = (
                     StrategyLifecycleState.MANAGED_BY_AI.value
-                    if bool(getattr(self, "trading_active", False))
+                    if self._is_paper_session_active_for_display(self._get_mode_session_db())
                     else "CARRIED OVER"
                 )
                 spreads_detail, fallback_positions_to_render = self._restore_paper_spreads_from_positions(
@@ -3952,44 +4150,18 @@ class SpyderTradingDashboard(QMainWindow):
                 )
             else:
                 close_btn.setEnabled(False)
-            # Compose one full-width strategy row with right-aligned action button.
-            row_widget = QWidget(self.positions_table)
-            row_widget.setMinimumHeight(22)
-            row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(6, 0, 6, 0)
-            row_layout.setSpacing(6)
-            row_font = self.orders_title_label.font()
-            title_font = self.orders_title_label.font()
-            if title_font.pointSizeF() > 0:
-                row_font.setPointSizeF(max(title_font.pointSizeF() - 1.0, 9.0))
-            elif title_font.pointSize() > 0:
-                row_font.setPointSize(max(title_font.pointSize() - 1, 9))
-            row_font.setBold(False)
-
-            if spread_header.timestamp_text:
-                timestamp_label = QLabel(spread_header.timestamp_text, row_widget)
-                timestamp_label.setFont(row_font)
-                timestamp_label.setMinimumWidth(
-                    timestamp_label.fontMetrics().horizontalAdvance("2026-05-12 00:00")
-                )
-                timestamp_label.setStyleSheet(
-                    "color: #a8a8a8; font-weight: normal;"
-                )
-                row_layout.addWidget(timestamp_label, 0)
-
-            summary_label = QLabel(spread_header.summary_text, row_widget)
-            summary_label.setFont(row_font)
-            summary_label.setStyleSheet(
-                f"color: {COLORS.get('cyan', '#00ffff')}; font-weight: normal;"
+            self.positions_table.setItemWidget(
+                header_row,
+                0,
+                self._build_positions_summary_row_widget(
+                    timestamp_text=spread_header.timestamp_text,
+                    summary_text=spread_header.summary_text,
+                    cash_held_text=spread_header.cash_held_text,
+                    pnl_text=spread_header.pnl_text,
+                    pnl_color=spread_header.pnl_color,
+                    close_btn=close_btn,
+                ),
             )
-            row_layout.addWidget(summary_label, 1)
-
-            pnl_label = QLabel(spread_header.pnl_text, row_widget)
-            pnl_label.setFont(row_font)
-            pnl_label.setStyleSheet(f"color: {spread_header.pnl_color}; font-weight: normal;")
-            row_layout.addWidget(pnl_label, 0, Qt.AlignmentFlag.AlignRight)
-            row_layout.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignRight)
-            self.positions_table.setItemWidget(header_row, 0, row_widget)
             for spread_leg in spread_legs:
                 leg_row = QTreeWidgetItem(self.positions_table)
                 leg_row.setText(0, spread_leg.action_text)
@@ -4017,15 +4189,44 @@ class SpyderTradingDashboard(QMainWindow):
             for restored_group in build_restored_position_group_presentations(
                 fallback_positions_to_render,
                 COLORS,
+                today=today,
+                eastern_timezone=eastern_timezone,
             ):
                 summary_row = QTreeWidgetItem(self.positions_table)
-                summary_row.setText(0, restored_group.summary_text)
-                for col in range(data_column_count):
-                    summary_row.setForeground(col, QColor(COLORS.get("cyan", "#00ffff")))
                 self.positions_table.setFirstColumnSpanned(
                     self.positions_table.indexOfTopLevelItem(summary_row),
                     QModelIndex(),
                     True,
+                )
+
+                close_btn = None
+                if restored_group.close_symbols:
+                    close_btn = QPushButton("X")
+                    close_btn.setFixedSize(20, 20)
+                    close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                    close_btn.setStyleSheet(
+                        "QPushButton {"
+                        "color: #ff3b30; background: transparent;"
+                        "border: 1px solid #ff3b30; border-radius: 3px;"
+                        "font-size: 11px; font-weight: bold;"
+                        "}"
+                        "QPushButton:hover { background: #2a0f0f; }"
+                    )
+                    close_btn.clicked.connect(
+                        lambda _checked=False, _symbols=tuple(restored_group.close_symbols): self._request_manual_close_symbols(list(_symbols))
+                    )
+
+                self.positions_table.setItemWidget(
+                    summary_row,
+                    0,
+                    self._build_positions_summary_row_widget(
+                        timestamp_text=restored_group.timestamp_text,
+                        summary_text=restored_group.summary_text,
+                        cash_held_text=restored_group.cash_held_text,
+                        pnl_text=restored_group.pnl_text,
+                        pnl_color=restored_group.pnl_color,
+                        close_btn=close_btn,
+                    ),
                 )
 
                 for restored_row in restored_group.detail_rows:
@@ -4049,6 +4250,31 @@ class SpyderTradingDashboard(QMainWindow):
                     row.setForeground(5, QColor(restored_row.cost_color))
                     row.setForeground(7, QColor(restored_row.pnl_color))
 
+    def _request_manual_close_symbols(self, symbols: list[str]) -> None:
+        """Publish a manual close request for exact persisted paper symbols."""
+        normalized_symbols = [str(symbol).strip() for symbol in symbols if str(symbol or "").strip()]
+        if not normalized_symbols:
+            return
+
+        description = f"{len(normalized_symbols)}-leg position" if len(normalized_symbols) > 1 else normalized_symbols[0]
+        self.add_system_log(f"🖱️ Manual close requested for {description}")
+        try:
+            from Spyder.SpyderA_Core.SpyderA05_EventManager import (  # noqa: PLC0415
+                EventType,
+                get_event_manager,
+            )
+            get_event_manager().emit(
+                EventType.FLATTEN_REQUEST,
+                {
+                    "type": "symbols_flatten",
+                    "symbols": normalized_symbols,
+                    "reason": "manual_close_dashboard",
+                },
+                source="Dashboard",
+            )
+        except Exception as exc:
+            self.logger.error("Manual close emit error: %s", exc)
+
     def _request_manual_close_spread(self, spread_id: str) -> None:
         """Queue a manual close request to the paper worker thread.
 
@@ -4067,25 +4293,7 @@ class SpyderTradingDashboard(QMainWindow):
         # ── D31/R04 iron condor path: id is "|"-delimited OCC leg symbols ─────
         if "|" in spread_id:
             symbols = [s.strip() for s in spread_id.split("|") if s.strip()]
-            self.add_system_log(
-                f"🖱️ Manual close requested for {len(symbols)}-leg position"
-            )
-            try:
-                from Spyder.SpyderA_Core.SpyderA05_EventManager import (  # noqa: PLC0415
-                    EventType,
-                    get_event_manager,
-                )
-                get_event_manager().emit(
-                    EventType.FLATTEN_REQUEST,
-                    {
-                        "type": "symbols_flatten",
-                        "symbols": symbols,
-                        "reason": "manual_close_dashboard",
-                    },
-                    source="Dashboard",
-                )
-            except Exception as exc:
-                self.logger.error("Manual close emit error: %s", exc)
+            self._request_manual_close_symbols(symbols)
             return
         if self._paper_worker is not None:
             self.add_system_log(f"🖱️ Manual close requested for spread {spread_id}")
@@ -5446,7 +5654,16 @@ class SpyderTradingDashboard(QMainWindow):
         self.start_btn.setStyleSheet(
             f"background-color: {COLORS['automation_active']}; color: white;",
         )
-        self.start_btn.setText("PAPER ACTIVE")
+        if bool(is_market_hours()):
+            self.start_btn.setText("PAPER ACTIVE")
+            set_tooltip = getattr(self.start_btn, "setToolTip", None)
+            if callable(set_tooltip):
+                set_tooltip("Paper trading session is active")
+        else:
+            self.start_btn.setText("PAPER STANDBY")
+            set_tooltip = getattr(self.start_btn, "setToolTip", None)
+            if callable(set_tooltip):
+                set_tooltip("Paper session is connected and waiting for market open")
         self.start_btn.setEnabled(False)
 
         # Pre-populate account panel with initial paper capital immediately,
@@ -5594,6 +5811,174 @@ class SpyderTradingDashboard(QMainWindow):
             self._show_wrs_details_dialog()
         elif symbol == "PSR":
             self._show_psr_details_dialog()
+        else:
+            signal_dialog_symbol_map = {
+                "VIX": "VIX MONITOR",
+                "GEX": "GEX",
+                "DIX": "DIX",
+                "OGL": "OGL",
+                "DEX": "DEX",
+                "SWAN": "BLACK SWAN",
+            }
+            signal_type = signal_dialog_symbol_map.get(symbol)
+            if signal_type is not None:
+                self._show_signal_panel_dialog(signal_type)
+            elif symbol == "SKEW":
+                self._invoke_signal_panel_method("show_skew_dialog")
+            elif symbol in {"$TICK", "$TRIN", "$ADD", "NYMO"}:
+                self._invoke_signal_panel_method("show_internals_dialog")
+            else:
+                self._show_market_symbol_info_dialog(symbol)
+
+    @staticmethod
+    def _read_market_symbol_label_text(widget: object, attr_name: str, fallback: str = "—") -> str:
+        """Return safe text() output from a label-like widget attribute."""
+        label = getattr(widget, attr_name, None)
+        text = getattr(label, "text", None)
+        if callable(text):
+            try:
+                value = text()
+            except Exception:
+                value = fallback
+            if value not in (None, ""):
+                return str(value)
+        return fallback
+
+    def _build_market_symbol_info_html(self, symbol: str) -> str:
+        """Build a generic info dialog for a Market Overview row."""
+        from Spyder.SpyderG_GUI.SpyderG06_DashboardData import (  # local import keeps startup lazy
+            COLORS as DASHBOARD_COLORS,
+            SYMBOL_DESCRIPTIONS,
+            get_market_overview_dialog_metadata,
+        )
+
+        widget = None
+        if hasattr(self, "symbol_widgets") and isinstance(self.symbol_widgets, dict):
+            widget = self.symbol_widgets.get(symbol)
+
+        display_symbol = symbol
+        category = "MARKET OVERVIEW"
+        last_text = "—"
+        change_text = "—"
+        pct_text = "—"
+        description = "No additional description is available for this symbol yet."
+        concept = ""
+        full_name = ""
+        signal_colors: list[dict[str, str]] = []
+
+        if widget is not None:
+            display_symbol = self._read_market_symbol_label_text(widget, "symbol_label", symbol)
+            category = str(getattr(widget, "category", category) or category)
+            last_text = self._read_market_symbol_label_text(widget, "price_label")
+            change_text = self._read_market_symbol_label_text(widget, "change_label")
+            pct_text = self._read_market_symbol_label_text(widget, "pct_label")
+            tool_tip = getattr(widget, "toolTip", None)
+            if callable(tool_tip):
+                try:
+                    description_value = tool_tip()
+                except Exception:
+                    description_value = ""
+                if description_value:
+                    description = str(description_value)
+
+        description = str(SYMBOL_DESCRIPTIONS.get(symbol, description))
+        shared_dialog_metadata = get_market_overview_dialog_metadata(symbol)
+        if shared_dialog_metadata is not None:
+            full_name = str(shared_dialog_metadata.get("full_name", ""))
+            description = str(shared_dialog_metadata.get("description", description))
+            concept = str(shared_dialog_metadata.get("concept", ""))
+            signal_colors = [
+                {
+                    "color": str(color_info.get("color", "text")),
+                    "text": str(color_info.get("text", "")),
+                }
+                for color_info in shared_dialog_metadata.get("signal_colors", [])
+            ]
+
+        escaped_display_symbol = _html.escape(display_symbol)
+        escaped_symbol = _html.escape(symbol)
+        escaped_category = _html.escape(category)
+        escaped_description = _html.escape(description)
+        escaped_last = _html.escape(last_text)
+        escaped_change = _html.escape(change_text)
+        escaped_pct = _html.escape(pct_text)
+
+        shared_sections = ""
+        if full_name:
+            escaped_full_name = _html.escape(full_name)
+            shared_sections += f"""
+
+        <h3>Signal framing</h3>
+        <p><b>{escaped_full_name}</b></p>
+        """
+        if concept:
+            escaped_concept = _html.escape(concept)
+            shared_sections += f"""
+
+        <h3>Concept</h3>
+        <p>{escaped_concept}</p>
+        """
+        if signal_colors:
+            color_items = []
+            for color_info in signal_colors:
+                color_hex = _html.escape(str(DASHBOARD_COLORS.get(color_info["color"], DASHBOARD_COLORS["text"])))
+                color_text = _html.escape(color_info["text"])
+                color_items.append(f"<li style='color:{color_hex};'>{color_text}</li>")
+            shared_sections += f"""
+
+        <h3>Signal colors</h3>
+        <ul style='padding-left:18px;'>
+          {''.join(color_items)}
+        </ul>
+        """
+
+        return f"""
+        <h2 style='margin-bottom:4px;'>{escaped_display_symbol} — Market Overview</h2>
+        <p style='color:#9bb;'>Panel: <code>Market Overview</code> &nbsp;·&nbsp; Category: <code>{escaped_category}</code></p>
+
+        <h3>Current snapshot</h3>
+        <table cellpadding='4' style='font-size:12px;'>
+          <tr><td><b>Display symbol</b></td><td>{escaped_display_symbol}</td></tr>
+          <tr><td><b>Symbol key</b></td><td>{escaped_symbol}</td></tr>
+          <tr><td><b>Last</b></td><td>{escaped_last}</td></tr>
+          <tr><td><b>Change</b></td><td>{escaped_change}</td></tr>
+          <tr><td><b>Change %</b></td><td>{escaped_pct}</td></tr>
+        </table>
+
+        <h3>Description</h3>
+        <p>{escaped_description}</p>
+    {shared_sections}
+        """
+
+    def _show_market_symbol_info_dialog(self, symbol: str) -> None:
+        """Open a generic info dialog for an unhandled Market Overview row."""
+        widget = None
+        if hasattr(self, "symbol_widgets") and isinstance(self.symbol_widgets, dict):
+            widget = self.symbol_widgets.get(symbol)
+        display_symbol = symbol
+        if widget is not None:
+            display_symbol = self._read_market_symbol_label_text(widget, "symbol_label", symbol)
+
+        self._show_custom_metric_html_dialog(
+            f"{display_symbol} — Market Overview",
+            self._build_market_symbol_info_html(symbol),
+            min_width=560,
+            min_height=420,
+        )
+
+    def _show_signal_panel_dialog(self, signal_type: str) -> None:
+        """Route a Market Overview row click into the shared signal-info dialog."""
+        panel = getattr(self, "signal_panel", None)
+        show_dialog = getattr(panel, "show_signal_dialog", None)
+        if callable(show_dialog):
+            show_dialog(signal_type)
+
+    def _invoke_signal_panel_method(self, method_name: str) -> None:
+        """Route a Market Overview row click into a specific Signal Monitor dialog."""
+        panel = getattr(self, "signal_panel", None)
+        method = getattr(panel, method_name, None)
+        if callable(method):
+            method()
 
     def _get_custom_metric_entry(self, symbol: str) -> dict:
         """Return the latest nested S07 payload for a custom metric row."""
@@ -6280,6 +6665,27 @@ class SpyderTradingDashboard(QMainWindow):
         source_key = str(source or "").strip().lower()
 
         if source_key == "paper":
+            active_paper_payload = None
+            if (
+                self.trading_mode == TradingMode.PAPER
+                and getattr(self, "trading_active", False)
+            ):
+                cached = getattr(self, "_portfolio_summary_cache", None)
+                if isinstance(cached, dict) and cached:
+                    cached_unrealized = cached.get("unrealized_pnl")
+                    if cached_unrealized is None:
+                        cached_unrealized = cached.get("spreads_unrealized_pnl")
+                    active_paper_payload = {
+                        "settled": float(cached.get("equity", equity) or equity or 0.0),
+                        "buying": float(cached.get("cash", buying_power) or buying_power or 0.0),
+                        "realized": float(cached.get("realized_pnl", 0.0) or 0.0),
+                        "unrealized": float(cached_unrealized or 0.0),
+                    }
+
+            if active_paper_payload is not None:
+                self._set_spyderbox_account_panel_values(**active_paper_payload)
+                return
+
             self._set_spyderbox_account_panel_values(
                 settled=float(equity or 0.0),
                 buying=float(buying_power or 0.0),
@@ -6541,8 +6947,10 @@ class SpyderTradingDashboard(QMainWindow):
                 "color: " + COLORS["automation_active"] + "; font-size: 14px;",
             )
             self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
+            embargo_text = self._resolve_first_entry_not_before_et()
             self.data_status_container.setToolTip(
-                "Pre-open snapshot refreshed from Tradier quotes — strategy hunting and entries remain blocked until 10:15 ET",
+                "Pre-open snapshot refreshed from Tradier quotes — "
+                f"strategy hunting and entries remain blocked until {embargo_text} ET",
             )
         elif status_type == "AFTER-HOURS":
             self.data_status_label.setText("AFTER-HRS")
@@ -6812,6 +7220,14 @@ class SpyderTradingDashboard(QMainWindow):
             if widget is None:
                 continue
             prev_attr = f"_cm_prev_{widget_key}"
+            if isinstance(entry, dict) and bool(entry.get("stale")):
+                if hasattr(self, prev_attr):
+                    delattr(self, prev_attr)
+                try:
+                    widget.set_unavailable("STALE")
+                except (AttributeError, RuntimeError):
+                    pass
+                continue
             update_plan = build_custom_metric_widget_update_plan(
                 entry=entry,
                 scale=scale,
@@ -6826,14 +7242,14 @@ class SpyderTradingDashboard(QMainWindow):
 
         liquidity_entry = metrics.get("LIQUIDITY_DIAGNOSTICS")
         if isinstance(liquidity_entry, dict):
-            payload = liquidity_entry.get("value", {})
+            payload = {} if bool(liquidity_entry.get("stale")) else liquidity_entry.get("value", {})
             self._update_liquidity_diagnostics_panel(payload)
 
         # Forward TICK/ADD/TRIN/NYMO to the Market Internals dialog if it is open.
         # This ensures the popup always shows the same values as the Market Overview panel.
         dlg = getattr(self, "current_dialog", None)
         if dlg is not None and hasattr(dlg, "on_breadth_updated"):
-            breadth_payload = build_custom_metric_breadth_dialog_payload(metrics)
+            breadth_payload = build_custom_metric_breadth_dialog_payload(merged_metrics)
             if breadth_payload is not None:
                 dlg.on_breadth_updated(breadth_payload)
 
@@ -6854,6 +7270,11 @@ class SpyderTradingDashboard(QMainWindow):
                 signal_panel_plan.skew,
                 signal_panel_plan.gex,
             )
+            clear_live_keys = tuple(getattr(signal_panel_plan, "clear_live_keys", ()))
+            live_store = getattr(self.signal_panel, "_live", None)
+            if isinstance(live_store, dict):
+                for live_key in clear_live_keys:
+                    live_store.pop(live_key, None)
             if signal_panel_plan.live_data:
                 self.signal_panel.update_live_data(signal_panel_plan.live_data)
 
@@ -6925,7 +7346,7 @@ class SpyderTradingDashboard(QMainWindow):
                 return orchestrator.get_dispatch_state()
         except Exception as exc:  # noqa: BLE001 — pill must never raise
             self.logger.debug("dispatch pill: D31 read failed: %s", exc)
-        return {"state": "IDLE", "reason": "no session running", "age_s": None}
+        return {"state": "IDLE", "reason": "no signals in last 120s", "age_s": None}
 
     def _get_execution_pill_state_safe(self) -> dict:
         """Read D31's stance/gate execution view, falling back to empty values."""
@@ -6994,6 +7415,11 @@ class SpyderTradingDashboard(QMainWindow):
         self._vix_candidate_count = state_plan.next_vix_candidate_count
 
         execution_truth = self._get_execution_pill_state_safe()
+        raw_dispatch_state = self._get_dispatch_state_safe()
+        dispatch_state_name = str(raw_dispatch_state.get("state", "")).strip().upper()
+        if dispatch_state_name == "IDLE":
+            execution_truth = {"regime": "", "stance": "", "gate": "", "gate_key": ""}
+
         execution_regime = str(execution_truth.get("regime", "")).strip().lower()
         execution_gate_key = str(execution_truth.get("gate_key", "")).strip().lower()
         fallback_stress = None
@@ -7023,7 +7449,7 @@ class SpyderTradingDashboard(QMainWindow):
         # priority. v12: absorbed the legacy TRADEABLE pill into this tooltip.
         dispatch_plan = build_regime_dispatch_announcement_plan(
             regime=regime,
-            raw_dispatch_state=self._get_dispatch_state_safe(),
+            raw_dispatch_state=raw_dispatch_state,
             last_dispatch_state_key=getattr(self, "_last_dispatch_state_key", ""),
         )
         dispatch_state = dispatch_plan.dispatch_state
@@ -7041,9 +7467,12 @@ class SpyderTradingDashboard(QMainWindow):
             self._last_dispatch_state_key = dispatch_plan.dispatch_state_key
 
         import os as _os
-        _pivot_enabled = _os.getenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", "").strip().lower() in {
-            "1", "true", "yes", "on"
-        }
+        _truthy_env = {"1", "true", "yes", "on"}
+        _bull_call_enabled = _os.getenv("SPYDER_ENABLE_BULL_CALL_SPREAD", "").strip().lower() in _truthy_env
+        _bear_put_enabled = _os.getenv("SPYDER_ENABLE_BEAR_PUT_SPREAD", "").strip().lower() in _truthy_env
+        _butterfly_enabled = _os.getenv("SPYDER_ENABLE_BUTTERFLY", "").strip().lower() in _truthy_env
+        _pivot_enabled = _os.getenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", "").strip().lower() in _truthy_env
+        _overlay_enabled = _os.getenv("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT", "").strip().lower() in _truthy_env
         presentation = build_regime_pill_bar_presentation(
             regime=regime,
             stress=stress,
@@ -7055,7 +7484,11 @@ class SpyderTradingDashboard(QMainWindow):
             execution_gate_key=execution_gate_key,
             s07_live=_s07_live,
             swan=swan,
+            bull_call_enabled=_bull_call_enabled,
+            bear_put_enabled=_bear_put_enabled,
+            butterfly_enabled=_butterfly_enabled,
             pivot_enabled=_pivot_enabled,
+            overlay_enabled=_overlay_enabled,
             panel_color=COLORS["panel"],
             border_color=COLORS["border"],
         )
@@ -8110,6 +8543,7 @@ class SpyderTradingDashboard(QMainWindow):
     # Snapshot age thresholds (seconds)
     _SNAPSHOT_STALE_HOURS = 8  # > 8 h → FROZEN badge (red)
     _SNAPSHOT_EOD_HOURS = 0    # anything younger → EOD badge (yellow)
+    _CUSTOM_METRICS_SNAPSHOT_MAX_AGE_SECONDS = 900.0
 
     @staticmethod
     def _parse_money_text(text: str) -> float:
@@ -8324,6 +8758,26 @@ class SpyderTradingDashboard(QMainWindow):
 
     def _restore_cached_custom_metrics_snapshot(self) -> None:
         """Best-effort Market Overview metric restore for quiet startup."""
+        if not self._METRICS_SNAPSHOT_FILE.exists():
+            return
+
+        try:
+            snapshot_payload = json.loads(
+                self._METRICS_SNAPSHOT_FILE.read_text(encoding="utf-8")
+            )
+            snapshot_saved_at = float(snapshot_payload.get("_saved_at", 0.0))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as metrics_err:
+            self.logger.debug("Could not read metrics snapshot age: %s", metrics_err)
+            return
+
+        snapshot_age_sec = time.time() - snapshot_saved_at if snapshot_saved_at > 0 else float("inf")
+        if snapshot_age_sec > self._CUSTOM_METRICS_SNAPSHOT_MAX_AGE_SECONDS:
+            max_age_min = int(self._CUSTOM_METRICS_SNAPSHOT_MAX_AGE_SECONDS // 60)
+            self.add_system_log(
+                f"📦 Skipped cached Market Overview metrics older than {max_age_min}m"
+            )
+            return
+
         metrics = self._build_cached_metrics_fallback_payload()
         if not metrics:
             return

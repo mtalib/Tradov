@@ -83,7 +83,7 @@ except Exception:
 DEFAULT_SESSION_WINDOW = {
     "primary_start_et": "09:30",
     "primary_end_et": "16:15",
-    "first_entry_not_before_et": "10:15",
+    "first_entry_not_before_et": "09:45",
     "zero_dte_no_new_risk_cutoff_et": "14:30",
     "broker_cutoff_et": "16:00",
 }

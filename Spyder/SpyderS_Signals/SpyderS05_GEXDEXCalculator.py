@@ -94,11 +94,73 @@ class GEXDEXCalculator:
         self.logger = logging.getLogger(__name__)
         self.logger.debug("GEXDEXCalculator initialized (real options chain mode)")
         self._last_result: dict | None = None
+        self._n09_summary_calculator = None
+        self._n09_summary_supported: bool | None = None
         # Cache SPY expirations for the trading day — the list only changes
         # at most once per day, so re-fetching every 60-second GEX cycle
         # creates unnecessary /options/expirations calls that trigger timeouts.
         self._cached_expirations: list[str] = []
         self._expirations_cache_date: str = ""  # "YYYY-MM-DD" of last fetch
+
+    def _refresh_cached_expirations_from_tradier(self, client: object, today_str: str) -> None:
+        """Fetch and cache SPY expirations, retrying once on transient failures."""
+        last_error: Exception | None = None
+
+        for attempt in range(2):
+            try:
+                exps_resp = client.get_option_expirations("SPY")
+                exps = exps_resp.get("expirations", {}).get("date", [])
+                if isinstance(exps, str):
+                    exps = [exps]
+                if not exps:
+                    raise DataUnavailableError("No SPY expirations returned from Tradier")
+
+                self._cached_expirations = list(exps)
+                self._expirations_cache_date = today_str
+                if attempt > 0:
+                    self.logger.warning(
+                        "Recovered SPY expirations fetch after transient failure"
+                    )
+                self.logger.debug("Cached %d SPY expirations for %s", len(exps), today_str)
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if attempt == 0:
+                    self.logger.warning(
+                        "SPY expirations fetch failed on first attempt; retrying once: %s",
+                        exc,
+                    )
+                    continue
+                raise
+
+        if last_error is not None:
+            raise last_error
+
+    def _get_n09_summary_calculator(self):
+        """Return a cached SpyderN09 summary calculator when supported."""
+        if self._n09_summary_supported is False:
+            return None
+
+        try:
+            from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureCalculator
+        except Exception as exc:  # noqa: BLE001
+            self.logger.debug("SpyderN09 import unavailable: %s", exc)
+            self._n09_summary_supported = False
+            return None
+
+        if not hasattr(GammaExposureCalculator, "get_spy_gex_summary"):
+            self.logger.debug(
+                "SpyderN09 GammaExposureCalculator lacks get_spy_gex_summary; "
+                "skipping summary path"
+            )
+            self._n09_summary_supported = False
+            return None
+
+        if self._n09_summary_calculator is None:
+            self._n09_summary_calculator = GammaExposureCalculator()
+
+        self._n09_summary_supported = True
+        return self._n09_summary_calculator
 
     # ------------------------------------------------------------------
     # Public API
@@ -379,28 +441,28 @@ class GEXDEXCalculator:
     def _compute_from_internal_sources(self, spot_price: float | None) -> dict:
         """Try to obtain chain data from SpyderN09 or SpyderN03 singletons."""
         # Try SpyderN09_GammaExposure first
-        try:
-            from SpyderN_OptionsAnalytics.SpyderN09_GammaExposure import GammaExposureCalculator
-            gex_calc = GammaExposureCalculator()
-            result = gex_calc.get_spy_gex_summary()
-            n_strikes = result.get("num_strikes", 0)
-            if n_strikes == 0:
-                # OPRA stream not yet active — fall through so the chain
-                # fallback (N03 → Tradier B40) computes a real GEX instead
-                # of propagating the zero that N09 returns without live data.
-                raise DataUnavailableError(
-                    "SpyderN09 returned 0 strikes — OPRA stream not active; using chain fallback"
-                )
-            return {
-                "gex": result.get("net_gex_billions", 0.0),
-                "dex": result.get("net_dex_millions", 0.0),
-                "ogl": result.get("max_gamma_strike", spot_price or 0.0),
-                "timestamp": datetime.now(UTC),
-                "num_strikes": n_strikes,
-                "data_source": "SpyderN09_GammaExposure",
-            }
-        except Exception as e:
-            logging.getLogger(__name__).debug("SpyderN09 GEX calculation unavailable, using fallback: %s", e)  # noqa: E501
+        gex_calc = self._get_n09_summary_calculator()
+        if gex_calc is not None:
+            try:
+                result = gex_calc.get_spy_gex_summary()
+                n_strikes = result.get("num_strikes", 0)
+                if n_strikes == 0:
+                    # OPRA stream not yet active — fall through so the chain
+                    # fallback (N03 → Tradier B40) computes a real GEX instead
+                    # of propagating the zero that N09 returns without live data.
+                    raise DataUnavailableError(
+                        "SpyderN09 returned 0 strikes — OPRA stream not active; using chain fallback"
+                    )
+                return {
+                    "gex": result.get("net_gex_billions", 0.0),
+                    "dex": result.get("net_dex_millions", 0.0),
+                    "ogl": result.get("max_gamma_strike", spot_price or 0.0),
+                    "timestamp": datetime.now(UTC),
+                    "num_strikes": n_strikes,
+                    "data_source": "SpyderN09_GammaExposure",
+                }
+            except Exception as e:
+                logging.getLogger(__name__).debug("SpyderN09 GEX calculation unavailable, using fallback: %s", e)  # noqa: E501
 
         # Resolve spot_price from the live market-data snapshot when the caller
         # didn't supply one.  Without a valid spot, _compute_from_chain defaults
@@ -450,15 +512,7 @@ class GEXDEXCalculator:
             # avoid a /options/expirations HTTP round-trip every 60-second cycle.
             today_str = str(_date.today())
             if self._expirations_cache_date != today_str or not self._cached_expirations:
-                exps_resp = client.get_option_expirations("SPY")
-                exps = exps_resp.get("expirations", {}).get("date", [])
-                if not exps:
-                    raise DataUnavailableError("No SPY expirations returned from Tradier")
-                if isinstance(exps, str):
-                    exps = [exps]
-                self._cached_expirations = list(exps)
-                self._expirations_cache_date = today_str
-                self.logger.debug("Cached %d SPY expirations for %s", len(exps), today_str)
+                self._refresh_cached_expirations_from_tradier(client, today_str)
             else:
                 self.logger.debug("Using cached SPY expirations (%d dates)",
                                   len(self._cached_expirations))

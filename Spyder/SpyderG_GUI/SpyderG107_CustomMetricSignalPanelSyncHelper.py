@@ -18,11 +18,16 @@ class CustomMetricSignalPanelSyncPlan:
     skew: float
     gex: float
     live_data: dict[str, float]
+    clear_live_keys: tuple[str, ...] = ()
+
+
+def _is_stale_metric_entry(entry: object) -> bool:
+    return isinstance(entry, dict) and bool(entry.get("stale"))
 
 
 def _coerce_metric_value(metrics: Mapping[str, object], key: str, default: float) -> float:
     entry = metrics.get(key)
-    if not isinstance(entry, dict):
+    if not isinstance(entry, dict) or _is_stale_metric_entry(entry):
         return default
 
     value = entry.get("value", default)
@@ -39,12 +44,16 @@ def build_custom_metric_signal_panel_sync_plan(
 ) -> CustomMetricSignalPanelSyncPlan:
     """Return the signal-panel regime payload and live S07 values."""
     live_data: dict[str, float] = {}
+    clear_live_keys: list[str] = []
     for s07_key, (widget_key, scale) in metric_routing.items():
         if s07_key in ("TICK", "ADD", "TRIN"):
             continue
 
         entry = metrics.get(s07_key)
         if not isinstance(entry, dict):
+            continue
+        if _is_stale_metric_entry(entry):
+            clear_live_keys.append(widget_key)
             continue
 
         raw = entry.get("value")
@@ -60,4 +69,5 @@ def build_custom_metric_signal_panel_sync_plan(
         skew=_coerce_metric_value(metrics, "SKEW", 120.0),
         gex=_coerce_metric_value(metrics, "GEX", 0.0),
         live_data=live_data,
+        clear_live_keys=tuple(clear_live_keys),
     )

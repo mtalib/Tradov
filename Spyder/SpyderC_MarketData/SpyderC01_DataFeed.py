@@ -46,13 +46,14 @@ import time
 import math
 import threading
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, UTC, time as dt_time
 from typing import Optional, Any
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
+from zoneinfo import ZoneInfo
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -91,6 +92,23 @@ DEFAULT_FEED_CONFIG = {
 
 # Symbol Groups for Efficient Management (canonical source)
 SYMBOL_GROUPS = get_backend_symbol_groups()
+
+
+def _is_regular_market_hours(check_time: datetime | None = None) -> bool:
+    """Return True only during the regular NYSE session, holiday-aware when possible."""
+    try:
+        from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import get_trading_calendar
+
+        return bool(get_trading_calendar().is_market_open(check_time))
+    except Exception:
+        current = check_time or datetime.now(UTC)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=UTC)
+        current_et = current.astimezone(ZoneInfo("America/New_York"))
+        return (
+            current_et.weekday() < 5
+            and dt_time(9, 30) <= current_et.time() < dt_time(16, 0)
+        )
 
 
 # ==============================================================================
@@ -392,6 +410,10 @@ class DataFeedManager:
         self._quote_poll_interval_s: float = max(
             1.0,
             float(os.environ.get("SPYDER_FEED_QUOTE_POLL_INTERVAL_S", "1.0")),
+        )
+        self._quote_poll_interval_offhours_s: float = max(
+            self._quote_poll_interval_s,
+            float(os.environ.get("SPYDER_FEED_OFFHOURS_QUOTE_POLL_INTERVAL_S", "20.0")),
         )
         self._quote_client_failed: bool = False
 
@@ -1103,7 +1125,11 @@ class DataFeedManager:
             return
 
         now_mono = time.monotonic()
-        if (now_mono - self._last_quote_poll_monotonic) < self._quote_poll_interval_s:
+        poll_interval_s = self._quote_poll_interval_s
+        if not _is_regular_market_hours():
+            poll_interval_s = self._quote_poll_interval_offhours_s
+
+        if (now_mono - self._last_quote_poll_monotonic) < poll_interval_s:
             return
         self._last_quote_poll_monotonic = now_mono
 

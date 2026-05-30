@@ -115,10 +115,10 @@ def test_update_regime_pills_uses_status_plan_helper(monkeypatch, tmp_path: Path
             "swan": 1.2,
             "s07_live": True,
             "execution_truth": {
-                "regime": "bear_high_vol",
+                "regime": "",
                 "stance": "",
                 "gate": "",
-                "gate_key": "range_calm",
+                "gate_key": "",
             },
             "fallback_stress": None,
         }

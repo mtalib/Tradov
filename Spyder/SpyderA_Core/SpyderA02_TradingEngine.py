@@ -121,6 +121,7 @@ DEFAULT_PERMITTED_PIPELINE_STRATEGIES = (
     "iron_condor",
     "credit_spread",
     "iron_butterfly",
+    "broken_wing_butterfly",
     "bull_put_spread",
 )
 

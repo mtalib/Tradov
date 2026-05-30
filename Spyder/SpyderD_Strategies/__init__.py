@@ -204,6 +204,30 @@ except ImportError as e:
     logging.info("Warning: SpyderD22_AdaptiveVolatility not available: %s", e)
 
 try:
+    from .SpyderD23_BrokenWingButterfly import BrokenWingButterflyStrategy
+    __all__.extend(["BrokenWingButterflyStrategy"])
+except ImportError as e:
+    logging.info("Warning: SpyderD23_BrokenWingButterfly not available: %s", e)
+
+try:
+    from .SpyderD38_JadeLizardZero import JadeLizardZeroStrategy
+    __all__.extend(["JadeLizardZeroStrategy"])
+except ImportError as e:
+    logging.info("Warning: SpyderD38_JadeLizardZero not available: %s", e)
+
+try:
+    from .SpyderD39_PutCreditSpread7 import PutCreditSpread7Strategy
+    __all__.extend(["PutCreditSpread7Strategy"])
+except ImportError as e:
+    logging.info("Warning: SpyderD39_PutCreditSpread7 not available: %s", e)
+
+try:
+    from .SpyderD24_Butterfly import ButterflyStrategy
+    __all__.extend(["ButterflyStrategy"])
+except ImportError as e:
+    logging.info("Warning: SpyderD24_Butterfly not available: %s", e)
+
+try:
     from .SpyderD25_UnifiedCreditSpreadEngine import UnifiedCreditSpreadEngine
     __all__.extend(["UnifiedCreditSpreadEngine"])
 except ImportError as e:
@@ -244,6 +268,12 @@ try:
     __all__.extend(["MultiLegStrategyCoordinator"])
 except ImportError as e:
     logging.info("Warning: SpyderD32_MultiLegStrategyCoordinator not available: %s", e)
+
+try:
+    from .SpyderD37_BullishStrangle import BullishStrangleStrategy
+    __all__.extend(["BullishStrangleStrategy"])
+except ImportError as e:
+    logging.info("Warning: SpyderD37_BullishStrangle not available: %s", e)
 
 # ==============================================================================
 # PACKAGE METADATA

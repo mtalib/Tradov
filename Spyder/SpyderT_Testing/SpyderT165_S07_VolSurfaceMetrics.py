@@ -87,10 +87,45 @@ def test_s07_vol_surface_metrics_populate_from_snapshot(monkeypatch):
     assert updated["SURFACE_CONFIDENCE"] == 0.87
 
 
+def test_s07_vol_surface_metrics_build_surface_when_snapshot_missing(monkeypatch):
+    orch = CustomMetricsOrchestrator(config={"auto_start": False})
+    fake_builder = MagicMock()
+    fake_builder.get_term_structure_snapshot.side_effect = [
+        ValueError("No surface available for SPY"),
+        {
+            "atm_iv_0dte": 0.20,
+            "atm_iv_1dte": 0.21,
+            "atm_iv_7dte": 0.24,
+            "atm_iv_30dte": 0.28,
+            "term_slope_0_7": 2.08,
+            "term_slope_7_30": 0.63,
+            "rr_25d": 0.012,
+            "fly_25d": 0.008,
+            "surface_confidence": 0.87,
+            "surface_age_ms": 1200,
+            "snapshot_ts": "2026-04-25T12:00:00",
+        },
+    ]
+    monkeypatch.setattr(orch, "_get_vol_surface_builder", lambda: fake_builder)
+    fake_surface_data = object()
+    monkeypatch.setattr(orch, "_get_spy_spot", lambda: 585.0)
+    monkeypatch.setattr(orch, "_load_vol_surface_chain_dataframe", lambda: fake_surface_data)
+
+    updated = {}
+    errors = []
+    result = orch._update_vol_surface_metrics(updated, errors)
+
+    assert result is True
+    assert errors == []
+    fake_builder.build_surface.assert_called_once_with("SPY", fake_surface_data, 585.0)
+    assert updated["ATM_IV_0DTE"] == 0.20
+    assert updated["SURFACE_AGE_MS"] == 1200
+
+
 def test_s07_vol_surface_metrics_fall_back_on_error(monkeypatch):
     orch = CustomMetricsOrchestrator(config={"auto_start": False})
     fake_builder = MagicMock()
-    fake_builder.get_term_structure_snapshot.side_effect = ValueError("no surface")
+    fake_builder.get_term_structure_snapshot.side_effect = RuntimeError("builder exploded")
     monkeypatch.setattr(orch, "_get_vol_surface_builder", lambda: fake_builder)
 
     updated = {}

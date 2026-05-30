@@ -219,9 +219,10 @@ class LivenessMonitor:
 
     def _is_market_hours(self) -> bool:
         try:
-            from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import TradingCalendar
+            from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import get_trading_calendar
 
-            return bool(TradingCalendar.is_market_open())
+            current = datetime.now(UTC).astimezone()
+            return bool(get_trading_calendar().is_market_open(current))
         except Exception:
             now = datetime.now(UTC).astimezone()
             if now.weekday() >= 5:

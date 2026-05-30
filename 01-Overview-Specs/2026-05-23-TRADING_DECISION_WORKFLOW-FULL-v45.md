@@ -1,15 +1,44 @@
-# Trading Decision Workflow (Full) — v43
+# Trading Decision Workflow (Full) — v45
 
-Last Updated: 2026-05-21
-Status: Current Implementation Reference
-Scope: 6-Regime Master Logic and Strategy Mapping for SPY options
+Last Updated: 2026-05-23
+Status: Current Implementation Reference (audited pill/display sync)
+Scope: 6-Regime Master Logic, dashboard pill reconciliation, and strategy mapping for SPY options
 
 ## Change Log
 
 | Version | Date | Summary |
 |---|---|---|
+| v45 | 2026-05-23 | Implementation audit of G05/G52/G109/G110/G111/D31/L09. Clarified that REGIME/STRESS are display-layer signals, STANCE/GATE come from D31 execution truth, and DISPATCH applies a display-regime HALT override over D31 recency state. Documented exact S07 and VIX-fallback thresholds, corrected market-data cold-path notes to match D31 fail-closed `CRISIS` behavior, and aligned the DISPATCH tooltip contract with flag-resolved BULL/BEAR/RANGE/overlay rendering. |
+| v44 | 2026-05-21 | Paper autostart moved to `09:00 ET`. `_A01_PAPER_LOAD_START_ET` changed from `09:25` to `09:00`; `_A01_PAPER_AUTOSTART_WARMUP_END_ET` changed from `09:33` to `09:00`. Button shows `PAPER ACTIVE` and data hydration begins at 09:00 ET (or immediately on later launches). The current session-window execution gate is `first_entry_not_before_et=09:45`. Section 1.2 timetable updated with the 09:45 opening-entry boundary; Sections 10.8 and 10.11 reflect the same anchor. |
 | v43 | 2026-05-21 | Pill bar audit: fixed two code bugs (G41 `build_pill_stylesheet` missing `"high vol"` token caused VOLATILE/HIGH-VOL GATE pill to render gray instead of amber; G52 `_STANCE_TIPS` all three entries incorrectly attributed to D30 — corrected to D31). Fixed Section 5.3 field-name table: STANCE source was `SpyderD30_RegimeGatedSelector` — corrected to `SpyderD31_StrategyOrchestrator._execution_stance_for_regime`. No logic or workflow changes. |
 | v42 | 2026-05-20 | Status-quo reference: 6-regime pipeline, dual-path regime display/execution architecture, partial ODTE overlay, current classifier implementations for G109/L09/D31/G110 |
+
+## 0) Verification Basis
+
+This v45 snapshot is based on direct source inspection of:
+
+- G05/G52/G109/G110/G111 dashboard-pill ownership and reconciliation
+- D31 execution pill state / dispatch state surfaces
+- L09 deterministic regime engine and D31 market-data cache bridge
+
+Focused regressions run for this audit:
+
+- `SpyderT184_RegimeV2DeterministicContract.py`
+- `SpyderT185_D31_MarketDataCacheShape.py`
+- `SpyderT195_D31_DispatchStateBadge.py`
+- `SpyderT209_G05_RegimePillExecutionTruth.py`
+- `SpyderT252_G52_RegimePillBarPresenter.py`
+- `SpyderT322_G05_RegimePillStatePlan.py`
+- `SpyderT324_G05_RegimePillStatusPlan.py`
+- `SpyderT325_G110_RegimePillStatusHelper.py`
+- `SpyderT380_G109_VixFallbackBull.py`
+- `SpyderT381_L09_ColdVixEma50.py`
+- `SpyderT382_G110_GateStartupFallback.py`
+
+Verification boundary:
+
+- This audit confirms the pill-bar contract, fallback behavior, feature-flag rendering, and market-data cache shape for the owning surfaces above.
+- It does **not** promote the partial ODTE overlay path to production-ready status; Sections 6.2 and 9.4 remain authoritative for that limitation.
 
 ---
 
@@ -52,21 +81,26 @@ PCA-PROXY and PCA-IV are surfaced through S07/G05/G13 for operator awareness and
 
 ## 1.2) Intraday SPY Options Activity Timetable
 
-The current automated paper/live session policy is intentionally more conservative than discretionary trader guidance. Spyder observes the full open, skips new opening trades through the post-open fade, concentrates new risk in the `10:15–11:30 ET` primary session, allows a secondary `13:00–14:30 ET` window, and blocks new `0DTE` short-premium risk before pre-MOC.
+The current automated paper/live session policy is intentionally more conservative than discretionary trader guidance. Spyder autostarts the session supervisor and begins data hydration at `09:00 ET`, skips new opening trades through the opening range, opens new risk at `09:45 ET` once the initial post-open settling window ends, allows a secondary `13:00–14:30 ET` window, and blocks new `0DTE` short-premium risk before pre-MOC.
 
 | Window | ET | Professional read | Current Spyder execution policy |
 |---|---|---|---|
+| **Pre-market / data hydration** | **`09:00`** | Session supervisor starts; Tradier connects (market data, account info, and execution all live) | **`PAPER ACTIVE` — data hydration begins; no trades (`first_entry_not_before_et` gate blocks entries until 09:45)** |
 | Opening range | `09:30–09:45` | Observe only; spreads and order flow are still settling | No new opening trades |
-| Post-open fade | `09:45–10:15` | Experienced discretionary window only | No new opening trades; `first_entry_not_before_et` is still active |
-| Primary session | `10:15–11:30` | Highest-probability session | Preferred automated new-entry window; `OPTIMAL_ENTRY_WINDOW` and `first_entry_not_before_et` align here |
+| Primary session | `09:45–11:30` | Highest-probability session | Session-window gate opens at `09:45 ET`; legacy optimal-entry heuristics may still be narrower in some strategy modules |
 | Lunch drift | `11:30–13:00` | Lower volume, more chop | Existing positions may be managed; new entries should be selective |
 | Afternoon continuation | `13:00–14:30` | Secondary continuation / premium-selling window | Secondary entry window; new `0DTE` short risk is still allowed before `14:30 ET` |
 | Pre-MOC | `14:30–15:00` | Cautious; MOC distortion starts to build | `zero_dte_no_new_risk_cutoff_et=14:30`; do not open new `0DTE` short-premium risk |
 | MOC / close | `15:00–16:00` | Close-only / high gamma risk | Closing and risk-reduction only; avoid fresh options risk |
+| Session close | `16:15` | Session supervision and closeout boundary | `primary_end_et`; position supervision ends |
+| Workers disconnect | `16:30` | Tradier / dashboard workers shut down | `TRADIER_DISCONNECT_TIME` / `DASHBOARD_SESSION_CLOSE` |
 
 Current implementation anchors:
 
-- `first_entry_not_before_et=10:15`
+- `_A01_PAPER_LOAD_START_ET=09:00` — pre-market window starts; launches before 09:00 ET wait until this time
+- `_A01_PAPER_AUTOSTART_WARMUP_END_ET=09:00` — session supervisor autostarts at 09:00 ET; button shows `PAPER ACTIVE`
+- `TRADIER_CONNECT_TIME=09:00` — Tradier worker connects at 09:00 ET (market data, account info, and execution)
+- `first_entry_not_before_et=09:45` — no new entries before this time regardless of regime
 - `zero_dte_no_new_risk_cutoff_et=14:30`
 - `OPTIMAL_ENTRY_WINDOW=10:15–11:30`
 - explicit timetable windows are exposed through `SpyderU03_DateTimeUtils.get_trading_windows()` and `SpyderA04_Scheduler`
@@ -89,7 +123,7 @@ This is the default mapping with all extension flags off.
 
 ## 2.1) Opt-In Strategy Extensions (Feature Flags)
 
-Operators may enable narrow, regime-scoped strategy alternatives without changing the contract's hard policy (4-strategy default, 2-strategy concurrency cap, hard halts on CRISIS/EVENT). All flags default **off**. Each flag swaps in an alternative strategy for a specific regime; the default mapping remains active for any regime whose flag is not set.
+Operators may enable narrow, regime-scoped strategy alternatives without changing the contract's hard policy (baseline lean allowlist, 2-strategy concurrency cap, hard halts on CRISIS/EVENT). All flags default **off**. Each flag swaps in an alternative strategy for a specific regime; the default mapping remains active for any regime whose flag is not set.
 
 ### 2.1.1) `SPYDER_ENABLE_BULL_CALL_SPREAD` — debit alternative for BULL
 
@@ -119,9 +153,25 @@ When set to `true`, the RANGE regime maps to **SpyderD34_PivotMeanReversion** *o
 | flag on | `false` | SpyderD02_IronCondor |
 | flag on | `true` | SpyderD34_PivotMeanReversion |
 
+### 2.1.4) `SPYDER_ENABLE_PAPER_CALENDAR_SPREAD_ROUTING` — paper-only low-vol calendar override
+
+When set to `true`, **paper-mode lean routing only** may resolve low-volatility selections to **SpyderD14_CalendarSpread** instead of the default credit/range strategies. Live mode is unchanged. D31 then dispatches the resulting calendar signal as two explicit OCC option-leg orders (near short leg + far long leg).
+
+This flag must be present **before startup**. D31 reads it during `StrategyOrchestrator` initialization, so toggling it after launch does not change the active lean allowlist for that run.
+
+| Context | flag off (default) | flag on |
+|---|---|---|
+| paper `BULL_LOW_VOL` | SpyderD06_BullPutSpread | SpyderD14_CalendarSpread |
+| paper `BEAR_LOW_VOL` | SpyderD07_BearCallSpread | SpyderD14_CalendarSpread |
+| paper `SIDEWAYS_LOW_VOL` | SpyderD02_IronCondor | SpyderD14_CalendarSpread |
+| live any regime | unchanged | unchanged |
+
 ### Combined behavior
 
 - Multiple flags may be on simultaneously; each affects only its own regime.
+- `SPYDER_ENABLE_PAPER_CALENDAR_SPREAD_ROUTING` is paper-only and affects only the low-vol lean path; it does not widen live trading policy or change high-vol / CRISIS / EVENT behavior.
+- BrokenWingButterfly is always permitted in lean mode; D30 routes `RECOVERY_MODE` and `HIGH_VOLATILITY` with bullish pivot support to that strategy without a feature flag.
+- D31 classifies strategies with `target_dte <= 1` as `ultra_short`; BrokenWingButterfly defaults to `target_dte = 0` unless explicitly overridden.
 - Baseline concurrency cap of 2 is unchanged — at most one long-term/swing strategy and one intraday/0DTE strategy may be active simultaneously.
 - The optional ODTE Pivot third-slot is partially implemented (see Section 6.2).
 - F09 Entry Trust Gate's regime-policy allowlist must be updated to include any opt-in strategy whose flag is enabled.
@@ -266,7 +316,7 @@ If no rule is matched:
 
 Purpose:
 - Convert strong pivot reactions into deterministic entry timing improvements.
-- Preserve the canonical 4-strategy mapping unless Section 2.1 opt-in flags are explicitly enabled.
+- Preserve the canonical baseline lean mapping unless Section 2.1 opt-in flags are explicitly enabled.
 
 Policy:
 - Regime classification in Rules 0–6 remains authoritative.
@@ -363,25 +413,43 @@ Interpretation notes:
 
 | Internal Name | Dashboard Display Label | Source |
 |---|---|---|
-| Regime (display posture) | **Regime** | G05 `update_regime_pills()` — derived from S07 DIX / SWAN / SKEW / GEX metrics; **not** L09 |
-| D31 stance derivation | **Strategy Stance** | `SpyderD31_StrategyOrchestrator._execution_stance_for_regime()` — collapses D31's 8-state `MarketRegime` into BULLISH / CHOPPY / CRISIS |
-| Policy Key (D31 gate) | **Strategy Gate** | SpyderD31_StrategyOrchestrator |
-| D31 dispatch state + halt | **Dispatch** | `SpyderD31.get_dispatch_state()` + regime-driven HALT priority (absorbed legacy BIAS and TRADEABLE pills) |
+| Regime (display posture) | **Regime** | G05 `update_regime_pills()` → G109 `build_regime_pill_state_plan()` — display posture from S07 live metrics or sticky/VIX fallback; **not** L09 |
+| D31 stance derivation | **Strategy Stance** | D31 `get_execution_pill_state()` → `SpyderD31_StrategyOrchestrator._execution_stance_for_regime()` |
+| Policy Key (D31 gate) | **Strategy Gate** | D31 `get_execution_pill_state()` → `_normalize_regime_policy_key()` → `_execution_gate_label_for_policy_key()` |
+| D31 dispatch state + halt | **Dispatch** | G111 `build_regime_dispatch_announcement_plan()` layering display-regime HALT over `SpyderD31.get_dispatch_state()` |
 
 ### Dual-Regime-Path Architecture
 
-Two independent regime classifiers run in parallel and are intentionally not reconciled at the display layer:
+The pill bar is synchronized by ownership boundaries, not by a single classifier. Three related but distinct planners run inside G05:
 
-**Display path (operator posture awareness):**
-- Source: S07 DIX/SWAN/SKEW/GEX metrics → G05 `update_regime_pills()`.
-- VIX fallback: when S07 is offline, `SpyderG109_RegimePillStateHelper._classify_vix_regime()` provides the REGIME pill. Current thresholds:
+**Display REGIME path (operator posture awareness):**
+- Owner: `SpyderG109_RegimePillStateHelper.build_regime_pill_state_plan()`.
+- `s07_live` becomes `true` when SWAN and DIX have live values. SKEW and GEX participate when present; otherwise G109 falls back to `skew=120.0` and `gex=0.0`.
+- Exact S07 composite precedence:
+  - `CRISIS` if `SWAN >= 2.0`
+  - `VOLATILE` if `SWAN >= 1.95` or `SKEW >= 150`
+  - `RANGE` if `SKEW >= 140 and DIX < 42`
+  - `BULL` if `DIX >= 46 and GEX >= 0 and SWAN < 1.9`
+  - `BEAR` if `DIX <= 40 and SWAN >= 1.85`
+  - `BULL` if `DIX >= 43 and SWAN < 1.92`
+  - `RANGE` otherwise
+- When S07 is offline, `SpyderG109_RegimePillStateHelper._classify_vix_regime()` provides the REGIME fallback. Current thresholds:
   - `CRISIS` if `vix >= 35` or `vix9d > vix` (term-structure inversion)
   - `VOLATILE` if `vix >= 25`
   - `BEAR` if `spx_change_pct <= -1.5`
   - `BULL` if `spx_change_pct >= 0.3 and vix < 24`
-  - `RANGE` otherwise (default fallback)
+  - `RANGE` otherwise
   - A 3-cycle debounce is applied before the VIX fallback commits to a new regime label.
 - Updates every 1 s. When S07 was recently live and classified a regime, a sticky value is preserved while S07 is temporarily offline.
+
+**STRESS path (same snapshot family, separate thresholds):**
+- Owner: `SpyderG110_RegimePillStatusHelper.build_regime_pill_status_plan()`.
+- When `s07_live=true`, STRESS uses SWAN bands only:
+  - `LOW` if `SWAN < 1.5`
+  - `MEDIUM` if `1.5 <= SWAN < 2.0`
+  - `HIGH` if `2.0 <= SWAN < 3.0`
+  - `CRISIS` if `SWAN >= 3.0`
+- When `s07_live=false`, STRESS uses the metrics-orchestrator fallback (`get_stress_level()`) when available; otherwise it shows `UNKNOWN`.
 
 **Execution path (strategy selection):**
 - Source: L09 `UnifiedRegimeEngine._detect_lean_regime()` → D31 `_classify_market_regime_unified()`.
@@ -405,8 +473,18 @@ The L09 partial-path cases (confidence 0.75) apply when `vix_ema50` is NaN becau
 - D31's heuristic fallback classifier (`_classify_market_regime()`) uses the contract-oriented input stack in order: event state → SPY/VIX EMA50 → ATR → ATR% → VIX9D → VXV. Simple trend-strength logic is only a last-resort when those contract inputs are insufficient.
 
 **Divergence behavior:**
-- These two paths may disagree during low-confidence market conditions. This is intentional: the display pill conveys *posture* (operator awareness); the execution regime conveys *what D31 is actually doing*.
-- The DISPATCH pill is the single surface that reflects execution truth. When D31's L09 confidence falls below 70%, D31 defers to its heuristic classifier.
+- These paths may disagree during low-confidence market conditions. This is intentional: the display pills convey *posture*; the execution regime conveys *what D31 is actually doing*.
+- REGIME and STRESS are intentionally related but not identical. The same live snapshot can legitimately show `REGIME: CRISIS` and `STRESS: HIGH` for `2.0 <= SWAN < 3.0`.
+- STANCE and GATE come from D31 execution truth via `get_execution_pill_state()`. If D31 has not yet classified, G05/G110 can fall back to display-regime-derived labels, but D31 normally returns startup-safe defaults (`CHOPPY` / `RANGE CALM`).
+- DISPATCH uses D31 `get_dispatch_state()` for `FLOWING / IDLE / BLOCKED / ERROR`, but `HALT` is imposed in `SpyderG111_RegimeDispatchAnnouncementHelper` whenever display REGIME is `CRISIS` or `EVENT`.
+
+### As-Implemented Synchronization Findings
+
+- The five-pill bar is coherent by ownership, but it is **not** a single-source-of-truth pipeline.
+- `REGIME` and `STRESS` are synchronized by shared refresh cadence, not by a single enum or threshold ladder.
+- `STANCE` and `GATE` are the authoritative D31 execution-posture surfaces.
+- `DISPATCH` is the authoritative D31 recency-state surface except for the display-regime HALT override.
+- For the question "what is the system actually allowed to do right now?" the order of authority is **GATE first, DISPATCH second, REGIME/STRESS for posture context**.
 
 ### Strategy Stance Display Values
 
@@ -423,13 +501,13 @@ Priority (high → low): **HALT > ERROR > BLOCKED > FLOWING > IDLE**.
 
 | Value | Color | Meaning |
 |---|---|---|
-| HALT | Purple | REGIME is CRISIS or EVENT — hard halt / kill-switch policy. Top priority; preempts all other DISPATCH states. |
+| HALT | Purple | Display REGIME is CRISIS or EVENT — hard halt / kill-switch policy. Top priority; preempts all other DISPATCH states. |
 | ERROR | Red | A `dispatch_exception` occurred in the last 120 s. System error, not a guardrail. Tooltip surfaces the exception detail; full context in `logs/decisions/YYYY-MM-DD.jsonl` |
 | BLOCKED | Amber | A guardrail dropped the latest signal in the last 120 s. Tooltip surfaces the `{stage}:{reason}` (e.g. `risk_gate:risk_state_cold`, `entry_trust_gate:Weekend - markets closed`) |
 | FLOWING | Green | D31 approved-and-dispatched a signal in the last 120 s |
 | IDLE | Grey | No signal events in the last 120 s (no drops, no dispatches). Expected outside RTH or between strategy cadences |
 
-Recency window is `DISPATCH_STATE_RECENCY_S = 120.0`. HALT is layered in G05 from REGIME (CRISIS/EVENT); the four base states are returned by `D31.get_dispatch_state()` directly.
+Recency window is `DISPATCH_STATE_RECENCY_S = 120.0`. HALT is layered in G111/G05 from display REGIME (CRISIS/EVENT); the four base states are returned by `D31.get_dispatch_state()` directly.
 
 ### D31 Startup Safe Defaults
 
@@ -455,7 +533,7 @@ This ensures G110 (GATE and STANCE) uses a deterministic startup state rather th
 Notes:
 
 - **Rows 1–4**: DISPATCH cycles through FLOWING / IDLE / BLOCKED / ERROR independently as signals fire and gates evaluate.
-- **Rows 5–6**: DISPATCH is forced to HALT. HALT is the *only* state these regimes can produce.
+- **Rows 5–6**: DISPATCH is forced to HALT. HALT is the *only* displayed state these regimes can produce, even if D31's raw recency state would otherwise still be FLOWING / IDLE / BLOCKED / ERROR.
 - **DISPATCH is an observation** — it is not a gate. STRATEGY GATE remains the authoritative execution control.
 - **Section 2.1 opt-in flags do not change this matrix.** The underlying mapped strategy may be the default or the extension alternative depending on flag state.
 
@@ -469,13 +547,13 @@ Priority (high → low): **HALT > ERROR > BLOCKED > FLOWING > IDLE**.
 
 | State | Pill Text | Pill Color | Trigger |
 |---|---|---|---|
-| Halt | `DISPATCH: HALT` | Purple | REGIME is CRISIS or EVENT — hard halt / kill-switch policy |
+| Halt | `DISPATCH: HALT` | Purple | Display REGIME is CRISIS or EVENT — hard halt / kill-switch policy |
 | Error | `DISPATCH: ERROR` | Red | A `dispatch_exception` occurred within the recency window |
 | Blocked | `DISPATCH: BLOCKED` | Amber | A guardrail dropped the latest signal within the recency window |
 | Flowing | `DISPATCH: FLOWING` | Green | D31 approved-and-dispatched a signal within the recency window (120 s) |
 | Idle | `DISPATCH: IDLE` | Grey | No signal events within the recency window — expected outside RTH or between strategy cadences |
 
-Recency window is `DISPATCH_STATE_RECENCY_S = 120.0`. HALT persists for the full duration of the halt regime and is not subject to the recency window.
+Recency window is `DISPATCH_STATE_RECENCY_S = 120.0`. HALT persists for the full duration of the halt regime because it is driven by display REGIME and is not subject to the recency window.
 
 ### Tooltip behavior
 
@@ -483,17 +561,19 @@ The tooltip is structured in three sections:
 
 1. **State description** — drawn from `_DISPATCH_TIPS` (one entry per state).
 2. **Latest reason** — `Reason: <text>` from `D31.get_dispatch_state()` (omitted if no reason is available).
-3. **Permitted strategies and concurrency context** — always shown:
+3. **Flag-resolved strategy appendix and concurrency context** — always shown. G52 resolves `SPYDER_ENABLE_BULL_CALL_SPREAD`, `SPYDER_ENABLE_BEAR_PUT_SPREAD`, `SPYDER_ENABLE_PIVOT_MEAN_REVERSION`, and the overlay flag at render time.
 
 > **Permitted strategies:**
-> - **BULL:** SpyderD06_BullPutSpread *(or SpyderD15_BullCallSpread when `SPYDER_ENABLE_BULL_CALL_SPREAD=true`)*
-> - **BEAR:** SpyderD07_BearCallSpread *(or SpyderD16_BearPutSpread when `SPYDER_ENABLE_BEAR_PUT_SPREAD=true`)*
-> - **RANGE:** SpyderD02_IronCondor *(or SpyderD34_PivotMeanReversion when `SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true` AND S08 pivot fired)*
+> - **BULL:** `SpyderD06_BullPutSpread` by default; `SpyderD15_BullCallSpread` when `SPYDER_ENABLE_BULL_CALL_SPREAD=true`
+> - **BEAR:** `SpyderD07_BearCallSpread` by default; `SpyderD16_BearPutSpread` when `SPYDER_ENABLE_BEAR_PUT_SPREAD=true`
+> - **RANGE:** `SpyderD02_IronCondor` by default; when `SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true`, the appendix keeps IronCondor as the base mapping and appends the conditional `SpyderD34_PivotMeanReversion` alternative for `S08 pivot_signal.fired=true`
 > - **VOLATILE:** SpyderD10_IronButterfly
 >
-> **Concurrency limit:** Max 2 strategies open by default (one long-term/swing + one intraday/0DTE). A narrow D31/E01 overlay path may admit one third `ultra_short` PivotMeanReversion slot behind the overlay flag and baseline-full admission/risk checks.
+> **Concurrency limit:** Max 2 strategies open by default (one long-term/swing + one intraday/0DTE).
+>
+> **Overlay path:** Shown only when `SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`. This note reminds the operator that the third slot is still a narrow `ultra_short` PivotMeanReversion exception behind baseline-full admission and E01 risk checks.
 
-Env flags are resolved at tooltip render time so changes take effect without a restart.
+Env flags are resolved at tooltip render time so changes take effect without a restart. The STANCE and GATE tooltips remain generic descriptive text; the DISPATCH tooltip is the authoritative flag-resolved strategy appendix.
 
 ## 5.5) PCA Custom Metrics in Market Overview (Observability Only)
 
@@ -609,17 +689,19 @@ Must produce only one of:
 
 Classification must be deterministic and precedence-ordered. ML, probabilistic blending, and non-deterministic weighting are excluded from this contract.
 
-L09 must be fed real per-symbol tick series (see Section 9.1); a missing or stale series must surface as a `DATA_STALE` event rather than silently fall through to a RANGE fallback on synthetic defaults.
+L09 must be fed real per-symbol tick series (see Section 9.1); a missing or stale series must fail closed rather than silently fall through to a RANGE fallback on synthetic defaults.
 
 **BULL/BEAR cold-start behavior:** When `vix_ema50` is not yet populated (VIX cache < 50 ticks), L09 uses a split-guard path:
 - Full path (confidence 0.90): all four inputs finite (`spy_price`, `spy_ema50`, `vix`, `vix_ema50`). BULL if `spy_price > spy_ema50 and vix < vix_ema50`; BEAR if `spy_price < spy_ema50 and vix > vix_ema50`.
 - Partial path (confidence 0.75): `spy_price`, `spy_ema50`, and `vix` all finite but `vix_ema50` is NaN. BULL if `spy_price > spy_ema50 and vix < 22`; BEAR if `spy_price < spy_ema50 and vix > 28`. Both exceed D31's 0.70 threshold and are used in preference to the range/contango check.
 - Neutral fallback (confidence 0.60): no directional rule matched. D31 defers to its heuristic classifier at this confidence.
 
+**Current implementation note:** D31's owning fail-closed boundary is `MarketRegime.CRISIS` when the SPY cache has fewer than 2 closes or the L09 path finds no VIX ticks. A typed `DATA_STALE` surface remains a reasonable future improvement, but it is **not** the current D31 contract.
+
 ### D30 Regime Gated Selector (contract)
 
 - Must map regimes one-to-one to a permitted strategy or hard halt state.
-- The permitted set is the four default strategies plus any Section 2.1 extension whose env flag is enabled at selector init time.
+- The permitted set is the baseline lean allowlist (BullPutSpread, BearCallSpread, IronCondor, IronButterfly, BrokenWingButterfly) plus any Section 2.1 extension whose env flag is enabled at selector init time.
 - Must keep the baseline 2-slot posture in selector output. The only live 3rd-slot exception is the downstream D31/E01 ODTE Pivot path for `ultra_short` PivotMeanReversion; D30 itself does not widen the selector contract.
 - Must block all non-approved strategy types.
 - Must record `selector_feature_flag` on every selection driven by an extension flag.
@@ -632,7 +714,7 @@ L09 must be fed real per-symbol tick series (see Section 9.1); a missing or stal
 
 - Default mode for EVENT and CRISIS is no-trade.
 - ODTE Pivot third-slot logic is partially implemented (see Section 6.2).
-- If required indicator data is missing, fail safe to EVENT/NO TRADE or RANGE. Prefer surfacing missing-data as a `DATA_STALE` event over silently producing a synthetic regime label.
+- If required indicator data is missing, fail safe to no-trade rather than synthesizing a directional or range label. On the current D31/L09 owning path, cold SPY/VIX cache conditions fail closed to `CRISIS`; older `DATA_STALE` wording is aspirational, not the present implementation.
 - All state transitions must be timestamped and auditable.
 - All extension-flag swaps (Section 2.1) must be auditable: the audit log records which flag was active, what the v5 default would have been, and what was actually selected.
 
@@ -643,10 +725,10 @@ L09's regime classifier requires per-symbol rolling tick series for SPY, VIX, VI
 - **Cache shape**: `cache[symbol]` returns an iterable of tick dicts (each containing at least `close` or `price`, ideally also `high` and `low` for ATR), bounded to a rolling window large enough to compute EMA50 and ATR14 with comfortable headroom (default 200 ticks per symbol).
 - **Per-tick events**: when the publisher emits one event per tick, the consumer must bucket per-symbol — never write the per-event payload as flat top-level cache keys, which would overwrite on every tick and starve L09 of data.
 - **Non-tick payloads**: top-level event types (e.g. `event_clock_state`) may be merged as separate cache keys but must never collide with the per-symbol bucket keys.
-- **Failure mode**: if a required series (SPY or VIX) is empty or has fewer than 50 close samples, L09 must emit `DATA_STALE` and the orchestrator must halt new entries until the series recovers. Synthesizing a default (`spy_price = 500.0`, NaN EMAs) is an explicit anti-pattern.
+- **Failure mode (current implementation)**: if the SPY cache has fewer than 2 closes, D31 fails closed to `MarketRegime.CRISIS` before allowing L09 to operate on fabricated data. If the L09 path finds no VIX ticks, D31 also fails closed to `CRISIS`. A warm VIX EMA50 is **not** required: with fewer than 50 VIX ticks, L09 uses the documented partial-path proxy thresholds (`vix < 22` for BULL, `vix > 28` for BEAR). The older `DATA_STALE` wording is aspirational, not the current D31 behavior. Synthesizing a default (`spy_price = 500.0`, NaN EMAs) is an explicit anti-pattern.
 - **Cache cold-start bridge**: D31 includes `_recover_cache_if_cold()`, which seeds SPY from `market_data/live_data.json` (written by G18 every 10 s) when the SPY cache has fewer than 2 closes, throttled to at most once per 30 s. This supports dashboard-only mode where G18 does not publish `EventType.MARKET_DATA` events to the A05 bus. VIX EMA50 requires 50 VIX ticks and is not seeded by this mechanism; the partial-path L09 logic (Section 8) handles that gap.
 
-This contract is verified by `Spyder/SpyderT_Testing/SpyderT185_D31_MarketDataCacheShape.py`.
+This contract is verified by `Spyder/SpyderT_Testing/SpyderT185_D31_MarketDataCacheShape.py` and the cold-VIX-EMA partial-path coverage in `Spyder/SpyderT_Testing/SpyderT381_L09_ColdVixEma50.py`.
 
 ## 9.2) Current Operations Directive
 
@@ -841,7 +923,7 @@ This section describes the current state of the Spyder trading decision pipeline
 The live signal path in D31 evaluates in this order:
 
 1. Paused-state gate (`_paused_kill` / `_paused_stale`)
-2. Session window gate (`first_entry_not_before_et=10:15`, `zero_dte_no_new_risk_cutoff_et=14:30`)
+2. Session window gate (`first_entry_not_before_et=09:45`, `zero_dte_no_new_risk_cutoff_et=14:30`)
 3. In-flight entry reservation check (blocks duplicate entries during the pre-fill window)
 4. Open-position duplicate-entry check (blocks if R04 already reports an open position for the same symbol/strategy)
 5. Entry trust gate (F09 checks + regime-policy gate)
@@ -957,6 +1039,7 @@ The current paper execution path is:
 
 - Desktop launcher (`launch_spyder_desktop.sh`) exports `SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR=1`, `SPYDER_A01_ALLOW_GUI_AUTOSTART=1`, `SPYDER_A01_AUTOSTART_MODE=paper` by default.
 - A01 always autostarts paper sessions; live autostart is permanently blocked regardless of env flags.
+- **Paper autostart timing**: If the app launches before `09:00 ET` on a weekday, the session supervisor start is deferred until exactly `09:00 ET`. If it launches at or after `09:00 ET`, the supervisor starts ~250 ms after first GUI paint. `_A01_PAPER_LOAD_START_ET=09:00`, `_A01_PAPER_AUTOSTART_WARMUP_END_ET=09:00`.
 - After deferred A01 autostart completes, A01 notifies G05 to adopt the already-running `SessionSupervisor` into the active UI state (top action pill shows `PAPER ACTIVE`).
 - R12 `_consume_paper_start_authorization()` logs a structured `R12_PAPER_START_GATE allowed|blocked  reason=<reason>` line on every paper startup attempt. Absence of this line confirms paper startup was never attempted through R12.
 - D31 drops opening entries with `paper_startup_regime_wait` while the deferred paper L09 attach is still pending; R12 clears that pending state on deferred-init failure so paper mode resumes heuristic trading.
@@ -984,7 +1067,8 @@ G05 schedules an immediate quiet prewarm attempt on deferred startup:
 
 - Starts the quiet G18 market worker and existing startup follow-up fetches immediately.
 - Spyder attempts startup hydration from EOD, account-balance, S07 custom-metric, and Tradier quote/chain/chart sources as soon as the GUI launches, even outside the Tradier session window.
-- The `10:15 ET` rule remains an execution gate in the strategy/session policy layer, not in launch-time data hydration.
+- **From `09:00 ET` the session supervisor is live (`PAPER ACTIVE`), Tradier connects at `09:20 ET`, and live quote/chain hydration begins. Data is fully primed well before the `09:45 ET` entry gate opens.**
+- The `09:45 ET` rule remains an execution gate in the strategy/session policy layer, not in launch-time data hydration.
 
 ### 10.12) S07 / PCA Startup Hydration
 

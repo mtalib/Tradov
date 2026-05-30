@@ -56,6 +56,8 @@ Environment Variables (loaded from .env):
                             (policy default: live for paper/live modes)
     PAPER_STARTING_EQUITY   Fallback equity when broker unavailable (default: 100000)
     PAPER_SNAPSHOT_DIR      Directory for JSON snapshot files
+    SPYDER_ZERO_DTE_PROFILE Optional paper 0DTE adapter profile.
+                            Supported values: "classic", "mark_spy_paper"
 """
 
 # ==============================================================================
@@ -261,17 +263,34 @@ def run_session(
             try:
                 result = strategy_runner.tick()
                 top_no_entry = str(result.get("top_no_entry_reason") or "")
+                no_entry_reasons_by_adapter = result.get("no_entry_reasons_by_adapter") or {}
+                no_entry_details = ", ".join(
+                    f"{adapter_name}:{reason}"
+                    for adapter_name, reason in no_entry_reasons_by_adapter.items()
+                )
                 if verbose or result.get("opens_this_tick") or result.get("closes_this_tick"):
                     if result.get("opens_this_tick", 0) == 0 and top_no_entry:
-                        _logger.info(
-                            "Strategy tick — SPY=%.2f open=%d opened=%d closed=%d sim_pnl=$%.2f no_entry=%s",
-                            result.get("spy_price", 0.0),
-                            result.get("open_positions", 0),
-                            result.get("opens_this_tick", 0),
-                            result.get("closes_this_tick", 0),
-                            result.get("sim_pnl", 0.0),
-                            top_no_entry,
-                        )
+                        if len(no_entry_reasons_by_adapter) > 1 and no_entry_details:
+                            _logger.info(
+                                "Strategy tick — SPY=%.2f open=%d opened=%d closed=%d sim_pnl=$%.2f no_entry=%s details=%s",
+                                result.get("spy_price", 0.0),
+                                result.get("open_positions", 0),
+                                result.get("opens_this_tick", 0),
+                                result.get("closes_this_tick", 0),
+                                result.get("sim_pnl", 0.0),
+                                top_no_entry,
+                                no_entry_details,
+                            )
+                        else:
+                            _logger.info(
+                                "Strategy tick — SPY=%.2f open=%d opened=%d closed=%d sim_pnl=$%.2f no_entry=%s",
+                                result.get("spy_price", 0.0),
+                                result.get("open_positions", 0),
+                                result.get("opens_this_tick", 0),
+                                result.get("closes_this_tick", 0),
+                                result.get("sim_pnl", 0.0),
+                                top_no_entry,
+                            )
                     else:
                         _logger.info(
                             "Strategy tick — SPY=%.2f open=%d opened=%d closed=%d sim_pnl=$%.2f",

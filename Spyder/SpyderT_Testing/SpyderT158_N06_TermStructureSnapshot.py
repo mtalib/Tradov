@@ -5,10 +5,11 @@ import os
 import sys
 import types
 import importlib.util as _ilu
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import numpy as np
+import pandas as pd
 
 
 def _ensure_mod(key: str):
@@ -164,3 +165,34 @@ def test_n06_term_structure_snapshot_degrades_confidence_for_stale_surface():
 
     assert snapshot["surface_age_ms"] >= 300000 - 1000
     assert snapshot["surface_confidence"] < 0.8
+
+
+def test_n06_build_surface_collapses_duplicate_strike_expiry_points_for_rbf():
+    builder = VolatilitySurfaceBuilder(config={"smoothing": 0.0, "interpolation": "rbf"})
+    base_time = datetime.now(UTC)
+    rows = []
+
+    for expiry_days, expiry_bump in ((7, 0.00), (14, 0.015), (21, 0.03)):
+        expiry = base_time + timedelta(days=expiry_days)
+        for strike in (90.0, 95.0, 100.0, 105.0, 110.0):
+            strike_bump = abs(strike - 100.0) / 1000.0
+            for option_type, side_bump in (("call", 0.0), ("put", 0.01)):
+                rows.append({
+                    "strike": strike,
+                    "expiry": expiry,
+                    "option_type": option_type,
+                    "implied_volatility": 0.18 + expiry_bump + strike_bump + side_bump,
+                    "volume": 100,
+                    "open_interest": 250,
+                })
+
+    surface = builder.build_surface(
+        "SPY",
+        pd.DataFrame(rows),
+        underlying_price=100.0,
+    )
+
+    assert surface.data_points == 30
+    assert surface.interpolation_method == InterpolationMethod.RBF
+    assert np.isfinite(surface.iv_surface).all()
+    assert builder.surfaces["SPY"] is surface

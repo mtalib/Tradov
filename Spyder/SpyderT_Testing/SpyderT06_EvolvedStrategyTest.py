@@ -5,9 +5,10 @@ SPYDER - Autonomous Options Trading System v1.0
 Series: SpyderT_Testing
 Module: SpyderT06_EvolvedStrategyTest.py
 Purpose: Smoke-test the latest evolved credit-spread strategy against the
-         current production stack (D25 unified engine, D18 evolved spread,
-         S08 PMR override, L09 regime, V09 IV engine, E01 risk gate, U20
-         institutional libraries).
+         current production stack (D30 regime selector, D31 strategy
+         orchestrator, D18 evolved credit-spread baseline, D34 pivot mean
+         reversion path, S08 PMR signal, L09 regime engine, E01 risk +
+         overlay gate, U20 institutional libraries).
 
 Author: Mohamed Talib
 Year Created: 2025
@@ -19,12 +20,28 @@ Module Description:
     credit-spread parameter set.  Values are kept in sync with the constants
     declared in SpyderD18_EvolvedCreditSpread (EVOLVED_FITNESS=0.799,
     EVOLVED_GENERATION=15, EVOLVED_RISK_FACTOR=0.212) so the test reflects
-    the actual current production generation.
+        the actual current production generation.
+
+        The harness also asserts the current paper-trading PMR routing contract:
+            - R08 still uses SPYDER_PIVOT_MR_ENABLED as the producer-side gate.
+            - D30 swaps RANGE/SIDEWAYS selections to D34 PivotMeanReversion only
+                when SPYDER_ENABLE_PIVOT_MEAN_REVERSION is enabled and S08 fires.
+            - D31 normalizes PMR aliases and prepares overlay-slot metadata for the
+                E01 validate_overlay_slot() risk boundary.
 
     Tests use pytest fixtures and assert statements to give pytest meaningful
     pass/fail signal rather than print-only smoke output.
 
 Change Log:
+        2026-05-27:
+                - Updated stack references from legacy D25-centric PMR wording to the
+                    current D30/D31/D34 routing contract.
+                - CANONICAL_MODULES extended with D30 RegimeGatedSelector,
+                    D31 StrategyOrchestrator, D34 PivotMeanReversion, and E00 RiskProtocol.
+                - Added TestCurrentPMRRoutingContract to cover:
+                        * D30 selector opt-in swap to pivot_mean_reversion
+                        * D31 PMR alias normalization and overlay metadata
+                        * E01 validate_overlay_slot() API presence via source contract
         2026-04-30 (Audit v25):
                 - CANONICAL_MODULES extended with veto-path modules:
                     X16 MetaCoordinator, Y03 RiskSentinelAgent, Y05 ExecutionOptimizerAgent.
@@ -86,10 +103,14 @@ sys.path.insert(0, str(project_root))
 # ==============================================================================
 
 CANONICAL_MODULES: dict[str, str] = {
+    "D30 RegimeGatedSelector": "SpyderD_Strategies.SpyderD30_RegimeGatedSelector",
+    "D31 StrategyOrchestrator": "SpyderD_Strategies.SpyderD31_StrategyOrchestrator",
     "D25 UnifiedCreditSpreadEngine": "SpyderD_Strategies.SpyderD25_UnifiedCreditSpreadEngine",
     "D18 EvolvedCreditSpread": "SpyderD_Strategies.SpyderD18_EvolvedCreditSpread",
+    "D34 PivotMeanReversion": "SpyderD_Strategies.SpyderD34_PivotMeanReversion",
     "S08 PivotMeanReversionSignal": "SpyderS_Signals.SpyderS08_PivotMeanReversionSignal",
     "L09 UnifiedRegimeEngine": "SpyderL_ML.SpyderL09_UnifiedRegimeEngine",
+    "E00 RiskProtocol": "SpyderE_Risk.SpyderE00_RiskProtocol",
     "V09 IVEngine": "SpyderV_QuantModels.SpyderV09_IVEngine",
     "E01 RiskManager": "SpyderE_Risk.SpyderE01_RiskManager",
     # Newly wired in A06 headless path (Audit v20)
@@ -521,7 +542,7 @@ class TestR08RSIConfirmation:
 
 
 class TestPMROverrideEnvironment:
-    """Verify PMR override env-var semantics documented in the S08/D25 integration."""
+    """Verify PMR producer env-var semantics for the R08 paper path."""
 
     def test_pmr_env_var_is_valid_value(self):
         """SPYDER_PIVOT_MR_ENABLED must be '0' or '1' when set."""
@@ -551,6 +572,118 @@ class TestPMROverrideEnvironment:
         assert 1 <= MIN_FIRE_SCORE <= 100, (
             f"MIN_FIRE_SCORE={MIN_FIRE_SCORE} outside expected range [1, 100]"
         )
+
+
+class TestCurrentPMRRoutingContract:
+    """Verify the current PMR routing contract across D30/D31/E01."""
+
+    def test_d30_reads_current_selector_flag(self):
+        try:
+            from SpyderD_Strategies.SpyderD30_RegimeGatedSelector import RegimeGatedSelector
+            source = inspect.getsource(RegimeGatedSelector.__init__)
+        except Exception as exc:
+            pytest.skip(f"D30 source unavailable: {exc}")
+
+        assert "SPYDER_ENABLE_PIVOT_MEAN_REVERSION" in source
+
+    def test_d30_range_regime_can_swap_to_pmr_when_signal_fires(self):
+        try:
+            from SpyderD_Strategies.SpyderD30_RegimeGatedSelector import RegimeGatedSelector
+            from SpyderL_ML.SpyderL09_UnifiedRegimeEngine import MarketRegime as L09MarketRegime
+        except Exception as exc:
+            pytest.skip(f"D30 unavailable: {exc}")
+
+        selector = RegimeGatedSelector(lean_mode=True)
+        selector.enable_pivot_mean_reversion = True
+        consensus = type(
+            "Consensus",
+            (),
+            {"regime": L09MarketRegime.SIDEWAYS_RANGE, "confidence": 0.81},
+        )()
+
+        selection = selector.select_strategy_from_consensus(
+            consensus,
+            pivot_signal={"fired": True, "direction": "fade_support", "score": 74},
+        )
+
+        strategy_value = getattr(getattr(selection, "selected_strategy", None), "value", None)
+        assert strategy_value == "pivot_mean_reversion"
+        assert getattr(selection, "selector_feature_flag", None) == (
+            "SPYDER_ENABLE_PIVOT_MEAN_REVERSION"
+        )
+
+    @pytest.mark.parametrize(
+        "raw_value",
+        ["PivotMeanReversion", "pivot_mr", "D34_PivotMR", "pivotmeanreversion"],
+    )
+    def test_d31_normalizes_recent_pmr_aliases(self, raw_value: str):
+        try:
+            from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
+        except Exception as exc:
+            pytest.skip(f"D31 unavailable: {exc}")
+
+        normalized = StrategyOrchestrator._normalise_strategy_type_for_entry_gate(raw_value)
+        assert normalized == "pivot_mean_reversion"
+
+    def test_d31_overlay_metadata_marks_baseline_full_pmr_candidate(self):
+        try:
+            from SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
+        except Exception as exc:
+            pytest.skip(f"D31 unavailable: {exc}")
+
+        orchestrator = StrategyOrchestrator.__new__(StrategyOrchestrator)
+        orchestrator.active_strategies = {"base-1": object(), "base-2": object()}
+        orchestrator.max_concurrent_strategies = 2
+        orchestrator._strategies_lock = type(
+            "LockStub",
+            (),
+            {
+                "__enter__": lambda self: None,
+                "__exit__": lambda self, exc_type, exc, tb: False,
+            },
+        )()
+
+        old_flag = os.environ.get("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT")
+        os.environ["SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT"] = "true"
+        try:
+            metadata = orchestrator._build_overlay_gate_metadata(
+                {
+                    "strategy_type": "D34_PivotMR",
+                    "daily_risk_used_fraction": 0.25,
+                    "projected_post_trade_greeks": {
+                        "delta": 0.05,
+                        "gamma": 0.01,
+                        "vega": 0.04,
+                        "theta": 0.03,
+                    },
+                    "execution_quality": {
+                        "bid_ask_width_ok": True,
+                        "expected_slippage_bps": 12.0,
+                    },
+                    "event_clock_state": {"state": "clear"},
+                }
+            )
+        finally:
+            if old_flag is None:
+                os.environ.pop("SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT", None)
+            else:
+                os.environ["SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT"] = old_flag
+
+        assert metadata["strategy_type"] == "pivot_mean_reversion"
+        assert metadata["strategy_type_normalized"] == "pivot_mean_reversion"
+        assert metadata["overlay_slot_requested"] is True
+        assert metadata["active_strategy_count"] == 2
+        assert metadata["event_window_blocked"] is False
+
+    def test_e01_exposes_validate_overlay_slot_api(self):
+        try:
+            from SpyderE_Risk import SpyderE01_RiskManager as e01
+            source = inspect.getsource(e01)
+        except Exception as exc:
+            pytest.skip(f"E01 source unavailable: {exc}")
+
+        assert "def validate_overlay_slot" in source
+        assert "OverlayPretradeVerdict" in source
 
 
 class TestVetoConfigAndWiring:
@@ -659,7 +792,10 @@ def _run_smoke_output() -> None:
     """Print a human-readable summary when run directly (not via pytest)."""
     print("=" * 70)
     print("SPYDER T06 — Evolved Credit Spread Smoke Test")
-    print("Stack: D25 + D18 (Gen15/0.799) + S08 PMR + L09 + V09 + E01 + U20")
+    print(
+        "Stack: D30/D31 routing + D18 (Gen15/0.799) + D34/S08 PMR + "
+        "L09 + E01 overlay gate + U20"
+    )
     print("=" * 70)
 
     try:

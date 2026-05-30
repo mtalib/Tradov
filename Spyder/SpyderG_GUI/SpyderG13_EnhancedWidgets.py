@@ -44,13 +44,13 @@ from PySide6.QtWidgets import (  # noqa: E402
     QComboBox,
     QDialog,
     QDoubleSpinBox,
-    QGridLayout,
     QGroupBox,
     QHeaderView,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QTableWidget,
@@ -74,6 +74,9 @@ except ImportError:
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
+from Spyder.SpyderG_GUI.SpyderG06_DashboardData import (  # noqa: E402
+    SYMBOL_DESCRIPTIONS as DASHBOARD_SYMBOL_DESCRIPTIONS,
+)
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
 from Spyder.SpyderU_Utilities.SpyderU24_StyleManager import SpyderColors, get_style_manager  # noqa: E402
 
@@ -110,36 +113,7 @@ MAX_QUANTITY = 10000
 MIN_OPTION_PREMIUM = 0.01
 MAX_OPTION_PREMIUM = 1000.0
 
-SYMBOL_DESCRIPTIONS = {
-    "SPY": "SPDR S&P 500 ETF - Most liquid S&P 500 ETF",
-    "SPX": "S&P 500 Index - Cash index value",
-    "VIX": "CBOE Volatility Index - 30-day implied volatility",
-    "VIX9D": "CBOE 9-Day Volatility Index - Short-term volatility",
-    "VXV": "CBOE 3-Month Volatility Index - 93-day implied volatility",
-    "VVIX": "VIX of VIX - Volatility of volatility index",
-    "$TICK": "NYSE Tick Index - Upticks minus downticks",
-    "$TRIN": "Arms Index - Advance/Decline volume ratio",
-    "$ADD": "Advance-Decline Line - Net advancing issues",
-    "CPC": "Put/Call Ratio - Computed from SPY options chain volume (nearest expiry)",
-    "SKEW": "CBOE Skew Index - Tail risk measure",
-    "QQQ": "Invesco QQQ Trust - NASDAQ 100 ETF",
-    "IWM": "iShares Russell 2000 ETF - Small caps",
-    "10Y": "10-Year Treasury Yield (FRED DGS10 — risk-free rate)",
-    "TLT": "iShares 20+ Year Treasury Bond ETF",
-    "LQD": "iShares Investment Grade Corporate Bond ETF",
-    "DXY": "UUP ETF (Invesco DB US Dollar Index Bullish Fund — Tradier has no direct DXY index)",
-    "GLD": "SPDR Gold Trust ETF - Gold proxy",
-    "NAAIM": "NAAIM Exposure Index - Active manager equity allocation (0-200%)",
-    "AABULL": "AAII Bull% (UMCSENT proxy) - Retail investor bullish sentiment",
-    "GEX": "Gamma Exposure - Market maker hedging pressure",
-    "DEX": "Delta Exposure - Directional hedging flow",
-    "OGL": "Zero Gamma Level - Key support/resistance",
-    "DIX": "Dark Index - Dark pool buying percentage",
-    "PCA-PROXY": "PCA Proxy - Sector ETF eigenfactor signal. Positive means sector moves align with the dominant common factor; negative means they lean against it.",
-    "PCA-IV": "PCA IV Surface Factor - SPY volatility-surface eigenfactor. Positive means stress expansion; negative means compression and normalization.",
-    "SWAN": "Black Swan Risk Indicator - Tail risk monitor",
-    "PMR": "Pivot Mean-Reversion Signal (S08) - DIS=disabled, ARMED=watching, fired shows direction/level/score",  # noqa: E501
-}
+SYMBOL_DESCRIPTIONS = DASHBOARD_SYMBOL_DESCRIPTIONS
 
 COLORS = {
     "background": "#0a0a0a",
@@ -877,8 +851,9 @@ class TrafficLightButton(QPushButton):
         super().__init__(parent)
         self.label = label
         self.status = "green"
-        self.setFixedHeight(20)
-        self.setMinimumWidth(124)
+        self.setFixedHeight(24)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(
             """
@@ -886,9 +861,9 @@ class TrafficLightButton(QPushButton):
                 background-color: transparent;
                 border: none;
                 text-align: left;
-                padding: 0px 0px 0px 20px;
+                padding: 0px 0px 0px 22px;
                 color: #ffffff;
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: normal;
             }
             QPushButton:hover {
@@ -918,7 +893,9 @@ class TrafficLightButton(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        circle_rect = self.rect().adjusted(5, 5, -self.width() + 19, -5)
+        circle_size = 14
+        circle_top = max(0, (self.height() - circle_size) // 2)
+        circle_rect = QRect(5, circle_top, circle_size, circle_size)
 
         if self.status == "green":
             color = QColor(COLORS["positive"])
@@ -939,12 +916,12 @@ class TrafficLightButton(QPushButton):
 
 
 class SignalMonitorPanel(QWidget):
-    """Enhanced Signal Monitor Panel with integrated popup dialogs."""
+    """Signal Monitor panel for decision-state alerts and dialogs."""
 
     def __init__(self, parent=None, *args, **kwargs):
         super().__init__(parent)
-        self.setFixedHeight(154)
-        self.setMinimumWidth(280)
+        self.setFixedHeight(130)
+        self.setMinimumWidth(180)
         self.setStyleSheet(
             f"""
             QWidget {{
@@ -955,55 +932,32 @@ class SignalMonitorPanel(QWidget):
         """,
         )
 
-        layout = QGridLayout()
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setHorizontalSpacing(6)
-        layout.setVerticalSpacing(0)
-
-        self.vix_button = TrafficLightButton("VIX MONITOR")
         self.ai_button = TrafficLightButton("AI DECISION")
-        self.gex_button = TrafficLightButton("GEX")
-        self.dix_button = TrafficLightButton("DIX")
-        self.rsi_button = TrafficLightButton("RSI CONFLUENCE")
         self.risk_button = TrafficLightButton("RISK TRIGGERS")
-        self.ogl_button = TrafficLightButton("OGL")
-        self.div_button = TrafficLightButton("DIVERGENCE")
-        self.dex_button = TrafficLightButton("DEX")
-        self.swan_button = TrafficLightButton("BLACK SWAN")
         self.hmm_button = TrafficLightButton("HMM")
-        self.skew_button = TrafficLightButton("SKEW")
-        self.internals_button = TrafficLightButton("MKT INTERNALS")
-        self.regime_button = TrafficLightButton("REGIME")
+        self.rsi_button = TrafficLightButton("RSI CONFLUENCE")
+        self.div_button = TrafficLightButton("DIVERGENCE")
 
-        layout.addWidget(self.vix_button, 0, 0)
-        layout.addWidget(self.ai_button, 0, 1)
-        layout.addWidget(self.gex_button, 1, 0)
-        layout.addWidget(self.dix_button, 1, 1)
-        layout.addWidget(self.rsi_button, 2, 0)
-        layout.addWidget(self.risk_button, 2, 1)
-        layout.addWidget(self.ogl_button, 3, 0)
-        layout.addWidget(self.div_button, 3, 1)
-        layout.addWidget(self.dex_button, 4, 0)
-        layout.addWidget(self.swan_button, 4, 1)
-        layout.addWidget(self.hmm_button, 5, 0)
-        layout.addWidget(self.skew_button, 5, 1)
-        layout.addWidget(self.internals_button, 6, 0)
-        layout.addWidget(self.regime_button, 6, 1)
+        self._buttons = [
+            self.ai_button,
+            self.risk_button,
+            self.hmm_button,
+            self.rsi_button,
+            self.div_button,
+        ]
 
-        self.vix_button.clicked.connect(self.show_vix_dialog)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(1)
+
+        for button in self._buttons:
+            layout.addWidget(button)
+
+        self.hmm_button.clicked.connect(self.show_hmm_dialog)
         self.ai_button.clicked.connect(self.show_ai_dialog)
-        self.gex_button.clicked.connect(self.show_gex_dialog)
-        self.dix_button.clicked.connect(self.show_dix_dialog)
         self.rsi_button.clicked.connect(self.show_rsi_dialog)
         self.risk_button.clicked.connect(self.show_risk_dialog)
-        self.ogl_button.clicked.connect(self.show_ogl_dialog)
         self.div_button.clicked.connect(self.show_div_dialog)
-        self.dex_button.clicked.connect(self.show_dex_dialog)
-        self.swan_button.clicked.connect(self.show_swan_dialog)
-        self.hmm_button.clicked.connect(self.show_hmm_dialog)
-        self.skew_button.clicked.connect(self.show_skew_dialog)
-        self.internals_button.clicked.connect(self.show_internals_dialog)
-        self.regime_button.clicked.connect(self.show_regime_dialog)
 
         self.setLayout(layout)
 
@@ -1014,9 +968,11 @@ class SignalMonitorPanel(QWidget):
         self._regime_dix = 42.0
         self._regime_skew = 120.0
         self._regime_gex = 0.0
-        self.regime_button.set_status("yellow")
 
         self._live: dict = {}
+
+        self.hmm_button.set_status("yellow")
+        self.update_button_states()
 
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_button_states)
@@ -1027,22 +983,12 @@ class SignalMonitorPanel(QWidget):
 
     def update_button_states(self):
         for button in [
-            self.vix_button,
             self.ai_button,
-            self.gex_button,
-            self.dix_button,
             self.rsi_button,
             self.risk_button,
-            self.ogl_button,
             self.div_button,
-            self.dex_button,
         ]:
             button.set_status("yellow")
-
-        self.swan_button.set_status("green")
-        self.hmm_button.set_status("green")
-        self.skew_button.set_status("green")
-        self.internals_button.set_status("yellow")
 
     def close_current_dialog(self):
         if (
@@ -1259,11 +1205,11 @@ class SignalMonitorPanel(QWidget):
         })
 
         if label in ("EXTREME RISK", "HIGH RISK", "BEARISH"):
-            self.regime_button.set_status("red")
+            self.hmm_button.set_status("red")
         elif label in ("BULLISH", "NEUTRAL BULL"):
-            self.regime_button.set_status("green")
+            self.hmm_button.set_status("green")
         else:
-            self.regime_button.set_status("yellow")
+            self.hmm_button.set_status("yellow")
 
     def show_regime_dialog(self) -> None:
         self.close_current_dialog()

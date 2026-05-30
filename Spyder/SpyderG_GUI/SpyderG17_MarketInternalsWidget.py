@@ -79,6 +79,8 @@ try:
 except Exception:
     logger = logging.getLogger("SpyderG17")
 
+from Spyder.SpyderG_GUI.SpyderG06_DashboardData import get_market_overview_dialog_metadata
+
 # ==============================================================================
 # CONSTANTS — colours matching the rest of the Spyder GUI
 # ==============================================================================
@@ -115,6 +117,120 @@ _TICK_COLOURS = [
     (-1000, -600,  _ORANGE, "Oversold breadth"),
     ("-∞",  -1000, _RED,    "Extreme breadth — strong bear flush"),
 ]
+
+_INTERNAL_PANEL_SYMBOL_KEYS = {
+    "TICK": "$TICK",
+    "ADD": "$ADD",
+    "TRIN": "$TRIN",
+    "NYMO": "NYMO",
+}
+
+_INTERNAL_PANEL_ALERT_COLOR_KEYS = {
+    "TICK": {"high": "positive", "low": "warning"},
+    "ADD": {"high": "positive", "low": "negative"},
+    "TRIN": {"high": "negative", "low": "positive"},
+    "NYMO": {"high": "positive", "low": "negative"},
+}
+
+
+def _get_internal_panel_metadata(symbol: str) -> dict[str, object]:
+    """Return shared Market Overview metadata for a breadth panel."""
+    overview_symbol = _INTERNAL_PANEL_SYMBOL_KEYS.get(symbol, symbol)
+    metadata = get_market_overview_dialog_metadata(overview_symbol)
+    if metadata is not None:
+        return metadata
+    return {
+        "full_name": symbol,
+        "description": symbol,
+        "concept": "",
+        "signal_colors": [],
+    }
+
+
+def _get_internal_panel_signal_text(metadata: dict[str, object], color: str, fallback: str = "") -> str:
+    """Return the shared interpretation string for a metadata color bucket."""
+    for color_info in metadata.get("signal_colors", []):
+        if str(color_info.get("color", "")) == color:
+            return str(color_info.get("text", fallback))
+    return fallback
+
+
+def _build_internal_panel_guidance(symbol: str, value: float | None) -> str:
+    """Return the active breadth guidance text for the current panel value."""
+    metadata = _get_internal_panel_metadata(symbol)
+    if value is None:
+        return str(metadata.get("description", "waiting for data..."))
+
+    positive = _get_internal_panel_signal_text(metadata, "positive", "Bullish breadth pressure")
+    neutral = _get_internal_panel_signal_text(metadata, "neutral", "Balanced breadth participation")
+    negative = _get_internal_panel_signal_text(metadata, "negative", "Bearish breadth pressure")
+    warning = _get_internal_panel_signal_text(metadata, "warning", negative or neutral)
+
+    if symbol == "TICK":
+        if value >= 600:
+            return positive
+        if value <= -1000:
+            return negative
+        if value <= -600:
+            return warning
+        return neutral
+    if symbol == "ADD":
+        if value >= 500:
+            return positive
+        if value <= -500:
+            return negative
+        return neutral
+    if symbol == "TRIN":
+        if value <= 0.7:
+            return positive
+        if value >= 1.5:
+            return negative
+        return neutral
+    if symbol == "NYMO":
+        if value >= 40:
+            return positive
+        if value <= -40:
+            return negative
+        return neutral
+    return neutral
+
+
+def _build_internal_panel_tooltip(symbol: str) -> str:
+    """Format the shared breadth metadata as a multiline panel tooltip."""
+    metadata = _get_internal_panel_metadata(symbol)
+    lines = [
+        str(metadata.get("full_name", symbol)),
+        str(metadata.get("description", "")),
+        str(metadata.get("concept", "")),
+    ]
+    for color_info in metadata.get("signal_colors", []):
+        lines.append(str(color_info.get("text", "")))
+    return "\n".join(line for line in lines if line)
+
+
+def _compact_internal_alert_label(alert_text: str) -> str:
+    """Return a short visible label derived from the shared threshold text."""
+    if "signals " in alert_text:
+        label = alert_text.split("signals ", 1)[1]
+    elif ": " in alert_text:
+        label = alert_text.split(": ", 1)[1]
+    else:
+        label = alert_text
+    if not label:
+        return alert_text
+    return label[0].upper() + label[1:]
+
+
+def _get_internal_alert_copy(symbol: str, direction: str) -> dict[str, str]:
+    """Return the visible label and tooltip copy for a panel alert control."""
+    metadata = _get_internal_panel_metadata(symbol)
+    color = _INTERNAL_PANEL_ALERT_COLOR_KEYS.get(symbol, {}).get(direction, "neutral")
+    fallback = f"Alert {direction.upper()}"
+    tooltip = _get_internal_panel_signal_text(metadata, color, fallback) or fallback
+    return {
+        "label": _compact_internal_alert_label(tooltip),
+        "tooltip": tooltip,
+    }
 
 
 # ==============================================================================
@@ -167,6 +283,7 @@ class _InternalPanel(QGroupBox):
     def __init__(self, symbol: str, parent=None):
         super().__init__(symbol, parent)
         self.symbol = symbol
+        self._panel_tooltip = _build_internal_panel_tooltip(symbol)
         self._history: deque = deque(maxlen=_HISTORY_MAXLEN)
         self._alerted_high = False
         self._alerted_low  = False
@@ -198,6 +315,7 @@ class _InternalPanel(QGroupBox):
                 padding: 0 5px;
             }}
         """)
+        self.setToolTip(self._panel_tooltip)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(6, 14, 6, 6)
@@ -209,10 +327,13 @@ class _InternalPanel(QGroupBox):
         self._value_lbl.setFont(QFont("Courier New", 26, QFont.Weight.Bold))
         self._value_lbl.setStyleSheet(f"color: {_TEXT};")
         self._value_lbl.setMinimumHeight(44)
+        self._value_lbl.setToolTip(self._panel_tooltip)
 
-        self._status_lbl = QLabel("waiting for data…")
+        self._status_lbl = QLabel(_build_internal_panel_guidance(self.symbol, None))
         self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._status_lbl.setStyleSheet(f"color: {_TEXT}; font-size: 13px;")
+        self._status_lbl.setWordWrap(True)
+        self._status_lbl.setToolTip(self._panel_tooltip)
 
         root.addWidget(self._value_lbl)
         root.addWidget(self._status_lbl)
@@ -230,11 +351,21 @@ class _InternalPanel(QGroupBox):
         sl_layout.setContentsMargins(6, 4, 6, 4)
         sl_layout.setSpacing(2)
 
+        high_alert_copy = _get_internal_alert_copy(self.symbol, "high")
+        low_alert_copy = _get_internal_alert_copy(self.symbol, "low")
         sl_layout.addWidget(self._slider_row(
-            "Alert HIGH", self._high_threshold, self._on_high_changed, color=_RED
+            high_alert_copy["label"],
+            self._high_threshold,
+            self._on_high_changed,
+            color=_RED,
+            tooltip=high_alert_copy["tooltip"],
         ))
         sl_layout.addWidget(self._slider_row(
-            "Alert LOW",  self._low_threshold,  self._on_low_changed,  color=_GREEN
+            low_alert_copy["label"],
+            self._low_threshold,
+            self._on_low_changed,
+            color=_GREEN,
+            tooltip=low_alert_copy["tooltip"],
         ))
         root.addWidget(slider_frame)
 
@@ -242,6 +373,7 @@ class _InternalPanel(QGroupBox):
         self._src_lbl = QLabel("source: TradingView (Playwright)")
         self._src_lbl.setStyleSheet(f"color: {_TEXT}; font-size: 12px;")
         self._src_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self._src_lbl.setToolTip(self._panel_tooltip)
         root.addWidget(self._src_lbl)
 
     # ------------------------------------------------------------------
@@ -271,15 +403,27 @@ class _InternalPanel(QGroupBox):
             return lbl
 
     # ------------------------------------------------------------------
-    def _slider_row(self, label_text: str, default: int, callback, color: str) -> QWidget:
+    def _slider_row(
+        self,
+        label_text: str,
+        default: int,
+        callback,
+        color: str,
+        tooltip: str = "",
+    ) -> QWidget:
         row = QWidget()
         rl  = QHBoxLayout(row)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.setSpacing(6)
+        if tooltip:
+            row.setToolTip(tooltip)
 
         lbl = QLabel(label_text)
         lbl.setStyleSheet(f"color: {color}; font-size: 11px;")
-        lbl.setFixedWidth(70)
+        lbl.setFixedWidth(96)
+        lbl.setWordWrap(True)
+        if tooltip:
+            lbl.setToolTip(tooltip)
 
         # spinbox mirrors the slider and allows direct typing
         spin = QSpinBox()
@@ -289,6 +433,8 @@ class _InternalPanel(QGroupBox):
         spin.setStyleSheet(
             f"color: {_TEXT}; background-color: {_PANEL}; border: 1px solid {_BORDER}; font-size: 11px;"  # noqa: E501
         )
+        if tooltip:
+            spin.setToolTip(tooltip)
         if self._unit:
             spin.setSuffix(f" {self._unit}")
 
@@ -298,6 +444,8 @@ class _InternalPanel(QGroupBox):
         slider.setStyleSheet(f"QSlider::groove:horizontal {{ background: {_BORDER}; height: 4px; }}"
                               f"QSlider::handle:horizontal {{ background: {color}; width: 10px; height: 10px; "  # noqa: E501
                               f"margin: -3px 0; border-radius: 5px; }}")
+        if tooltip:
+            slider.setToolTip(tooltip)
 
         # bidirectional sync
         slider.valueChanged.connect(spin.setValue)
@@ -332,7 +480,7 @@ class _InternalPanel(QGroupBox):
         """Called from the main dialog when fresh data arrives."""
         if value is None:
             self._value_lbl.setText("N/A")
-            self._status_lbl.setText("no data")
+            self._status_lbl.setText(_build_internal_panel_guidance(self.symbol, None))
             return
 
         # Colour-code the value label (TICK-specific breakpoints; ADD/TRIN use same)
@@ -357,7 +505,8 @@ class _InternalPanel(QGroupBox):
 
         # Status text
         ts = datetime.now(UTC).strftime("%H:%M:%S")
-        self._status_lbl.setText(f"last update: {ts}")
+        guidance = _build_internal_panel_guidance(self.symbol, value)
+        self._status_lbl.setText(f"{guidance} | {ts}")
         self._src_lbl.setText(f"source: {source}")
 
         # Append to rolling history
@@ -379,6 +528,18 @@ class _InternalPanel(QGroupBox):
 
         # Update chart
         self._redraw_chart()
+
+    def set_stale(self, source: str = "stale S07 snapshot") -> None:
+        """Render a stale state instead of silently retaining the last live reading."""
+        self._value_lbl.setText("STALE")
+        self._value_lbl.setStyleSheet(f"color: {_YELLOW};")
+        self._status_lbl.setText("Waiting for live breadth data")
+        self._src_lbl.setText(f"source: {source}")
+        self._alerted_high = False
+        self._alerted_low = False
+        self._history.clear()
+        if _PYQTGRAPH and self._plot_curve is not None:
+            self._plot_curve.setData([], [])
 
     # ------------------------------------------------------------------
     def load_history(self, rows: list):
@@ -598,6 +759,13 @@ class MarketInternalsDialog(QDialog):
                   'breadth_regime' (str) emitted by SpyderS07_CustomMetricsOrchestrator.
         """
         import math
+        if bool(snap.get("stale")):
+            for panel in self._panels.values():
+                panel.set_stale("stale S07 snapshot")
+            self._status_lbl.setText("Breadth data stale — waiting for live update")
+            self._refresh_indicator.setStyleSheet(f"color: {_YELLOW}; font-size: 14px;")
+            return
+
         data = {
             "TICK": snap.get("tick"),
             "ADD":  snap.get("add"),

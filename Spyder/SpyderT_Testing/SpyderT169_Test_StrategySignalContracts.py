@@ -4,7 +4,7 @@
 import importlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -19,8 +19,20 @@ from Spyder.SpyderD_Strategies.SpyderD13_MACrossover import (
     CrossoverType,
     TrendPhase,
 )
-from Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread import CalendarSpreadStrategy
+from Spyder.SpyderD_Strategies.SpyderD14_CalendarSpread import (
+    CalendarLeg,
+    CalendarSetup,
+    CalendarSpreadStrategy,
+    CalendarType,
+    TermStructure,
+)
 from Spyder.SpyderD_Strategies.SpyderD19_JadeLizard import JadeLizardStrategy, JadeLizardState
+from Spyder.SpyderD_Strategies.SpyderD38_JadeLizardZero import (
+    JadeLizardZeroStrategy,
+    ZeroJadeLeg,
+    ZeroJadeLizardSetup,
+)
+from Spyder.SpyderU_Utilities.SpyderU07_Constants import OptionType
 
 
 @pytest.fixture(autouse=True)
@@ -209,15 +221,42 @@ def test_calendar_spread_signal_builder_emits_dispatchable_aliases():
         risk_profile=_risk_profile(),
         config={"symbol": "SPY"},
     )
-    setup = SimpleNamespace(
+    setup = CalendarSetup(
         probability_profit=0.62,
         iv_skew=0.06,
-        calendar_type=SimpleNamespace(value="call_calendar"),
-        near_leg=SimpleNamespace(strike=600.0, expiry=datetime.now() + timedelta(days=14)),
-        far_leg=SimpleNamespace(strike=600.0, expiry=datetime.now() + timedelta(days=42)),
+        calendar_type=CalendarType.CALL_CALENDAR,
+        near_leg=CalendarLeg(
+            option_type=OptionType.CALL,
+            strike=600.0,
+            expiry=datetime.now() + timedelta(days=14),
+            position=-1,
+            contracts=1,
+            iv=0.20,
+            premium=2.0,
+            delta=0.0,
+            gamma=0.0,
+            vega=0.0,
+            theta=0.0,
+        ),
+        far_leg=CalendarLeg(
+            option_type=OptionType.CALL,
+            strike=600.0,
+            expiry=datetime.now() + timedelta(days=42),
+            position=1,
+            contracts=1,
+            iv=0.25,
+            premium=4.0,
+            delta=0.0,
+            gamma=0.0,
+            vega=0.0,
+            theta=0.0,
+        ),
+        time_spread=28,
         net_debit=145.0,
         max_profit=290.0,
-        term_structure=SimpleNamespace(value="contango"),
+        breakeven_points=[596.0, 606.0],
+        term_structure=TermStructure.CONTANGO,
+        entry_iv_rank=40.0,
     )
     market_data = pd.DataFrame({"close": [599.0, 601.0]})
 
@@ -296,3 +335,45 @@ def test_jade_lizard_signal_builders_emit_dispatchable_aliases():
     assert exit_payload["quantity"] == 1
     assert exit_payload["action"] == "close"
     assert exit_payload["strategy_id"] == "JadeLizard"
+
+
+def test_jade_lizard_zero_signal_builder_serializes_multileg_contract():
+    strategy = JadeLizardZeroStrategy(
+        event_manager=_StubEventManager(),
+        risk_profile=_risk_profile(),
+        config={"symbol": "SPY", "target_dte": 0},
+    )
+    expiration = datetime.now(UTC) + timedelta(hours=4)
+    setup = ZeroJadeLizardSetup(
+        underlying_price=600.0,
+        expiration_date=expiration,
+        days_to_expiry=0,
+        short_put=ZeroJadeLeg("put", 596.0, "short", 1, 0.95, -0.22, expiration),
+        short_call=ZeroJadeLeg("call", 603.0, "short", 1, 0.62, 0.12, expiration),
+        long_call=ZeroJadeLeg("call", 604.0, "long", 1, 0.24, 0.05, expiration),
+        total_credit=1.33,
+        put_credit=0.95,
+        call_spread_credit=0.38,
+        call_spread_width=1.0,
+        max_profit=133.0,
+        max_loss=59467.0,
+        breakeven_lower=594.67,
+        no_upside_risk=True,
+        probability_profit=0.68,
+        expected_move=4.1,
+        entry_quality_score=0.74,
+    )
+    market_data = pd.DataFrame({"close": [599.5, 600.0]})
+
+    signal = strategy._create_trading_signal(setup, market_data)
+
+    assert signal is not None
+    payload = signal.to_dict()
+    assert payload["symbol"] == "SPY"
+    assert payload["quantity"] == 1
+    assert payload["action"] == "sell"
+    assert payload["strategy_id"] == "JadeLizardZero"
+    assert payload["metadata"]["target_dte"] == 0
+    assert payload["metadata"]["expiration_date"] == expiration.date().isoformat()
+    assert len(payload["metadata"]["legs"]) == 3
+    assert payload["metadata"]["legs"][0]["position"] == "short"

@@ -65,9 +65,14 @@ def is_market_hours(now_et: datetime | None = None) -> bool:
     """Return True only when ET time is in session and weekday is Mon-Fri."""
     eastern = pytz.timezone("US/Eastern")
     current_et = now_et or datetime.now(eastern)
-    if current_et.weekday() >= 5:
-        return False
-    return bool(_is_dashboard_session(current_et))
+    try:
+        from Spyder.SpyderU_Utilities.SpyderU10_TradingCalendar import get_trading_calendar
+
+        return bool(get_trading_calendar().is_market_open(current_et))
+    except Exception:
+        if current_et.weekday() >= 5:
+            return False
+        return bool(_is_dashboard_session(current_et))
 
 
 try:
@@ -127,6 +132,8 @@ _VXV_CACHE: dict[str, Any] = {"ts": 0.0, "entry": None}
 _RUT_PREVCLOSE_CACHE: dict = {"prevclose": 0.0, "date": ""}
 _SPY_PREVDAY_FETCH_CACHE: dict = {"date": ""}
 _SPY_TIMESALES_FETCH_CACHE: dict = {"last_fetch_mono": 0.0}
+_TRADIER_CLIENT_CACHE_LOCK: threading.Lock = threading.Lock()
+_TRADIER_CLIENT_CACHE: dict[tuple[str, str, str], "TradierClient"] = {}
 
 SPY_TIMESALES_FETCH_INTERVAL_SECONDS = 60.0
 
@@ -437,9 +444,35 @@ def _build_market_data_client() -> "TradierClient | None":
         if not api_key or not account_id:
             return None
 
-        return TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
+        return _get_cached_tradier_client(api_key, account_id, env_enum)
     except Exception:
         return None
+
+
+def _get_cached_tradier_client(
+    api_key: str,
+    account_id: str,
+    environment: "TradingEnvironment | None",
+) -> "TradierClient | None":
+    """Return a shared Tradier client for repeated read-only worker fetches."""
+    if not TRADIER_AVAILABLE or TradierClient is None or environment is None:
+        return None
+
+    environment_name = getattr(environment, "name", str(environment)).upper()
+    cache_key = (api_key, account_id, environment_name)
+
+    with _TRADIER_CLIENT_CACHE_LOCK:
+        cached_client = _TRADIER_CLIENT_CACHE.get(cache_key)
+        if cached_client is not None:
+            return cached_client
+
+        client = TradierClient(
+            api_key=api_key,
+            account_id=account_id,
+            environment=environment,
+        )
+        _TRADIER_CLIENT_CACHE[cache_key] = client
+        return client
 
 
 def _paper_account_balance_source() -> str:
@@ -590,7 +623,9 @@ def _emit_live_balance_update(worker: Any) -> bool:
     if not api_key or not account_id or env_enum is None:
         return False
 
-    client = TradierClient(api_key=api_key, account_id=account_id, environment=env_enum)
+    client = _get_cached_tradier_client(api_key, account_id, env_enum)
+    if client is None:
+        return False
     bal = client.get_account_balances()
     equity, option_bp = _extract_tradier_balance(bal)
     return _emit_balance_update(worker, BALANCE_SOURCE_LIVE, equity, option_bp)

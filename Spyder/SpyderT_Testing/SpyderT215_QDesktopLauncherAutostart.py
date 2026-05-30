@@ -23,3 +23,11 @@ def test_desktop_launcher_defaults_enable_paper_session_supervisor_autostart() -
         'export SPYDER_A01_AUTOSTART_MODE="${SPYDER_A01_AUTOSTART_MODE:-paper}"'
         in launcher
     )
+    assert (
+        'export SPYDER_MAX_CONCURRENT_STRATEGIES="${SPYDER_MAX_CONCURRENT_STRATEGIES:-3}"'
+        in launcher
+    )
+    assert (
+        'export SPYDER_FEED_OFFHOURS_QUOTE_POLL_INTERVAL_S="${SPYDER_FEED_OFFHOURS_QUOTE_POLL_INTERVAL_S:-20.0}"'
+        in launcher
+    )

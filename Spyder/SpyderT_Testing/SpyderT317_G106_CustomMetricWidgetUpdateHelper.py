@@ -61,3 +61,8 @@ def test_build_custom_metric_widget_update_plan_rejects_invalid_or_nan_entries()
         scale=1.0,
         previous_value=None,
     ) is None
+    assert build_custom_metric_widget_update_plan(
+        entry={"value": 1.0, "stale": True},
+        scale=1.0,
+        previous_value=None,
+    ) is None

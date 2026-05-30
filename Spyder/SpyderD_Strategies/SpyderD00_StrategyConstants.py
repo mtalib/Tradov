@@ -182,6 +182,7 @@ class StrategyType(Enum):
 
     IRON_CONDOR = "iron_condor"
     IRON_BUTTERFLY = "iron_butterfly"
+    BROKEN_WING_BUTTERFLY = "broken_wing_butterfly"
     CREDIT_SPREAD = "credit_spread"
     DEBIT_SPREAD = "debit_spread"
     CALENDAR_SPREAD = "calendar_spread"

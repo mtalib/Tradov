@@ -248,6 +248,102 @@ class CalendarSpreadStrategy(BaseStrategy):
 
         self.logger.info("Initialized %s", self.name)
 
+    @staticmethod
+    def _serialize_calendar_leg(leg: CalendarLeg) -> dict[str, Any]:
+        """Convert a calendar leg to a JSON-safe payload."""
+        return {
+            "option_type": leg.option_type.value,
+            "strike": float(leg.strike),
+            "expiry": leg.expiry.isoformat(),
+            "position": int(leg.position),
+            "contracts": int(leg.contracts),
+            "iv": float(leg.iv),
+            "premium": float(leg.premium),
+            "delta": float(leg.delta),
+            "gamma": float(leg.gamma),
+            "vega": float(leg.vega),
+            "theta": float(leg.theta),
+        }
+
+    @classmethod
+    def _serialize_calendar_setup(cls, setup: CalendarSetup) -> dict[str, Any]:
+        """Convert a calendar setup to a JSON-safe payload."""
+        return {
+            "calendar_type": setup.calendar_type.value,
+            "near_leg": cls._serialize_calendar_leg(setup.near_leg),
+            "far_leg": cls._serialize_calendar_leg(setup.far_leg),
+            "time_spread": int(setup.time_spread),
+            "net_debit": float(setup.net_debit),
+            "max_profit": float(setup.max_profit),
+            "breakeven_points": [float(point) for point in setup.breakeven_points],
+            "iv_skew": float(setup.iv_skew),
+            "term_structure": setup.term_structure.value,
+            "entry_iv_rank": float(setup.entry_iv_rank),
+            "probability_profit": float(setup.probability_profit),
+        }
+
+    @staticmethod
+    def _deserialize_calendar_leg(payload: dict[str, Any]) -> CalendarLeg:
+        """Restore a calendar leg from serialized signal metadata."""
+        option_type_value = payload.get("option_type", OptionType.CALL.value)
+        option_type = (
+            option_type_value
+            if isinstance(option_type_value, OptionType)
+            else OptionType(str(option_type_value).strip().lower())
+        )
+        expiry_value = payload.get("expiry")
+        expiry = (
+            expiry_value
+            if isinstance(expiry_value, datetime)
+            else datetime.fromisoformat(str(expiry_value))
+        )
+        return CalendarLeg(
+            option_type=option_type,
+            strike=float(payload.get("strike", 0.0) or 0.0),
+            expiry=expiry,
+            position=int(payload.get("position", 0) or 0),
+            contracts=int(payload.get("contracts", 0) or 0),
+            iv=float(payload.get("iv", 0.0) or 0.0),
+            premium=float(payload.get("premium", 0.0) or 0.0),
+            delta=float(payload.get("delta", 0.0) or 0.0),
+            gamma=float(payload.get("gamma", 0.0) or 0.0),
+            vega=float(payload.get("vega", 0.0) or 0.0),
+            theta=float(payload.get("theta", 0.0) or 0.0),
+        )
+
+    @classmethod
+    def _deserialize_calendar_setup(cls, payload: dict[str, Any]) -> CalendarSetup:
+        """Restore a calendar setup from serialized signal metadata."""
+        if not isinstance(payload, dict):
+            raise TypeError("Calendar setup payload must be a dict")
+
+        calendar_type_value = payload.get("calendar_type", CalendarType.CALL_CALENDAR.value)
+        calendar_type = (
+            calendar_type_value
+            if isinstance(calendar_type_value, CalendarType)
+            else CalendarType(str(calendar_type_value).strip().lower())
+        )
+        term_structure_value = payload.get("term_structure", TermStructure.FLAT.value)
+        term_structure = (
+            term_structure_value
+            if isinstance(term_structure_value, TermStructure)
+            else TermStructure(str(term_structure_value).strip().lower())
+        )
+
+        return CalendarSetup(
+            calendar_type=calendar_type,
+            near_leg=cls._deserialize_calendar_leg(payload["near_leg"]),
+            far_leg=cls._deserialize_calendar_leg(payload["far_leg"]),
+            time_spread=int(payload.get("time_spread", 0) or 0),
+            net_debit=float(payload.get("net_debit", 0.0) or 0.0),
+            max_profit=float(payload.get("max_profit", 0.0) or 0.0),
+            breakeven_points=[float(point) for point in payload.get("breakeven_points", [])],
+            iv_skew=float(payload.get("iv_skew", 0.0) or 0.0),
+            term_structure=term_structure,
+            entry_iv_rank=float(payload.get("entry_iv_rank", 0.0) or 0.0),
+            probability_profit=float(payload.get("probability_profit", 0.0) or 0.0),
+        )
+
     # ==========================================================================
     # IV AND TERM STRUCTURE ANALYSIS
     # ==========================================================================
@@ -817,7 +913,7 @@ class CalendarSpreadStrategy(BaseStrategy):
                     "strategy_id": "CalendarSpread",
                     "strategy_type": "CalendarSpread",
                     "action": "buy",
-                    "setup": setup.__dict__,
+                    "setup": self._serialize_calendar_setup(setup),
                     "calendar_type": setup.calendar_type.value,
                     "strike": setup.near_leg.strike,
                     "near_expiry": setup.near_leg.expiry.strftime("%Y-%m-%d"),
@@ -948,6 +1044,7 @@ class CalendarSpreadStrategy(BaseStrategy):
                 "action": "roll",
                 "strategy_id": "CalendarSpread",
                 "strategy_type": "CalendarSpread",
+                "setup": self._serialize_calendar_setup(position.setup),
                 "current_pnl": position.unrealized_pnl,
                 "near_expiry_dte": position.near_expiry_dte,
                 "roll_count": position.roll_count + 1,
@@ -1010,8 +1107,10 @@ class CalendarSpreadStrategy(BaseStrategy):
             expires_at=signal_timestamp + timedelta(minutes=10),
             metadata={
                 "position_id": position.position_id,
+                "action": "close",
                 "strategy_id": "CalendarSpread",
                 "strategy_type": "CalendarSpread",
+                "setup": self._serialize_calendar_setup(position.setup),
                 "exit_reason": reason,
                 "days_held": position.days_held,
                 "unrealized_pnl": position.unrealized_pnl,
@@ -1063,15 +1162,21 @@ class CalendarSpreadStrategy(BaseStrategy):
         """Add new calendar position from signal"""
         position_id = f"CAL_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
-        signal.metadata["setup"]
-        # Reconstruct setup object
-        # This is simplified - in production would properly deserialize
+        setup_payload = signal.metadata.get("setup") if isinstance(signal.metadata, dict) else None
+        try:
+            setup = self._deserialize_calendar_setup(setup_payload)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Calendar signal missing valid setup payload") from exc
+
+        entry_time = datetime.now(UTC)
 
         position = CalendarPosition(
             position_id=position_id,
-            setup=None,  # Would reconstruct from setup_dict
-            entry_time=datetime.now(UTC),
-            entry_price=signal.metadata.get("current_price", 0),
+            setup=setup,
+            entry_time=entry_time,
+            entry_price=float(getattr(signal, "entry_price", 0.0) or 0.0),
+            near_expiry_dte=max(0, (setup.near_leg.expiry - entry_time).days),
+            far_expiry_dte=max(0, (setup.far_leg.expiry - entry_time).days),
             state=CalendarState.ESTABLISHED,
         )
 

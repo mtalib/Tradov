@@ -321,6 +321,8 @@ class HMMRegimeDetector:
                     features
                 )
 
+            self.is_trained = self.model is not None
+
             # Initialize regime tracking (v27 SPEC-18: bounded — see __init__)
             self.regime_history = deque(maxlen=2000)
             self.prediction_history = deque(maxlen=2000)
@@ -352,7 +354,7 @@ class HMMRegimeDetector:
 
         # Calculate rolling volatility
         rolling_vol = portfolio_returns.rolling(window=20).std()
-        rolling_vol = rolling_vol.fillna(method='ffill').values
+        rolling_vol = rolling_vol.ffill().values
 
         # Calculate VIX features if available
         if vix_data is not None and len(vix_data) > 0:
@@ -378,7 +380,8 @@ class HMMRegimeDetector:
             momentum,
             vix,
             vix_ma
-        ]).T
+        ])
+        features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
 
         self.logger.debug("Features prepared: shape=%s", features.shape)
         return features
@@ -442,7 +445,7 @@ class HMMRegimeDetector:
             transmat = model.transmat_
 
             # Get stationary distribution
-            stationary_dist = model._get_stationary_distribution()
+            stationary_dist = self._build_stationary_distribution(model)
 
             training_result = HMMTrainingResult(
                 model=model,
@@ -472,6 +475,24 @@ class HMMRegimeDetector:
                 n_states=self.n_states, n_params=0, training_time=0.0,
                 transition_matrix=None, stationary_distribution=None
             )
+
+    def _build_stationary_distribution(self, model: Any) -> tuple[np.ndarray, Any] | None:
+        """Build a compatibility stationary-distribution tuple from the fitted model."""
+        transmat = getattr(model, "transmat_", None)
+        if transmat is None:
+            return None
+
+        eigenvalues, eigenvectors = np.linalg.eig(transmat.T)
+        idx = int(np.argmin(np.abs(eigenvalues - 1.0)))
+        weights = np.real(eigenvectors[:, idx])
+        weights = np.clip(weights, a_min=0.0, a_max=None)
+
+        if not np.any(weights):
+            weights = np.full(transmat.shape[0], 1.0 / transmat.shape[0])
+        else:
+            weights = weights / weights.sum()
+
+        return weights, getattr(model, "means_", None)
 
     def _train_fallback_classifier(self, features: np.ndarray) -> tuple[Any, HMMTrainingResult]:
         """
@@ -612,23 +633,23 @@ class HMMRegimeDetector:
             )
 
             # Get most recent observation
-            if features.shape[1] >= n_lookback:
+            if features.shape[0] >= n_lookback:
                 recent_features = features[-n_lookback:]
             else:
                 recent_features = features
 
             # Predict regime
-            if self.model is not None:
+            if self.model is None:
                 # Use fallback classifier
                 regime_idx = self._classify_regime_fallback(recent_features)
                 probabilities = self._get_fallback_probabilities()
             else:
                 # Use HMM model
-                regime_idx = self.model.predict(recent_features)
+                regime_idx = int(self.model.predict(recent_features)[-1])
                 probabilities = self._get_hmm_probabilities(regime_idx)
 
             # Map to regime enum
-            regime = MarketRegime(regime_idx)
+            regime = self._regime_from_index(regime_idx)
 
             # Calculate confidence
             max_prob = max(probabilities.values())
@@ -686,6 +707,13 @@ class HMMRegimeDetector:
                 expected_duration=None,
                 reason=f"Prediction error: {str(e)}"
             )
+
+    def _regime_from_index(self, regime_idx: int) -> MarketRegime:
+        """Map a model state index to the legacy regime enum."""
+        regimes = [MarketRegime.BULL, MarketRegime.CHOP, MarketRegime.CRISIS]
+        if 0 <= regime_idx < len(regimes):
+            return regimes[regime_idx]
+        return MarketRegime.UNKNOWN
 
     def _classify_regime_fallback(self, features: np.ndarray) -> int:
         """Fallback regime classification based on thresholds."""

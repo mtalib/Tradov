@@ -586,6 +586,39 @@ def test_d31_session_window_allows_explicit_close_signal_outside_primary_window(
     assert reason == ''
 
 
+def test_d31_session_window_rejects_zero_dte_butterfly_after_no_new_risk_cutoff(monkeypatch):
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator._passes_session_window_gate = mod.StrategyOrchestrator._passes_session_window_gate.__get__(
+        orchestrator,
+        mod.StrategyOrchestrator,
+    )
+    eastern = mod._d31_now_et().tzinfo
+    monkeypatch.setattr(
+        mod,
+        "_d31_now_et",
+        lambda: datetime(2026, 5, 14, 15, 25, tzinfo=eastern),
+    )
+
+    allowed, reason = orchestrator._passes_session_window_gate(
+        {
+            'strategy_id': 'butterfly',
+            'strategy_type': 'butterfly',
+            'symbol': 'SPY',
+            'action': 'buy',
+            'quantity': 1,
+            'price': 0.35,
+            'confidence': 0.8,
+            'metadata': {
+                'expiration_date': '2026-05-14',
+            },
+        }
+    )
+
+    assert allowed is False
+    assert reason == 'session_window:zero_dte_no_new_risk_cutoff'
+
+
 def test_d31_entry_trust_gate_skips_explicit_close_signal() -> None:
     orchestrator = _make_orchestrator(_healthy_conditions())
 
@@ -687,7 +720,7 @@ def test_d31_low_confidence_l09_falls_back_to_contract_bull_classifier(monkeypat
     assert result == d31_mod.MarketRegime.BULL_LOW_VOL
 
 
-def test_d31_duplicate_open_position_warning_is_throttled():
+def test_d31_duplicate_open_position_is_silent_and_does_not_block_dispatch_state():
     orchestrator = _make_orchestrator(_healthy_conditions())
     orchestrator._get_duplicate_open_position_source = MagicMock(return_value='active_positions')
     orchestrator.logger.warning = MagicMock()
@@ -705,11 +738,12 @@ def test_d31_duplicate_open_position_warning_is_throttled():
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
-    assert orchestrator.logger.warning.call_count == 1
+    assert orchestrator.logger.warning.call_count == 0
     assert orchestrator._signal_drop_reasons['pre_dispatch:duplicate_open_position'] == 2
+    assert orchestrator.get_dispatch_state()['state'] == 'IDLE'
 
 
-def test_d31_duplicate_open_position_warning_reemits_after_cooldown():
+def test_d31_duplicate_open_position_remains_silent_after_cooldown():
     orchestrator = _make_orchestrator(_healthy_conditions())
     orchestrator._get_duplicate_open_position_source = MagicMock(return_value='active_positions')
     orchestrator.logger.warning = MagicMock()
@@ -729,10 +763,11 @@ def test_d31_duplicate_open_position_warning_reemits_after_cooldown():
     orchestrator._duplicate_entry_warning_last_monotonic[('SPY', 'iron_condor')] -= 61.0
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
-    assert orchestrator.logger.warning.call_count == 2
+    assert orchestrator.logger.warning.call_count == 0
+    assert orchestrator.get_dispatch_state()['state'] == 'IDLE'
 
 
-def test_d31_duplicate_open_position_warning_reemits_after_block_clears():
+def test_d31_duplicate_open_position_remains_silent_after_block_clears():
     orchestrator = _make_orchestrator(_healthy_conditions())
     orchestrator._get_duplicate_open_position_source = MagicMock(
         side_effect=['active_positions', None, 'active_positions']
@@ -756,8 +791,83 @@ def test_d31_duplicate_open_position_warning_reemits_after_block_clears():
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
     orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
 
-    assert orchestrator.logger.warning.call_count == 2
+    assert orchestrator.logger.warning.call_count == 0
     assert orchestrator._dispatch_approved_signal.call_count == 1
+    assert orchestrator.get_dispatch_state()['state'] == 'IDLE'
+
+
+def test_d31_manual_close_dashboard_embargo_blocks_immediate_reentry():
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._get_duplicate_open_position_source = MagicMock(return_value=None)
+    orchestrator._reserve_pending_entry = MagicMock(return_value=True)
+    orchestrator.logger.warning = MagicMock()
+
+    orchestrator._on_position_updated(
+        SimpleNamespace(
+            data={
+                'symbol': 'SPY260526C00750000',
+                'strategy_id': 'butterfly',
+                'status': 'CLOSED',
+                'reason': 'manual_close_dashboard',
+            }
+        )
+    )
+
+    signal = {
+        'strategy_id': 'butterfly',
+        'strategy_type': 'butterfly',
+        'symbol': 'SPY',
+        'action': 'sell',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_not_called()
+    orchestrator._get_duplicate_open_position_source.assert_not_called()
+    orchestrator._reserve_pending_entry.assert_not_called()
+    assert orchestrator._signal_drop_reasons['pre_dispatch:manual_close_reentry_embargo'] == 1
+    orchestrator.logger.warning.assert_called_once()
+    assert 'manual close reentry embargo active' in orchestrator.logger.warning.call_args[0][0]
+
+
+def test_d31_manual_close_request_embargo_blocks_immediate_reentry():
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._get_duplicate_open_position_source = MagicMock(return_value=None)
+    orchestrator._reserve_pending_entry = MagicMock(return_value=True)
+    orchestrator.logger.warning = MagicMock()
+
+    orchestrator._on_position_updated(
+        SimpleNamespace(
+            data={
+                'symbol': 'SPY260526C00750000',
+                'strategy_id': 'butterfly',
+                'status': 'CLOSE_REQUESTED',
+                'reason': 'manual_close_dashboard',
+            }
+        )
+    )
+
+    signal = {
+        'strategy_id': 'butterfly',
+        'strategy_type': 'butterfly',
+        'symbol': 'SPY',
+        'action': 'sell',
+        'quantity': 1,
+        'price': 2.15,
+        'confidence': 0.8,
+    }
+
+    orchestrator._on_strategy_signal(SimpleNamespace(data=signal))
+
+    orchestrator._dispatch_approved_signal.assert_not_called()
+    orchestrator._get_duplicate_open_position_source.assert_not_called()
+    orchestrator._reserve_pending_entry.assert_not_called()
+    assert orchestrator._signal_drop_reasons['pre_dispatch:manual_close_reentry_embargo'] == 1
+    orchestrator.logger.warning.assert_called_once()
+    assert 'manual close reentry embargo active' in orchestrator.logger.warning.call_args[0][0]
 
 
 def test_d31_pre_dispatch_duplicate_pending_source_persisted_to_decision_audit(tmp_path):
@@ -812,3 +922,110 @@ def test_d31_duplicate_source_reports_live_active_positions():
         orchestrator._get_duplicate_open_position_source('SPY', 'iron_condor', 'sell')
         == 'active_positions'
     )
+
+
+def test_d31_duplicate_source_prefers_active_paper_selector_over_raw_open_rows():
+    class _ManifestAwarePaperDB:
+        def __init__(self) -> None:
+            self.active_calls = 0
+            self.resume_calls = 0
+            self.open_calls = 0
+
+        def has_active_paper_session_marker(self):
+            return True
+
+        def get_active_paper_open_positions(self):
+            self.active_calls += 1
+            return [
+                {
+                    'symbol': 'SPY260526C00750000',
+                    'strategy': 'iron_condor',
+                    'quantity': -1,
+                    '_paper_open_origin': 'carryover',
+                }
+            ]
+
+        def get_resume_eligible_open_positions(self):
+            self.resume_calls += 1
+            return []
+
+        def get_open_positions(self):
+            self.open_calls += 1
+            return [
+                {
+                    'symbol': 'SPY',
+                    'strategy': 'iron_condor',
+                    'quantity': -1,
+                }
+            ]
+
+    session_db = _ManifestAwarePaperDB()
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._live_engine = SimpleNamespace(
+        get_active_positions_snapshot=lambda: {},
+        _session_db=session_db,
+    )
+
+    assert (
+        orchestrator._get_duplicate_open_position_source('SPY', 'iron_condor', 'sell')
+        == 'persisted_carryover'
+    )
+    assert session_db.active_calls == 1
+    assert session_db.resume_calls == 0
+    assert session_db.open_calls == 0
+
+
+def test_d31_duplicate_source_uses_resume_selector_without_active_session_marker():
+    class _ResumeOnlyPaperDB:
+        def __init__(self) -> None:
+            self.active_calls = 0
+            self.resume_calls = 0
+            self.open_calls = 0
+
+        def has_active_paper_session_marker(self):
+            return False
+
+        def get_active_paper_open_positions(self):
+            self.active_calls += 1
+            return [
+                {
+                    'symbol': 'SPY',
+                    'strategy': 'iron_condor',
+                    'quantity': -1,
+                }
+            ]
+
+        def get_resume_eligible_open_positions(self):
+            self.resume_calls += 1
+            return [
+                {
+                    'symbol': 'SPY260526C00750000',
+                    'strategy': 'iron_condor',
+                    'quantity': -1,
+                }
+            ]
+
+        def get_open_positions(self):
+            self.open_calls += 1
+            return [
+                {
+                    'symbol': 'SPY',
+                    'strategy': 'iron_condor',
+                    'quantity': -1,
+                }
+            ]
+
+    session_db = _ResumeOnlyPaperDB()
+    orchestrator = _make_orchestrator(_healthy_conditions())
+    orchestrator._live_engine = SimpleNamespace(
+        get_active_positions_snapshot=lambda: {},
+        _session_db=session_db,
+    )
+
+    assert (
+        orchestrator._get_duplicate_open_position_source('SPY', 'iron_condor', 'sell')
+        == 'persisted_carryover'
+    )
+    assert session_db.active_calls == 0
+    assert session_db.resume_calls == 1
+    assert session_db.open_calls == 0

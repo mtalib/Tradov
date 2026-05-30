@@ -24,15 +24,6 @@ Module Constants:
     DEFAULT_BATCH_SIZE (int): Default batch processing size (default: 100)
     HEALTH_CHECK_INTERVAL (int): Interval between health checks in seconds (default: 60)
 
-Change Log:
-    2025-01-24 (v1.0.0):
-        - Initial module creation
-        - Added core functionality template
-        - Implemented standard error handling patterns
-    
-    2025-01-20 (v0.9.0):
-        - Beta version for testing
-        - Basic structure defined
 """
 
 # ==============================================================================

@@ -361,6 +361,133 @@ def test_symbol_click_routes_pca_rows_to_detail_dialogs() -> None:
     dash._show_pmr_details_dialog.assert_not_called()
 
 
+def test_symbol_click_routes_removed_signal_monitor_concepts_to_shared_dialogs() -> None:
+    dash = _build_dashboard_stub()
+    dash.signal_panel = SimpleNamespace(
+        show_signal_dialog=MagicMock(),
+        show_skew_dialog=MagicMock(),
+        show_internals_dialog=MagicMock(),
+    )
+    dash._show_market_symbol_info_dialog = MagicMock()
+
+    dash._on_symbol_widget_clicked("VIX")
+    dash._on_symbol_widget_clicked("SWAN")
+    dash._on_symbol_widget_clicked("SKEW")
+    dash._on_symbol_widget_clicked("$TICK")
+    dash._on_symbol_widget_clicked("NYMO")
+    dash._on_symbol_widget_clicked("$VOLD")
+    dash._on_symbol_widget_clicked("RVOL")
+
+    dash.signal_panel.show_signal_dialog.assert_any_call("VIX MONITOR")
+    dash.signal_panel.show_signal_dialog.assert_any_call("BLACK SWAN")
+    assert dash.signal_panel.show_signal_dialog.call_count == 2
+    dash.signal_panel.show_skew_dialog.assert_called_once()
+    assert dash.signal_panel.show_internals_dialog.call_count == 2
+    dash._show_market_symbol_info_dialog.assert_any_call("$VOLD")
+    dash._show_market_symbol_info_dialog.assert_any_call("RVOL")
+    assert dash._show_market_symbol_info_dialog.call_count == 2
+
+
+def test_symbol_click_routes_remaining_rows_to_generic_market_info_dialog() -> None:
+    dash = _build_dashboard_stub()
+    dash._show_market_symbol_info_dialog = MagicMock()
+
+    dash._on_symbol_widget_clicked("GLD")
+
+    dash._show_market_symbol_info_dialog.assert_called_once_with("GLD")
+
+
+def test_build_market_symbol_info_html_includes_snapshot_and_tooltip() -> None:
+    class _Label:
+        def __init__(self, value: str) -> None:
+            self._value = value
+
+        def text(self) -> str:
+            return self._value
+
+    dash = _build_dashboard_stub()
+    dash.symbol_widgets = {
+        "DXY": SimpleNamespace(
+            category="CORRELATIONS",
+            symbol_label=_Label("UUP"),
+            price_label=_Label("27.77"),
+            change_label=_Label("+0.04"),
+            pct_label=_Label("+0.15%"),
+            toolTip=lambda: "US Dollar Index - Dollar strength",
+        )
+    }
+
+    html = dash._build_market_symbol_info_html("DXY")
+
+    assert "UUP — Market Overview" in html
+    assert "CORRELATIONS" in html
+    assert "DXY" in html
+    assert "27.77" in html
+    assert "+0.04" in html
+    assert "+0.15%" in html
+    assert "US Dollar Index - Dollar strength" in html
+
+
+def test_build_market_symbol_info_html_uses_shared_signal_metadata_when_available() -> None:
+    class _Label:
+        def __init__(self, value: str) -> None:
+            self._value = value
+
+        def text(self) -> str:
+            return self._value
+
+    dash = _build_dashboard_stub()
+    dash.symbol_widgets = {
+        "VIX": SimpleNamespace(
+            category="VOLATILITY",
+            symbol_label=_Label("VIX"),
+            price_label=_Label("18.20"),
+            change_label=_Label("+1.10"),
+            pct_label=_Label("+6.43%"),
+            toolTip=lambda: "stale widget tooltip",
+        )
+    }
+
+    html = dash._build_market_symbol_info_html("VIX")
+
+    assert "VIX — Market Overview" in html
+    assert "VIX - CBOE Volatility Index" in html
+    assert "CBOE Volatility Index - 30-day implied volatility" in html
+    assert "fear gauge" in html
+    assert "Low volatility, calm markets" in html
+    assert "stale widget tooltip" not in html
+
+
+def test_build_market_symbol_info_html_uses_shared_breadth_metadata_when_available() -> None:
+    class _Label:
+        def __init__(self, value: str) -> None:
+            self._value = value
+
+        def text(self) -> str:
+            return self._value
+
+    dash = _build_dashboard_stub()
+    dash.symbol_widgets = {
+        "RVOL": SimpleNamespace(
+            category="MARKET BREADTH",
+            symbol_label=_Label("RVOL"),
+            price_label=_Label("1.68x"),
+            change_label=_Label("+0.22x"),
+            pct_label=_Label("+15.1%"),
+            toolTip=lambda: "stale widget tooltip",
+        )
+    }
+
+    html = dash._build_market_symbol_info_html("RVOL")
+
+    assert "RVOL — Market Overview" in html
+    assert "RVOL - Relative Volume" in html
+    assert "Relative Volume - Current vs average volume" in html
+    assert "expanding participation" in html
+    assert "thin participation and lower conviction" in html
+    assert "stale widget tooltip" not in html
+
+
 def test_on_pivot_signal_state_bridges_runtime_payload_for_d31_selector() -> None:
     class _Widget:
         def __init__(self) -> None:

@@ -39,6 +39,8 @@ from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel,
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
+from Spyder.SpyderG_GUI.SpyderG06_DashboardData import get_market_signal_dialog_metadata  # noqa: E402
+
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
@@ -56,6 +58,35 @@ COLORS = {
     "blue": "#4169E1",
     "purple": "#9370DB",
 }
+
+_SHARED_SIGNAL_METADATA_KEYS: dict[str, str] = {
+    "VIX MONITOR": "VIX",
+    "GEX": "GEX",
+    "DIX": "DIX",
+    "OGL": "OGL",
+    "DEX": "DEX",
+    "BLACK SWAN": "SWAN",
+    "SKEW": "SKEW",
+}
+
+
+def _shared_signal_metadata(signal_type: str) -> dict[str, object] | None:
+    """Return canonical GUI dialog metadata for signals mirrored in Market Overview."""
+    symbol = _SHARED_SIGNAL_METADATA_KEYS.get(signal_type)
+    if symbol is None:
+        return None
+    return get_market_signal_dialog_metadata(symbol)
+
+
+def _shared_signal_content(
+    signal_type: str,
+    current_status: str,
+    fallback: dict[str, object],
+) -> dict[str, object]:
+    """Compose signal content from shared metadata while preserving local fallbacks."""
+    content = dict(_shared_signal_metadata(signal_type) or fallback)
+    content["current_status"] = current_status
+    return content
 
 # ==============================================================================
 # SIGNAL INFO DIALOG CLASS
@@ -413,17 +444,20 @@ class SignalInfoDialog(QDialog):
 
         # ─────────────────────────────────────────────────────────────────
         signal_contents = {
-            "VIX MONITOR": {
-                "full_name": "VIX - CBOE Volatility Index",
-                "description": "Measures 30-day implied volatility of S&P 500 options",
-                "concept": "Market's expectation of future volatility, often called the 'fear gauge'",  # noqa: E501
-                "signal_colors": [
-                    {"color": "positive", "text": "Green: VIX < 15 (Low volatility, calm markets)"},
-                    {"color": "neutral", "text": "Yellow: VIX 15-20 (Normal volatility)"},
-                    {"color": "negative", "text": "Red: VIX > 20 (High volatility, market stress)"},
-                ],
-                "current_status": vix_status,
-            },
+            "VIX MONITOR": _shared_signal_content(
+                "VIX MONITOR",
+                vix_status,
+                {
+                    "full_name": "VIX - CBOE Volatility Index",
+                    "description": "Measures 30-day implied volatility of S&P 500 options",
+                    "concept": "Market's expectation of future volatility, often called the 'fear gauge'",
+                    "signal_colors": [
+                        {"color": "positive", "text": "Green: VIX < 15 (Low volatility, calm markets)"},
+                        {"color": "neutral", "text": "Yellow: VIX 15-20 (Normal volatility)"},
+                        {"color": "negative", "text": "Red: VIX > 20 (High volatility, market stress)"},
+                    ],
+                },
+            ),
             "AI DECISION": {
                 "full_name": "AI DECISION ENGINE",
                 "description": "Machine Learning-based trade signal generator",
@@ -446,40 +480,34 @@ class SignalInfoDialog(QDialog):
                     "Active Models: 4/4"
                 ),
             },
-            "GEX": {
-                "full_name": "GEX - Gamma Exposure",
-                "description": "Net gamma exposure of market makers in billions",
-                "concept": "Measures hedging pressure from options market makers; negative GEX increases volatility",  # noqa: E501
-                "signal_colors": [
-                    {
-                        "color": "positive",
-                        "text": "Green: Positive GEX (>$1B) - Volatility suppression",
-                    },
-                    {"color": "neutral", "text": "Yellow: Near zero (-$1B to $1B) - Transitional"},
-                    {
-                        "color": "negative",
-                        "text": "Red: Negative GEX (<-$1B) - Volatility expansion",
-                    },
-                ],
-                "current_status": gex_status,
-            },
-            "DIX": {
-                "full_name": "DIX - Dark Pool Index",
-                "description": "Percentage of S&P 500 shares bought in dark pools",
-                "concept": "Tracks institutional buying; high DIX suggests smart money accumulation",  # noqa: E501
-                "signal_colors": [
-                    {
-                        "color": "positive",
-                        "text": "Green: DIX > 45% (Bullish institutional buying)",
-                    },
-                    {"color": "neutral", "text": "Yellow: DIX 40-45% (Neutral)"},
-                    {
-                        "color": "negative",
-                        "text": "Red: DIX < 40% (Bearish, lack of institutional support)",
-                    },
-                ],
-                "current_status": dix_status,
-            },
+            "GEX": _shared_signal_content(
+                "GEX",
+                gex_status,
+                {
+                    "full_name": "GEX - Gamma Exposure",
+                    "description": "Net gamma exposure of market makers in billions",
+                    "concept": "Measures hedging pressure from options market makers; negative GEX increases volatility",
+                    "signal_colors": [
+                        {"color": "positive", "text": "Green: Positive GEX (>$1B) - Volatility suppression"},
+                        {"color": "neutral", "text": "Yellow: Near zero (-$1B to $1B) - Transitional"},
+                        {"color": "negative", "text": "Red: Negative GEX (<-$1B) - Volatility expansion"},
+                    ],
+                },
+            ),
+            "DIX": _shared_signal_content(
+                "DIX",
+                dix_status,
+                {
+                    "full_name": "DIX - Dark Pool Index",
+                    "description": "Percentage of S&P 500 shares bought in dark pools",
+                    "concept": "Tracks institutional buying; high DIX suggests smart money accumulation",
+                    "signal_colors": [
+                        {"color": "positive", "text": "Green: DIX > 45% (Bullish institutional buying)"},
+                        {"color": "neutral", "text": "Yellow: DIX 40-45% (Neutral)"},
+                        {"color": "negative", "text": "Red: DIX < 40% (Bearish, lack of institutional support)"},
+                    ],
+                },
+            ),
             "RSI CONFLUENCE": {
                 "full_name": "RSI - Relative Strength Index Confluence",
                 "description": "Multiple timeframe RSI alignment analysis",
@@ -522,17 +550,20 @@ class SignalInfoDialog(QDialog):
                     "Max Contracts: 5/10 used"
                 ),
             },
-            "OGL": {
-                "full_name": "OGL - Zero Gamma Level",
-                "description": "Price level where gamma exposure flips from positive to negative",
-                "concept": "Key support/resistance level based on options positioning; acts as a magnet for price",  # noqa: E501
-                "signal_colors": [
-                    {"color": "positive", "text": "Green: SPY > OGL + 0.5% (Bullish positioning)"},
-                    {"color": "neutral", "text": "Yellow: SPY within ±0.5% of OGL (Neutral zone)"},
-                    {"color": "negative", "text": "Red: SPY < OGL - 0.5% (Bearish positioning)"},
-                ],
-                "current_status": ogl_status,
-            },
+            "OGL": _shared_signal_content(
+                "OGL",
+                ogl_status,
+                {
+                    "full_name": "OGL - Zero Gamma Level",
+                    "description": "Price level where gamma exposure flips from positive to negative",
+                    "concept": "Key support/resistance level based on options positioning; acts as a magnet for price",
+                    "signal_colors": [
+                        {"color": "positive", "text": "Green: SPY > OGL + 0.5% (Bullish positioning)"},
+                        {"color": "neutral", "text": "Yellow: SPY within +/-0.5% of OGL (Neutral zone)"},
+                        {"color": "negative", "text": "Red: SPY < OGL - 0.5% (Bearish positioning)"},
+                    ],
+                },
+            ),
             "DIVERGENCE": {
                 "full_name": "DIVERGENCE DETECTOR",
                 "description": "Price vs Indicator divergence analysis",
@@ -549,31 +580,34 @@ class SignalInfoDialog(QDialog):
                     "Signal Strength: None"
                 ),
             },
-            "DEX": {
-                "full_name": "DEX - Delta Exposure",
-                "description": "Net delta exposure of options market in millions",
-                "concept": "Measures directional hedging flow; indicates market maker positioning bias",  # noqa: E501
-                "signal_colors": [
-                    {"color": "positive", "text": "Green: Positive DEX (>$500M) - Bullish flow"},
-                    {"color": "neutral", "text": "Yellow: Neutral (-$500M to $500M)"},
-                    {"color": "negative", "text": "Red: Negative DEX (<-$500M) - Bearish flow"},
-                ],
-                "current_status": dex_status,
-            },
-            "BLACK SWAN": {
-                "full_name": "BLACK SWAN RISK INDICATOR",
-                "description": "Extreme tail risk monitoring system",
-                "concept": "Monitors multiple factors to detect potential for rare, extreme market events",  # noqa: E501
-                "signal_colors": [
-                    {"color": "positive", "text": "Green: SWAN Score < 2.0 (Minimal tail risk)"},
-                    {"color": "neutral", "text": "Yellow: SWAN Score 2.0-3.0 (Elevated tail risk)"},
-                    {
-                        "color": "negative",
-                        "text": "Red: SWAN Score > 3.0 (Extreme tail risk warning)",
-                    },
-                ],
-                "current_status": swan_status,
-            },
+            "DEX": _shared_signal_content(
+                "DEX",
+                dex_status,
+                {
+                    "full_name": "DEX - Delta Exposure",
+                    "description": "Net delta exposure of options market in millions",
+                    "concept": "Measures directional hedging flow; indicates market maker positioning bias",
+                    "signal_colors": [
+                        {"color": "positive", "text": "Green: Positive DEX (>$500M) - Bullish flow"},
+                        {"color": "neutral", "text": "Yellow: Neutral (-$500M to $500M)"},
+                        {"color": "negative", "text": "Red: Negative DEX (<-$500M) - Bearish flow"},
+                    ],
+                },
+            ),
+            "BLACK SWAN": _shared_signal_content(
+                "BLACK SWAN",
+                swan_status,
+                {
+                    "full_name": "BLACK SWAN RISK INDICATOR",
+                    "description": "Extreme tail risk monitoring system",
+                    "concept": "Monitors multiple factors to detect potential for rare, extreme market events",
+                    "signal_colors": [
+                        {"color": "positive", "text": "Green: SWAN Score < 2.0 (Minimal tail risk)"},
+                        {"color": "neutral", "text": "Yellow: SWAN Score 2.0-3.0 (Elevated tail risk)"},
+                        {"color": "negative", "text": "Red: SWAN Score > 3.0 (Extreme tail risk warning)"},
+                    ],
+                },
+            ),
             "HMM REGIME": {
                 "full_name": "HMM - Hidden Markov Model Regime Detector",
                 "description": "Statistical model identifying market regime states",
@@ -586,17 +620,20 @@ class SignalInfoDialog(QDialog):
                 ],
                 "current_status": hmm_status,
             },
-            "SKEW": {
-                "full_name": "SKEW - CBOE SKEW Index",
-                "description": "Measures tail risk in S&P 500 options",
-                "concept": "Tracks the relative cost of out-of-the-money puts vs calls; high skew indicates elevated tail risk",  # noqa: E501
-                "signal_colors": [
-                    {"color": "positive", "text": "Green: SKEW < 125 (Normal tail risk)"},
-                    {"color": "neutral", "text": "Yellow: SKEW 125-135 (Elevated tail risk)"},
-                    {"color": "negative", "text": "Red: SKEW > 135 (Extreme tail risk)"},
-                ],
-                "current_status": skew_status,
-            },
+            "SKEW": _shared_signal_content(
+                "SKEW",
+                skew_status,
+                {
+                    "full_name": "SKEW - CBOE SKEW Index",
+                    "description": "Measures tail risk in S&P 500 options",
+                    "concept": "Tracks the relative cost of out-of-the-money puts vs calls; high skew indicates elevated tail risk",
+                    "signal_colors": [
+                        {"color": "positive", "text": "Green: SKEW < 125 (Normal tail risk)"},
+                        {"color": "neutral", "text": "Yellow: SKEW 125-135 (Elevated tail risk)"},
+                        {"color": "negative", "text": "Red: SKEW > 135 (Extreme tail risk)"},
+                    ],
+                },
+            ),
         }
 
         return signal_contents.get(

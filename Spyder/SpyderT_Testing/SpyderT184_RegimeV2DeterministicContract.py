@@ -64,6 +64,18 @@ def _regime_member(regime_enum, *names: str):
     raise AttributeError(f"No matching regime member found for candidates: {names}")
 
 
+def _clear_selector_feature_flags(monkeypatch) -> None:
+    for name in (
+        "SPYDER_ENABLE_BULL_CALL_SPREAD",
+        "SPYDER_ENABLE_BEAR_PUT_SPREAD",
+        "SPYDER_ENABLE_BUTTERFLY",
+        "SPYDER_ENABLE_PIVOT_MEAN_REVERSION",
+        "SPYDER_ENABLE_BULLISH_STRANGLE",
+        "SPYDER_ENABLE_PUT_CREDIT_SPREAD_7",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 def test_l09_event_transition_has_top_priority() -> None:
     l09, _ = _refresh_runtime_modules()
     engine = l09.UnifiedRegimeEngine()
@@ -161,7 +173,8 @@ def test_l09_get_current_regime_uses_deterministic_source() -> None:
     assert [source.value for source in consensus.contributing_sources] == ["lean_rules"]
 
 
-def test_d30_consensus_mapping_is_restricted_to_four_strategies_and_halts() -> None:
+def test_d30_consensus_mapping_is_restricted_to_four_strategies_and_halts(monkeypatch) -> None:
+    _clear_selector_feature_flags(monkeypatch)
     _, d30 = _refresh_runtime_modules()
     selector = d30.RegimeGatedSelector()
 
@@ -205,6 +218,59 @@ def test_d30_consensus_mapping_enables_bull_call_spread_via_flag(monkeypatch) ->
     assert selection.selector_feature_flag == "SPYDER_ENABLE_BULL_CALL_SPREAD"
 
 
+def test_d30_consensus_mapping_enables_put_credit_spread_7_via_flag_on_friday(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", "true")
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector(clock=lambda: datetime(2026, 6, 5, 19, 45, tzinfo=UTC))
+
+    bull_regime = _regime_member(d30.L09MarketRegime, "BULL_TRENDING", "BULL")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=bull_regime,
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    assert selection.selected_strategy.value == "put_credit_spread_7"
+    assert selection.selector_feature_flag == "SPYDER_ENABLE_PUT_CREDIT_SPREAD_7"
+    assert selection.reason == "Bull trend — Put Credit Spread 7 (scheduled weekly entry, feature-flag enabled)"
+
+
+def test_d30_consensus_mapping_keeps_put_credit_spread_7_before_entry_time(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", "true")
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector(clock=lambda: datetime(2026, 6, 5, 14, 30, tzinfo=UTC))
+
+    bull_regime = _regime_member(d30.L09MarketRegime, "BULL_TRENDING", "BULL")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=bull_regime,
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    assert selection.selected_strategy.value == "bull_put_spread"
+
+
+def test_d30_consensus_mapping_keeps_put_credit_spread_7_off_schedule(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", "true")
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector(clock=lambda: datetime(2026, 6, 3, 14, 30, tzinfo=UTC))
+
+    bull_regime = _regime_member(d30.L09MarketRegime, "BULL_TRENDING", "BULL")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=bull_regime,
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    assert selection.selected_strategy.value == "bull_put_spread"
+
+
 def test_d30_consensus_mapping_enables_bear_put_spread_via_flag(monkeypatch) -> None:
     monkeypatch.setenv("SPYDER_ENABLE_BEAR_PUT_SPREAD", "true")
     _, d30 = _refresh_runtime_modules()
@@ -223,7 +289,105 @@ def test_d30_consensus_mapping_enables_bear_put_spread_via_flag(monkeypatch) -> 
     assert selection.selector_feature_flag == "SPYDER_ENABLE_BEAR_PUT_SPREAD"
 
 
+def test_d30_consensus_mapping_enables_butterfly_via_flag(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_BUTTERFLY", "true")
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector()
+
+    neutral_regime = _regime_member(d30.L09MarketRegime, "SIDEWAYS_RANGE", "SIDEWAYS")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=neutral_regime,
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    assert selection.selected_strategy.value == "butterfly"
+    assert selection.selector_feature_flag == "SPYDER_ENABLE_BUTTERFLY"
+    assert selection.reason == "Range/calm — Butterfly (feature-flag enabled)"
+
+
+def test_d30_recovery_mode_maps_to_broken_wing_butterfly(monkeypatch) -> None:
+    monkeypatch.delenv("SPYDER_ENABLE_BULLISH_STRANGLE", raising=False)
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector()
+
+    recovery_regime = _regime_member(d30.L09MarketRegime, "RECOVERY_MODE", "RECOVERY")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=recovery_regime,
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    assert selection.selected_strategy.value == "broken_wing_butterfly"
+    assert selection.reason == "Recovery regime — Broken Wing Butterfly"
+
+
+def test_d30_recovery_mode_enables_bullish_strangle_via_flag(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_BULLISH_STRANGLE", "true")
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector()
+
+    recovery_regime = _regime_member(d30.L09MarketRegime, "RECOVERY_MODE", "RECOVERY")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=recovery_regime,
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    assert selection.selected_strategy.value == "bullish_strangle"
+    assert selection.selector_feature_flag == "SPYDER_ENABLE_BULLISH_STRANGLE"
+    assert selection.reason == "Recovery regime — Bullish Strangle (feature-flag enabled)"
+
+
+def test_d30_high_vol_bullish_pivot_maps_to_broken_wing_butterfly(monkeypatch) -> None:
+    monkeypatch.delenv("SPYDER_ENABLE_BULLISH_STRANGLE", raising=False)
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector()
+
+    volatile_regime = _regime_member(d30.L09MarketRegime, "HIGH_VOLATILITY", "VOLATILE")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=volatile_regime,
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        ),
+        pivot_signal={"fired": True, "direction": "fade_support", "nearest_level_name": "S1"},
+    )
+
+    assert selection.selected_strategy.value == "broken_wing_butterfly"
+    assert selection.reason.startswith("High-vol bullish pivot — Broken Wing Butterfly")
+
+
+def test_d30_high_vol_bullish_pivot_enables_bullish_strangle_via_flag(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_BULLISH_STRANGLE", "true")
+    _, d30 = _refresh_runtime_modules()
+    selector = d30.RegimeGatedSelector()
+
+    volatile_regime = _regime_member(d30.L09MarketRegime, "HIGH_VOLATILITY", "VOLATILE")
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=volatile_regime,
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        ),
+        pivot_signal={"fired": True, "direction": "fade_support", "nearest_level_name": "S1"},
+    )
+
+    assert selection.selected_strategy.value == "bullish_strangle"
+    assert selection.selector_feature_flag == "SPYDER_ENABLE_BULLISH_STRANGLE"
+    assert selection.reason.startswith(
+        "High-vol bullish pivot — Bullish Strangle (feature-flag enabled)"
+    )
+
+
 def test_d30_missing_l09_module_still_honors_consensus_regime(monkeypatch) -> None:
+    _clear_selector_feature_flags(monkeypatch)
     _, d30 = _refresh_runtime_modules()
     monkeypatch.setattr(d30, "L09_AVAILABLE", False)
     monkeypatch.setattr(d30, "L09MarketRegime", None)
@@ -243,8 +407,83 @@ def test_d30_missing_l09_module_still_honors_consensus_regime(monkeypatch) -> No
             timestamp=datetime.now(UTC),
         )
     )
+    recovery_selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=SimpleNamespace(value="recovery_mode", name="RECOVERY_MODE"),
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        )
+    )
+    volatile_bwb_selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=SimpleNamespace(value="high_volatility", name="HIGH_VOLATILITY"),
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        ),
+        pivot_signal={"fired": True, "direction": "fade_support", "nearest_level_name": "S1"},
+    )
 
     assert bull_selection.selected_strategy.value == "bull_put_spread"
     assert bull_selection.reason.startswith("Bull fallback regime")
     assert volatile_selection.selected_strategy.value == "iron_butterfly"
     assert volatile_selection.reason.startswith("High-vol fallback regime")
+    assert recovery_selection.selected_strategy.value == "broken_wing_butterfly"
+    assert recovery_selection.reason.startswith("Recovery fallback regime")
+    assert volatile_bwb_selection.selected_strategy.value == "broken_wing_butterfly"
+    assert volatile_bwb_selection.reason.startswith("High-vol bullish-pivot fallback regime")
+
+
+def test_d30_missing_l09_module_enables_bullish_strangle_via_flag(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_BULLISH_STRANGLE", "true")
+    _, d30 = _refresh_runtime_modules()
+    monkeypatch.setattr(d30, "L09_AVAILABLE", False)
+    monkeypatch.setattr(d30, "L09MarketRegime", None)
+    selector = d30.RegimeGatedSelector()
+
+    recovery_selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=SimpleNamespace(value="recovery_mode", name="RECOVERY_MODE"),
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        )
+    )
+    volatile_bullish_selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=SimpleNamespace(value="high_volatility", name="HIGH_VOLATILITY"),
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        ),
+        pivot_signal={"fired": True, "direction": "fade_support", "nearest_level_name": "S1"},
+    )
+
+    assert recovery_selection.selected_strategy.value == "bullish_strangle"
+    assert recovery_selection.selector_feature_flag == "SPYDER_ENABLE_BULLISH_STRANGLE"
+    assert recovery_selection.reason.startswith(
+        "Recovery fallback regime — Bullish Strangle (feature-flag enabled)"
+    )
+    assert volatile_bullish_selection.selected_strategy.value == "bullish_strangle"
+    assert volatile_bullish_selection.selector_feature_flag == "SPYDER_ENABLE_BULLISH_STRANGLE"
+    assert volatile_bullish_selection.reason.startswith(
+        "High-vol bullish-pivot fallback regime — Bullish Strangle (feature-flag enabled)"
+    )
+
+
+def test_d30_missing_l09_module_enables_butterfly_via_flag(monkeypatch) -> None:
+    monkeypatch.setenv("SPYDER_ENABLE_BUTTERFLY", "true")
+    monkeypatch.delenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", raising=False)
+    _, d30 = _refresh_runtime_modules()
+    monkeypatch.setattr(d30, "L09_AVAILABLE", False)
+    monkeypatch.setattr(d30, "L09MarketRegime", None)
+    selector = d30.RegimeGatedSelector()
+
+    selection = selector.select_strategy_from_consensus(
+        SimpleNamespace(
+            regime=SimpleNamespace(value="sideways_range", name="SIDEWAYS_RANGE"),
+            confidence=0.90,
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    assert selection.selected_strategy.value == "butterfly"
+    assert selection.reason == "Range/calm fallback regime — Butterfly (feature-flag enabled)"
+    assert selection.selector_feature_flag == "SPYDER_ENABLE_BUTTERFLY"

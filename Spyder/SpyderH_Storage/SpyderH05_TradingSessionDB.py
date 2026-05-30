@@ -41,7 +41,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timedelta, UTC
+from datetime import date, datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -329,6 +329,135 @@ class TradingSessionDB:
         """Return the companion manifest path used for paper restart carryover."""
         return self.db_path.with_suffix(".carryover_manifest.json")
 
+    @staticmethod
+    def _parse_expiration_date(value: Any) -> date | None:
+        """Parse an ISO expiration date, returning None when unavailable."""
+        normalized_value = str(value or "").strip()
+        if not normalized_value:
+            return None
+
+        try:
+            return datetime.fromisoformat(normalized_value).date()
+        except ValueError:
+            return None
+
+    @classmethod
+    def _extract_occ_expiration_date(cls, symbol: Any) -> date | None:
+        """Parse the expiration date encoded in an OCC option symbol."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        if not normalized_symbol:
+            return None
+
+        idx = 0
+        while idx < len(normalized_symbol) and not normalized_symbol[idx].isdigit():
+            idx += 1
+
+        if idx == 0 or idx + 15 > len(normalized_symbol):
+            return None
+
+        expiration_token = normalized_symbol[idx:idx + 6]
+        option_type = normalized_symbol[idx + 6:idx + 7]
+        strike_token = normalized_symbol[idx + 7:idx + 15]
+        if not (
+            expiration_token.isdigit()
+            and option_type in {"C", "P"}
+            and strike_token.isdigit()
+        ):
+            return None
+
+        try:
+            return datetime.strptime(expiration_token, "%y%m%d").date()
+        except ValueError:
+            return None
+
+    @classmethod
+    def _resolve_position_expiration_date(cls, position_row: dict[str, Any]) -> date | None:
+        """Resolve an option expiration date from explicit metadata or OCC symbol."""
+        expiration_date = cls._parse_expiration_date(position_row.get("expiration"))
+        if expiration_date is not None:
+            return expiration_date
+        return cls._extract_occ_expiration_date(position_row.get("symbol"))
+
+    @classmethod
+    def _is_resume_eligible_paper_position(
+        cls,
+        position_row: dict[str, Any],
+        *,
+        reference_time: datetime | None = None,
+    ) -> bool:
+        """Return True when a paper position is eligible for restart carryover."""
+        expiration_date = cls._resolve_position_expiration_date(position_row)
+        if expiration_date is None:
+            return True
+
+        current_utc = cls._normalize_reference_time(reference_time)
+        current_et_date = current_utc.astimezone(_EASTERN_TIMEZONE).date()
+        return expiration_date > current_et_date
+
+    @classmethod
+    def _is_display_eligible_paper_position(
+        cls,
+        position_row: dict[str, Any],
+        *,
+        reference_time: datetime | None = None,
+    ) -> bool:
+        """Return True when a paper position should remain visible in the dashboard.
+
+        Dashboard visibility is intentionally broader than restart eligibility:
+        manifest-backed positions that expire today should still be shown so the
+        operator can see and manually manage them, even though automation should
+        not resume them as carryover strategies.
+        """
+        expiration_date = cls._resolve_position_expiration_date(position_row)
+        if expiration_date is None:
+            return True
+
+        current_utc = cls._normalize_reference_time(reference_time)
+        current_et_date = current_utc.astimezone(_EASTERN_TIMEZONE).date()
+        return expiration_date >= current_et_date
+
+    def _get_manifest_backed_paper_open_positions(
+        self,
+        *,
+        allow_expiring_today: bool,
+    ) -> list[dict[str, Any]]:
+        """Return manifest-backed paper OPEN rows filtered for one visibility policy."""
+        open_rows = self.get_open_positions()
+        if "paper" not in self.db_path.stem.lower():
+            return open_rows
+
+        manifest_rows = self._load_paper_carryover_manifest()
+        if not manifest_rows:
+            return []
+
+        manifest_by_symbol = {
+            str(row.get("symbol") or "").strip(): row
+            for row in manifest_rows
+            if str(row.get("symbol") or "").strip()
+        }
+        eligible: list[dict[str, Any]] = []
+        for row in open_rows:
+            symbol = str(row.get("symbol") or "").strip()
+            manifest_row = manifest_by_symbol.get(symbol)
+            if manifest_row is None:
+                continue
+
+            carryover_row = dict(row)
+            if not str(carryover_row.get("expiration") or "").strip():
+                carryover_row["expiration"] = manifest_row.get("expiration")
+
+            eligibility_fn = (
+                self._is_display_eligible_paper_position
+                if allow_expiring_today
+                else self._is_resume_eligible_paper_position
+            )
+            if not eligibility_fn(carryover_row):
+                continue
+            if self._matches_carryover_manifest(row, manifest_row):
+                eligible.append(row)
+
+        return eligible
+
     def _load_paper_carryover_manifest(self) -> list[dict[str, Any]]:
         """Load the last graceful-shutdown paper carryover manifest."""
         if "paper" not in self.db_path.stem.lower():
@@ -363,10 +492,13 @@ class TradingSessionDB:
         for raw_position in positions:
             if not isinstance(raw_position, dict):
                 continue
+            if not self._is_resume_eligible_paper_position(raw_position):
+                continue
             symbol = str(raw_position.get("symbol") or "").strip()
             strategy = str(raw_position.get("strategy") or "").strip()
             position_id = str(raw_position.get("position_id") or "").strip()
             opened_at = str(raw_position.get("opened_at") or "").strip()
+            expiration = str(raw_position.get("expiration") or "").strip()
             try:
                 quantity = int(raw_position.get("quantity") or 0)
             except (TypeError, ValueError):
@@ -380,6 +512,7 @@ class TradingSessionDB:
                     "strategy": strategy,
                     "quantity": quantity,
                     "opened_at": opened_at,
+                    "expiration": expiration,
                 }
             )
 
@@ -1056,6 +1189,26 @@ class TradingSessionDB:
             ).fetchone()
         return row is not None
 
+    def get_latest_position_for_symbol(self, symbol: str) -> dict[str, Any] | None:
+        """Return the most recently updated position row for the symbol."""
+        normalized_symbol = str(symbol or "").strip()
+        if not normalized_symbol:
+            return None
+
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM positions
+                WHERE symbol = ?
+                ORDER BY COALESCE(julianday(updated_at), 0.0) DESC,
+                         COALESCE(julianday(opened_at), 0.0) DESC
+                LIMIT 1
+                """,
+                (normalized_symbol,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def get_open_positions(self) -> list[dict[str, Any]]:
         """
         Return all positions with status = 'OPEN', ordered by open time.
@@ -1130,29 +1283,16 @@ class TradingSessionDB:
 
     def get_resume_eligible_open_positions(self) -> list[dict[str, Any]]:
         """Return paper open positions that were confirmed active at last shutdown."""
-        open_rows = self.get_open_positions()
-        if "paper" not in self.db_path.stem.lower():
-            return open_rows
+        return self._get_manifest_backed_paper_open_positions(allow_expiring_today=False)
 
-        manifest_rows = self._load_paper_carryover_manifest()
-        if not manifest_rows:
-            return []
+    def get_display_eligible_paper_open_positions(self) -> list[dict[str, Any]]:
+        """Return manifest-backed paper OPEN rows that should stay visible in the UI.
 
-        manifest_by_symbol = {
-            str(row.get("symbol") or "").strip(): row
-            for row in manifest_rows
-            if str(row.get("symbol") or "").strip()
-        }
-        eligible: list[dict[str, Any]] = []
-        for row in open_rows:
-            symbol = str(row.get("symbol") or "").strip()
-            manifest_row = manifest_by_symbol.get(symbol)
-            if manifest_row is None:
-                continue
-            if self._matches_carryover_manifest(row, manifest_row):
-                eligible.append(row)
-
-        return eligible
+        This preserves operator visibility for overnight positions that expire
+        today without widening the stricter `get_resume_eligible_open_positions`
+        gate used by automation.
+        """
+        return self._get_manifest_backed_paper_open_positions(allow_expiring_today=True)
 
     def get_pnl_summary(self) -> dict[str, float]:
         """

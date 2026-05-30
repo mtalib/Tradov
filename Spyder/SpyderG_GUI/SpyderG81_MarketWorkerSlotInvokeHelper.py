@@ -32,6 +32,6 @@ def build_market_worker_slot_invoke_plan(
         )
 
     if not thread_running:
-        return MarketWorkerSlotInvokePlan(action="call_direct")
+        return MarketWorkerSlotInvokePlan(action="return_false")
 
     return MarketWorkerSlotInvokePlan(action="queue_invoke")

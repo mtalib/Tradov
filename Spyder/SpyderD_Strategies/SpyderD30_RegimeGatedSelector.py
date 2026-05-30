@@ -57,12 +57,21 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime, timedelta, UTC
 import warnings
+from zoneinfo import ZoneInfo
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
 import pandas as pd
+
+try:
+    from Spyder.SpyderD_Strategies.SpyderD39_PutCreditSpread7 import (
+        is_put_credit_spread_7_entry_window_open,
+    )
+except Exception:
+    def is_put_credit_spread_7_entry_window_open(*_args, **_kwargs):
+        return False
 
 # Reinforcement Learning (optional)
 try:
@@ -165,13 +174,19 @@ def _get_l09_to_d30_regime_map() -> dict:
 # CONSTANTS
 # ==============================================================================
 
+ET_ZONE = ZoneInfo("America/New_York")
+
 # Strategy Types
 class StrategyType(Enum):
     """Available strategy types."""
     BULL_CALL_SPREAD = "bull_call_spread"
+    BULLISH_STRANGLE = "bullish_strangle"
     BEAR_PUT_SPREAD = "bear_put_spread"
     BULL_PUT_SPREAD = "bull_put_spread"
+    PUT_CREDIT_SPREAD_7 = "put_credit_spread_7"
     BEAR_CALL_SPREAD = "bear_call_spread"
+    BUTTERFLY = "butterfly"
+    BROKEN_WING_BUTTERFLY = "broken_wing_butterfly"
     IRON_CONDOR = "iron_condor"
     IRON_BUTTERFLY = "iron_butterfly"
     PIVOT_MEAN_REVERSION = "pivot_mean_reversion"
@@ -206,6 +221,15 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if not raw:
         return default
     return raw in {"1", "true", "yes", "on", "y"}
+
+
+def _pivot_signal_supports_bwb(pivot_signal: dict[str, Any] | None) -> bool:
+    """Return True when the pivot overlay expresses a bullish fade-support bias."""
+    if not isinstance(pivot_signal, dict) or not bool(pivot_signal.get("fired", False)):
+        return False
+
+    direction = str(pivot_signal.get("direction", "") or "").strip().lower()
+    return direction in {"fade_support", "bullish", "support", "up"}
 
 # ==============================================================================
 # DATA STRUCTURES
@@ -324,6 +348,46 @@ STRATEGY_PROFILES = {
         max_drawdown=0.14,
         description="Iron butterflies profit from low volatility"
     ),
+    StrategyType.BROKEN_WING_BUTTERFLY: StrategyProfile(
+        strategy_type=StrategyType.BROKEN_WING_BUTTERFLY,
+        optimal_regimes=[MarketRegime.BULL],
+        avoid_regimes=[MarketRegime.CRISIS],
+        greek_profile="positive_delta",
+        volatility_preference="medium_high",
+        expected_sharpe=1.8,
+        max_drawdown=0.13,
+        description="Put broken wing butterflies fit bullish recovery with elevated premium"
+    ),
+    StrategyType.BULLISH_STRANGLE: StrategyProfile(
+        strategy_type=StrategyType.BULLISH_STRANGLE,
+        optimal_regimes=[MarketRegime.BULL],
+        avoid_regimes=[MarketRegime.CRISIS],
+        greek_profile="positive_delta_long_gamma",
+        volatility_preference="high",
+        expected_sharpe=1.6,
+        max_drawdown=0.16,
+        description="Bullish long strangles fit recovery or bullish high-volatility pivots"
+    ),
+    StrategyType.PUT_CREDIT_SPREAD_7: StrategyProfile(
+        strategy_type=StrategyType.PUT_CREDIT_SPREAD_7,
+        optimal_regimes=[MarketRegime.BULL],
+        avoid_regimes=[MarketRegime.CRISIS],
+        greek_profile="positive_delta_defined_risk",
+        volatility_preference="medium",
+        expected_sharpe=1.7,
+        max_drawdown=0.12,
+        description="Seven-DTE weekly put credit spreads fit bullish tapes on the scheduled weekly entry day"
+    ),
+    StrategyType.BUTTERFLY: StrategyProfile(
+        strategy_type=StrategyType.BUTTERFLY,
+        optimal_regimes=[MarketRegime.CHOP],
+        avoid_regimes=[MarketRegime.CRISIS],
+        greek_profile="neutral_delta",
+        volatility_preference="low_medium",
+        expected_sharpe=1.7,
+        max_drawdown=0.10,
+        description="Long call butterflies fit calm range-bound or slightly bullish conditions"
+    ),
     StrategyType.VERTICAL_SPREADS: StrategyProfile(
         strategy_type=StrategyType.VERTICAL_SPREADS,
         optimal_regimes=[MarketRegime.BULL, MarketRegime.CHOP],
@@ -362,6 +426,8 @@ REGIME_STRATEGY_MAPPINGS = {
         regime=MarketRegime.BULL,
         primary_strategy=StrategyType.BULL_PUT_SPREAD,
         secondary_strategies=[
+            StrategyType.PUT_CREDIT_SPREAD_7,
+            StrategyType.BROKEN_WING_BUTTERFLY,
             StrategyType.IRON_CONDOR,
             StrategyType.IRON_BUTTERFLY,
         ],
@@ -374,6 +440,7 @@ REGIME_STRATEGY_MAPPINGS = {
         regime=MarketRegime.CHOP,
         primary_strategy=StrategyType.IRON_CONDOR,
         secondary_strategies=[
+            StrategyType.BUTTERFLY,
             StrategyType.BULL_PUT_SPREAD,
             StrategyType.BEAR_CALL_SPREAD,
         ],
@@ -576,7 +643,8 @@ class RegimeGatedSelector:
                  confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
                  min_regime_duration: int = DEFAULT_MIN_REGIME_DURATION,
                  transition_period: int = DEFAULT_TRANSITION_PERIOD,
-                 lean_mode: bool | None = None):
+                 lean_mode: bool | None = None,
+                 clock: Any | None = None):
         """
         Initialize Regime-Gated Strategy Selector.
 
@@ -604,9 +672,19 @@ class RegimeGatedSelector:
         # When enabled, NEUTRAL/SIDEWAYS_RANGE swaps from IronCondor → D34
         # PivotMeanReversion if the S08 pivot signal is firing on this tick.
         # Pivot signal is supplied to _select_lean_strategy via pivot_signal arg.
+        # Butterfly remains selector-only until D31 explicitly admits it to the
+        # lean allowlist for runtime activation.
+        self.enable_butterfly = _env_flag("SPYDER_ENABLE_BUTTERFLY", default=False)
+        self.enable_bullish_strangle = _env_flag(
+            "SPYDER_ENABLE_BULLISH_STRANGLE", default=False
+        )
+        self.enable_put_credit_spread_7 = _env_flag(
+            "SPYDER_ENABLE_PUT_CREDIT_SPREAD_7", default=False
+        )
         self.enable_pivot_mean_reversion = _env_flag(
             "SPYDER_ENABLE_PIVOT_MEAN_REVERSION", default=False
         )
+        self._clock = clock
 
         # HMM Regime Detector (E21 — fallback)
         self.hmm_detector: HMMRegimeDetector | None = None
@@ -821,9 +899,8 @@ class RegimeGatedSelector:
             regime_value = str(getattr(l09_regime, "value", l09_regime) or "").strip().lower()
             regime_name = str(getattr(l09_regime, "name", "") or "").strip().lower()
             regime_tokens = {token for token in (regime_value, regime_name) if token}
-            pivot_fired = (
-                isinstance(pivot_signal, dict) and bool(pivot_signal.get("fired", False))
-            )
+            pivot_fired = isinstance(pivot_signal, dict) and bool(pivot_signal.get("fired", False))
+            bullish_pivot = _pivot_signal_supports_bwb(pivot_signal)
 
             if any("event" in token for token in regime_tokens):
                 strategy = StrategyType.NO_TRADE
@@ -833,8 +910,21 @@ class RegimeGatedSelector:
                 strategy = StrategyType.NO_TRADE
                 reason = "Crisis fallback regime — halt new entries"
                 current_regime = MarketRegime.CRISIS
-            elif any("bull" in token or "recovery" in token for token in regime_tokens):
-                if self.enable_bull_call_spread:
+            elif any("recovery" in token for token in regime_tokens):
+                if self.enable_bullish_strangle:
+                    strategy = StrategyType.BULLISH_STRANGLE
+                    reason = "Recovery fallback regime — Bullish Strangle (feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_BULLISH_STRANGLE"
+                else:
+                    strategy = StrategyType.BROKEN_WING_BUTTERFLY
+                    reason = "Recovery fallback regime — Broken Wing Butterfly"
+                current_regime = MarketRegime.BULL
+            elif any("bull" in token for token in regime_tokens):
+                if self._put_credit_spread_7_eligible_now():
+                    strategy = StrategyType.PUT_CREDIT_SPREAD_7
+                    reason = "Bull fallback regime — Put Credit Spread 7 (scheduled weekly entry, feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_PUT_CREDIT_SPREAD_7"
+                elif self.enable_bull_call_spread:
                     strategy = StrategyType.BULL_CALL_SPREAD
                     reason = "Bull fallback regime — Bull Call Spread (feature-flag enabled)"
                     selector_feature_flag = "SPYDER_ENABLE_BULL_CALL_SPREAD"
@@ -855,8 +945,17 @@ class RegimeGatedSelector:
                 "high_vol" in token or "volatility" in token or "volatile" in token
                 for token in regime_tokens
             ):
-                strategy = StrategyType.IRON_BUTTERFLY
-                reason = "High-vol fallback regime — Iron Butterfly"
+                if bullish_pivot:
+                    if self.enable_bullish_strangle:
+                        strategy = StrategyType.BULLISH_STRANGLE
+                        reason = "High-vol bullish-pivot fallback regime — Bullish Strangle (feature-flag enabled)"
+                        selector_feature_flag = "SPYDER_ENABLE_BULLISH_STRANGLE"
+                    else:
+                        strategy = StrategyType.BROKEN_WING_BUTTERFLY
+                        reason = "High-vol bullish-pivot fallback regime — Broken Wing Butterfly"
+                else:
+                    strategy = StrategyType.IRON_BUTTERFLY
+                    reason = "High-vol fallback regime — Iron Butterfly"
                 current_regime = MarketRegime.CHOP
             elif any(
                 "sideways" in token or "range" in token or "neutral" in token or "chop" in token
@@ -866,6 +965,10 @@ class RegimeGatedSelector:
                     strategy = StrategyType.PIVOT_MEAN_REVERSION
                     reason = "Range/calm fallback regime — Pivot Mean Reversion (pivot signal firing)"
                     selector_feature_flag = "SPYDER_ENABLE_PIVOT_MEAN_REVERSION"
+                elif self.enable_butterfly:
+                    strategy = StrategyType.BUTTERFLY
+                    reason = "Range/calm fallback regime — Butterfly (feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_BUTTERFLY"
                 else:
                     strategy = StrategyType.IRON_CONDOR
                     reason = "Range/calm fallback regime — Iron Condor"
@@ -878,6 +981,7 @@ class RegimeGatedSelector:
             l09_regime = consensus.regime
             confidence = consensus.confidence
             selector_feature_flag = None
+            bullish_pivot = _pivot_signal_supports_bwb(pivot_signal)
 
             if l09_regime == L09MarketRegime.EVENT_TRANSITION:
                 strategy = StrategyType.NO_TRADE
@@ -886,13 +990,25 @@ class RegimeGatedSelector:
                 strategy = StrategyType.NO_TRADE
                 reason = "Crisis regime — halt new entries"
             elif l09_regime == L09MarketRegime.BULL_TRENDING:
-                if self.enable_bull_call_spread:
+                if self._put_credit_spread_7_eligible_now():
+                    strategy = StrategyType.PUT_CREDIT_SPREAD_7
+                    reason = "Bull trend — Put Credit Spread 7 (scheduled weekly entry, feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_PUT_CREDIT_SPREAD_7"
+                elif self.enable_bull_call_spread:
                     strategy = StrategyType.BULL_CALL_SPREAD
                     reason = "Bull trend — Bull Call Spread (feature-flag enabled)"
                     selector_feature_flag = "SPYDER_ENABLE_BULL_CALL_SPREAD"
                 else:
                     strategy = StrategyType.BULL_PUT_SPREAD
                     reason = "Bull trend — Bull Put Spread"
+            elif l09_regime == L09MarketRegime.RECOVERY_MODE:
+                if self.enable_bullish_strangle:
+                    strategy = StrategyType.BULLISH_STRANGLE
+                    reason = "Recovery regime — Bullish Strangle (feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_BULLISH_STRANGLE"
+                else:
+                    strategy = StrategyType.BROKEN_WING_BUTTERFLY
+                    reason = "Recovery regime — Broken Wing Butterfly"
             elif l09_regime == L09MarketRegime.BEAR_TRENDING:
                 if self.enable_bear_put_spread:
                     strategy = StrategyType.BEAR_PUT_SPREAD
@@ -909,12 +1025,25 @@ class RegimeGatedSelector:
                     strategy = StrategyType.PIVOT_MEAN_REVERSION
                     reason = "Range/calm — Pivot Mean Reversion (pivot signal firing)"
                     selector_feature_flag = "SPYDER_ENABLE_PIVOT_MEAN_REVERSION"
+                elif self.enable_butterfly:
+                    strategy = StrategyType.BUTTERFLY
+                    reason = "Range/calm — Butterfly (feature-flag enabled)"
+                    selector_feature_flag = "SPYDER_ENABLE_BUTTERFLY"
                 else:
                     strategy = StrategyType.IRON_CONDOR
                     reason = "Range/calm — Iron Condor"
             elif l09_regime == L09MarketRegime.HIGH_VOLATILITY:
-                strategy = StrategyType.IRON_BUTTERFLY
-                reason = "High-vol mean reversion — Iron Butterfly"
+                if bullish_pivot:
+                    if self.enable_bullish_strangle:
+                        strategy = StrategyType.BULLISH_STRANGLE
+                        reason = "High-vol bullish pivot — Bullish Strangle (feature-flag enabled)"
+                        selector_feature_flag = "SPYDER_ENABLE_BULLISH_STRANGLE"
+                    else:
+                        strategy = StrategyType.BROKEN_WING_BUTTERFLY
+                        reason = "High-vol bullish pivot — Broken Wing Butterfly"
+                else:
+                    strategy = StrategyType.IRON_BUTTERFLY
+                    reason = "High-vol mean reversion — Iron Butterfly"
             elif l09_regime == L09MarketRegime.UNKNOWN:
                 strategy = StrategyType.NO_TRADE
                 reason = "Unknown regime (missing/unavailable data) — halt new entries"
@@ -959,6 +1088,22 @@ class RegimeGatedSelector:
         self.selection_history.append(selection)
 
         return selection
+
+    def _selector_now_et(self) -> datetime:
+        """Return the selector clock in Eastern Time for scheduled strategies."""
+        if callable(self._clock):
+            now = self._clock()
+            if isinstance(now, datetime):
+                if now.tzinfo is None:
+                    now = now.replace(tzinfo=UTC)
+                return now.astimezone(ET_ZONE)
+        return datetime.now(UTC).astimezone(ET_ZONE)
+
+    def _put_credit_spread_7_eligible_now(self) -> bool:
+        """Return True when the weekly seven-DTE strategy is eligible now."""
+        if not self.enable_put_credit_spread_7:
+            return False
+        return is_put_credit_spread_7_entry_window_open(self._selector_now_et())
 
     def select_strategy(self,
                        regime_prediction: RegimePrediction,

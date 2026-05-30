@@ -71,7 +71,9 @@ class StrategyType(Enum):
     BULL_CALL_SPREAD = "bull_call_spread"
     BEAR_PUT_SPREAD = "bear_put_spread"
     IRON_CONDOR = "iron_condor"
+    BUTTERFLY = "butterfly"
     IRON_BUTTERFLY = "iron_butterfly"
+    BROKEN_WING_BUTTERFLY = "broken_wing_butterfly"
     STRADDLE = "straddle"
     STRANGLE = "strangle"
     CALENDAR_SPREAD = "calendar_spread"
@@ -575,6 +577,51 @@ class OptionStrategies:
         )
 
         # Calculate key metrics
+        self._calculate_straddle_metrics(strategy)
+
+        return strategy
+
+    def create_strangle(
+        self,
+        call_strike: float,
+        put_strike: float,
+        expiry: datetime,
+        call_premium: float,
+        put_premium: float,
+        underlying_price: float,
+        position_type: str = "LONG",
+        quantity: int = 1,
+    ) -> OptionStrategy:
+        """Create a strangle strategy."""
+        pos_type = PositionType(position_type.upper())
+
+        legs = [
+            OptionLeg(
+                option_type=OptionType.CALL,
+                position_type=pos_type,
+                strike=call_strike,
+                expiry=expiry,
+                premium=call_premium,
+                quantity=quantity,
+            ),
+            OptionLeg(
+                option_type=OptionType.PUT,
+                position_type=pos_type,
+                strike=put_strike,
+                expiry=expiry,
+                premium=put_premium,
+                quantity=quantity,
+            ),
+        ]
+
+        strategy = OptionStrategy(
+            name=f"{position_type.title()} Strangle {put_strike}/{call_strike}",
+            strategy_type=StrategyType.STRANGLE,
+            legs=legs,
+            underlying_price=underlying_price,
+        )
+
+        # Long/short strangles share the same debit/credit profit profile as straddles.
         self._calculate_straddle_metrics(strategy)
 
         return strategy

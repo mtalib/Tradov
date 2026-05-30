@@ -33,9 +33,12 @@ import importlib.util
 import sys
 import unittest
 import uuid
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pandas as pd
 
 # ==============================================================================
 # PATH SETUP
@@ -88,6 +91,7 @@ ZeroDTEPosition = _d04.ZeroDTEPosition
 D04ZeroDTEStrategy = getattr(_d04, "ZeroDTEStrategy", None)
 D04ZeroDTEState = _d04.ZeroDTEState
 MarketConditions = _d04.MarketConditions
+build_zero_dte_runtime_config = _d04.build_zero_dte_runtime_config
 
 # Pull names from D05
 StraddlePosition = _d05.StraddlePosition
@@ -628,6 +632,191 @@ class TestMarketConditionsProperties(unittest.TestCase):
             overnight_gap=5.0,
         )
         self.assertAlmostEqual(mc.intraday_range, 22.0)  # 510 - 488
+
+
+class TestZeroDTERuntimeConfig(unittest.TestCase):
+
+    def test_default_runtime_config_preserves_classic_thresholds(self):
+        runtime = build_zero_dte_runtime_config({})
+        self.assertEqual(runtime['profile'], 'classic')
+        self.assertEqual(runtime['symbol'], 'SPY')
+        self.assertEqual(runtime['max_daily_trades'], _d04.ZERO_DTE_MAX_TRADES)
+        self.assertEqual(runtime['entry_window_end'], _d04.time(12, 0))
+        self.assertEqual(runtime['spread_width_points'], 5.0)
+        self.assertEqual(runtime['min_premium'], _d04.MIN_PREMIUM)
+
+    def test_mark_spy_paper_profile_resolves_expected_overrides(self):
+        runtime = build_zero_dte_runtime_config({'profile': 'mark_spy_paper'})
+        self.assertEqual(runtime['profile'], 'mark_spy_paper')
+        self.assertEqual(runtime['symbol'], 'SPY')
+        self.assertEqual(runtime['entry_delay_minutes'], 2)
+        self.assertEqual(runtime['entry_window_end'], _d04.time(14, 30))
+        self.assertEqual(runtime['time_stop'], _d04.time(15, 15))
+        self.assertEqual(runtime['max_daily_trades'], 8)
+        self.assertEqual(runtime['spread_width_points'], 1.0)
+        self.assertAlmostEqual(runtime['short_delta_min'], 0.07)
+        self.assertAlmostEqual(runtime['short_delta_max'], 0.20)
+        self.assertAlmostEqual(runtime['short_delta_target'], 0.12)
+        self.assertAlmostEqual(runtime['min_premium'], 0.20)
+
+
+class TestZeroDTEStrikeSelection(unittest.TestCase):
+
+    def _make_strategy(self):
+        strategy = D04ZeroDTEStrategy.__new__(D04ZeroDTEStrategy)
+        strategy.short_delta_min = 0.07
+        strategy.short_delta_max = 0.20
+        strategy.short_delta_target = 0.12
+        strategy.spread_width_points = 1.0
+        strategy.prefer_delta_selection = True
+        return strategy
+
+    def test_put_and_call_spread_strikes_use_delta_band_when_available(self):
+        strategy = self._make_strategy()
+        option_chain = pd.DataFrame(
+            [
+                {'option_type': 'put', 'strike': 596.0, 'delta': -0.18},
+                {'option_type': 'put', 'strike': 597.0, 'delta': -0.11},
+                {'option_type': 'put', 'strike': 598.0, 'delta': -0.05},
+                {'option_type': 'call', 'strike': 603.0, 'delta': 0.11},
+                {'option_type': 'call', 'strike': 604.0, 'delta': 0.18},
+                {'option_type': 'call', 'strike': 605.0, 'delta': 0.24},
+            ]
+        )
+
+        put_spread = strategy._find_put_spread_strikes(option_chain, 600.0)
+        call_spread = strategy._find_call_spread_strikes(option_chain, 600.0)
+        condor = strategy._find_iron_condor_strikes(option_chain, 600.0)
+
+        self.assertEqual(put_spread, {'short_put': 597.0, 'long_put': 596.0})
+        self.assertEqual(call_spread, {'short_call': 603.0, 'long_call': 604.0})
+        self.assertEqual(
+            condor,
+            {
+                'long_put': 596.0,
+                'short_put': 597.0,
+                'short_call': 603.0,
+                'long_call': 604.0,
+            },
+        )
+
+
+class TestZeroDTEMarketInputs(unittest.TestCase):
+
+    def _make_strategy(self):
+        strategy = D04ZeroDTEStrategy.__new__(D04ZeroDTEStrategy)
+        strategy.symbol = 'SPY'
+        strategy.logger = MagicMock()
+        strategy.error_handler = MagicMock()
+        strategy.current_conditions = None
+        strategy.option_chain_cache = {}
+        strategy.option_chain_cache_time = {}
+        strategy._tradier_client = None
+        strategy._intraday_iv_history = []
+        strategy.eastern_tz = _d04.pytz.timezone('US/Eastern')
+        return strategy
+
+    def test_get_0dte_options_fetches_live_chain_and_caches(self):
+        strategy = self._make_strategy()
+        expiration = date.today().isoformat()
+        strategy._tradier_client = MagicMock()
+        strategy._tradier_client.get_option_chain_with_greeks.return_value = [
+            SimpleNamespace(
+                symbol='SPY250527P00597000',
+                underlying='SPY',
+                strike=597.0,
+                expiration=expiration,
+                option_type='put',
+                bid=0.42,
+                ask=0.46,
+                last=0.44,
+                mid=0.44,
+                volume=120,
+                open_interest=320,
+                delta=-0.12,
+                gamma=0.08,
+                theta=-0.18,
+                vega=0.02,
+                iv=0.19,
+            ),
+            SimpleNamespace(
+                symbol='SPY250528C00603000',
+                underlying='SPY',
+                strike=603.0,
+                expiration='2099-12-31',
+                option_type='call',
+                bid=0.39,
+                ask=0.43,
+                last=0.41,
+                mid=0.41,
+                volume=90,
+                open_interest=200,
+                delta=0.11,
+                gamma=0.07,
+                theta=-0.16,
+                vega=0.02,
+                iv=0.18,
+            ),
+        ]
+
+        first = strategy._get_0dte_options(pd.DataFrame())
+        second = strategy._get_0dte_options(pd.DataFrame())
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first.iloc[0]['option_type'], 'put')
+        self.assertAlmostEqual(first.iloc[0]['iv'], 0.19)
+        self.assertEqual(first.iloc[0]['expiration'], expiration)
+        self.assertEqual(len(second), 1)
+        strategy._tradier_client.get_option_chain_with_greeks.assert_called_once_with('SPY', expiration)
+
+    def test_calculate_iv_rank_uses_rolling_atm_iv_history(self):
+        strategy = self._make_strategy()
+        now = datetime.now()
+        strategy._intraday_iv_history = [
+            (now - timedelta(days=2), 0.10),
+            (now - timedelta(days=1), 0.30),
+        ]
+
+        iv_rank = strategy._calculate_iv_rank(0.20)
+
+        self.assertAlmostEqual(iv_rank, 50.0)
+
+    def test_update_market_conditions_prefers_supplied_volatility_inputs(self):
+        strategy = self._make_strategy()
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        timestamps = [datetime.combine(yesterday, time(15, 59))]
+        timestamps.extend(
+            datetime.combine(today, time(9, 30)) + timedelta(minutes=minute)
+            for minute in range(25)
+        )
+        close_values = [598.0] + [600.0 + (minute * 0.1) for minute in range(25)]
+        market_data = pd.DataFrame(
+            {
+                'open': [598.0] + [600.0] * 25,
+                'high': [599.0] + [600.5 + (minute * 0.1) for minute in range(25)],
+                'low': [597.5] + [599.5 + (minute * 0.1) for minute in range(25)],
+                'close': close_values,
+                'volume': [1_000_000] + [2_000_000] * 25,
+                'vix': [17.5] * 26,
+                'iv_rank': [42.0] * 26,
+            },
+            index=pd.DatetimeIndex(timestamps),
+        )
+        strategy._get_0dte_options = MagicMock(
+            return_value=pd.DataFrame(
+                [
+                    {'strike': 602.0, 'iv': 0.20},
+                    {'strike': 603.0, 'iv': 0.22},
+                ]
+            )
+        )
+
+        strategy._update_market_conditions(market_data)
+
+        self.assertIsNotNone(strategy.current_conditions)
+        self.assertAlmostEqual(strategy.current_conditions.vix, 17.5)
+        self.assertAlmostEqual(strategy.current_conditions.iv_rank, 42.0)
 
 
 # ==============================================================================

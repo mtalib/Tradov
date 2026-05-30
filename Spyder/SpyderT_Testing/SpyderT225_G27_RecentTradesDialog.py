@@ -80,14 +80,14 @@ def test_recent_trades_dialog_renders_trade_row() -> None:
     assert any("2026-05-16 10:46" in text for text in label_texts)
     assert any("CLOSED TRADE : IRON CONDOR" in text for text in label_texts)
     assert any("STATUS: CLOSED" in text for text in label_texts)
-    assert any("NET P&L -$38 (-25.7%)" in text for text in label_texts)
+    assert any("NET P&L -$38.00 (-25.7%)" in text for text in label_texts)
 
     assert tree.topLevelItem(3).text(0) == "SELL PUT"
     assert tree.topLevelItem(3).text(2) == "$581P"
     assert tree.topLevelItem(3).text(4) == "$1.01"
-    assert tree.topLevelItem(3).text(5) == "-$101"
+    assert tree.topLevelItem(3).text(5) == "+$101.00"
     assert tree.topLevelItem(6).text(0) == "BUY CALL"
-    assert tree.topLevelItem(6).text(7) == "-$3"
+    assert tree.topLevelItem(6).text(7) == "-$3.00"
 
 
 def test_recent_trades_dialog_shows_empty_state() -> None:
