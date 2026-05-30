@@ -1,18 +1,16 @@
-"""SPEC-6 — R12 SessionSupervisor must wire OrderManager to D31, not just LiveEngine.
+"""SPEC-6 — R12 SessionSupervisor must wire OrderManager in live mode.
 
 Audit reference: 2026-05-02_Codebase_Audit_v27.md → SPEC-6.
 
-The bug: ``SessionSupervisor._start_orchestrator`` only calls
-``self.orchestrator.set_live_engine(self.engine)`` (R12:529). It never calls
-``set_order_manager``. The entire mid-price-walk execution path in
-``D31._dispatch_approved_signal`` (D31:3766-3794) is therefore dead in
-production — every signal degrades to a market order, paying full bid/ask
-spread on every options entry. For SPY 0DTE this is ~$5-15 of slippage per
-round trip.
+Current contract:
+- Live mode wires both ``set_live_engine`` and ``set_order_manager``.
+- Paper mode intentionally skips OrderManager wiring to avoid accidental
+    live-endpoint order submissions from the mid-walk path.
 
 Required behavior after SPEC-6:
-- After ``_start_orchestrator`` returns ``True``, ``self.orchestrator`` must
-  have BOTH ``_live_engine`` AND ``_order_manager`` attributes set.
+- In live mode, after ``_start_orchestrator`` returns ``True``,
+    ``self.orchestrator`` must have BOTH ``_live_engine`` AND ``_order_manager``
+    attributes set.
 - D31's ``start_orchestration`` must log ERROR if both wiring methods are
   missing.
 - An integration check: with the orchestrator wired, an approved signal
@@ -40,14 +38,14 @@ def _isolate_decision_audit(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 
 class TestSupervisorWiresOrderManager:
-    """The supervisor must call set_order_manager during _start_orchestrator."""
+    """The supervisor must call set_order_manager in live mode."""
 
     def test_start_orchestrator_calls_set_order_manager(self):
         from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import (
             SessionSupervisor,
         )
 
-        sv = SessionSupervisor(mode="paper", dry_run=True, skip_orphan_sweep=True)
+        sv = SessionSupervisor(mode="live", dry_run=True, skip_orphan_sweep=True)
         sv.em = MagicMock()
         sv.engine = MagicMock(name="LiveEngine")
 
@@ -59,7 +57,7 @@ class TestSupervisorWiresOrderManager:
         ):
             ok = sv._start_orchestrator()
 
-        assert ok is True, "Orchestrator startup must succeed in paper/dry_run"
+        assert ok is True, "Orchestrator startup must succeed in live/dry_run"
         orch = sv.orchestrator
         assert orch is not None, "Orchestrator instance must be retained on supervisor"
 
@@ -148,16 +146,16 @@ class TestMidPriceWalkPathLive:
         orch.set_order_manager(om)
 
         # Build a signal that carries bid/ask (mid-price walk requires both).
-        signal = SimpleNamespace(
-            symbol="SPY240517C00500000",
-            side="BUY",
-            quantity=1,
-            entry_price=2.50,
-            bid=2.45,
-            ask=2.55,
-            strategy_id="spec6_unit",
-            metadata={"bid": 2.45, "ask": 2.55},
-        )
+        signal = {
+            "symbol": "SPY240517C00500000",
+            "side": "BUY",
+            "quantity": 1,
+            "entry_price": 2.50,
+            "bid": 2.45,
+            "ask": 2.55,
+            "strategy_id": "spec6_unit",
+            "metadata": {"bid": 2.45, "ask": 2.55},
+        }
 
         try:
             orch._dispatch_approved_signal(signal)
