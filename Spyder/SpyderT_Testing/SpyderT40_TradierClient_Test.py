@@ -125,6 +125,35 @@ class TestTradierClientInitialization:
         with pytest.raises(ValueError, match="TRADIER_ACCOUNT_ID"):
             create_tradier_client_from_env()
 
+    def test_client_from_env_defaults_to_live_when_env_unset(self, monkeypatch):
+        """Unset TRADIER_ENVIRONMENT should default to live for safety."""
+        monkeypatch.setenv("TRADIER_API_KEY", "test_key")
+        monkeypatch.setenv("TRADIER_ACCOUNT_ID", "test_account")
+        monkeypatch.delenv("TRADIER_ENVIRONMENT", raising=False)
+
+        client = create_tradier_client_from_env()
+
+        assert client.environment == TradingEnvironment.LIVE
+
+    def test_client_from_env_blank_env_defaults_to_live(self, monkeypatch):
+        """Blank TRADIER_ENVIRONMENT should be treated as live."""
+        monkeypatch.setenv("TRADIER_API_KEY", "test_key")
+        monkeypatch.setenv("TRADIER_ACCOUNT_ID", "test_account")
+        monkeypatch.setenv("TRADIER_ENVIRONMENT", "")
+
+        client = create_tradier_client_from_env()
+
+        assert client.environment == TradingEnvironment.LIVE
+
+    def test_client_from_env_invalid_environment_raises(self, monkeypatch):
+        """Invalid TRADIER_ENVIRONMENT tokens should fail closed."""
+        monkeypatch.setenv("TRADIER_API_KEY", "test_key")
+        monkeypatch.setenv("TRADIER_ACCOUNT_ID", "test_account")
+        monkeypatch.setenv("TRADIER_ENVIRONMENT", "typo")
+
+        with pytest.raises(ValueError, match="Invalid TRADIER_ENVIRONMENT"):
+            create_tradier_client_from_env()
+
 
 # ==============================================================================
 # USER & ACCOUNT ENDPOINT TESTS

@@ -3615,9 +3615,9 @@ def create_tradier_client_from_env(environment: TradingEnvironment | None = None
         - TRADIER_API_KEY: API access token
         - TRADIER_ACCOUNT_ID: Account ID
 
-    Optional environment variables:
-        - TRADIER_ENVIRONMENT: ``"live"``, ``"production"``, or ``"sandbox"``
-          (default: ``"sandbox"``).
+        Optional environment variables:
+                - TRADIER_ENVIRONMENT: ``"live"``, ``"production"``, or ``"sandbox"``
+                    (default: ``"live"``).
           When *environment* is not passed explicitly, this variable is read to
           determine which Tradier endpoint to connect to.  This is independent of
           ``TRADING_MODE`` so that paper-trading mode can still consume real
@@ -3626,7 +3626,7 @@ def create_tradier_client_from_env(environment: TradingEnvironment | None = None
     Args:
         environment: Trading environment override.  If ``None`` (the default),
             the value of the ``TRADIER_ENVIRONMENT`` env var is used, falling
-            back to ``sandbox`` if that variable is also absent.
+            back to ``live`` if that variable is also absent.
 
     Returns:
         Configured TradierClient instance
@@ -3650,9 +3650,17 @@ def create_tradier_client_from_env(environment: TradingEnvironment | None = None
         raise ValueError("TRADIER_ACCOUNT_ID environment variable not set")
 
     if environment is None:
-        _env_str = os.getenv("TRADIER_ENVIRONMENT", "sandbox").lower()
-        _is_live_env = _env_str in {"live", "production"}
-        environment = TradingEnvironment.LIVE if _is_live_env else TradingEnvironment.SANDBOX
+        _env_raw = os.getenv("TRADIER_ENVIRONMENT")
+        _env_str = str(_env_raw).strip().lower() if _env_raw is not None else "live"
+        if _env_str in {"", "live", "production"}:
+            environment = TradingEnvironment.LIVE
+        elif _env_str == "sandbox":
+            environment = TradingEnvironment.SANDBOX
+        else:
+            raise ValueError(
+                "Invalid TRADIER_ENVIRONMENT value. Expected one of: "
+                "live, production, sandbox"
+            )
 
     return TradierClient(
         api_key=api_key,

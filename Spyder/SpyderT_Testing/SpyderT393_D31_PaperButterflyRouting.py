@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 from datetime import UTC, datetime, timedelta
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -78,7 +79,7 @@ def test_build_paper_butterfly_leg_orders_for_entry() -> None:
         "Butterfly",
     )
 
-    expiry_code = datetime.now(UTC).strftime("%y%m%d")
+    symbols = [order["symbol"] for order in leg_orders]
     assert len(leg_orders) == 3
     assert [order["side"] for order in leg_orders] == [
         "buy_to_open",
@@ -86,11 +87,14 @@ def test_build_paper_butterfly_leg_orders_for_entry() -> None:
         "buy_to_open",
     ]
     assert [order["quantity"] for order in leg_orders] == [1, 2, 1]
-    assert [order["symbol"] for order in leg_orders] == [
-        f"SPY{expiry_code}C00598000",
-        f"SPY{expiry_code}C00599000",
-        f"SPY{expiry_code}C00600000",
+    # D32 can shift to the nearest listed expiration for weekends/holidays.
+    assert [bool(re.fullmatch(r"SPY\d{6}C\d{8}", symbol)) for symbol in symbols] == [
+        True,
+        True,
+        True,
     ]
+    assert [symbol[-8:] for symbol in symbols] == ["00598000", "00599000", "00600000"]
+    assert len({symbol[3:9] for symbol in symbols}) == 1
 
 
 def test_build_paper_butterfly_leg_orders_prefers_live_chain_mid_prices(monkeypatch) -> None:
