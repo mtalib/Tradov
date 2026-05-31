@@ -374,10 +374,10 @@ class WorkingSpyderDashboard(QMainWindow):
         self.log_area.append("🔄 Testing Tradier API connectivity...")
 
         try:
-            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
+            env = os.environ.get("TRADIER_ENVIRONMENT", "live").lower()
             base_url = (
                 "https://api.tradier.com/v1"
-                if env == "production"
+                if env in {"live", "production"}
                 else "https://sandbox.tradier.com/v1"
             )
             api_key = os.environ.get("TRADIER_API_KEY", "")
@@ -417,10 +417,10 @@ class WorkingSpyderDashboard(QMainWindow):
         """Update portfolio display (Tradier positions)."""
         import requests
         try:
-            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
+            env = os.environ.get("TRADIER_ENVIRONMENT", "live").lower()
             base_url = (
                 "https://api.tradier.com/v1"
-                if env == "production"
+                if env in {"live", "production"}
                 else "https://sandbox.tradier.com/v1"
             )
             account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
@@ -451,10 +451,10 @@ class WorkingSpyderDashboard(QMainWindow):
             return
         import requests
         try:
-            env = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
+            env = os.environ.get("TRADIER_ENVIRONMENT", "live").lower()
             base_url = (
                 "https://api.tradier.com/v1"
-                if env == "production"
+                if env in {"live", "production"}
                 else "https://sandbox.tradier.com/v1"
             )
             api_key = os.environ.get("TRADIER_API_KEY", "")

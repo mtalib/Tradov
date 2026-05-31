@@ -807,10 +807,10 @@ class MasterController:
                         "broker client unavailable"
                     )
                     return None
-                env_str = os.environ.get("TRADIER_ENVIRONMENT", "sandbox").lower()
+                env_str = os.environ.get("TRADIER_ENVIRONMENT", "live").lower()
                 env = (
                     TradingEnvironment.LIVE
-                    if env_str == "live"
+                    if env_str in {"live", "production"}
                     else TradingEnvironment.SANDBOX
                 )
                 client = TradierClient(
