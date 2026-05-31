@@ -261,25 +261,25 @@ def _position_cash_held_candidate_dollars(position: Mapping[str, Any]) -> float 
         position.get("cash_held_dollars", position.get("buying_power_held")),
         None,
     )
-    if direct_candidate is not None and direct_candidate > 0:
-        return direct_candidate
+    if direct_candidate is not None and direct_candidate != 0:
+        return abs(direct_candidate)
 
     direct_candidate = coerce_float(position.get("max_loss_dollars"), None)
-    if direct_candidate is not None and direct_candidate > 0:
-        return direct_candidate
+    if direct_candidate is not None and direct_candidate != 0:
+        return abs(direct_candidate)
 
     quantity = max(abs(_signed_position_quantity(position)), 1)
     max_loss_per_contract = coerce_float(position.get("max_loss_per_contract"), None)
-    if max_loss_per_contract is not None and max_loss_per_contract > 0:
-        return max_loss_per_contract * quantity
+    if max_loss_per_contract is not None and max_loss_per_contract != 0:
+        return abs(max_loss_per_contract) * quantity
 
     per_share_risk = coerce_float(position.get("max_loss"), None)
     if per_share_risk is None:
         per_share_risk = coerce_float(position.get("expected_debit"), None)
     if per_share_risk is None:
         per_share_risk = coerce_float(position.get("debit"), None)
-    if per_share_risk is not None and per_share_risk > 0:
-        return per_share_risk * 100.0 * quantity
+    if per_share_risk is not None and per_share_risk != 0:
+        return abs(per_share_risk) * 100.0 * quantity
 
     return None
 
@@ -652,8 +652,8 @@ def build_paper_spread_tree_presentation(
             total_entry_cost += leg_price * 100.0 * leg_qty * sign
             saw_leg_cost = True
 
-        if saw_leg_cost and total_entry_cost > 0:
-            cash_held_basis_dollars = total_entry_cost
+        if saw_leg_cost and total_entry_cost != 0:
+            cash_held_basis_dollars = abs(total_entry_cost)
 
     pnl_basis_dollars = credit_dollars if credit_dollars > 0 else (cash_held_basis_dollars or 0.0)
     pnl_percent = (mtm_pnl / pnl_basis_dollars * 100.0) if pnl_basis_dollars > 0 else 0.0

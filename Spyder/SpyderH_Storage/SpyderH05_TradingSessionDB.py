@@ -1080,6 +1080,28 @@ class TradingSessionDB:
 
         return deleted
 
+    def delete_open_positions_for_symbol(self, *, symbol: str) -> int:
+        """Delete all OPEN position rows for one symbol.
+
+        Returns:
+            Number of OPEN rows deleted.
+        """
+        normalized_symbol = str(symbol or "").strip()
+        if not normalized_symbol:
+            return 0
+
+        with self._lock, self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM positions WHERE symbol = ? AND status = 'OPEN'",
+                (normalized_symbol,),
+            )
+            conn.commit()
+            deleted_count = int(getattr(cursor, "rowcount", 0) or 0)
+            if deleted_count > 0:
+                self._record_paper_activity("delete_open_positions_for_symbol")
+
+        return deleted_count
+
     # ------------------------------------------------------------------
     # Read API
     # ------------------------------------------------------------------

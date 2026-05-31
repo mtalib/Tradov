@@ -200,6 +200,50 @@ class TestTargetedShortOptionFlatten:
             "reason": "paper_orphan_carryover_strategy",
         }
 
+    def test_flatten_positions_strategy_filter_matches_strategy_alias_tokens(self):
+        supervisor = SessionSupervisor(mode="paper", dry_run=True, skip_orphan_sweep=True)
+        supervisor._get_positions_for_flatten = MagicMock(
+            return_value=[
+                {
+                    "symbol": "SPY260618P00690000",
+                    "quantity": 1,
+                    "strategy_id": "ZeroDTEIronCondor",
+                },
+                {
+                    "symbol": "SPY260618P00700000",
+                    "quantity": -1,
+                    "strategy_id": "zero_dte_iron_condor",
+                },
+                {
+                    "symbol": "SPY260618C00715000",
+                    "quantity": -1,
+                    "strategy": "iron_condor_live_adapter",
+                },
+                {
+                    "symbol": "SPY",
+                    "quantity": 10,
+                    "strategy_id": "pivot_mean_reversion",
+                },
+            ]
+        )
+        supervisor._submit_flatten_close = MagicMock(return_value={"status": "ok", "order": {"id": "ORD-2"}})
+
+        closed = supervisor._flatten_positions(
+            reason="paper_orphan_carryover_strategy",
+            strategy_id="iron_condor",
+        )
+
+        assert closed == 3
+        assert [call.args for call in supervisor._submit_flatten_close.call_args_list] == [
+            ("SPY260618P00690000", 1),
+            ("SPY260618P00700000", -1),
+            ("SPY260618C00715000", -1),
+        ]
+        assert all(
+            call.kwargs == {"reason": "paper_orphan_carryover_strategy"}
+            for call in supervisor._submit_flatten_close.call_args_list
+        )
+
     def test_flatten_positions_persists_verified_paper_close_and_emits_refresh(self):
         supervisor = SessionSupervisor(mode="paper", dry_run=True, skip_orphan_sweep=True)
 
@@ -208,6 +252,19 @@ class TestTargetedShortOptionFlatten:
             opened_at = datetime.fromisoformat("2026-05-26T09:51:09-04:00")
             db.upsert_position(
                 position_id="paper:SPY",
+                symbol="SPY",
+                strategy="butterfly",
+                quantity=10,
+                entry_price=750.7252,
+                current_price=749.16,
+                unrealized_pnl=-15.65,
+                status="OPEN",
+                opened_at=opened_at,
+            )
+            # Simulate duplicate-orphan OPEN row for same symbol from a different
+            # execution path; manual flatten should clear it before writing CLOSED.
+            db.upsert_position(
+                position_id="emergency_stop:SPY",
                 symbol="SPY",
                 strategy="butterfly",
                 quantity=10,
@@ -262,12 +319,26 @@ class TestTargetedShortOptionFlatten:
                     "SELECT status, quantity, current_price, unrealized_pnl, realized_pnl FROM positions WHERE position_id = ?",
                     ("paper:SPY",),
                 ).fetchone()
+                duplicate_open = conn.execute(
+                    "SELECT COUNT(*) AS count FROM positions WHERE position_id = ? AND status = 'OPEN'",
+                    ("emergency_stop:SPY",),
+                ).fetchone()
+                trades = conn.execute(
+                    "SELECT symbol, trade_type, side, quantity, notes FROM trades ORDER BY timestamp",
+                ).fetchall()
 
             assert row["status"] == "CLOSED"
             assert row["quantity"] == 0
             assert row["current_price"] == 749.16
             assert row["unrealized_pnl"] == 0.0
             assert row["realized_pnl"] < 0.0
+            assert duplicate_open["count"] == 0
+            assert len(trades) == 1
+            assert trades[0]["symbol"] == "SPY"
+            assert trades[0]["trade_type"] == "STC"
+            assert trades[0]["side"] == "sell"
+            assert trades[0]["quantity"] == 10
+            assert trades[0]["notes"] == "paper flatten close via SessionSupervisor"
             assert supervisor.em.emit.call_count == 2
             request_call = supervisor.em.emit.call_args_list[0]
             assert request_call.args == (

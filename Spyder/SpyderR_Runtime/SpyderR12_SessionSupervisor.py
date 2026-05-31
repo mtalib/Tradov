@@ -1262,6 +1262,22 @@ class SessionSupervisor:
         text = re.sub(r"(_adapter|_strategy)+$", "", text, flags=re.IGNORECASE)
         return text.lower()
 
+    @classmethod
+    def _strategy_tokens_match(cls, target: str, candidate: str) -> bool:
+        """Return True when two normalized strategy tokens refer to the same family."""
+        normalized_target = cls._normalize_strategy_token(target)
+        normalized_candidate = cls._normalize_strategy_token(candidate)
+        if not normalized_target or not normalized_candidate:
+            return False
+        if normalized_target == normalized_candidate:
+            return True
+
+        boundary_target = re.compile(rf"(?:^|_){re.escape(normalized_target)}(?:_|$)")
+        boundary_candidate = re.compile(rf"(?:^|_){re.escape(normalized_candidate)}(?:_|$)")
+        return bool(boundary_target.search(normalized_candidate)) or bool(
+            boundary_candidate.search(normalized_target)
+        )
+
     def _filter_positions_for_strategy(
         self,
         positions: list[dict[str, Any]],
@@ -1286,7 +1302,7 @@ class SessionSupervisor:
                 for candidate in candidates
                 if str(candidate or "").strip()
             }
-            if target in normalized_candidates:
+            if any(self._strategy_tokens_match(target, candidate) for candidate in normalized_candidates):
                 filtered.append(position)
 
         return filtered
@@ -1678,29 +1694,72 @@ class SessionSupervisor:
         if strike_raw not in (None, ""):
             strike = self._safe_float(strike_raw)
 
+        realized_pnl = self._calculate_paper_flatten_realized_pnl(
+            symbol=symbol,
+            quantity=qty,
+            entry_price=entry_price,
+            close_price=close_price,
+            fallback_unrealized=self._safe_float(position.get("unrealized_pnl")),
+            existing_realized=self._safe_float(position.get("realized_pnl")),
+        )
+
+        position_id = str(position.get("position_id") or f"{self.mode}:{symbol}")
+
+        delete_open_positions_for_symbol = getattr(
+            session_db,
+            "delete_open_positions_for_symbol",
+            None,
+        )
+        if callable(delete_open_positions_for_symbol):
+            try:
+                deleted_rows = int(delete_open_positions_for_symbol(symbol=symbol) or 0)
+                if deleted_rows > 1:
+                    self.logger.warning(
+                        "Manual flatten cleanup removed %d OPEN rows for %s before CLOSED upsert",
+                        deleted_rows,
+                        symbol,
+                    )
+            except Exception as exc:
+                self.logger.warning(
+                    "delete_open_positions_for_symbol failed for %s: %s",
+                    symbol,
+                    exc,
+                )
+
         try:
             session_db.upsert_position(
-                position_id=str(position.get("position_id") or f"{self.mode}:{symbol}"),
+                position_id=position_id,
                 symbol=symbol,
                 strategy=strategy,
                 quantity=0,
                 entry_price=entry_price,
                 current_price=close_price,
                 unrealized_pnl=0.0,
-                realized_pnl=self._calculate_paper_flatten_realized_pnl(
-                    symbol=symbol,
-                    quantity=qty,
-                    entry_price=entry_price,
-                    close_price=close_price,
-                    fallback_unrealized=self._safe_float(position.get("unrealized_pnl")),
-                    existing_realized=self._safe_float(position.get("realized_pnl")),
-                ),
+                realized_pnl=realized_pnl,
                 status="CLOSED",
                 opened_at=self._coerce_position_datetime(position.get("opened_at")),
                 closed_at=datetime.now(UTC),
                 expiration=str(position.get("expiration") or "").strip() or None,
                 strike=strike,
                 option_type=option_type,
+            )
+
+            close_side = "sell" if qty > 0 else "buy"
+            trade_type = "STC" if qty > 0 else "BTC"
+            session_db.record_trade(
+                symbol=symbol,
+                trade_type=trade_type,
+                side=close_side,
+                quantity=max(abs(qty), 1),
+                price=close_price,
+                commission=0.0,
+                realized_pnl=realized_pnl,
+                strategy=strategy,
+                order_id=str(fill_order.get("id") or "") or None,
+                expiration=str(position.get("expiration") or "").strip() or None,
+                strike=strike,
+                option_type=option_type,
+                notes="paper flatten close via SessionSupervisor",
             )
         except Exception as exc:
             self.logger.error(

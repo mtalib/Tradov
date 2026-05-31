@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import COLORS
 from Spyder.SpyderG_GUI.SpyderG39_PaperPositionsTreePresenter import (
+    build_paper_spread_tree_presentation,
     build_restored_position_group_presentations,
     build_restored_position_presentations,
     coerce_float,
@@ -176,3 +177,55 @@ def test_build_restored_position_group_presentations_uses_net_credit_cash_held_f
     assert presentation.cash_held_text == "CASH HELD: $813.00"
     assert presentation.pnl_text == "NET P&L -$150.00 (-18.5%)"
     assert presentation.pnl_color == COLORS["negative"]
+
+
+def test_build_restored_position_group_presentations_uses_absolute_signed_cash_held() -> None:
+    presentations = build_restored_position_group_presentations(
+        [
+            {
+                "symbol": "SPY260529C00750000",
+                "quantity": -1,
+                "entry_price": 1.10,
+                "current_price": 1.02,
+                "unrealized_pnl": 8.0,
+                "strategy": "butterfly",
+                "status": "OPEN",
+                "_paper_open_origin": "active_session",
+                "opened_at": datetime(2026, 5, 29, 14, 30, 0, tzinfo=UTC).isoformat(),
+                "expiration": "2026-05-29",
+                "strike": 750.0,
+                "option_type": "call",
+                "cash_held_dollars": -125.0,
+            }
+        ],
+        COLORS,
+        today=date(2026, 5, 29),
+    )
+
+    assert len(presentations) == 1
+    assert presentations[0].cash_held_text == "CASH HELD: $125.00"
+
+
+def test_build_paper_spread_tree_presentation_uses_absolute_net_leg_cost_fallback() -> None:
+    header, _legs = build_paper_spread_tree_presentation(
+        {
+            "structure": "butterfly",
+            "qty": 1,
+            "credit": 0.0,
+            "mtm_pnl": -20.0,
+            "expiration": "2026-05-29",
+            "opened_at": datetime(2026, 5, 29, 14, 30, 0, tzinfo=UTC).timestamp(),
+            "legs": [
+                {"side": "sell_to_open", "qty": 2, "price": 0.90, "type": "call"},
+                {"side": "buy_to_open", "qty": 1, "price": 0.45, "type": "call"},
+            ],
+        },
+        date(2026, 5, 29),
+        UTC,
+        COLORS,
+        "EXECUTING",
+    )
+
+    # Net entry cost here is negative (-$135). CASH HELD should still display
+    # absolute capital at risk from leg-cost fallback.
+    assert header.cash_held_text == "CASH HELD: $135.00"
