@@ -995,23 +995,15 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     dashboard.allowed_strategies_btn.clicked.connect(dashboard._open_allowed_strategies_dialog)
     action_row.addWidget(dashboard.allowed_strategies_btn)
 
-    dashboard.zero_hft_hedge_status_label = QLabel("ZeroHFT Tail Hedge: UNKNOWN")
-    dashboard.zero_hft_hedge_status_label.setStyleSheet(
-        "color: #FFFFFF; background-color: #95A5A6; font-size: 11px; "
-        "padding: 4px 8px; border-radius: 4px;"
+    dashboard.strategies_running_btn = QPushButton("STRATEGIES RUNNING")
+    dashboard.strategies_running_btn.setFixedHeight(26)
+    dashboard.strategies_running_btn.setFixedWidth(max(action_button_width, 176))
+    dashboard.strategies_running_btn.setStyleSheet(blue_button_style)
+    dashboard.strategies_running_btn.setToolTip(
+        "Show live status of currently running strategies (auto-refreshes while open)"
     )
-    dashboard.zero_hft_hedge_status_label.setToolTip("ZeroHFT tail-hedge status is not yet available")
-    action_row.addWidget(dashboard.zero_hft_hedge_status_label)
-
-    dashboard.zero_hft_short_leg_status_label = QLabel("ZeroHFT Short Risk: UNKNOWN")
-    dashboard.zero_hft_short_leg_status_label.setStyleSheet(
-        "color: #FFFFFF; background-color: #95A5A6; font-size: 11px; "
-        "padding: 4px 8px; border-radius: 4px;"
-    )
-    dashboard.zero_hft_short_leg_status_label.setToolTip(
-        "ZeroHFT short-leg risk state is not yet available"
-    )
-    action_row.addWidget(dashboard.zero_hft_short_leg_status_label)
+    dashboard.strategies_running_btn.clicked.connect(dashboard._open_running_strategies_dialog)
+    action_row.addWidget(dashboard.strategies_running_btn)
 
     action_row.addStretch(1)
     layout.addLayout(action_row)
