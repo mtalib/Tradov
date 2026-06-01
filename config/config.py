@@ -139,8 +139,10 @@ TRADING_CONFIG = {
         "after_hours_end": "17:00",
         "timezone": "US/Eastern",
     },
-    # SPY Options Specific Settings
-    "spy_options": {
+    # SPX/SPXW Options Settings
+    "spx_options": {
+        "default_option_root": "SPXW",
+        "monthly_option_root": "SPX",
         "min_days_to_expiry": 0,
         "max_days_to_expiry": 45,
         "min_option_volume": 100,
@@ -187,6 +189,9 @@ TRADING_CONFIG = {
         "alert_on_large_moves": True,
     },
 }
+
+# Backward compatibility for modules still reading legacy key names.
+TRADING_CONFIG["spy_options"] = TRADING_CONFIG["spx_options"]
 
 # ==============================================================================
 # STRATEGY CONFIGURATIONS

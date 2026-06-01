@@ -4,14 +4,14 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderR_Runtime
 Module: SpyderR04_LiveEngine.py
-Purpose: SPYDER - Automated SPY Options Trading System
+Purpose: SPYDER - Automated SPX Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    SPYDER - Automated SPY Options Trading System
+    SPYDER - Automated SPX Options Trading System
 
 Change Log:
     2026-01-16:
@@ -1526,6 +1526,27 @@ class LiveEngine:
                 message="Risk-reducing order bypasses entry-only safety gates",
                 timestamp=datetime.now(_ET),
             )
+
+        for option_symbol_key in ("symbol", "option_symbol"):
+            option_symbol = str(order.get(option_symbol_key) or "").strip().upper()
+            if not option_symbol or not self._is_option_symbol(option_symbol):
+                continue
+
+            option_details = self._parse_occ_option_symbol(option_symbol)
+            if not option_details:
+                continue
+
+            option_underlying = str(option_details.get("underlying") or "").strip().upper()
+            if option_underlying and option_underlying != "SPXW":
+                return SafetyCheck(
+                    check_name="spxw_only_option_entry_policy",
+                    result=SafetyCheckResult.FAILED,
+                    message=(
+                        "SPXW-only option entry policy violation: "
+                        f"{option_symbol_key}={option_symbol} underlying={option_underlying}"
+                    ),
+                    timestamp=datetime.now(_ET),
+                )
 
         if self._would_flatten_multileg_strategy(order):
             strategy_id = order.get("strategy_id") or order.get("strategy") or "multi_leg"

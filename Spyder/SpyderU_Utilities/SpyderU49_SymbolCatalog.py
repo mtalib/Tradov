@@ -232,7 +232,7 @@ def get_worker_live_data_keys() -> set[str]:
 
 def get_realtime_sentinel_symbols() -> tuple[str, ...]:
     """Return symbols used to determine realtime freshness health."""
-    return ("SPY", "SPX", "QQQ")
+    return ("SPX", "QQQ", "VIX")
 
 
 def get_backend_symbol_groups() -> dict[str, list[str]]:

@@ -62,7 +62,7 @@ from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-_DEFAULT_SYMBOLS = ["SPY", "SPX", "VIX"]
+_DEFAULT_SYMBOLS = ["SPX", "VIX", "QQQ"]
 _PAPER_ORCHESTRATOR_L09_DEFER_SECONDS = 0.25
 _PAPER_ZERO_DTE_FORCE_CLOSE_HOUR_ET = 15
 _PAPER_ZERO_DTE_FORCE_CLOSE_MINUTE_ET = 55
@@ -98,7 +98,7 @@ class SessionSupervisor:
     Args:
         mode: ``"live"`` or ``"paper"``.
         symbols: Market symbols to subscribe to.  Defaults to
-            ``FEED_SYMBOLS`` env-var, falling back to ``["SPY", "SPX", "VIX"]``.
+            ``FEED_SYMBOLS`` env-var, falling back to ``["SPX", "VIX", "QQQ"]``.
 
     Attributes:
         mode: Active trading mode.
@@ -120,7 +120,7 @@ class SessionSupervisor:
         self.skip_orphan_sweep: bool = skip_orphan_sweep
         self.symbols: list[str] = symbols or [
             s.strip()
-            for s in os.environ.get("FEED_SYMBOLS", "SPY,SPX,VIX").split(",")
+            for s in os.environ.get("FEED_SYMBOLS", "SPX,VIX,QQQ").split(",")
             if s.strip()
         ]
 
@@ -491,7 +491,7 @@ class SessionSupervisor:
         if feed_status == "degraded" and quote_poll_interval_s is not None and quote_poll_interval_s > 0.0:
             # REST quote fallback is bursty compared with a true stream. Keep
             # the existing cadence-based widening for all modes, and apply a
-            # safer floor only to paper mode where the effective SPY freshness
+            # safer floor only to paper mode where the effective underlying freshness
             # source can fall back to the dashboard bridge cadence. That path
             # commonly lands on the 30 s heartbeat when fast quote refreshes
             # are unavailable, so keep the gate above that cadence with a
@@ -1062,7 +1062,7 @@ class SessionSupervisor:
                 {
                     "order_id": test_order_id,
                     "strategy_id": "BOOT_SELF_TEST",
-                    "symbol": "SPY",
+                    "symbol": "SPX",
                     "action": "buy",
                     "quantity": 1,
                     "dry_run": True,

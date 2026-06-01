@@ -522,14 +522,14 @@ class MultiLegMarketAnalyzer:
                 )
                 _tradier = create_tradier_client_from_env()
                 # Retrieve the nearest-expiry ATM option to sample current IV
-                _exp_resp = _tradier.get_option_expirations("SPY")
+                _exp_resp = _tradier.get_option_expirations("SPX")
                 _expiries = _exp_resp.get("expirations", {}).get("date", [])
                 if isinstance(_expiries, str):
                     _expiries = [_expiries]
 
                 iv_samples = []
                 if _expiries:
-                    _greeks = _tradier.get_option_chain_with_greeks("SPY", _expiries[0])
+                    _greeks = _tradier.get_option_chain_with_greeks("SPX", _expiries[0])
                     iv_samples = [
                         float(g.iv)
                         for g in _greeks
@@ -925,7 +925,7 @@ class MultiLegStrategyConstructor:
     def _resolve_strategy_expiration(self, dte: int) -> datetime:
         """Resolve the target DTE to a listed expiration for the configured underlying."""
         underlying_symbol = str(
-            self.config.get("underlying_symbol") or self.config.get("symbol") or "SPY"
+            self.config.get("underlying_symbol") or self.config.get("symbol") or "SPX"
         ).upper()
         target_expiration = datetime.now(UTC) + timedelta(days=max(int(dte), 0))
         return self._resolve_live_option_expiration(underlying_symbol, target_expiration)
@@ -1129,7 +1129,7 @@ class MultiLegStrategyConstructor:
         """Construct Iron Condor strategy"""
         try:
             underlying_symbol = str(
-                self.config.get("underlying_symbol") or self.config.get("symbol") or "SPY"
+                self.config.get("underlying_symbol") or self.config.get("symbol") or "SPX"
             ).upper()
             underlying_price = market_analysis.underlying_price
             expected_move = market_analysis.expected_move
@@ -1237,7 +1237,7 @@ class MultiLegStrategyConstructor:
         """Construct Iron Butterfly strategy"""
         try:
             underlying_symbol = str(
-                self.config.get("underlying_symbol") or self.config.get("symbol") or "SPY"
+                self.config.get("underlying_symbol") or self.config.get("symbol") or "SPX"
             ).upper()
             underlying_price = market_analysis.underlying_price
             iv = market_analysis.implied_volatility
@@ -1317,7 +1317,7 @@ class MultiLegStrategyConstructor:
         """Construct a bullish put broken wing butterfly strategy."""
         try:
             underlying_symbol = str(
-                self.config.get("underlying_symbol") or self.config.get("symbol") or "SPY"
+                self.config.get("underlying_symbol") or self.config.get("symbol") or "SPX"
             ).upper()
             underlying_price = market_analysis.underlying_price
             iv = market_analysis.implied_volatility
@@ -1401,7 +1401,7 @@ class MultiLegStrategyConstructor:
     ) -> MultiLegStructure:
         """Attach broker-facing metadata needed by D32 combo routing."""
         expiration_str = expiration.date().isoformat()
-        structure.underlying_symbol = str(underlying_symbol or "SPY").upper()
+        structure.underlying_symbol = str(underlying_symbol or "SPX").upper()
         structure.expiration_date = expiration_str
         structure.contracts = max(1, int(contracts or 1))
 
@@ -2265,7 +2265,7 @@ class MultiLegStrategyCoordinator:
             if s.legs:
                 contracts = max(1, abs(int(getattr(s, "contracts", 1) or 1)))
                 underlying_symbol = str(
-                    getattr(s, "underlying_symbol", self.config.get("symbol") or "SPY")
+                    getattr(s, "underlying_symbol", self.config.get("symbol") or "SPX")
                 ).upper()
                 expiration = str(getattr(s, "expiration_date", "") or "")
                 if not expiration and s.legs:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SPYDER - Automated SPY Options Trading System
+SPYDER - Automated SPX Options Trading System
 
 Package: SpyderR_Runtime
 Purpose: Runtime Operations

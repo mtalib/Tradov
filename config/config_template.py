@@ -55,7 +55,9 @@ TRADING_CONFIG = {
         "after_hours_end": "17:00",
         "timezone": "US/Eastern",
     },
-    "spy_options": {
+    "spx_options": {
+        "default_option_root": "SPXW",
+        "monthly_option_root": "SPX",
         "min_days_to_expiry": 0,
         "max_days_to_expiry": 45,
         "min_option_volume": 100,
@@ -63,3 +65,6 @@ TRADING_CONFIG = {
         "strike_range_percent": 2.0,
     },
 }
+
+# Backward compatibility for modules still reading legacy key names.
+TRADING_CONFIG["spy_options"] = TRADING_CONFIG["spx_options"]

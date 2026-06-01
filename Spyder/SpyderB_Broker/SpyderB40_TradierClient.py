@@ -443,13 +443,15 @@ def build_option_symbol(
     Raises:
         ValueError: If option_type is not recognized.
     """
-    # P1-6: enforce SPY options strike tick (0.05). Avoid generating symbols
-    # that live exchange validation will reject.
-    strike_steps = strike * 20.0
-    if abs(round(strike_steps) - strike_steps) > 1e-9:
-        raise ValueError(
-            f"Invalid strike {strike:.4f}: must be in 0.05 increments"
-        )
+    # Preserve strict strike-grid validation for ETF options where it is stable,
+    # but do not force a SPY-specific grid onto SPX/SPXW index options.
+    etf_underlyings = {"SPY", "QQQ", "IWM", "DIA"}
+    if underlying.upper() in etf_underlyings:
+        strike_steps = strike * 20.0
+        if abs(round(strike_steps) - strike_steps) > 1e-9:
+            raise ValueError(
+                f"Invalid strike {strike:.4f}: must be in 0.05 increments"
+            )
 
     # Normalize option type
     opt_char = option_type[0].upper()

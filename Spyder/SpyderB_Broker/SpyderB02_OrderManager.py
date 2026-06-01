@@ -59,6 +59,7 @@ import threading
 import asyncio
 import json
 import uuid
+import re
 from datetime import datetime, timedelta, UTC
 from typing import Any
 from collections.abc import Callable
@@ -300,6 +301,24 @@ class OrderManager:
         _sse_stream: Optional Tradier account event stream.
     """
 
+    _SPXW_ONLY_OPTION_ENTRY_ERROR = "SPXW_ONLY_OPTION_ENTRY_POLICY"
+    _RISK_REDUCING_OPTION_SIDES = frozenset({
+        "buy_to_close",
+        "sell_to_close",
+        "close",
+        "exit",
+        "flatten",
+        "reduce",
+        "reduce_only",
+        "risk_reduction",
+        "risk_reduce",
+        "de_risk",
+        "derisk",
+        "btc",
+        "stc",
+    })
+    _OCC_OPTION_SYMBOL_RE = re.compile(r"^([A-Z]{1,6})(\d{6})([CP])(\d{8})$")
+
     def __init__(
         self,
         tradier_client: TradierClient | None = None,
@@ -418,6 +437,14 @@ class OrderManager:
                 f"{order.side} {order.quantity} {order.symbol} "
                 f"@ {order.price or 'MKT'}"
             )
+
+            policy_blocked, policy_reasons = self._evaluate_spxw_option_entry_policy(order)
+            if policy_blocked:
+                return self._reject_policy_blocked_order(
+                    order,
+                    reasons=policy_reasons,
+                    operation="submit",
+                )
 
             blocked, reasons = self._evaluate_liquidity_gate(order)
             if blocked:
@@ -791,6 +818,14 @@ class OrderManager:
                 f"{len(legs)} legs on {symbol}"
             )
 
+            policy_blocked, policy_reasons = self._evaluate_spxw_option_entry_policy(order)
+            if policy_blocked:
+                return self._reject_policy_blocked_order(
+                    order,
+                    reasons=policy_reasons,
+                    operation="submit_multileg",
+                )
+
             response = self.tradier.place_multileg_order(
                 symbol=symbol,
                 legs=legs,
@@ -884,6 +919,14 @@ class OrderManager:
                 f"P{put_buy_strike}/{put_sell_strike} "
                 f"C{call_sell_strike}/{call_buy_strike}"
             )
+
+            policy_blocked, policy_reasons = self._evaluate_spxw_option_entry_policy(order)
+            if policy_blocked:
+                return self._reject_policy_blocked_order(
+                    order,
+                    reasons=policy_reasons,
+                    operation="submit_iron_condor",
+                )
 
             response = self.tradier.place_iron_condor(
                 symbol=symbol,
@@ -980,6 +1023,14 @@ class OrderManager:
                 f"{symbol} {expiration} {option_type} "
                 f"sell={sell_strike} buy={buy_strike}"
             )
+
+            policy_blocked, policy_reasons = self._evaluate_spxw_option_entry_policy(order)
+            if policy_blocked:
+                return self._reject_policy_blocked_order(
+                    order,
+                    reasons=policy_reasons,
+                    operation="submit_credit_spread",
+                )
 
             response = self.tradier.place_credit_spread(
                 symbol=symbol,
@@ -1539,6 +1590,133 @@ class OrderManager:
     # ==========================================================================
     # PRIVATE — ORDER ROUTING
     # ==========================================================================
+
+    @staticmethod
+    def _normalize_side_token(side: Any) -> str:
+        """Normalize order side tokens for policy checks."""
+        if hasattr(side, "value"):
+            side = side.value
+        return str(side or "").strip().lower().replace("-", "_")
+
+    def _is_risk_reducing_option_side(self, side: Any) -> bool:
+        """Return True when side indicates a risk-reducing option close."""
+        return self._normalize_side_token(side) in self._RISK_REDUCING_OPTION_SIDES
+
+    @classmethod
+    def _extract_occ_underlying(cls, option_symbol: str) -> str | None:
+        """Extract OCC underlying root from a full OCC option symbol."""
+        token = str(option_symbol or "").strip().upper()
+        match = cls._OCC_OPTION_SYMBOL_RE.match(token)
+        if not match:
+            return None
+        return match.group(1)
+
+    def _is_option_like_order(self, order: Order) -> bool:
+        """Return True when an order is option-like and policy-relevant."""
+        if order.option_symbol or order.legs:
+            return True
+        if order.security_type in {SecurityType.OPTION, SecurityType.MULTILEG}:
+            return True
+        return self._extract_occ_underlying(order.symbol or "") is not None
+
+    def _evaluate_spxw_option_entry_policy(self, order: Order) -> tuple[bool, list[str]]:
+        """
+        Enforce SPXW-only option entry policy.
+
+        Risk-reducing close paths stay allowed so legacy positions can be flattened.
+        """
+        if not self._is_option_like_order(order):
+            return False, []
+
+        if not order.legs and self._is_risk_reducing_option_side(order.side):
+            return False, []
+
+        reasons: list[str] = []
+
+        if order.legs:
+            has_entry_leg = False
+            for idx, leg in enumerate(order.legs):
+                if self._is_risk_reducing_option_side(getattr(leg, "side", "")):
+                    continue
+
+                has_entry_leg = True
+                leg_symbol = str(getattr(leg, "option_symbol", "") or "").strip().upper()
+                underlying = self._extract_occ_underlying(leg_symbol)
+                if underlying is None:
+                    reasons.append(
+                        f"leg[{idx}] invalid OCC option symbol: {leg_symbol or '<empty>'}"
+                    )
+                elif underlying != "SPXW":
+                    reasons.append(f"leg[{idx}] underlying {underlying} is not SPXW")
+
+            if not has_entry_leg:
+                return False, []
+
+            underlying_symbol = str(order.symbol or "").strip().upper()
+            if underlying_symbol and underlying_symbol != "SPXW":
+                reasons.append(f"underlying symbol {underlying_symbol} is not SPXW")
+
+            return (len(reasons) > 0), reasons
+
+        candidate_symbols: list[tuple[str, str]] = []
+        option_symbol = str(order.option_symbol or "").strip().upper()
+        if option_symbol:
+            candidate_symbols.append(("option_symbol", option_symbol))
+        else:
+            symbol = str(order.symbol or "").strip().upper()
+            if self._extract_occ_underlying(symbol) is not None:
+                candidate_symbols.append(("symbol", symbol))
+
+        if candidate_symbols:
+            for source, occ_symbol in candidate_symbols:
+                underlying = self._extract_occ_underlying(occ_symbol)
+                if underlying is None:
+                    reasons.append(f"{source} invalid OCC option symbol: {occ_symbol or '<empty>'}")
+                elif underlying != "SPXW":
+                    reasons.append(f"{source} underlying {underlying} is not SPXW")
+            return (len(reasons) > 0), reasons
+
+        if order.security_type == SecurityType.MULTILEG:
+            underlying_symbol = str(order.symbol or "").strip().upper()
+            if underlying_symbol != "SPXW":
+                reasons.append(f"underlying symbol {underlying_symbol or '<empty>'} is not SPXW")
+            return (len(reasons) > 0), reasons
+
+        if order.security_type == SecurityType.OPTION:
+            reasons.append("missing OCC option symbol for option entry order")
+            return True, reasons
+
+        return False, []
+
+    def _reject_policy_blocked_order(
+        self,
+        order: Order,
+        *,
+        reasons: list[str],
+        operation: str,
+    ) -> OrderResult:
+        """Mark an order rejected due to policy and emit telemetry."""
+        detail = "; ".join(reasons) if reasons else "non-SPXW option entry blocked"
+
+        with self._order_lock:
+            order.state = OrderState.REJECTED
+            order.error_message = detail
+            order.updated_at = datetime.now(UTC)
+            self.metrics["orders_rejected"] += 1
+
+        self._record_execution_feed(
+            order=order,
+            lifecycle_event=EventType.ORDER_REJECTED,
+            reject_reason=f"spxw_only_option_entry_policy: {detail}",
+        )
+
+        return OrderResult(
+            success=False,
+            order_id=order.order_id,
+            operation=operation,
+            message="SPXW-only option entry policy blocked order",
+            error_code=self._SPXW_ONLY_OPTION_ENTRY_ERROR,
+        )
 
     def _route_order(self, order: Order) -> dict[str, Any]:
         """

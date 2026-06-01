@@ -151,6 +151,7 @@ try:
         "IronCondor": ("Spyder.SpyderD_Strategies.SpyderD02_IronCondor", "IronCondorStrategy"),
         "CreditSpread": ("Spyder.SpyderD_Strategies.SpyderD03_CreditSpread", "CreditSpreadStrategy"),
         "ZeroDTE": ("Spyder.SpyderD_Strategies.SpyderD04_ZeroDTE", "ZeroDTEStrategy"),
+        "ZeroHFT": ("Spyder.SpyderD_Strategies.SpyderD41_ZeroHFT", "ZeroHFTStrategy"),
         "Straddle": ("Spyder.SpyderD_Strategies.SpyderD05_Straddle", "StraddleStrategy"),
         "BullPutSpread": ("Spyder.SpyderD_Strategies.SpyderD06_BullPutSpread", "BullPutSpreadStrategy"),
         "BearCallSpread": ("Spyder.SpyderD_Strategies.SpyderD07_BearCallSpread", "BearCallSpreadStrategy"),
@@ -547,7 +548,7 @@ TREND_DETECTION_PERIODS = [5, 10, 20]  # Moving average periods
 VIX_REGIME_THRESHOLDS = {'low': 15, 'normal': 20, 'high': 30, 'extreme': 40}
 
 # Per-symbol rolling tick buffer used by _classify_market_regime_unified to
-# compute SPY EMA50 / ATR14 and VIX EMA50. Sized to comfortably cover the
+# compute underlying EMA50 / ATR14 and VIX EMA50. Sized to comfortably cover the
 # longest indicator window with headroom; bounded to keep cache memory cheap.
 _MARKET_TICK_BUFFER = 200
 
@@ -835,6 +836,9 @@ class StrategyOrchestrator:
         self._startup_cache_seed_enabled = str(
             os.environ.get("SPYDER_ENABLE_STARTUP_CACHE_SEED", "0")
         ).strip().lower() in {"1", "true", "yes", "on"}
+        self._regime_source_symbol = (
+            str(os.environ.get("SPYDER_UNDERLYING_SYMBOL", "SPX")).strip().upper() or "SPX"
+        )
         self.connectivity_manager = connectivity_manager
         self.event_manager = event_manager
         self._l09_engine: Any | None = regime_engine          # L09 UnifiedRegimeEngine (optional)
@@ -863,6 +867,8 @@ class StrategyOrchestrator:
             "BullPutSpreadStrategy",
             "BearCallSpread",
             "BearCallSpreadStrategy",
+            "ZeroHFT",
+            "ZeroHFTStrategy",
             "Butterfly",
             "ButterflyStrategy",
             "IronCondor",
@@ -917,6 +923,7 @@ class StrategyOrchestrator:
                 "CalendarSpread",
                 "CalendarSpreadStrategy",
             })
+        self._apply_env_allowed_strategies_override()
 
         # Portfolio state
         self.active_strategies: dict[str, BaseStrategy] = {}
@@ -967,7 +974,11 @@ class StrategyOrchestrator:
         # Threading
         self.orchestration_thread = None
         self.monitoring_thread = None
+        self.scheduled_strategy_thread = None
         self.shutdown_event = threading.Event()
+        self._scheduled_strategy_due_at: dict[str, float] = {}
+        self._scheduled_strategy_lock = threading.Lock()
+        self._scheduled_strategy_wakeup = threading.Event()
         self._initial_strategy_activation_pending = False
         self._initial_strategy_activation_ready_at = 0.0
         self._initial_strategy_activation_running = False
@@ -1127,9 +1138,9 @@ class StrategyOrchestrator:
         self.logger.debug(f"🎯 Strategy Orchestrator initialized - Mode: {orchestration_mode.value}, Capital: ${base_capital:,.2f}")  # noqa: E501
 
     def _seed_cache_from_disk(self) -> None:
-        """Warm-start market_data_cache from live_data.json and spy_prev_day.json.
+        """Warm-start market_data_cache from live_data.json and <symbol>_prev_day.json.
 
-        Reads the last known SPY/VIX prices written by G18 MarketDataWorker and
+        Reads the last known underlying/VIX prices written by G18 MarketDataWorker and
         inserts synthetic tick rows so the regime classifier has ≥2 closes
         from the very first evaluation cycle, avoiding the startup CRISIS.
 
@@ -1141,54 +1152,70 @@ class StrategyOrchestrator:
         import json as _json
 
         _data_dir = _Path.home() / "Projects" / "Spyder" / "market_data"
+        _regime_symbol = self._regime_source_symbol
 
-        # Try to get current SPY/VIX from live_data.json
-        _spy_last = None
+        # Try to get current underlying/VIX from live_data.json
+        _underlying_last = None
         _vix_last = None
         try:
             _ld_file = _data_dir / "live_data.json"
             if _ld_file.exists():
                 with open(_ld_file) as _f:
                     _ld = _json.load(_f)
-                _spy_e = _ld.get("SPY")
+                _underlying_e = _ld.get(_regime_symbol)
                 _vix_e = _ld.get("VIX")
-                if isinstance(_spy_e, dict) and _spy_e.get("last"):
-                    _spy_last = float(_spy_e["last"])
+                if isinstance(_underlying_e, dict) and _underlying_e.get("last"):
+                    _underlying_last = float(_underlying_e["last"])
                 if isinstance(_vix_e, dict) and _vix_e.get("last"):
                     _vix_last = float(_vix_e["last"])
         except Exception:
             pass
 
-        # Try to get SPY prev-day close from spy_prev_day.json
-        _spy_prev_close = None
+        # Try to get prior close from <symbol>_prev_day.json
+        _underlying_prev_close = None
         try:
-            _pd_file = _data_dir / "spy_prev_day.json"
+            _pd_file = _data_dir / f"{_regime_symbol.lower()}_prev_day.json"
             if _pd_file.exists():
                 with open(_pd_file) as _f:
                     _pd = _json.load(_f)
                 if _pd.get("close"):
-                    _spy_prev_close = float(_pd["close"])
+                    _underlying_prev_close = float(_pd["close"])
         except Exception:
             pass
 
-        # Seed SPY cache with 2 entries: prev-day close + current last
+        # Seed underlying cache with 2 entries: prev-day close + current last
         # The regime classifier needs ≥2 closes to compute change%.
-        if _spy_last is not None:
+        if _underlying_last is not None:
             if not isinstance(self.market_data_cache, dict):
                 self.market_data_cache = {}
-            _spy_bucket = deque(maxlen=_MARKET_TICK_BUFFER)
-            if _spy_prev_close is not None:
-                _spy_bucket.append({"close": _spy_prev_close, "price": _spy_prev_close, "symbol": "SPY"})
+            _underlying_bucket = deque(maxlen=_MARKET_TICK_BUFFER)
+            if _underlying_prev_close is not None:
+                _underlying_bucket.append(
+                    {
+                        "close": _underlying_prev_close,
+                        "price": _underlying_prev_close,
+                        "symbol": _regime_symbol,
+                    }
+                )
             else:
                 # No prev-day file: insert a synthetic previous tick slightly
                 # below current so the regime can compute a direction.
-                _spy_bucket.append({"close": _spy_last * 0.999, "price": _spy_last * 0.999, "symbol": "SPY"})
-            _spy_bucket.append({"close": _spy_last, "price": _spy_last, "symbol": "SPY"})
-            self.market_data_cache["SPY"] = _spy_bucket
+                _underlying_bucket.append(
+                    {
+                        "close": _underlying_last * 0.999,
+                        "price": _underlying_last * 0.999,
+                        "symbol": _regime_symbol,
+                    }
+                )
+            _underlying_bucket.append(
+                {"close": _underlying_last, "price": _underlying_last, "symbol": _regime_symbol}
+            )
+            self.market_data_cache[_regime_symbol] = _underlying_bucket
             self.logger.debug(
-                "D31 cache seeded from disk: SPY prev=%.2f current=%.2f",
-                _spy_bucket[0]["close"],
-                _spy_last,
+                "D31 cache seeded from disk: %s prev=%.2f current=%.2f",
+                _regime_symbol,
+                _underlying_bucket[0]["close"],
+                _underlying_last,
             )
 
         # Seed VIX cache with a single entry (prevents VIX-empty CRISIS)
@@ -1198,27 +1225,28 @@ class StrategyOrchestrator:
             self.market_data_cache["VIX"] = _vix_bucket
 
     def _recover_cache_if_cold(self) -> None:
-        """Re-seed market_data_cache from live_data.json when SPY cache is cold.
+        """Re-seed market_data_cache from live_data.json when regime cache is cold.
 
         G18 (MarketDataWorker) writes fresh quotes to live_data.json every 10 s
         but does NOT publish EventType.MARKET_DATA events on the A05 event bus.
-        In dashboard-only mode this means D31's market_data_cache["SPY"] never
+        In dashboard-only mode this means D31's market_data_cache[<underlying>] never
         gets any entries and the regime classifier fails closed to CRISIS for the
         entire session.
 
-        This method bridges that gap: if the SPY cache has fewer than 2 closes
+        This method bridges that gap: if the regime-symbol cache has fewer than 2 closes
         (the minimum required for regime classification), it reads the current
         live_data.json written by G18 and seeds the cache identically to the
         startup warm-start path.  Throttled to at most once every 30 s to avoid
         excessive disk I/O on every regime evaluation cycle.
         """
-        spy_ticks = self.market_data_cache.get("SPY", [])
-        spy_closes = [
+        regime_symbol = self._regime_source_symbol
+        regime_ticks = self.market_data_cache.get(regime_symbol, [])
+        regime_closes = [
             self._coerce_float(t.get("close", t.get("price")))
-            for t in spy_ticks
+            for t in regime_ticks
             if isinstance(t, dict)
         ]
-        if len([c for c in spy_closes if c is not None]) >= 2:
+        if len([c for c in regime_closes if c is not None]) >= 2:
             return  # Cache is warm — nothing to do
 
         now_mono = time.monotonic()
@@ -2027,6 +2055,9 @@ class StrategyOrchestrator:
 
             # Load optimal strategy configuration for current regime
             self.shutdown_event.clear()
+            self._scheduled_strategy_wakeup.clear()
+            with self._scheduled_strategy_lock:
+                self._scheduled_strategy_due_at.clear()
 
             if defer_initial_strategy_activation:
                 self.logger.debug(
@@ -2040,6 +2071,13 @@ class StrategyOrchestrator:
 
             self.monitoring_thread = threading.Thread(target=self._monitoring_loop, daemon=True)
             self.monitoring_thread.start()
+
+            self.scheduled_strategy_thread = threading.Thread(
+                target=self._scheduled_strategy_loop,
+                daemon=True,
+                name="SpyderD31ScheduledStrategyLoop",
+            )
+            self.scheduled_strategy_thread.start()
 
             # Initial portfolio allocation
             if not defer_initial_strategy_activation:
@@ -2074,6 +2112,7 @@ class StrategyOrchestrator:
             # Signal shutdown
             self.orchestration_active = False
             self.shutdown_event.set()
+            self._scheduled_strategy_wakeup.set()
 
             # Stop all strategies
             if graceful:
@@ -2091,6 +2130,8 @@ class StrategyOrchestrator:
                 self.orchestration_thread.join(timeout=30)
             if self.monitoring_thread:
                 self.monitoring_thread.join(timeout=30)
+            if self.scheduled_strategy_thread:
+                self.scheduled_strategy_thread.join(timeout=30)
 
             # Final portfolio report
             self._generate_final_report()
@@ -2292,6 +2333,8 @@ class StrategyOrchestrator:
                         pass
                 raise late_registration_error
 
+            self._seed_runtime_cadence_for_strategy(strategy_id, strategy)
+
             # Notify ExitMonitor so it can attribute positions to this strategy.
             # The ExitMonitor is owned by SessionSupervisor and may not exist in
             # all execution contexts (e.g. tests), so we look it up lazily.
@@ -2341,6 +2384,9 @@ class StrategyOrchestrator:
                     return False
                 strategy = self.active_strategies.pop(strategy_id)
                 _freed_alloc = self.strategy_allocations.pop(strategy_id, None)
+            with self._scheduled_strategy_lock:
+                self._scheduled_strategy_due_at.pop(strategy_id, None)
+            self._scheduled_strategy_wakeup.set()
 
             # Stop strategy (outside lock — can block)
             if close_positions:
@@ -2664,6 +2710,464 @@ class StrategyOrchestrator:
                 self.logger.error("Error in monitoring loop: %s", e, exc_info=True)
                 self.shutdown_event.wait(30)  # Short wait on error
 
+    def _strategy_uses_runtime_cadence(self, strategy: Any) -> bool:
+        """Return True when a strategy should be evaluated by the cadence loop."""
+        uses_runtime_cadence = getattr(strategy, "uses_runtime_cadence", None)
+        if callable(uses_runtime_cadence):
+            try:
+                return bool(uses_runtime_cadence())
+            except Exception:
+                return False
+
+        runtime_config = getattr(strategy, "runtime_config", None)
+        if isinstance(runtime_config, dict):
+            return bool(runtime_config.get("runtime_cadence_enabled", False))
+        return bool(getattr(strategy, "runtime_cadence_enabled", False))
+
+    def _seed_runtime_cadence_for_strategy(
+        self,
+        strategy_id: str,
+        strategy: Any,
+        *,
+        now: datetime | None = None,
+        force: bool = False,
+    ) -> None:
+        """Seed or refresh the next due time for a cadence-driven strategy."""
+        if not self._strategy_uses_runtime_cadence(strategy):
+            with self._scheduled_strategy_lock:
+                self._scheduled_strategy_due_at.pop(strategy_id, None)
+            self._scheduled_strategy_wakeup.set()
+            return
+
+        now_et = now or _d31_now_et()
+        due_at = None
+        next_runtime_evaluation_at = getattr(strategy, "next_runtime_evaluation_at", None)
+        if callable(next_runtime_evaluation_at):
+            try:
+                due_at = next_runtime_evaluation_at(now_et)
+            except Exception as exc:
+                self.logger.debug(
+                    "D31: runtime cadence seed failed for %s: %s",
+                    strategy_id,
+                    exc,
+                )
+                due_at = None
+
+        with self._scheduled_strategy_lock:
+            if due_at is None:
+                self._scheduled_strategy_due_at.pop(strategy_id, None)
+            else:
+                if due_at.tzinfo is None:
+                    due_at = due_at.replace(tzinfo=now_et.tzinfo)
+                if not force and strategy_id in self._scheduled_strategy_due_at:
+                    return
+                seconds_until_due = max((due_at - now_et).total_seconds(), 0.0)
+                self._scheduled_strategy_due_at[strategy_id] = (
+                    time.monotonic() + seconds_until_due
+                )
+        self._scheduled_strategy_wakeup.set()
+
+    def _evaluate_strategy_from_cache(self, strategy_id: str, *, reason: str) -> bool:
+        """Evaluate one active strategy using the latest cached symbol history."""
+        with self._strategies_lock:
+            strategy = self.active_strategies.get(strategy_id)
+
+        if strategy is None:
+            return False
+
+        symbol = str(getattr(strategy, "symbol", "") or "").strip().upper()
+        if not symbol:
+            return False
+
+        market_df = self._build_market_df_for_symbol(symbol)
+        if market_df is None or (hasattr(market_df, "empty") and market_df.empty):
+            return False
+
+        try:
+            strategy.process_market_data(market_df)
+            return True
+        except Exception as exc:
+            self.logger.error(
+                "Error feeding cached market data to strategy %s (%s): %s",
+                strategy_id,
+                reason,
+                exc,
+                exc_info=True,
+            )
+            return False
+
+    @staticmethod
+    def _coerce_option_quote_row(row: Any) -> dict[str, Any]:
+        """Normalize quote-chain rows from dict or object payloads."""
+        if isinstance(row, dict):
+            normalized = dict(row)
+        else:
+            normalized = {
+                "symbol": getattr(row, "symbol", ""),
+                "option_type": getattr(row, "option_type", ""),
+                "strike": getattr(row, "strike", None),
+                "bid": getattr(row, "bid", None),
+                "ask": getattr(row, "ask", None),
+                "last": getattr(row, "last", None),
+                "mid": getattr(row, "mid", None),
+                "expiration_date": getattr(row, "expiration_date", ""),
+                "underlying": getattr(row, "underlying", ""),
+            }
+            delta = getattr(row, "delta", None)
+            greeks = getattr(row, "greeks", None)
+            if isinstance(greeks, dict):
+                normalized["greeks"] = dict(greeks)
+            elif delta is not None:
+                normalized["greeks"] = {"delta": delta}
+            else:
+                normalized["greeks"] = {}
+
+        symbol = str(
+            normalized.get("symbol")
+            or normalized.get("option_symbol")
+            or ""
+        ).strip().upper()
+        normalized["symbol"] = symbol
+        normalized.setdefault("option_symbol", symbol)
+        option_type = str(normalized.get("option_type") or "").strip().lower()
+        if option_type:
+            normalized["option_type"] = option_type
+        try:
+            if normalized.get("strike") is not None:
+                normalized["strike"] = float(normalized["strike"])
+        except (TypeError, ValueError):
+            normalized["strike"] = None
+        greeks = normalized.get("greeks")
+        if not isinstance(greeks, dict):
+            greeks = {}
+        normalized["greeks"] = greeks
+        return normalized
+
+    def _build_option_quote_map_for_short_legs(self, short_legs: list[Any]) -> dict[str, dict[str, Any]]:
+        """Build an option quote map for active short legs using the paper quote client."""
+        if not short_legs or self._live_engine is None:
+            return {}
+
+        quote_client_factory = getattr(self._live_engine, "_get_paper_option_quote_client", None)
+        if not callable(quote_client_factory):
+            return {}
+
+        try:
+            quote_client = quote_client_factory()
+        except Exception as exc:
+            self.logger.warning("D31: short-leg quote client bootstrap failed: %s", exc)
+            return {}
+
+        get_option_chain_with_greeks = getattr(quote_client, "get_option_chain_with_greeks", None)
+        if not callable(get_option_chain_with_greeks):
+            return {}
+
+        grouped_legs: dict[tuple[str, str], list[Any]] = {}
+        for leg in short_legs:
+            details = self._parse_occ_option_symbol(getattr(leg, "symbol", ""))
+            underlying = str(details.get("underlying") or "").strip().upper()
+            expiration = str(details.get("expiration") or "").strip()
+            if not underlying or not expiration:
+                continue
+            grouped_legs.setdefault((underlying, expiration), []).append(leg)
+
+        quote_map: dict[str, dict[str, Any]] = {}
+        for (underlying, expiration), grouped in grouped_legs.items():
+            try:
+                chain_rows = get_option_chain_with_greeks(underlying, expiration)
+            except Exception as exc:
+                self.logger.warning(
+                    "D31: short-leg quote fetch failed for %s %s: %s",
+                    underlying,
+                    expiration,
+                    exc,
+                )
+                continue
+
+            normalized_rows = [self._coerce_option_quote_row(row) for row in list(chain_rows or [])]
+            rows_by_symbol = {
+                str(row.get("symbol") or "").strip().upper(): row
+                for row in normalized_rows
+                if str(row.get("symbol") or "").strip()
+            }
+
+            for leg in grouped:
+                leg_symbol = str(getattr(leg, "symbol", "") or "").strip().upper()
+                if not leg_symbol:
+                    continue
+
+                row = rows_by_symbol.get(leg_symbol)
+                if row is None:
+                    leg_details = self._parse_occ_option_symbol(leg_symbol)
+                    leg_option_type = str(leg_details.get("option_type") or "").strip().lower()
+                    leg_strike = self._coerce_float(leg_details.get("strike"))
+                    for candidate in normalized_rows:
+                        if str(candidate.get("option_type") or "").strip().lower() != leg_option_type:
+                            continue
+                        candidate_strike = self._coerce_float(candidate.get("strike"))
+                        if candidate_strike is None or leg_strike is None:
+                            continue
+                        if abs(candidate_strike - leg_strike) > 1e-6:
+                            continue
+                        row = dict(candidate)
+                        break
+
+                if row is not None:
+                    quote_map[leg_symbol] = dict(row)
+
+        return quote_map
+
+    def _build_short_leg_close_broker(self, strategy_id: str) -> Any:
+        """Adapt live-engine execute_order to E25's single-leg close interface."""
+        orchestrator = self
+
+        class _EngineLegCloseBroker:
+            def place_multileg_order(
+                self,
+                *,
+                underlying: str,
+                legs: list[dict[str, Any]],
+                order_type: str = "market",
+                duration: str = "day",
+                tag: str = "",
+            ) -> dict[str, Any]:
+                _ = underlying, duration
+                if not legs:
+                    raise ValueError("No legs supplied for short-leg close")
+                leg = dict(legs[0])
+                option_symbol = str(leg.get("option_symbol") or leg.get("symbol") or "").strip()
+                side = str(leg.get("side") or "buy_to_close").strip().lower()
+                quantity = max(int(leg.get("quantity") or 1), 1)
+                order = {
+                    "symbol": option_symbol,
+                    "side": side,
+                    "quantity": quantity,
+                    "order_type": str(order_type or "market").lower(),
+                    "strategy_id": strategy_id,
+                    "tag": str(tag or ""),
+                }
+                result = orchestrator._live_engine.execute_order(order)
+                status = result.get("status", "unknown") if isinstance(result, dict) else str(result)
+                if status in {"rejected", "error", "timeout"}:
+                    reason = result.get("reason", status) if isinstance(result, dict) else status
+                    raise RuntimeError(str(reason or status))
+                return result if isinstance(result, dict) else {"status": status}
+
+        return _EngineLegCloseBroker()
+
+    def _get_open_option_symbols_for_short_leg_reconcile(self) -> set[str] | None:
+        """Return authoritative open option symbols when available for short-leg cleanup."""
+        try:
+            from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import get_session_supervisor
+        except Exception:
+            return None
+
+        supervisor = get_session_supervisor()
+        if supervisor is None:
+            return None
+
+        position_rows: list[Any] | None = None
+        get_positions_for_flatten = getattr(supervisor, "_get_positions_for_flatten", None)
+        if callable(get_positions_for_flatten):
+            try:
+                position_rows = list(get_positions_for_flatten())
+            except Exception as exc:
+                self.logger.debug("D31: short-leg reconcile flatten inventory lookup failed: %s", exc)
+                position_rows = None
+
+        if position_rows is None:
+            get_positions = getattr(supervisor, "get_positions", None)
+            normalize_rows = getattr(supervisor, "_normalize_position_rows", None)
+            if callable(get_positions):
+                try:
+                    raw_positions = get_positions()
+                    if callable(normalize_rows):
+                        position_rows = normalize_rows(raw_positions)
+                    elif isinstance(raw_positions, list):
+                        position_rows = list(raw_positions)
+                    elif isinstance(raw_positions, dict):
+                        position_rows = list(raw_positions.values())
+                    else:
+                        position_rows = []
+                except Exception as exc:
+                    self.logger.debug("D31: short-leg reconcile get_positions lookup failed: %s", exc)
+                    position_rows = None
+
+        if position_rows is None:
+            return None
+
+        option_symbols: set[str] = set()
+        for position in position_rows:
+            if isinstance(position, dict):
+                quantity = self._coerce_float(position.get("quantity"))
+                option_symbol = str(position.get("option_symbol") or position.get("symbol") or "")
+            else:
+                quantity = self._coerce_float(getattr(position, "quantity", None))
+                option_symbol = str(
+                    getattr(position, "option_symbol", "")
+                    or getattr(position, "symbol", "")
+                )
+
+            normalized_symbol = option_symbol.strip().upper()
+            if not normalized_symbol or not self._parse_occ_option_symbol(normalized_symbol):
+                continue
+            if quantity is not None and abs(quantity) <= 1e-9:
+                continue
+            option_symbols.add(normalized_symbol)
+
+        return option_symbols
+
+    def _reconcile_strategy_active_short_legs(self, strategy: Any) -> list[str]:
+        """Drop tracked short legs that no longer exist in authoritative open positions."""
+        get_active_short_legs = getattr(strategy, "get_active_short_legs", None)
+        remove_active_short_legs = getattr(strategy, "remove_active_short_legs", None)
+        if not callable(get_active_short_legs) or not callable(remove_active_short_legs):
+            return []
+
+        short_legs = list(get_active_short_legs() or [])
+        if not short_legs:
+            return []
+
+        open_option_symbols = self._get_open_option_symbols_for_short_leg_reconcile()
+        if open_option_symbols is None:
+            return []
+
+        missing_symbols = sorted(
+            {
+                str(getattr(leg, "symbol", "") or "").strip().upper()
+                for leg in short_legs
+                if str(getattr(leg, "symbol", "") or "").strip().upper()
+                and str(getattr(leg, "symbol", "") or "").strip().upper() not in open_option_symbols
+            }
+        )
+        if not missing_symbols:
+            return []
+
+        suffix = "s" if len(missing_symbols) != 1 else ""
+        remove_active_short_legs(
+            missing_symbols,
+            note=f"Reconciled {len(missing_symbols)} stale short leg{suffix}",
+        )
+        self.logger.info(
+            "D31: reconciled %d stale short-leg symbols for %s",
+            len(missing_symbols),
+            getattr(strategy, "name", strategy.__class__.__name__),
+        )
+        return missing_symbols
+
+    def _evaluate_strategy_short_leg_risk(self, strategy_id: str, strategy: Any) -> list[Any]:
+        """Run one E25-style short-leg risk pass for the strategy's active short legs."""
+        get_active_short_legs = getattr(strategy, "get_active_short_legs", None)
+        if not callable(get_active_short_legs):
+            return []
+
+        self._reconcile_strategy_active_short_legs(strategy)
+
+        if self._live_engine is None:
+            return []
+
+        short_legs = list(get_active_short_legs() or [])
+        if not short_legs:
+            return []
+
+        quote_map = self._build_option_quote_map_for_short_legs(short_legs)
+        if not quote_map:
+            return []
+
+        try:
+            from Spyder.SpyderE_Risk.SpyderE25_DeltaBreachLegManager import DeltaBreachLegManager
+        except Exception as exc:
+            self.logger.warning("D31: DeltaBreachLegManager unavailable: %s", exc)
+            return []
+
+        max_short_delta = self._coerce_float(
+            getattr(strategy, "max_short_delta", None)
+        )
+        if max_short_delta is None and isinstance(getattr(strategy, "runtime_config", None), dict):
+            max_short_delta = self._coerce_float(strategy.runtime_config.get("max_short_delta"))
+        if max_short_delta is None or max_short_delta <= 0:
+            max_short_delta = 0.35
+
+        risk_manager = DeltaBreachLegManager(
+            broker_client=self._build_short_leg_close_broker(strategy_id),
+            max_short_delta=max_short_delta,
+        )
+        risk_manager.register_legs(short_legs)
+        closed_legs = risk_manager.evaluate_once(quote_map)
+        if closed_legs:
+            remove_active_short_legs = getattr(strategy, "remove_active_short_legs", None)
+            if callable(remove_active_short_legs):
+                suffix = "s" if len(closed_legs) != 1 else ""
+                remove_active_short_legs(
+                    [str(leg.symbol) for leg in closed_legs],
+                    note=f"Closed {len(closed_legs)} short leg{suffix} via risk pass",
+                )
+        return closed_legs
+
+    def _scheduled_strategy_loop(self) -> None:
+        """Run cadence-driven strategies from cached market data instead of tick fanout."""
+        while self.orchestration_active and not self.shutdown_event.is_set():
+            try:
+                now_et = _d31_now_et()
+                now_monotonic = time.monotonic()
+                with self._strategies_lock:
+                    strategy_snapshot = list(self.active_strategies.items())
+
+                active_ids = {strategy_id for strategy_id, _ in strategy_snapshot}
+                with self._scheduled_strategy_lock:
+                    stale_ids = [
+                        strategy_id
+                        for strategy_id in self._scheduled_strategy_due_at
+                        if strategy_id not in active_ids
+                    ]
+                    for strategy_id in stale_ids:
+                        self._scheduled_strategy_due_at.pop(strategy_id, None)
+
+                due_strategies: list[tuple[str, Any]] = []
+                for strategy_id, strategy in strategy_snapshot:
+                    if not self._strategy_uses_runtime_cadence(strategy):
+                        with self._scheduled_strategy_lock:
+                            self._scheduled_strategy_due_at.pop(strategy_id, None)
+                        continue
+                    self._seed_runtime_cadence_for_strategy(strategy_id, strategy, now=now_et)
+                    with self._scheduled_strategy_lock:
+                        due_at = self._scheduled_strategy_due_at.get(strategy_id)
+                    if due_at is not None and due_at <= now_monotonic:
+                        due_strategies.append((strategy_id, strategy))
+
+                for strategy_id, strategy in due_strategies:
+                    self._evaluate_strategy_from_cache(
+                        strategy_id,
+                        reason="runtime_cadence",
+                    )
+                    self._seed_runtime_cadence_for_strategy(
+                        strategy_id,
+                        strategy,
+                        now=_d31_now_et() + timedelta(microseconds=1),
+                        force=True,
+                    )
+
+                for strategy_id, strategy in strategy_snapshot:
+                    self._evaluate_strategy_short_leg_risk(strategy_id, strategy)
+
+                wait_seconds = 15.0
+                with self._scheduled_strategy_lock:
+                    if self._scheduled_strategy_due_at:
+                        wait_seconds = max(
+                            min(
+                                min(self._scheduled_strategy_due_at.values()) - time.monotonic(),
+                                15.0,
+                            ),
+                            0.05,
+                        )
+                self._scheduled_strategy_wakeup.wait(timeout=wait_seconds)
+                self._scheduled_strategy_wakeup.clear()
+
+            except Exception as exc:
+                self.logger.error("Error in scheduled strategy loop: %s", exc, exc_info=True)
+                self._scheduled_strategy_wakeup.wait(timeout=1.0)
+                self._scheduled_strategy_wakeup.clear()
+
     # ==========================================================================
     # PRIVATE METHODS - ALLOCATION AND REBALANCING
     # ==========================================================================
@@ -2805,7 +3309,57 @@ class StrategyOrchestrator:
         if strategy_type_normalized in {"broken_wing_butterfly", "jade_lizard_zero"}:
             resolved.setdefault("target_dte", 0)
 
+        if strategy_type_normalized == "zero_hft":
+            resolved.setdefault("target_dte", 0)
+            resolved.setdefault("require_defined_risk_entry", True)
+            if str(self._audit_run_mode or "").strip().lower() == "paper":
+                if resolved.get("broker_client") is None:
+                    broker_client = self._build_zero_hft_paper_quote_broker()
+                    if broker_client is not None:
+                        resolved["broker_client"] = broker_client
+                if resolved.get("gamma_engine") is None and resolved.get("broker_client") is not None:
+                    try:
+                        from Spyder.SpyderN_OptionsAnalytics.SpyderN15_GammaRegimeEngine import GammaRegimeEngine
+
+                        quote_broker = resolved["broker_client"]
+                        resolved["gamma_engine"] = GammaRegimeEngine(
+                            lambda underlying, expiration, quote_broker=quote_broker: quote_broker.get_option_chain_with_greeks(underlying, expiration),
+                            underlying=str(resolved.get("symbol") or "SPX").upper(),
+                        )
+                    except Exception as exc:
+                        self.logger.warning("ZeroHFT gamma engine defaults unavailable: %s", exc)
+
         return resolved
+
+    def _build_zero_hft_paper_quote_broker(self) -> Any | None:
+        """Build a quote-only paper adapter for ZeroHFT planning in D41."""
+        if self._live_engine is None:
+            return None
+
+        quote_client_factory = getattr(self._live_engine, "_get_paper_option_quote_client", None)
+        if not callable(quote_client_factory):
+            return None
+
+        try:
+            quote_client = quote_client_factory()
+        except Exception as exc:
+            self.logger.warning("ZeroHFT quote client bootstrap failed: %s", exc)
+            return None
+
+        if quote_client is None:
+            return None
+
+        get_option_expirations = getattr(quote_client, "get_option_expirations", None)
+        get_option_chain_with_greeks = getattr(quote_client, "get_option_chain_with_greeks", None)
+        if not callable(get_option_expirations) or not callable(get_option_chain_with_greeks):
+            return None
+
+        return SimpleNamespace(
+            trading_mode="paper",
+            mode="paper",
+            get_option_expirations=get_option_expirations,
+            get_option_chain_with_greeks=get_option_chain_with_greeks,
+        )
 
     def _resolve_horizon_bucket(self, strategy_name: str, config: dict[str, Any]) -> str:
         """Resolve strategy horizon bucket used for admission guardrails.
@@ -3260,7 +3814,7 @@ class StrategyOrchestrator:
         self._last_l09_confidence = 0.0
         self._last_l09_consensus = None
 
-        # v27 SPEC-5: fail closed when SPY cache is cold (boot, reconnect, feed
+        # v27 SPEC-5: fail closed when regime cache is cold (boot, reconnect, feed
         # gap). Returning a fabricated regime locks the system into wrong
         # strategies for the cold-start window — the documented "no strategies
         # fire" pathology. CRISIS maps via D31's regime alias to
@@ -3272,7 +3826,8 @@ class StrategyOrchestrator:
         # recovery seed before failing to CRISIS (throttled to 30 s).
         self._recover_cache_if_cold()
 
-        spy_ticks = self.market_data_cache.get("SPY", [])
+        regime_symbol = self._regime_source_symbol
+        spy_ticks = self.market_data_cache.get(regime_symbol, [])
         spy_closes = [
             self._coerce_float(t.get("close", t.get("price")))
             for t in spy_ticks
@@ -3281,7 +3836,8 @@ class StrategyOrchestrator:
         spy_closes = [float(c) for c in spy_closes if c is not None]
         if len(spy_closes) < 2:
             self.logger.warning(
-                "D31 regime: SPY cache has %d closes (<2) — failing closed to CRISIS",
+                "D31 regime: %s cache has %d closes (<2) — failing closed to CRISIS",
+                regime_symbol,
                 len(spy_closes),
             )
             return MarketRegime.CRISIS
@@ -3309,8 +3865,8 @@ class StrategyOrchestrator:
                             if numeric is not None:
                                 return float(numeric)
                     return float("nan")
-                # Build MarketConditions from cached SPY + VIX ticks
-                spy_ticks = self.market_data_cache.get("SPY", [])
+                # Build MarketConditions from cached regime symbol + VIX ticks
+                spy_ticks = self.market_data_cache.get(regime_symbol, [])
                 # v27 SPEC-5: do NOT fall back to a hardcoded $500 — that
                 # fabricates regime classification on cold start. Use NaN as the
                 # sentinel and fail closed below if the cache lacks ≥2 closes.
@@ -3324,13 +3880,14 @@ class StrategyOrchestrator:
                     spy_price = closes[-1]
                     spy_change_pct = (closes[-1] - closes[0]) / closes[0] * 100.0
                 else:
-                    # v27 SPEC-5: SPY cache cold (boot, reconnect, or feed gap)
+                    # v27 SPEC-5: regime-symbol cache cold (boot, reconnect, or feed gap)
                     # → fail closed to CRISIS so D31's regime alias maps to
                     # crisis_turbulent → no-trade. This closes the documented
                     # "no strategies fire" pathology.
                     self.logger.warning(
-                        "D31 regime classification: SPY cache has %d closes (<2) — "
+                        "D31 regime classification: %s cache has %d closes (<2) — "
                         "failing closed to CRISIS regime",
+                        regime_symbol,
                         len(closes),
                     )
                     return MarketRegime.CRISIS
@@ -3479,7 +4036,8 @@ class StrategyOrchestrator:
         if event_state in {"pre", "live", "post"}:
             return MarketRegime.EVENT_TRANSITION
 
-        spy_ticks = self.market_data_cache.get("SPY", [])
+        regime_symbol = self._regime_source_symbol
+        spy_ticks = self.market_data_cache.get(regime_symbol, [])
         spy_closes = [
             self._coerce_float(t.get("close", t.get("price")))
             for t in spy_ticks
@@ -3598,10 +4156,11 @@ class StrategyOrchestrator:
         """Return a trend strength score in [-1, +1] from cached market data.
 
         Positive = bullish, negative = bearish, 0 = sideways.
-        Uses a simple price-momentum heuristic from whatever SPY ticks are cached.
+        Uses a simple price-momentum heuristic from the active regime symbol.
         """
         try:
-            spy_ticks = self.market_data_cache.get("SPY", [])
+            regime_symbol = self._regime_source_symbol
+            spy_ticks = self.market_data_cache.get(regime_symbol, [])
             if len(spy_ticks) < 2:
                 return 0.0
             # Use last vs first cached price as a simple momentum proxy
@@ -3739,6 +4298,72 @@ class StrategyOrchestrator:
             "no_trade": None,
         }
         return strategy_map.get(raw)
+
+    @staticmethod
+    def _normalize_allowed_strategy_token(token: str, canonical_map: dict[str, str]) -> str | None:
+        """Normalize a strategy token to a canonical D31 registry name."""
+        cleaned = str(token or "").strip()
+        if not cleaned:
+            return None
+
+        direct = canonical_map.get(cleaned.lower())
+        if direct:
+            return direct
+
+        mapped = StrategyOrchestrator._map_selector_strategy_to_registry_name(cleaned)
+        if mapped:
+            via_selector = canonical_map.get(mapped.lower())
+            if via_selector:
+                return via_selector
+
+        if cleaned.lower().endswith("strategy"):
+            trimmed = cleaned[:-8].strip()
+            return canonical_map.get(trimmed.lower())
+
+        return None
+
+    def _apply_env_allowed_strategies_override(self) -> None:
+        """Constrain lean allowlist via SPYDER_ALLOWED_STRATEGIES when provided."""
+        raw_override = str(os.getenv("SPYDER_ALLOWED_STRATEGIES", "")).strip()
+        if not raw_override:
+            return
+
+        canonical_base_map: dict[str, str] = {}
+        for value in self.lean_strategy_allowlist:
+            base = value[:-8] if value.endswith("Strategy") else value
+            canonical_base_map[base.lower()] = base
+
+        selected_bases: set[str] = set()
+        unknown_tokens: list[str] = []
+        for token in raw_override.split(","):
+            canonical = self._normalize_allowed_strategy_token(token, canonical_base_map)
+            if canonical:
+                selected_bases.add(canonical)
+            elif str(token).strip():
+                unknown_tokens.append(str(token).strip())
+
+        if unknown_tokens:
+            self.logger.warning(
+                "D31 ignoring unknown SPYDER_ALLOWED_STRATEGIES entries: %s",
+                ", ".join(unknown_tokens),
+            )
+
+        if not selected_bases:
+            self.logger.warning(
+                "D31 received SPYDER_ALLOWED_STRATEGIES override but no valid strategies were resolved"
+            )
+            return
+
+        constrained: set[str] = set()
+        for base in selected_bases:
+            constrained.add(base)
+            constrained.add(f"{base}Strategy")
+        self.lean_strategy_allowlist = constrained
+
+        self.logger.info(
+            "D31 lean allowlist constrained by SPYDER_ALLOWED_STRATEGIES: %s",
+            ", ".join(sorted(selected_bases)),
+        )
 
     def _maybe_override_paper_calendar_spread_selection(
         self,
@@ -5126,6 +5751,9 @@ class StrategyOrchestrator:
             return
 
         for strategy_id, strategy in list(self.active_strategies.items()):
+            if self._strategy_uses_runtime_cadence(strategy):
+                self._seed_runtime_cadence_for_strategy(strategy_id, strategy)
+                continue
             try:
                 strategy.process_market_data(market_df)
             except Exception as exc:
@@ -5750,6 +6378,8 @@ class StrategyOrchestrator:
             "putcreditspread7": "put_credit_spread_7",
             "putcreditspread7strategy": "put_credit_spread_7",
             "iron_condor": "iron_condor_defined_risk",
+            "zerohft": "zero_hft",
+            "zerohftstrategy": "zero_hft",
             "pivotmeanreversion": "pivot_mean_reversion",
             "pivot_mr": "pivot_mean_reversion",
             "d34_pivotmr": "pivot_mean_reversion",
@@ -6360,8 +6990,8 @@ class StrategyOrchestrator:
         return None
 
     def _get_spy_last_price(self) -> float | None:
-        """Read latest SPY last-price from cached market data buckets."""
-        return self._get_cached_last_price("SPY")
+        """Read latest configured regime-symbol last-price from cached buckets."""
+        return self._get_cached_last_price(self._regime_source_symbol)
 
     def _build_market_df_for_symbol(
         self,
@@ -6569,10 +7199,11 @@ class StrategyOrchestrator:
         symbol: str,
     ) -> Any | None:
         """Build D32-style market analysis from cached market data."""
+        cached_symbol_price = self._get_cached_last_price(symbol)
         fallback_price = (
-            self._coerce_float(signal.get("price"))
+            cached_symbol_price
+            or self._coerce_float(signal.get("price"))
             or self._coerce_float(signal.get("entry_price"))
-            or self._get_cached_last_price(symbol)
             or self._get_spy_last_price()
         )
         market_df = self._build_market_df_for_symbol(symbol, fallback_price)
@@ -6588,13 +7219,25 @@ class StrategyOrchestrator:
         analyzer = MultiLegMarketAnalyzer({})
         return analyzer.analyze_environment(market_df)
 
+    def _resolve_paper_iron_condor_underlying_symbol(self, symbol: Any) -> str:
+        """Resolve the paper multileg underlying symbol under SPXW-only policy."""
+        _ = symbol
+        return "SPX"
+
+    @staticmethod
+    def _resolve_paper_iron_condor_option_root(symbol: Any) -> str:
+        """Resolve the OCC option root used for paper multileg leg symbols."""
+        _ = symbol
+        return "SPXW"
+
     def _build_paper_iron_condor_structure(
         self,
         signal: dict[str, Any],
         symbol: str,
     ) -> Any | None:
         """Construct an iron-condor structure for paper execution."""
-        market_analysis = self._build_multileg_market_analysis(signal, symbol)
+        execution_symbol = self._resolve_paper_iron_condor_underlying_symbol(symbol)
+        market_analysis = self._build_multileg_market_analysis(signal, execution_symbol)
         if market_analysis is None:
             return None
 
@@ -6610,7 +7253,9 @@ class StrategyOrchestrator:
             return None
 
         setup_payload = self._extract_iron_condor_setup_payload(signal)
-        constructor = MultiLegStrategyConstructor({})
+        constructor = MultiLegStrategyConstructor(
+            {"symbol": execution_symbol, "underlying_symbol": execution_symbol}
+        )
         strikes = setup_payload.get("strikes") if isinstance(setup_payload.get("strikes"), dict) else {}
         if len(strikes) == 4:
             now_et = _d31_now_et()
@@ -6625,7 +7270,7 @@ class StrategyOrchestrator:
                     tzinfo=UTC,
                 )
 
-            expiration_dt = constructor._resolve_live_option_expiration(symbol, expiration_dt)
+            expiration_dt = constructor._resolve_live_option_expiration(execution_symbol, expiration_dt)
 
             dte_value = setup_payload.get("dte")
             resolved_dte = max((expiration_dt.date() - now_et.date()).days, 0)
@@ -6704,7 +7349,9 @@ class StrategyOrchestrator:
         strategy_id: Any,
     ) -> list[dict[str, Any]]:
         """Decompose an iron-condor structure into explicit option-leg orders."""
-        structure = self._build_paper_iron_condor_structure(signal, symbol)
+        execution_symbol = self._resolve_paper_iron_condor_underlying_symbol(symbol)
+        option_root = self._resolve_paper_iron_condor_option_root(execution_symbol)
+        structure = self._build_paper_iron_condor_structure(signal, execution_symbol)
         if structure is None or not getattr(structure, "legs", None):
             return []
 
@@ -6720,7 +7367,7 @@ class StrategyOrchestrator:
             expiry = leg.expiration.date() if isinstance(leg.expiration, datetime) else _d31_now_et().date()
             option_type_letter = "C" if str(leg.option_type).lower() == "call" else "P"
             option_symbol = DateTimeUtils.format_option_symbol(
-                symbol,
+                option_root,
                 expiry,
                 option_type_letter,
                 float(leg.strike),
@@ -6738,7 +7385,7 @@ class StrategyOrchestrator:
                     "price": limit_price,
                     "strategy_id": strategy_id,
                     "multileg_leg_execution": True,
-                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_symbol": execution_symbol,
                     "multileg_parent_strategy": str(strategy_id or "iron_condor"),
                     "leg_role": leg_roles[index] if index < len(leg_roles) else f"leg_{index + 1}",
                     "expiration": option_details.get("expiration"),
@@ -6867,7 +7514,10 @@ class StrategyOrchestrator:
         if len(strikes) != 4:
             return []
 
-        market_analysis = self._build_multileg_market_analysis(signal, symbol)
+        execution_symbol = self._resolve_paper_iron_condor_underlying_symbol(symbol)
+        option_root = self._resolve_paper_iron_condor_option_root(execution_symbol)
+
+        market_analysis = self._build_multileg_market_analysis(signal, execution_symbol)
         if market_analysis is None:
             return []
 
@@ -6886,10 +7536,15 @@ class StrategyOrchestrator:
             self.logger.warning("Option symbol formatting unavailable: %s", exc)
             return []
 
-        constructor = MultiLegStrategyConstructor({})
+        constructor = MultiLegStrategyConstructor(
+            {
+                "symbol": execution_symbol,
+                "underlying_symbol": execution_symbol,
+            }
+        )
         expiration_dt = self._resolve_paper_multileg_expiration(
             signal,
-            symbol,
+            execution_symbol,
             constructor,
             setup_payload.get("expiration"),
             setup_payload.get("dte"),
@@ -6912,14 +7567,14 @@ class StrategyOrchestrator:
         )
         try:
             constructor._get_live_option_chain_strikes(
-                symbol,
+                execution_symbol,
                 expiration_dt.date().isoformat(),
             )
             constructor._apply_live_chain_prices_to_legs(legs)
         except Exception as exc:
             self.logger.debug(
                 "Paper iron butterfly live-chain pricing unavailable for %s: %s",
-                symbol,
+                execution_symbol,
                 exc,
             )
 
@@ -6936,7 +7591,7 @@ class StrategyOrchestrator:
         for index, leg in enumerate(legs):
             expiry = leg.expiration.date() if isinstance(leg.expiration, datetime) else now_et.date()
             option_symbol = DateTimeUtils.format_option_symbol(
-                symbol,
+                option_root,
                 expiry,
                 "C" if str(leg.option_type).lower() == "call" else "P",
                 float(leg.strike),
@@ -6958,7 +7613,7 @@ class StrategyOrchestrator:
                     "price": limit_price,
                     "strategy_id": strategy_id,
                     "multileg_leg_execution": True,
-                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_symbol": execution_symbol,
                     "multileg_parent_strategy": str(strategy_id or "iron_butterfly"),
                     "leg_role": leg_roles[index] if index < len(leg_roles) else f"leg_{index + 1}",
                     "expiration": option_details.get("expiration"),
@@ -7219,7 +7874,10 @@ class StrategyOrchestrator:
         if not setup_payload:
             return []
 
-        market_analysis = self._build_multileg_market_analysis(signal, symbol)
+        execution_symbol = self._resolve_paper_iron_condor_underlying_symbol(symbol)
+        option_root = self._resolve_paper_iron_condor_option_root(execution_symbol)
+
+        market_analysis = self._build_multileg_market_analysis(signal, execution_symbol)
         if market_analysis is None:
             return []
 
@@ -7238,10 +7896,15 @@ class StrategyOrchestrator:
             self.logger.warning("Option symbol formatting unavailable: %s", exc)
             return []
 
-        constructor = MultiLegStrategyConstructor({})
+        constructor = MultiLegStrategyConstructor(
+            {
+                "symbol": execution_symbol,
+                "underlying_symbol": execution_symbol,
+            }
+        )
         expiration_dt = self._resolve_paper_multileg_expiration(
             signal,
-            symbol,
+            execution_symbol,
             constructor,
             setup_payload.get("expiration"),
             setup_payload.get("dte"),
@@ -7266,14 +7929,14 @@ class StrategyOrchestrator:
         )
         try:
             constructor._get_live_option_chain_strikes(
-                symbol,
+                execution_symbol,
                 expiration_dt.date().isoformat(),
             )
             constructor._apply_live_chain_prices_to_legs(legs)
         except Exception as exc:
             self.logger.debug(
                 "Paper butterfly-family live-chain pricing unavailable for %s: %s",
-                symbol,
+                execution_symbol,
                 exc,
             )
 
@@ -7300,7 +7963,7 @@ class StrategyOrchestrator:
             expiry = leg.expiration.date() if isinstance(leg.expiration, datetime) else now_et.date()
             option_type = str(getattr(leg, "option_type", setup_payload["option_type"]).lower())
             option_symbol = DateTimeUtils.format_option_symbol(
-                symbol,
+                option_root,
                 expiry,
                 "C" if option_type == "call" else "P",
                 float(leg.strike),
@@ -7322,7 +7985,7 @@ class StrategyOrchestrator:
                     "price": limit_price,
                     "strategy_id": strategy_id,
                     "multileg_leg_execution": True,
-                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_symbol": execution_symbol,
                     "multileg_parent_strategy": str(strategy_id or setup_payload.get("strategy_key")),
                     "leg_role": str(leg_spec["role"]),
                     "expiration": option_details.get("expiration"),
@@ -7577,6 +8240,9 @@ class StrategyOrchestrator:
         if not near_leg or not far_leg:
             return []
 
+        execution_symbol = self._resolve_paper_iron_condor_underlying_symbol(symbol)
+        option_root = self._resolve_paper_iron_condor_option_root(execution_symbol)
+
         try:
             from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
         except Exception as exc:
@@ -7614,7 +8280,7 @@ class StrategyOrchestrator:
                 return []
 
             option_symbol = DateTimeUtils.format_option_symbol(
-                symbol,
+                option_root,
                 expiry,
                 "C" if option_type == "call" else "P",
                 float(strike),
@@ -7644,7 +8310,7 @@ class StrategyOrchestrator:
                     "price": limit_price,
                     "strategy_id": strategy_id,
                     "multileg_leg_execution": True,
-                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_symbol": execution_symbol,
                     "multileg_parent_strategy": str(strategy_id or "calendar_spread"),
                     "leg_role": leg_role,
                     "expiration": option_details.get("expiration"),
@@ -7793,6 +8459,8 @@ class StrategyOrchestrator:
             normalized_strategy_key = "bullish_strangle"
         elif "jade_lizard_zero" in normalized_candidates:
             normalized_strategy_key = "jade_lizard_zero"
+        elif "zero_hft" in normalized_candidates:
+            normalized_strategy_key = "zero_hft"
         else:
             return {}
 
@@ -7904,6 +8572,9 @@ class StrategyOrchestrator:
         if not setup_payload:
             return []
 
+        execution_symbol = self._resolve_paper_iron_condor_underlying_symbol(symbol)
+        option_root = self._resolve_paper_iron_condor_option_root(execution_symbol)
+
         try:
             from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import DateTimeUtils
         except Exception as exc:
@@ -7937,7 +8608,7 @@ class StrategyOrchestrator:
 
             expiry = leg_expiration.date() if isinstance(leg_expiration, datetime) else now_et.date()
             option_symbol = DateTimeUtils.format_option_symbol(
-                symbol,
+                option_root,
                 expiry,
                 "C" if str(leg["option_type"]).lower() == "call" else "P",
                 float(leg["strike"]),
@@ -7959,7 +8630,7 @@ class StrategyOrchestrator:
                     "price": limit_price,
                     "strategy_id": strategy_id,
                     "multileg_leg_execution": True,
-                    "multileg_parent_symbol": symbol,
+                    "multileg_parent_symbol": execution_symbol,
                     "multileg_parent_strategy": str(strategy_id or setup_payload.get("strategy_key")),
                     "leg_role": str(leg["role"]),
                     "expiration": option_details.get("expiration"),
@@ -7968,6 +8639,77 @@ class StrategyOrchestrator:
                 }
             )
         return orders
+
+    def _resolve_active_strategy_for_signal(self, signal: dict[str, Any]) -> Any | None:
+        """Resolve an active strategy instance from semantic signal identifiers."""
+        metadata = signal.get("metadata") if isinstance(signal, dict) else {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        candidate_tokens = {
+            self._normalise_strategy_type_for_entry_gate(
+                self._signal_value(signal, "strategy_type")
+            ),
+            self._normalise_strategy_type_for_entry_gate(
+                self._signal_value(signal, "strategy_id")
+            ),
+            self._normalise_strategy_type_for_entry_gate(
+                self._signal_value(signal, "strategy_name")
+            ),
+            self._normalise_strategy_type_for_entry_gate(metadata.get("strategy_type")),
+            self._normalise_strategy_type_for_entry_gate(metadata.get("strategy_id")),
+            self._normalise_strategy_type_for_entry_gate(metadata.get("alias")),
+        }
+        candidate_tokens.discard("")
+        if not candidate_tokens:
+            return None
+
+        strategies: list[Any]
+        strategies_lock = getattr(self, "_strategies_lock", None)
+        if strategies_lock is None:
+            strategies = list(getattr(self, "active_strategies", {}).values())
+        else:
+            with strategies_lock:
+                strategies = list(getattr(self, "active_strategies", {}).values())
+
+        for strategy in strategies:
+            runtime_config = getattr(strategy, "runtime_config", None)
+            alias = runtime_config.get("alias") if isinstance(runtime_config, dict) else None
+            strategy_tokens = {
+                self._normalise_strategy_type_for_entry_gate(getattr(strategy, "strategy_type", None)),
+                self._normalise_strategy_type_for_entry_gate(getattr(strategy, "name", None)),
+                self._normalise_strategy_type_for_entry_gate(alias),
+                self._normalise_strategy_type_for_entry_gate(strategy.__class__.__name__),
+            }
+            strategy_tokens.discard("")
+            if candidate_tokens & strategy_tokens:
+                return strategy
+
+        return None
+
+    def _notify_strategy_serialized_multileg_dispatch(
+        self,
+        raw_signal: dict[str, Any],
+        accepted_leg_orders: list[dict[str, Any]],
+    ) -> None:
+        """Forward accepted paper multileg legs back to the owning strategy when supported."""
+        strategy = self._resolve_active_strategy_for_signal(raw_signal)
+        if strategy is None:
+            return
+
+        register_dispatched_short_legs = getattr(strategy, "register_dispatched_short_legs", None)
+        if not callable(register_dispatched_short_legs):
+            return
+
+        try:
+            register_dispatched_short_legs(raw_signal, accepted_leg_orders)
+        except Exception as exc:
+            self.logger.error(
+                "D31: strategy short-leg registration failed for %s: %s",
+                getattr(strategy, "name", strategy.__class__.__name__),
+                exc,
+                exc_info=True,
+            )
 
     def _dispatch_paper_serialized_multileg(
         self,
@@ -8081,6 +8823,8 @@ class StrategyOrchestrator:
             if order_id:
                 tracked_leg_order["_accepted_order_id"] = str(order_id)
             accepted_leg_orders.append(tracked_leg_order)
+
+        self._notify_strategy_serialized_multileg_dispatch(raw_signal, accepted_leg_orders)
 
         self.logger.info(
             "Paper %s dispatched as %d option legs: symbol=%s strategy=%s qty=%d | %s",
@@ -9003,6 +9747,33 @@ class StrategyOrchestrator:
             ask = float(_get("ask", 0.0) or 0.0)
             option_symbol = str(_get("option_symbol", "") or "")
             is_paper_run = str(self._audit_run_mode or "").strip().lower() == "paper"
+            symbol_option_details = self._parse_occ_option_symbol(symbol)
+
+            if (
+                is_paper_run
+                and symbol_option_details
+                and self._is_entry_action(side)
+                and str(symbol_option_details.get("underlying") or "").strip().upper() == "SPY"
+            ):
+                self._clear_pending_entry_reservation(symbol, strategy_id)
+                detail = f"symbol={symbol};policy=spxw_only;blocked_underlying=SPY"
+                self.logger.warning(
+                    "Paper entry blocked by SPXW-only option policy: %s | %s",
+                    detail,
+                    pivot_context,
+                )
+                self._record_signal_drop(
+                    "dispatch",
+                    "paper_spy_option_entry_blocked",
+                    signal=signal,
+                    detail=detail,
+                )
+                self._record_signal_dispatch_outcome_safe(
+                    "dispatch_rejected",
+                    signal=signal,
+                    detail=detail,
+                )
+                return
 
             duplicate_source = self._get_duplicate_open_position_source(
                 symbol,
@@ -9067,7 +9838,7 @@ class StrategyOrchestrator:
 
             if (
                 is_paper_run
-                and normalized_strategy_key in {"bullish_strangle", "jade_lizard_zero", "put_credit_spread_7"}
+                and normalized_strategy_key in {"bullish_strangle", "jade_lizard_zero", "put_credit_spread_7", "zero_hft"}
                 and not symbol_is_option_leg
             ):
                 self._dispatch_paper_serialized_multileg(

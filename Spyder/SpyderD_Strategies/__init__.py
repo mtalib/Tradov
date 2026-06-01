@@ -275,6 +275,22 @@ try:
 except ImportError as e:
     logging.info("Warning: SpyderD37_BullishStrangle not available: %s", e)
 
+try:
+    from .SpyderD41_ZeroHFT import (
+        ZERO_HFT_ALIAS,
+        ZeroHFTStrategy,
+        build_zero_hft_runtime_config,
+        create_zero_hft_strategy,
+    )
+    __all__.extend([
+        "ZERO_HFT_ALIAS",
+        "ZeroHFTStrategy",
+        "build_zero_hft_runtime_config",
+        "create_zero_hft_strategy",
+    ])
+except ImportError as e:
+    logging.info("Warning: SpyderD41_ZeroHFT not available: %s", e)
+
 # ==============================================================================
 # PACKAGE METADATA
 # ==============================================================================

@@ -35,7 +35,7 @@ Module Description:
                   or hard time-stop at 15:30 ET.
 
     On each call to :meth:`tick`, the runner:
-      1. Pulls a fresh SPY quote.
+            1. Pulls a fresh underlying quote.
       2. Evaluates exit rules for every open simulated position; closes
          at mid on trigger and calls ``harness.record_trade``.
       3. If below ``max_concurrent_positions`` and within each strategy's
@@ -134,6 +134,9 @@ DEFAULT_MAX_CONCURRENT: int = 3
 REGIME_VIX_SYMBOL: str = "VIX"          # Tradier accepts "VIX" directly
 BP_MAX_VIX: float = 30.0                # skip new bull-puts above this
 ZDTE_MAX_VIX: float = 35.0              # skip new 0DTE ICs above this
+PAPER_UNDERLYING_SYMBOL: str = (
+    os.environ.get("SPYDER_UNDERLYING_SYMBOL", "SPX").strip().upper() or "SPX"
+)
 
 ZERO_DTE_PROFILE_CONFIGS: dict[str, dict[str, Any]] = {
     DEFAULT_ZERO_DTE_PROFILE: {
@@ -245,7 +248,7 @@ class SimulatedPosition:
 
     @property
     def position_delta(self) -> float:
-        """Dollar-delta per $1 SPY move: Σ(signed Δ × leg.qty) × 100."""
+        """Dollar-delta per $1 underlying move: Σ(signed Δ × leg.qty) × 100."""
         return self._signed_greek("delta") * SPY_CONTRACT_MULTIPLIER
 
     @property
@@ -871,7 +874,7 @@ class PaperStrategyRunner:
 
         self._reset_daily_entry_counts_if_needed(now.date())
 
-        # 1) Pull SPY + VIX quotes in one batched call
+        # 1) Pull underlying + VIX quotes in one batched call
         spy_quote, vix_price = self._get_spy_and_vix()
         if spy_quote is None:
             return {
@@ -1001,26 +1004,30 @@ class PaperStrategyRunner:
     # ------------------------------------------------------------------
     def _get_spy_quote(self) -> dict[str, Any] | None:
         try:
-            resp = self._client.get_quotes(["SPY"])
+            resp = self._client.get_quotes([PAPER_UNDERLYING_SYMBOL])
             q = resp.get("quotes", {}).get("quote")
             if isinstance(q, list):
                 q = q[0] if q else None
             return q
         except Exception as exc:
-            logger.warning("SPY quote fetch failed: %s", exc)
+            logger.warning("%s quote fetch failed: %s", PAPER_UNDERLYING_SYMBOL, exc)
             return None
 
     def _get_spy_and_vix(self) -> tuple[dict[str, Any] | None, float | None]:
-        """Batched SPY + VIX quote fetch.
+        """Batched underlying + VIX quote fetch.
 
         Returns ``(spy_quote_dict, vix_last_price)``. A missing VIX does not
         block trading — the regime gate treats ``None`` as "unknown, allow".
         """
         try:
-            resp = self._client.get_quotes(["SPY", REGIME_VIX_SYMBOL])
+            resp = self._client.get_quotes([PAPER_UNDERLYING_SYMBOL, REGIME_VIX_SYMBOL])
         except Exception as exc:
-            logger.warning("Batched SPY/VIX quote fetch failed: %s", exc)
-            # Fall back to SPY-only so we stay trading
+            logger.warning(
+                "Batched %s/VIX quote fetch failed: %s",
+                PAPER_UNDERLYING_SYMBOL,
+                exc,
+            )
+            # Fall back to underlying-only so we stay trading
             return self._get_spy_quote(), None
         quotes = resp.get("quotes", {}).get("quote", [])
         if isinstance(quotes, dict):
@@ -1031,7 +1038,7 @@ class PaperStrategyRunner:
             if not isinstance(q, dict):
                 continue
             sym = str(q.get("symbol", "")).upper()
-            if sym == "SPY":
+            if sym == PAPER_UNDERLYING_SYMBOL:
                 spy_q = q
             elif sym in {"VIX", "^VIX"}:
                 try:
@@ -1048,7 +1055,7 @@ class PaperStrategyRunner:
         """Fetch option chain with greeks parsed by TradierClient."""
         try:
             return self._client.get_option_chain_with_greeks(
-                "SPY", expiration, option_type=option_type,
+                PAPER_UNDERLYING_SYMBOL, expiration, option_type=option_type,
             )
         except Exception as exc:
             logger.warning("Option chain fetch failed for %s: %s", expiration, exc)
@@ -1056,7 +1063,7 @@ class PaperStrategyRunner:
 
     def get_expirations(self) -> list[str]:
         try:
-            resp = self._client.get_option_expirations("SPY")
+            resp = self._client.get_option_expirations(PAPER_UNDERLYING_SYMBOL)
             dates = resp.get("expirations", {}).get("date", [])
             if isinstance(dates, str):
                 dates = [dates]
@@ -1160,7 +1167,7 @@ class PaperStrategyRunner:
         if self._risk_manager is None:
             return True, "", contracts
         req = RiskValidationRequest(
-            symbol=proposal.primary_symbol or "SPY",
+            symbol=proposal.primary_symbol or PAPER_UNDERLYING_SYMBOL,
             quantity=contracts,
             signal_type=BoundarySignalType.SELL,
             strategy_id=proposal.strategy,
@@ -1315,24 +1322,31 @@ class PaperStrategyRunner:
         if proposal.strategy == "BullPutCreditSpread" and len(legs) >= 2:
             logger.info(
                 "OPEN BullPut %s: short %.0fP / long %.0fP @ exp %s x%d | credit=$%.2f "
-                "max_loss=$%.2f SPY=%.2f",
+                "max_loss=$%.2f %s=%.2f",
                 position.position_id, legs[0].strike, legs[1].strike,
                 proposal.expiration.isoformat(), contracts,
-                proposal.credit_received, proposal.max_loss, ctx.spy_price,
+                proposal.credit_received, proposal.max_loss, PAPER_UNDERLYING_SYMBOL, ctx.spy_price,
             )
         elif proposal.strategy == "ZeroDTE_IronCondor" and len(legs) >= 4:
             logger.info(
                 "OPEN 0DTE IC %s: %.0fP/%.0fP/%.0fC/%.0fC x%d | credit=$%.2f "
-                "max_loss=$%.2f SPY=%.2f",
+                "max_loss=$%.2f %s=%.2f",
                 position.position_id,
                 legs[1].strike, legs[0].strike, legs[2].strike, legs[3].strike,
-                contracts, proposal.credit_received, proposal.max_loss, ctx.spy_price,
+                contracts,
+                proposal.credit_received,
+                proposal.max_loss,
+                PAPER_UNDERLYING_SYMBOL,
+                ctx.spy_price,
             )
         else:
             logger.info(
-                "OPEN %s %s x%d | credit=$%.2f max_loss=$%.2f SPY=%.2f",
+                "OPEN %s %s x%d | credit=$%.2f max_loss=$%.2f %s=%.2f",
                 proposal.strategy, position.position_id, contracts,
-                proposal.credit_received, proposal.max_loss, ctx.spy_price,
+                proposal.credit_received,
+                proposal.max_loss,
+                PAPER_UNDERLYING_SYMBOL,
+                ctx.spy_price,
             )
         return True, "opened"
 
