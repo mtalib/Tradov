@@ -93,6 +93,7 @@ from PySide6.QtGui import (
 # ==============================================================================
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFrame,  # noqa: F401
@@ -559,6 +560,9 @@ class _ReadinessCheckWorker(QObject):
 
 
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # noqa: E402
+from Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils import (  # noqa: E402
+    get_previous_trading_day,
+)
 from Spyder.SpyderG_GUI.SpyderG13_EnhancedWidgets import (  # noqa: E402
     COLORS,
     ConnectionInfo,
@@ -984,6 +988,18 @@ class SpyderTradingDashboard(QMainWindow):
         # Active INFO allowlist — starts as the full default; user may narrow it
         # via the ALLOWLIST dialog.  Stored here so it survives mode toggles.
         self._gui_allowlist_active: tuple[str, ...] = _GUI_INFO_ALLOWLIST_DEFAULT
+        # User-facing SPX strategy allowlist (Advanced Controls).
+        self._spx_strategy_candidates: tuple[str, ...] = (
+            "IronCondor",
+            "IronButterfly",
+            "Butterfly",
+            "BrokenWingButterfly",
+            "BullPutSpread",
+            "BearCallSpread",
+            "ZeroHFT",
+        )
+        self._spx_allowed_strategies_active: tuple[str, ...] = self._load_allowed_strategies_state()
+        self._apply_allowed_strategies_override(self._spx_allowed_strategies_active, announce=False)
         self._signal_noise_loggers = (
             "SpyderS_Signals.SpyderS01_DIXCalculator",
             "Spyder.SpyderS_Signals.SpyderS01_DIXCalculator",
@@ -1152,6 +1168,9 @@ class SpyderTradingDashboard(QMainWindow):
         self.refresh_orders_btn = None
         self.recent_trades_history_btn = None
         self.trade_audit_btn = None
+        self.allowed_strategies_btn = None
+        self.zero_hft_hedge_status_label = None
+        self.zero_hft_short_leg_status_label = None
         self.decision_log_btn = None
         self.veto_toggle_btn = None
         self.readiness_btn = None
@@ -2744,14 +2763,15 @@ class SpyderTradingDashboard(QMainWindow):
         return build_center_panel(self)
 
     def toggle_chart(self):
-        """Toggle the SPY chart visibility to provide more space for positions table"""
+        """Toggle the underlying chart visibility to provide more space for positions table."""
+        chart_symbol = str(os.getenv("SPYDER_UNDERLYING_SYMBOL", "SPX") or "SPX").strip().upper() or "SPX"
         if self.chart_visible:
             # Hide chart
             self.chart_widget.hide()
             if self.chart_hidden_controls_panel is not None:
                 self.chart_hidden_controls_panel.show()
             self.chart_visible = False
-            self.chart_toggle_btn.setToolTip("Show SPY Chart (5-min)")
+            self.chart_toggle_btn.setToolTip(f"Show {chart_symbol} Chart (5-min)")
             self.log_system_message("Chart hidden - Advanced controls shown")
         else:
             # Show chart
@@ -2759,7 +2779,7 @@ class SpyderTradingDashboard(QMainWindow):
             if self.chart_hidden_controls_panel is not None:
                 self.chart_hidden_controls_panel.hide()
             self.chart_visible = True
-            self.chart_toggle_btn.setToolTip("Hide SPY Chart (5-min)")
+            self.chart_toggle_btn.setToolTip(f"Hide {chart_symbol} Chart (5-min)")
             self.log_system_message("Chart visible")
 
     def create_right_panel(self) -> QWidget:
@@ -2775,24 +2795,47 @@ class SpyderTradingDashboard(QMainWindow):
         return lbl
 
     def create_chart(self):
-        """Create the SPY chart widget (UNCHANGED)"""
+        """Create the underlying 5-minute chart widget."""
         create_chart_widget(self)
+
+    @staticmethod
+    def _chart_underlying_symbol() -> str:
+        """Return the configured chart underlying symbol (default: SPX)."""
+        return str(os.getenv("SPYDER_UNDERLYING_SYMBOL", "SPX") or "SPX").strip().upper() or "SPX"
 
     def _load_chart_candles_from_cache(self) -> tuple[list[dict], bool]:
         """Return cached chart bars and whether they should be filtered to today."""
-        current_chart_file = self.data_file.parent / "spy_5min_chart.json"
-        prev_day_chart_file = self.data_file.parent / "spy_5min_prev_day.json"
+        chart_symbol = self._chart_underlying_symbol().lower()
+        current_chart_file = self.data_file.parent / f"{chart_symbol}_5min_chart.json"
+        prev_day_chart_file = self.data_file.parent / f"{chart_symbol}_5min_prev_day.json"
+
+        # Backward compatibility while rolling from legacy SPY filenames.
+        legacy_current_chart_file = self.data_file.parent / "spy_5min_chart.json"
+        legacy_prev_day_chart_file = self.data_file.parent / "spy_5min_prev_day.json"
 
         if is_market_hours():
-            candidate_files = ((current_chart_file, True),)
+            candidate_files = (
+                (current_chart_file, True),
+                (legacy_current_chart_file, True),
+            )
         else:
             candidate_files = (
                 (prev_day_chart_file, False),
                 (current_chart_file, False),
+                (legacy_prev_day_chart_file, False),
+                (legacy_current_chart_file, False),
             )
 
-        loaded_caches: list[tuple[object, bool]] = []
+        deduped_candidates: list[tuple[Path, bool]] = []
+        seen_paths: set[Path] = set()
         for chart_file, filter_to_today in candidate_files:
+            if chart_file in seen_paths:
+                continue
+            deduped_candidates.append((chart_file, filter_to_today))
+            seen_paths.add(chart_file)
+
+        loaded_caches: list[tuple[object, bool]] = []
+        for chart_file, filter_to_today in deduped_candidates:
             if not chart_file.exists():
                 continue
             try:
@@ -2806,7 +2849,7 @@ class SpyderTradingDashboard(QMainWindow):
         return build_cached_chart_candles_result(loaded_caches)
 
     def update_chart(self):
-        """Update the SPY intraday chart — fixed 9:30–4:00 ET session, line chart."""
+        """Update the configured underlying intraday chart with fixed 5-minute session bars."""
         if self.figure is None or self.canvas is None:
             return
 
@@ -2878,12 +2921,20 @@ class SpyderTradingDashboard(QMainWindow):
         # Load previous session's daily H/L/C so pivot levels stay fixed all
         # day (floor-trader convention: pivots derive from yesterday, not today).
         _prev_day_tuple: tuple[float, float, float] | None = None
-        _prev_day_file = self.data_file.parent / "spy_prev_day.json"
-        if _prev_day_file.exists():
+        chart_symbol = self._chart_underlying_symbol().lower()
+        _prev_day_file = self.data_file.parent / f"{chart_symbol}_prev_day.json"
+        _legacy_prev_day_file = self.data_file.parent / "spy_prev_day.json"
+        _prev_day_source = _prev_day_file if _prev_day_file.exists() else _legacy_prev_day_file
+        if _prev_day_source.exists():
             try:
-                with open(_prev_day_file) as _pdf:
+                with open(_prev_day_source) as _pdf:
                     _pd = json.load(_pdf)
-                _prev_day_tuple = (float(_pd["high"]), float(_pd["low"]), float(_pd["close"]))
+                if all(key in _pd for key in ("high", "low", "close", "date")):
+                    current_et = datetime.now(_get_eastern_timezone())
+                    expected_prev_day = get_previous_trading_day(current_et.date())
+                    if _pd.get("date") != expected_prev_day.isoformat():
+                        raise ValueError("stale prev-day snapshot")
+                    _prev_day_tuple = (float(_pd["high"]), float(_pd["low"]), float(_pd["close"]))
             except Exception:
                 pass
 
@@ -5508,6 +5559,53 @@ class SpyderTradingDashboard(QMainWindow):
         if start_btn is not None and presentation.start_tooltip is not None:
             start_btn.setToolTip(presentation.start_tooltip)
 
+    def _refresh_zero_hft_tail_hedge_status(self) -> None:
+        """Refresh the ZeroHFT tail-hedge badge based on strategy runtime status."""
+        label = getattr(self, "zero_hft_hedge_status_label", None)
+        if label is None:
+            return
+
+        status = str(os.environ.get("SPYDER_ZEROHFT_TAIL_HEDGE_STATUS", "UNKNOWN")).strip().upper()
+        detail = str(os.environ.get("SPYDER_ZEROHFT_TAIL_HEDGE_DETAIL", "")).strip()
+
+        status_styles = {
+            "HEDGED": "#4CD137",
+            "HALTED": "#E55039",
+            "UNHEDGED": "#F6B93B",
+            "UNKNOWN": "#95A5A6",
+        }
+        color = status_styles.get(status, "#95A5A6")
+
+        label.setText(f"ZeroHFT Tail Hedge: {status}")
+        label.setStyleSheet(
+            f"color: #FFFFFF; background-color: {color}; font-size: 11px; "
+            "padding: 4px 8px; border-radius: 4px;"
+        )
+        label.setToolTip(detail or "ZeroHFT tail-hedge status is not yet available")
+
+    def _refresh_zero_hft_short_leg_status(self) -> None:
+        """Refresh the ZeroHFT short-leg risk badge based on strategy runtime state."""
+        label = getattr(self, "zero_hft_short_leg_status_label", None)
+        if label is None:
+            return
+
+        status = str(os.environ.get("SPYDER_ZEROHFT_SHORT_LEG_STATUS", "UNKNOWN")).strip().upper()
+        detail = str(os.environ.get("SPYDER_ZEROHFT_SHORT_LEG_DETAIL", "")).strip()
+
+        status_styles = {
+            "CLEAR": "#4CD137",
+            "ACTIVE": "#F6B93B",
+            "UNKNOWN": "#95A5A6",
+        }
+        color = status_styles.get(status, "#95A5A6")
+
+        label.setText(f"ZeroHFT Short Risk: {status}")
+        label.setStyleSheet(
+            f"color: #FFFFFF; background-color: {color}; font-size: 11px; "
+            "padding: 4px 8px; border-radius: 4px;"
+        )
+        label.setToolTip(detail or "ZeroHFT short-leg risk state is not yet available")
+
     def _start_unified_session_supervisor(self) -> bool:
         """Start SessionSupervisor using the currently selected trading mode."""
         supervisor = self._session_supervisor
@@ -7589,6 +7687,14 @@ class SpyderTradingDashboard(QMainWindow):
         self.chart_timer.timeout.connect(self.update_chart)
         self.chart_timer.start(30000)
 
+        # Keep ZeroHFT tail-hedge status badge in sync with runtime state.
+        self.zero_hft_status_timer = QTimer(self)
+        self.zero_hft_status_timer.timeout.connect(self._refresh_zero_hft_tail_hedge_status)
+        self.zero_hft_status_timer.timeout.connect(self._refresh_zero_hft_short_leg_status)
+        self.zero_hft_status_timer.start(5000)
+        self._refresh_zero_hft_tail_hedge_status()
+        self._refresh_zero_hft_short_leg_status()
+
     def _start_decision_flow_timer(self) -> None:
         """Start the compact decision-flow timer once runtime warmup is complete."""
         if getattr(self, "_decision_flow_timer_started", False):
@@ -8299,6 +8405,170 @@ class SpyderTradingDashboard(QMainWindow):
         summary = f"ℹ️ Allowlist updated — {label_count} module(s) enabled"
         self.add_system_log(summary)
 
+    def _load_allowed_strategies_state(self) -> tuple[str, ...]:
+        """Load persisted SPX strategy allowlist from profile JSON."""
+        profile_path = self._resolve_veto_profile_path()
+        default_selection = self._spx_strategy_candidates
+
+        try:
+            if profile_path.exists():
+                data = json.loads(profile_path.read_text(encoding="utf-8"))
+                raw = data.get("autonomous_readiness", {}).get("allowed_strategies", None)
+                if isinstance(raw, list):
+                    raw_set = {str(item).strip() for item in raw if str(item).strip()}
+                    selected = tuple(
+                        strategy
+                        for strategy in self._spx_strategy_candidates
+                        if strategy in raw_set
+                    )
+                    if selected:
+                        return selected
+        except Exception as exc:
+            self.logger.debug("Allowed-strategies profile load failed: %s", exc)
+
+        return default_selection
+
+    def _persist_allowed_strategies_state(self, selected: tuple[str, ...]) -> tuple[bool, str]:
+        """Persist SPX strategy allowlist under autonomous_readiness.allowed_strategies."""
+        profile_path = self._resolve_veto_profile_path()
+
+        try:
+            data: dict = {}
+            if profile_path.exists():
+                data = json.loads(profile_path.read_text(encoding="utf-8"))
+
+            autonomous_readiness = data.setdefault("autonomous_readiness", {})
+            if not isinstance(autonomous_readiness, dict):
+                autonomous_readiness = {}
+                data["autonomous_readiness"] = autonomous_readiness
+
+            autonomous_readiness["allowed_strategies"] = list(selected)
+
+            profile_path.parent.mkdir(parents=True, exist_ok=True)
+            profile_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            return True, str(profile_path)
+        except Exception as exc:
+            return False, str(exc)
+
+    def _apply_allowed_strategies_to_active_orchestrator(self, selected: tuple[str, ...]) -> bool:
+        """Apply selected strategy bases to a running D31 orchestrator, if present."""
+        supervisor = getattr(self, "_session_supervisor", None)
+        orchestrator = getattr(supervisor, "orchestrator", None) if supervisor else None
+        if orchestrator is None:
+            return False
+
+        lean_allowlist = getattr(orchestrator, "lean_strategy_allowlist", None)
+        if not isinstance(lean_allowlist, set):
+            return False
+
+        current_bases = {
+            name[:-8] if name.endswith("Strategy") else name
+            for name in lean_allowlist
+        }
+        allowlist_snapshot = getattr(orchestrator, "_allowed_strategies_allowlist_snapshot", None)
+        if not isinstance(allowlist_snapshot, set):
+            allowlist_snapshot = set(current_bases)
+            orchestrator._allowed_strategies_allowlist_snapshot = allowlist_snapshot
+
+        selected_bases = [
+            name
+            for name in selected
+            if name in allowlist_snapshot
+        ]
+        if not selected_bases:
+            return False
+
+        new_allowlist: set[str] = set()
+        for base in selected_bases:
+            new_allowlist.add(base)
+            new_allowlist.add(f"{base}Strategy")
+        orchestrator.lean_strategy_allowlist = new_allowlist
+
+        available_strategies = getattr(orchestrator, "available_strategies", None)
+        if isinstance(available_strategies, dict):
+            registry_snapshot = getattr(orchestrator, "_allowed_strategies_registry_snapshot", None)
+            if not isinstance(registry_snapshot, dict):
+                registry_snapshot = dict(available_strategies)
+                orchestrator._allowed_strategies_registry_snapshot = registry_snapshot
+
+            selected_base_set = set(selected_bases)
+            orchestrator.available_strategies = {
+                name: strategy_class
+                for name, strategy_class in registry_snapshot.items()
+                if name in selected_base_set
+            }
+
+        return True
+
+    def _apply_allowed_strategies_override(self, selected: tuple[str, ...], announce: bool = True) -> None:
+        """Apply SPX strategy selection to env/runtime without bypassing D31 policy flow."""
+        os.environ["SPYDER_ALLOWED_STRATEGIES"] = ",".join(selected)
+        applied_live = self._apply_allowed_strategies_to_active_orchestrator(selected)
+
+        if announce:
+            count = len(selected)
+            status = "applied to active session" if applied_live else "will apply on next strategy start"
+            self.add_system_log(
+                f"🎯 Allowed SPX strategies updated — {count} selected ({status})"
+            )
+
+    def _open_allowed_strategies_dialog(self) -> None:
+        """Open SPX strategy chooser and persist selected runtime allowlist."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("ALLOWED STRATEGIES")
+        dialog.setModal(True)
+        dialog.resize(460, 360)
+
+        layout = QVBoxLayout(dialog)
+        title = QLabel("Select allowed SPX strategies for runtime selection")
+        title.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 600;")
+        layout.addWidget(title)
+
+        subtitle = QLabel("Unchecked strategies are blocked from D31 lean selection.")
+        subtitle.setStyleSheet("color: #B0B0B0; font-size: 12px;")
+        layout.addWidget(subtitle)
+
+        selected_now = set(self._spx_allowed_strategies_active)
+        checkboxes: dict[str, QCheckBox] = {}
+        for strategy_name in self._spx_strategy_candidates:
+            cb = QCheckBox(strategy_name)
+            cb.setChecked(strategy_name in selected_now)
+            cb.setStyleSheet("color: #E8E8E8; font-size: 12px;")
+            checkboxes[strategy_name] = cb
+            layout.addWidget(cb)
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        layout.addWidget(btn_box)
+
+        btn_box.accepted.connect(dialog.accept)
+        btn_box.rejected.connect(dialog.reject)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected = tuple(
+            strategy_name
+            for strategy_name in self._spx_strategy_candidates
+            if checkboxes[strategy_name].isChecked()
+        )
+        if not selected:
+            QMessageBox.warning(
+                self,
+                "Allowed Strategies",
+                "Please keep at least one strategy enabled.",
+            )
+            return
+
+        persisted, detail = self._persist_allowed_strategies_state(selected)
+        if not persisted:
+            self.add_system_log(f"⚠️ Failed to persist allowed strategies: {detail}")
+            return
+
+        self._spx_allowed_strategies_active = selected
+        self._apply_allowed_strategies_override(selected, announce=True)
+
     def _resolve_veto_profile_path(self) -> Path:
         """Resolve config profile path used by the dashboard veto toggle."""
         import os
@@ -8644,16 +8914,19 @@ class SpyderTradingDashboard(QMainWindow):
         except Exception as _snap_err:  # noqa: BLE001
             logger.warning("Could not save dashboard snapshot: %s", _snap_err)
 
-        # Also snapshot the SPY 5-min chart bars for next-session 2-day view
+        # Also snapshot current 5-min chart bars for next-session 2-day view.
         try:
             import shutil as _shutil
-            chart_src = self.data_file.parent / "spy_5min_chart.json"
-            chart_dst = self.data_file.parent / "spy_5min_prev_day.json"
+            chart_symbol = self._chart_underlying_symbol().lower()
+            chart_src = self.data_file.parent / f"{chart_symbol}_5min_chart.json"
+            chart_dst = self.data_file.parent / f"{chart_symbol}_5min_prev_day.json"
+            if not chart_src.exists():
+                chart_src = self.data_file.parent / "spy_5min_chart.json"
             if chart_src.exists():
                 _shutil.copy2(chart_src, chart_dst)
-                logger.info("SPY 5-min chart snapshot saved for next session")
+                logger.info("%s 5-min chart snapshot saved for next session", chart_symbol.upper())
         except Exception as _chart_snap_err:  # noqa: BLE001
-            logger.warning("Could not save SPY chart snapshot: %s", _chart_snap_err)
+            logger.warning("Could not save chart snapshot: %s", _chart_snap_err)
 
     @staticmethod
     def _merge_metrics_payload(

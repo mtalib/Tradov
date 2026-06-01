@@ -11,7 +11,7 @@ Last Updated: 2025-08-31 Time: 01:00:00
 
 Module Description:
     Institutional-grade production deployment and operations management system
-    for the complete Spyder autonomous SPY options trading platform. Manages
+    for the complete Spyder autonomous SPX options trading platform. Manages
     live system deployment, health monitoring, automated recovery, performance
     optimization, and production operations. Provides comprehensive oversight
     of F13-F16 analytics, C21-C24 data infrastructure, A08 orchestration,
@@ -217,7 +217,7 @@ class ProductionDeploymentManager:
     Production Deployment and Operations Management System
 
     This class provides institutional-grade production deployment and operations
-    management for the complete Spyder autonomous SPY options trading platform.
+    management for the complete Spyder autonomous SPX options trading platform.
     Manages all system components in live trading environments with comprehensive
     monitoring, automated recovery, and operational controls.
     """

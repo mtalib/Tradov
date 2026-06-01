@@ -71,7 +71,7 @@ except ImportError:  # noqa: BLE001
 class PaperTradingQtWorker(QObject):
     """Runs paper trading with real Tradier market data in a background QThread.
 
-    Polls SPY quotes from Tradier live endpoint every poll_interval seconds,
+    Polls underlying quotes from Tradier live endpoint every poll_interval seconds,
     maintains a price history buffer, runs a simple momentum strategy, and
     tracks paper positions and P&L.  Emits Qt signals for the dashboard to
     display status, positions, and metrics in real time.
@@ -87,9 +87,12 @@ class PaperTradingQtWorker(QObject):
 
     POLL_INTERVAL = 30
     HISTORY_SIZE = 100
-    MOMENTUM_THRESHOLD = 0.0002  # 0.02% — achievable in normal SPY intraday trading
+    MOMENTUM_THRESHOLD = 0.0002  # 0.02% — achievable in normal intraday index trading
     SHORT_MA_WINDOW = 5     # 5 x 30s = 2.5 min
     LONG_MA_WINDOW = 20     # 20 x 30s = 10 min
+    UNDERLYING_SYMBOL = (
+        os.environ.get("SPYDER_UNDERLYING_SYMBOL", "SPX").strip().upper() or "SPX"
+    )
 
     # Phase 2 IV-rank gating (see 2026-04-17 overview v6).
     #
@@ -101,7 +104,7 @@ class PaperTradingQtWorker(QObject):
     MIN_IV_HISTORY = 60        # ≈ 30 minutes of samples before rank is trusted
 
     # Phase 2 commission model. Tradier Pro ($10/mo) charges $0 per contract
-    # on equity & ETF options — SPY qualifies as an ETF, so the default is
+    # on equity & ETF options — SPX/SPXW paper paths default to zero here.
     # zero. Overridable via SPYDER_COMMISSION_PER_CONTRACT for what-if tests
     # or to model a future tier change without a code edit.
     DEFAULT_COMMISSION_PER_CONTRACT = 0.0
@@ -204,7 +207,7 @@ class PaperTradingQtWorker(QObject):
         # in logs/decisions/YYYY-MM-DD.jsonl for EOD gate-by-gate review.
         self._poll_seq: int = 0
 
-        # Track quote staleness for SPY quote.last and preserve the latest
+        # Track quote staleness for underlying quote.last and preserve the latest
         # spread-entry rejection reason for decision-log observability.
         self._last_quote_last: float | None = None
         self._last_quote_mid: float | None = None
@@ -388,7 +391,10 @@ class PaperTradingQtWorker(QObject):
             start = (_date.today() - _timedelta(days=10)).isoformat()
             end = _date.today().isoformat()
             resp = self._client.get_historical_quotes(
-                "SPY", interval="daily", start=start, end=end
+                self.UNDERLYING_SYMBOL,
+                interval="daily",
+                start=start,
+                end=end,
             )
         except Exception:  # noqa: BLE001
             return None
@@ -662,7 +668,7 @@ class PaperTradingQtWorker(QObject):
                 else BoundarySignalType.BUY
             )
             request = RiskValidationRequest(
-                symbol="SPY",
+                symbol=self.UNDERLYING_SYMBOL,
                 quantity=int(quantity),
                 signal_type=signal_type,
                 strategy_id="R08_PaperWorker.MA_Crossover",
@@ -938,12 +944,12 @@ class PaperTradingQtWorker(QObject):
         self._running = False
 
     def _poll_and_trade(self):
-        """Fetch current SPY quote, run strategy, execute paper trades."""
+        """Fetch current underlying quote, run strategy, execute paper trades."""
         if not self._client:
             return
 
         try:
-            resp = self._client.get_quotes(["SPY"])
+            resp = self._client.get_quotes([self.UNDERLYING_SYMBOL])
             quote = resp.get("quotes", {}).get("quote", {})
             if isinstance(quote, list):
                 quote = quote[0]
@@ -1111,7 +1117,7 @@ class PaperTradingQtWorker(QObject):
                         else:
                             # Phase 2: when SPYDER_OPTIONS_LIVE_PAPER=1 the
                             # worker trades bull-put credit spreads instead
-                            # of SPY shares. Default (0) keeps the legacy
+                            # of underlying shares. Default (0) keeps the legacy
                             # share-based flow with optional shadow logging.
                             if os.environ.get("SPYDER_OPTIONS_LIVE_PAPER", "0") == "1":
                                 _opened = self._try_open_spread("bullish", last_price)
@@ -1313,7 +1319,9 @@ class PaperTradingQtWorker(QObject):
             return (None, None)
         try:
             rows = self._client.get_option_chain_with_greeks(
-                "SPY", expiration, option_type=option_type
+                self.UNDERLYING_SYMBOL,
+                expiration,
+                option_type=option_type,
             )
         except Exception:  # noqa: BLE001
             return (None, None)
@@ -1358,7 +1366,9 @@ class PaperTradingQtWorker(QObject):
             return None
         try:
             rows = self._client.get_option_chain_with_greeks(
-                "SPY", expiration, option_type="put"
+                self.UNDERLYING_SYMBOL,
+                expiration,
+                option_type="put",
             )
         except Exception:  # noqa: BLE001
             return None
@@ -1401,7 +1411,9 @@ class PaperTradingQtWorker(QObject):
             return None
         try:
             rows = self._client.get_option_chain_with_greeks(
-                "SPY", expiration, option_type=option_type
+                self.UNDERLYING_SYMBOL,
+                expiration,
+                option_type=option_type,
             )
         except Exception:  # noqa: BLE001
             return None
@@ -1452,7 +1464,9 @@ class PaperTradingQtWorker(QObject):
             return None
         try:
             rows = self._client.get_option_chain_with_greeks(
-                "SPY", expiration, option_type=option_type
+                self.UNDERLYING_SYMBOL,
+                expiration,
+                option_type=option_type,
             )
         except Exception:  # noqa: BLE001
             return None
@@ -1681,7 +1695,7 @@ class PaperTradingQtWorker(QObject):
           - "bearish" -> bear-call spread above spot:
               short call = ceil(spy) + 5 (~1% OTM), long = short + 5.
 
-        Expiration: nearest listed SPY date with 5 <= DTE <= 14, else the
+        Expiration: nearest listed underlying date with 5 <= DTE <= 14, else the
         first available. Credit = short_mid - long_mid.
 
         Returns a dict with keys: expiration, direction, option_type ("P"
@@ -1693,7 +1707,7 @@ class PaperTradingQtWorker(QObject):
             return None
 
         try:
-            exps_resp = self._client.get_option_expirations("SPY")
+            exps_resp = self._client.get_option_expirations(self.UNDERLYING_SYMBOL)
         except Exception:  # noqa: BLE001
             return None
         raw = (exps_resp or {}).get("expirations", {})
@@ -1891,7 +1905,7 @@ class PaperTradingQtWorker(QObject):
     def _spread_commission(self, qty: int) -> float:
         """Commission for one side (open OR close) of a spread position.
 
-        Tradier Pro: $0 for equity & ETF options (SPY qualifies). The default
+        Tradier Pro: $0 for many equity & ETF options. The default
         remains zero; override via ``SPYDER_COMMISSION_PER_CONTRACT`` to model
         a different tier without a code change.
         """
@@ -2111,12 +2125,12 @@ class PaperTradingQtWorker(QObject):
         call_opened = self._try_open_spread("bearish", spy_price)
         if put_opened and call_opened:
             self.status_update.emit(
-                f"🦋 Iron condor opened around SPY ${spy_price:.2f}"
+                f"🦋 Iron condor opened around {self.UNDERLYING_SYMBOL} ${spy_price:.2f}"
             )
         elif put_opened or call_opened:
             side = "bull-put only" if put_opened else "bear-call only"
             self.status_update.emit(
-                f"⚠️ Partial condor — {side} around SPY ${spy_price:.2f}"
+                f"⚠️ Partial condor — {side} around {self.UNDERLYING_SYMBOL} ${spy_price:.2f}"
             )
         return put_opened or call_opened
 
@@ -2221,7 +2235,7 @@ class PaperTradingQtWorker(QObject):
         )
         leg_letter = position["option_type"]
         self.status_update.emit(
-            f"📈 OPEN {label} spread #{position['id']} SPY {spread['expiration']} "
+            f"📈 OPEN {label} spread #{position['id']} {self.UNDERLYING_SYMBOL} {spread['expiration']} "
             f"{leg_letter}{spread['short_strike']:.0f}/{spread['long_strike']:.0f} "
             f"×{qty} credit=${credit_dollars:,.2f} max_loss=${max_loss_dollars:,.0f}"
             f"{commission_note}"
@@ -2346,7 +2360,7 @@ class PaperTradingQtWorker(QObject):
         if self._session_db is not None:
             try:
                 self._session_db.record_trade(
-                    symbol="SPY",
+                    symbol=self.UNDERLYING_SYMBOL,
                     trade_type="BTC",
                     side="buy",
                     quantity=int(qty),
@@ -2390,7 +2404,7 @@ class PaperTradingQtWorker(QObject):
         symbol = str(
             position.get("symbol")
             or position.get("underlying_symbol")
-            or "SPY"
+            or self.UNDERLYING_SYMBOL
         ).strip().upper()
         strategy_id = str(
             position.get("strategy_id")
@@ -2557,7 +2571,7 @@ class PaperTradingQtWorker(QObject):
                     )
 
     def _is_spy_mtm_marking_hours(self, now: datetime | None = None) -> bool:
-        """Return whether paper SPY spread MTM should keep updating."""
+        """Return whether paper spread MTM should keep updating."""
         try:
             current_dt = now if now is not None else datetime.now(UTC)
             return bool(TradingHours().is_regular_hours(current_dt))
@@ -2591,14 +2605,14 @@ class PaperTradingQtWorker(QObject):
             return
         max_loss = spread["max_loss_per_contract"]
         self.status_update.emit(
-            f"🔎 [SHADOW] Bull-put spread SPY {spread['expiration']} "
+            f"🔎 [SHADOW] Bull-put spread {self.UNDERLYING_SYMBOL} {spread['expiration']} "
             f"P{spread['short_strike']:.0f}/{spread['long_strike']:.0f} "
             f"credit≈${spread['credit']:.2f} max_loss≈${max_loss:.0f}/contract "
             f"(DTE={spread['dte']})"
         )
 
     def _execute_paper_buy(self, fill_price: float):
-        """Execute a paper buy — up to 100 shares of SPY."""
+        """Execute a paper buy — up to 100 shares of the configured underlying."""
         shares = 100
         cost = shares * fill_price
         commission = 0.0
@@ -2628,7 +2642,7 @@ class PaperTradingQtWorker(QObject):
         self._trades_executed += 1
 
         self.status_update.emit(
-            f"📈 BUY {shares} SPY @ ${fill_price:.2f} | "
+            f"📈 BUY {shares} {self.UNDERLYING_SYMBOL} @ ${fill_price:.2f} | "
             f"Cost: ${cost:,.2f} | Cash: ${self._cash:,.2f}",
         )
 
@@ -2656,7 +2670,7 @@ class PaperTradingQtWorker(QObject):
         if self._session_db is not None:
             try:
                 self._session_db.record_trade(
-                    symbol="SPY",
+                    symbol=self.UNDERLYING_SYMBOL,
                     trade_type="SELL",
                     side="sell",
                     quantity=shares,
@@ -2669,7 +2683,7 @@ class PaperTradingQtWorker(QObject):
                 pass  # Non-critical; do not interrupt execution flow
 
         self.status_update.emit(
-            f"📉 SELL {shares} SPY @ ${fill_price:.2f} | "
+            f"📉 SELL {shares} {self.UNDERLYING_SYMBOL} @ ${fill_price:.2f} | "
             f"P&L: ${pnl:+,.2f} | Cash: ${self._cash:,.2f}",
         )
 

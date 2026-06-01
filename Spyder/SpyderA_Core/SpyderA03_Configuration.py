@@ -375,7 +375,7 @@ class ConfigManager:
             "trading": {
                 "mode": "paper" if self.environment != "production" else "live",
                 "market_data_type": 1,  # 1=Live, 2=Frozen, 3=Delayed, 4=Delayed Frozen
-                "symbols": ["SPY"],
+                "symbols": ["SPX"],
                 "max_position_size": 10000,
                 "max_daily_trades": 100,
                 "enable_short_selling": True,

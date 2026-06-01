@@ -4,14 +4,14 @@ SPYDER - Autonomous Options Trading System v1.0
 
 Series: SpyderR_Runtime
 Module: SpyderR03_PaperMonitor.py
-Purpose: SPYDER - Automated SPY Options Trading System
+Purpose: SPYDER - Automated SPX Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2026-01-16 Time: 19:25:06
 
 Module Description:
-    SPYDER - Automated SPY Options Trading System
+    SPYDER - Automated SPX Options Trading System
 
 Change Log:
     2026-01-16:

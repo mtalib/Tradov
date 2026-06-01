@@ -32,6 +32,7 @@ Dependencies:
 import logging
 import threading
 import datetime
+import re
 from typing import Any
 from enum import Enum, auto
 from dataclasses import dataclass, field
@@ -74,6 +75,16 @@ DEFAULT_SLIPPAGE_BPS = 1  # 1 basis point slippage
 # Paper trading account defaults
 PAPER_INITIAL_BALANCE = 100000.0  # $100K starting balance
 PAPER_BUYING_POWER_MULTIPLIER = 4  # 4:1 leverage for day trading
+
+_OCC_OPTION_SYMBOL_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
+
+
+def _looks_like_option_symbol(symbol: str) -> bool:
+    """Detect OCC-style option symbols (supports SPX/SPXW roots)."""
+    normalized = str(symbol or "").strip().upper()
+    if _OCC_OPTION_SYMBOL_RE.match(normalized):
+        return True
+    return len(normalized) > 6 and any(ch.isdigit() for ch in normalized)
 
 # ==============================================================================
 # ENUMS
@@ -615,8 +626,13 @@ class PaperTradingEngine:
         try:
             with self.price_lock:
                 if symbol not in self.market_data:
-                    # Mock price if no real data available
-                    return 400.0 if symbol == "SPY" else 100.0
+                    # Mock fallback prices for dry paper paths.
+                    upper = str(symbol or "").upper()
+                    if upper in {"SPX", "SPXW"}:
+                        return 5000.0
+                    if upper == "SPY":
+                        return 400.0
+                    return 100.0
 
                 ticker = self.market_data[symbol]
 
@@ -656,7 +672,7 @@ class PaperTradingEngine:
         """Calculate commission for trade."""
         try:
             # Simple commission structure
-            if any(opt in symbol for opt in ['SPY', 'QQQ', 'IWM']):  # Assume options
+            if _looks_like_option_symbol(symbol):
                 return quantity * DEFAULT_OPTION_COMMISSION
             else:  # Stocks
                 return quantity * DEFAULT_STOCK_COMMISSION

@@ -177,10 +177,11 @@ def build_center_panel(dashboard: Any) -> QWidget:
     regime_layout.setContentsMargins(6, 0, 6, 0)
     regime_layout.setSpacing(0)
 
-    # Left anchor: "SPY - 5 MIN"
-    spy_label = QLabel("SPY - 5 MIN")
-    spy_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 13px;")
-    regime_layout.addWidget(spy_label)
+    chart_symbol = str(os.getenv("SPYDER_UNDERLYING_SYMBOL", "SPX") or "SPX").strip().upper() or "SPX"
+    # Left anchor: "<UNDERLYING> - 5 MIN"
+    chart_label = QLabel(f"{chart_symbol} - 5 MIN")
+    chart_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 13px;")
+    regime_layout.addWidget(chart_label)
 
     regime_layout.addWidget(_regime_sep())
     regime_layout.addStretch(1)
@@ -240,7 +241,7 @@ def build_center_panel(dashboard: Any) -> QWidget:
     # Chart toggle button (mounted near RTH chip in position toolbar)
     dashboard.chart_toggle_btn = QPushButton("📊")
     dashboard.chart_toggle_btn.setFixedSize(20, 20)
-    dashboard.chart_toggle_btn.setToolTip("Toggle SPY Chart / Advanced Controls")
+    dashboard.chart_toggle_btn.setToolTip(f"Toggle {chart_symbol} Chart / Advanced Controls")
     dashboard.chart_toggle_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLORS['panel']};
@@ -983,6 +984,34 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     dashboard.trade_audit_btn.setToolTip("Open the Trade Audit dialog (closed spreads + CSV export)")  # noqa: E501
     dashboard.trade_audit_btn.clicked.connect(dashboard._open_trade_audit_dialog)
     action_row.addWidget(dashboard.trade_audit_btn)
+
+    dashboard.allowed_strategies_btn = QPushButton("ALLOWED STRATEGIES")
+    dashboard.allowed_strategies_btn.setFixedHeight(26)
+    dashboard.allowed_strategies_btn.setFixedWidth(action_button_width)
+    dashboard.allowed_strategies_btn.setStyleSheet(blue_button_style)
+    dashboard.allowed_strategies_btn.setToolTip(
+        "Select which SPX strategies are allowed for runtime selection"
+    )
+    dashboard.allowed_strategies_btn.clicked.connect(dashboard._open_allowed_strategies_dialog)
+    action_row.addWidget(dashboard.allowed_strategies_btn)
+
+    dashboard.zero_hft_hedge_status_label = QLabel("ZeroHFT Tail Hedge: UNKNOWN")
+    dashboard.zero_hft_hedge_status_label.setStyleSheet(
+        "color: #FFFFFF; background-color: #95A5A6; font-size: 11px; "
+        "padding: 4px 8px; border-radius: 4px;"
+    )
+    dashboard.zero_hft_hedge_status_label.setToolTip("ZeroHFT tail-hedge status is not yet available")
+    action_row.addWidget(dashboard.zero_hft_hedge_status_label)
+
+    dashboard.zero_hft_short_leg_status_label = QLabel("ZeroHFT Short Risk: UNKNOWN")
+    dashboard.zero_hft_short_leg_status_label.setStyleSheet(
+        "color: #FFFFFF; background-color: #95A5A6; font-size: 11px; "
+        "padding: 4px 8px; border-radius: 4px;"
+    )
+    dashboard.zero_hft_short_leg_status_label.setToolTip(
+        "ZeroHFT short-leg risk state is not yet available"
+    )
+    action_row.addWidget(dashboard.zero_hft_short_leg_status_label)
 
     action_row.addStretch(1)
     layout.addLayout(action_row)

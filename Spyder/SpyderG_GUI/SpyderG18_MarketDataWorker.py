@@ -136,6 +136,7 @@ _TRADIER_CLIENT_CACHE_LOCK: threading.Lock = threading.Lock()
 _TRADIER_CLIENT_CACHE: dict[tuple[str, str, str], "TradierClient"] = {}
 
 SPY_TIMESALES_FETCH_INTERVAL_SECONDS = 60.0
+CHART_UNDERLYING_SYMBOL = str(os.getenv("SPYDER_UNDERLYING_SYMBOL", "SPX") or "SPX").strip().upper() or "SPX"
 
 
 def _get_cached_chain(
@@ -1131,15 +1132,14 @@ class ThreadSafeMarketDataWorker(QObject):
             if self._shutdown_in_progress():
                 return
 
-            # --- Fetch 5-min SPY bars for chart ---
-            # Only fetch after 9:30 AM ET — start="09:30" is invalid if market hasn't opened yet
+            # --- Fetch 5-min bars for the configured underlying chart symbol ---
+            # Only fetch during regular trading hours (9:30-16:00 ET).
             try:
                 import pytz as _pytz
                 from datetime import datetime as _dt
                 _et_now = _dt.now(_pytz.timezone("US/Eastern"))
-                _market_open_et = _et_now.replace(hour=9, minute=30, second=0, microsecond=0)
-                if _et_now < _market_open_et:
-                    raise StopIteration  # skip fetch — bars don't exist yet
+                if not is_market_hours(_et_now):
+                    raise StopIteration  # skip fetch outside RTH
                 _last_chart_fetch = float(_SPY_TIMESALES_FETCH_CACHE.get("last_fetch_mono", 0.0) or 0.0)
                 _now_mono = time.monotonic()
                 if (_now_mono - _last_chart_fetch) < SPY_TIMESALES_FETCH_INTERVAL_SECONDS:
@@ -1149,7 +1149,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 # calendar day while the market is still in the prior ET session.
                 today_open = f"{_et_now.date().isoformat()} 09:30"
                 ts_resp = mkt_client.get_time_sales(
-                    "SPY", interval="5min", start=today_open, session_filter="open",
+                    CHART_UNDERLYING_SYMBOL, interval="5min", start=today_open, session_filter="open",
                 )
                 # Guard against Tradier returning {"series": null} early in the
                 # session (first few bars not yet available).  series may be None
@@ -1164,12 +1164,12 @@ class ThreadSafeMarketDataWorker(QObject):
                 # even when bars aren't available yet.
                 _SPY_TIMESALES_FETCH_CACHE["last_fetch_mono"] = _now_mono
                 if candles_raw:
-                    chart_file = self.data_file.parent / "spy_5min_chart.json"
+                    chart_file = self.data_file.parent / f"{CHART_UNDERLYING_SYMBOL.lower()}_5min_chart.json"
                     with open(chart_file, "w") as f:
                         import json as _json2
                         _json2.dump(candles_raw, f)
             except StopIteration:
-                pass  # before 9:30 ET or no bars yet — try again next heartbeat
+                pass  # outside RTH or no bars yet — try again next heartbeat
             except Exception:
                 pass
 
@@ -1187,13 +1187,13 @@ class ThreadSafeMarketDataWorker(QObject):
                 _prev_start = (_date2.today() - _td(days=5)).isoformat()
                 _prev_end   = (_date2.today() - _td(days=1)).isoformat()
                 _hist_resp = mkt_client.get_historical_quotes(
-                    "SPY", interval="daily", start=_prev_start, end=_prev_end,
+                    CHART_UNDERLYING_SYMBOL, interval="daily", start=_prev_start, end=_prev_end,
                 )
                 _hist_day = _hist_resp.get("history", {}).get("day", None)
                 if isinstance(_hist_day, list) and _hist_day:
                     _hist_day = _hist_day[-1]   # most recent completed session
                 if isinstance(_hist_day, dict) and _hist_day.get("high"):
-                    _prev_day_file = self.data_file.parent / "spy_prev_day.json"
+                    _prev_day_file = self.data_file.parent / f"{CHART_UNDERLYING_SYMBOL.lower()}_prev_day.json"
                     with open(_prev_day_file, "w") as _pf:
                         import json as _json4
                         _json4.dump({
