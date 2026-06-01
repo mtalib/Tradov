@@ -164,19 +164,19 @@ class TestDataToOrderPipeline:
         """
         # Step 1: Option quote represented with a Massive ticker
         option_quote = MockMarketDataUpdate(
-            symbol="SPY260220C00585000",
+            symbol="SPXW  260220C00585000",
             timestamp_ns=int(datetime.now().timestamp() * 1e9),
             schema="quotes",
             data={"bid_px": 3.45, "ask_px": 3.55},
-            underlying="SPY",
+            underlying="SPXW",
             is_option=True,
         )
 
-        tradier_sym = "SPY260220C00585000"
+        tradier_sym = "SPXW260220C00585000"
 
         # Step 3: Create and submit option order
         order = pipeline_order_manager.create_order(
-            symbol="SPY",
+            symbol="SPXW",
             side="buy_to_open",
             order_type="limit",
             quantity=5,
@@ -195,11 +195,11 @@ class TestDataToOrderPipeline:
         # Step 1: Simulate receiving multiple option quotes
         quotes = [
             MockMarketDataUpdate(
-                symbol=f"SPY   260220{t}{s:08d}",
+                symbol=f"SPXW  260220{t}{s:08d}",
                 timestamp_ns=int(datetime.now().timestamp() * 1e9),
                 schema="mbp-1",
                 data={"bid_px": bid, "ask_px": ask},
-                underlying="SPY",
+                underlying="SPXW",
                 is_option=True,
             )
             for t, s, bid, ask in [
@@ -218,7 +218,7 @@ class TestDataToOrderPipeline:
 
         # Step 3: Submit Iron Condor
         result = pipeline_order_manager.submit_iron_condor(
-            symbol="SPY",
+            symbol="SPXW",
             expiration="2026-02-20",
             put_buy_strike=570.0,
             put_sell_strike=575.0,
@@ -237,7 +237,7 @@ class TestDataToOrderPipeline:
         Simulate: Bull put credit spread from data to order.
         """
         result = pipeline_order_manager.submit_credit_spread(
-            symbol="SPY",
+            symbol="SPXW",
             expiration="2026-02-20",
             sell_strike=575.0,
             buy_strike=570.0,
@@ -442,12 +442,12 @@ class TestErrorRecoveryPipeline:
 class TestOptionSymbolPipeline:
     """Test option symbol handling in the data→order pipeline."""
 
-    def test_tradier_option_symbol_passes_through(self, pipeline_order_manager, mock_tradier):
-        """Tradier-formatted option symbols pass through unchanged for order placement."""
-        tradier_sym = "SPY260220C00585000"
+    def test_tradier_spxw_option_symbol_passes_through(self, pipeline_order_manager, mock_tradier):
+        """SPXW Tradier-formatted option symbols pass through unchanged for order placement."""
+        tradier_sym = "SPXW260220C00585000"
 
         order = pipeline_order_manager.create_order(
-            symbol="SPY",
+            symbol="SPXW",
             side="buy_to_open",
             quantity=1,
             price=3.50,

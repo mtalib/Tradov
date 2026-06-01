@@ -119,9 +119,10 @@ def test_build_paper_jade_lizard_zero_leg_orders_for_entry() -> None:
     ]
     assert [order["quantity"] for order in leg_orders] == [1, 1, 1]
     assert [order["symbol"] for order in leg_orders] == [
-        f"SPY{expiry_code}P00596000",
-        f"SPY{expiry_code}C00603000",
-        f"SPY{expiry_code}C00604000",
+        f"SPXW{expiry_code}P00596000",
+        f"SPXW{expiry_code}C00603000",
+        f"SPXW{expiry_code}C00604000",
     ]
+    assert all(order["multileg_parent_symbol"] == "SPX" for order in leg_orders)
     assert all(order["strategy_id"] == "JadeLizardZero" for order in leg_orders)
     assert all(order["multileg_leg_execution"] is True for order in leg_orders)

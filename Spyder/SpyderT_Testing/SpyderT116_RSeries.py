@@ -202,6 +202,64 @@ class TestR04ExecuteOrderRejections(unittest.TestCase):
         self.assertEqual(result["status"], "rejected")
         self.assertIn("explicit option-leg routing", result["reason"])
 
+    def test_rejected_when_spy_option_entry_violates_spxw_only_policy(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+
+        result = engine.execute_order(
+            {
+                "symbol": "SPY260618C00750000",
+                "side": "buy_to_open",
+                "quantity": 1,
+                "price": 1.23,
+                "strategy_id": "single_option",
+            }
+        )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("SPXW-only option entry policy", result["reason"])
+
+    def test_rejected_when_spx_option_entry_violates_spxw_only_policy(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine()
+        engine.state = ExecutionState.TRADING
+
+        result = engine.execute_order(
+            {
+                "symbol": "SPX260618C05000000",
+                "side": "buy_to_open",
+                "quantity": 1,
+                "price": 6.10,
+                "strategy_id": "single_option",
+            }
+        )
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("SPXW-only option entry policy", result["reason"])
+
+    def test_execute_order_accepts_spxw_option_entry_when_other_gates_allow(self):
+        from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
+
+        engine, _, _ = _make_live_engine(account_id="PAPER-ACCOUNT")
+        engine.state = ExecutionState.TRADING
+        engine._wait_for_execution = MagicMock(return_value={"status": "accepted", "order_id": "ORD_SPXW_1"})
+        engine._update_execution_metrics = MagicMock()
+
+        result = engine.execute_order(
+            {
+                "symbol": "SPXW260618C05000000",
+                "side": "buy_to_open",
+                "quantity": 1,
+                "price": 6.10,
+                "strategy_id": "single_option",
+            }
+        )
+
+        self.assertEqual(result["status"], "accepted")
+
     def test_execute_order_allows_explicit_close_when_entry_gates_would_block(self):
         from Spyder.SpyderR_Runtime.SpyderR04_LiveEngine import ExecutionState
 

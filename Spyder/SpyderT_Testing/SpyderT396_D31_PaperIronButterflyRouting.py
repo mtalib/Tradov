@@ -100,11 +100,12 @@ def test_build_paper_iron_butterfly_leg_orders_for_entry() -> None:
         "buy_to_open",
     ]
     assert [order["symbol"] for order in leg_orders] == [
-        "SPY260619P00594000",
-        "SPY260619P00599000",
-        "SPY260619C00599000",
-        "SPY260619C00604000",
+        "SPXW260619P00594000",
+        "SPXW260619P00599000",
+        "SPXW260619C00599000",
+        "SPXW260619C00604000",
     ]
+    assert all(order["multileg_parent_symbol"] == "SPX" for order in leg_orders)
 
 
 def test_build_paper_iron_butterfly_leg_orders_prefers_live_chain_mid_prices(monkeypatch) -> None:

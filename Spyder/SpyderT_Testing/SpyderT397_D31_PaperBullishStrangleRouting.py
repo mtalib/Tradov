@@ -99,9 +99,10 @@ def test_build_paper_bullish_strangle_leg_orders_for_entry() -> None:
     assert [order["side"] for order in leg_orders] == ["buy_to_open", "buy_to_open"]
     assert [order["quantity"] for order in leg_orders] == [1, 1]
     assert [order["symbol"] for order in leg_orders] == [
-        f"SPY{expiry_code}C00505000",
-        f"SPY{expiry_code}P00492000",
+        f"SPXW{expiry_code}C00505000",
+        f"SPXW{expiry_code}P00492000",
     ]
+    assert all(order["multileg_parent_symbol"] == "SPX" for order in leg_orders)
 
 
 def test_recovery_bullish_strangle_smoke_selects_strategy_and_dispatches(monkeypatch) -> None:

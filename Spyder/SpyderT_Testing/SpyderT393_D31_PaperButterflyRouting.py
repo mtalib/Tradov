@@ -88,13 +88,14 @@ def test_build_paper_butterfly_leg_orders_for_entry() -> None:
     ]
     assert [order["quantity"] for order in leg_orders] == [1, 2, 1]
     # D32 can shift to the nearest listed expiration for weekends/holidays.
-    assert [bool(re.fullmatch(r"SPY\d{6}C\d{8}", symbol)) for symbol in symbols] == [
+    assert [bool(re.fullmatch(r"SPXW\d{6}C\d{8}", symbol)) for symbol in symbols] == [
         True,
         True,
         True,
     ]
     assert [symbol[-8:] for symbol in symbols] == ["00598000", "00599000", "00600000"]
-    assert len({symbol[3:9] for symbol in symbols}) == 1
+    assert len({symbol[4:10] for symbol in symbols}) == 1
+    assert all(order["multileg_parent_symbol"] == "SPX" for order in leg_orders)
 
 
 def test_build_paper_butterfly_leg_orders_prefers_live_chain_mid_prices(monkeypatch) -> None:

@@ -224,8 +224,48 @@ class TestSubmitOrder:
         mock_tradier_client.place_order.assert_called_once()
 
         # Verify option-specific params
-        call_kwargs = mock_tradier_client.place_order.call_args
-        assert call_kwargs is not None
+        call_kwargs = mock_tradier_client.place_order.call_args.kwargs
+        assert call_kwargs["symbol"].startswith("SPXW")
+
+    def test_submit_option_order_rejects_non_spxw_entry(self, order_manager, mock_tradier_client):
+        """Non-SPXW option entry orders are fail-closed before Tradier routing."""
+        order = Order(
+            symbol="SPY",
+            side="buy_to_open",
+            order_type="limit",
+            quantity=1,
+            price=1.25,
+            duration="day",
+            security_type=SecurityType.OPTION,
+            order_class="option",
+            option_symbol="SPY260220C00585000",
+        )
+
+        result = order_manager.submit_order(order)
+
+        assert result.success is False
+        assert result.error_code == "SPXW_ONLY_OPTION_ENTRY_POLICY"
+        mock_tradier_client.place_order.assert_not_called()
+
+    def test_submit_option_close_allows_non_spxw_symbol(self, order_manager, mock_tradier_client):
+        """Risk-reducing option closes remain allowed for legacy positions."""
+        order = Order(
+            symbol="SPY",
+            side="sell_to_close",
+            order_type="limit",
+            quantity=1,
+            price=1.25,
+            duration="day",
+            security_type=SecurityType.OPTION,
+            order_class="option",
+            option_symbol="SPY260220C00585000",
+        )
+
+        result = order_manager.submit_order(order)
+
+        assert result.success is True
+        call_kwargs = mock_tradier_client.place_order.call_args.kwargs
+        assert call_kwargs["symbol"] == "SPY260220C00585000"
 
     def test_submit_multileg_order(self, order_manager, sample_multileg_order, mock_tradier_client):
         """Multileg order is routed to place_multileg_order."""
@@ -281,7 +321,7 @@ class TestStrategyOrders:
     def test_submit_iron_condor(self, order_manager, mock_tradier_client):
         """Iron Condor order routes to place_iron_condor."""
         result = order_manager.submit_iron_condor(
-            symbol="SPY",
+            symbol="SPXW",
             expiration="2026-02-20",
             put_buy_strike=570.0,
             put_sell_strike=575.0,
@@ -299,7 +339,7 @@ class TestStrategyOrders:
     def test_submit_credit_spread_put(self, order_manager, mock_tradier_client):
         """Put credit spread routes to place_credit_spread."""
         result = order_manager.submit_credit_spread(
-            symbol="SPY",
+            symbol="SPXW",
             expiration="2026-02-20",
             sell_strike=575.0,
             buy_strike=570.0,
@@ -316,7 +356,7 @@ class TestStrategyOrders:
     def test_submit_credit_spread_call(self, order_manager, mock_tradier_client):
         """Call credit spread also works."""
         result = order_manager.submit_credit_spread(
-            symbol="SPY",
+            symbol="SPXW",
             expiration="2026-02-20",
             sell_strike=595.0,
             buy_strike=600.0,
@@ -331,7 +371,7 @@ class TestStrategyOrders:
         mock_tradier_client.place_iron_condor.side_effect = TradierAPIError("Margin exceeded")
 
         result = order_manager.submit_iron_condor(
-            symbol="SPY",
+            symbol="SPXW",
             expiration="2026-02-20",
             put_buy_strike=570.0,
             put_sell_strike=575.0,

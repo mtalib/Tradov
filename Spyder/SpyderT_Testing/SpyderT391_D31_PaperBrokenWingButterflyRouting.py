@@ -88,13 +88,14 @@ def test_build_paper_bwb_leg_orders_for_entry() -> None:
     # D32 may normalize to the nearest listed expiration when the requested
     # same-day date is not listed (e.g., weekend/holiday). Validate stable
     # structure and strike mapping independent of calendar day.
-    assert [bool(re.fullmatch(r"SPY\d{6}P\d{8}", symbol)) for symbol in symbols] == [
+    assert [bool(re.fullmatch(r"SPXW\d{6}P\d{8}", symbol)) for symbol in symbols] == [
         True,
         True,
         True,
     ]
     assert [symbol[-8:] for symbol in symbols] == ["00600000", "00599000", "00596000"]
-    assert len({symbol[3:9] for symbol in symbols}) == 1
+    assert len({symbol[4:10] for symbol in symbols}) == 1
+    assert all(order["multileg_parent_symbol"] == "SPX" for order in leg_orders)
 
 
 def test_selector_chosen_bwb_is_allowed_in_lean_mode() -> None:

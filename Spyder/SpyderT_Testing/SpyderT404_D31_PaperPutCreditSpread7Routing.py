@@ -100,9 +100,10 @@ def test_build_paper_put_credit_spread_7_leg_orders_for_entry() -> None:
     assert [order["side"] for order in leg_orders] == ["sell_to_open", "buy_to_open"]
     assert [order["quantity"] for order in leg_orders] == [40, 40]
     assert [order["symbol"] for order in leg_orders] == [
-        f"SPY{expiry_code}P00557000",
-        f"SPY{expiry_code}P00552000",
+        f"SPXW{expiry_code}P00557000",
+        f"SPXW{expiry_code}P00552000",
     ]
+    assert all(order["multileg_parent_symbol"] == "SPX" for order in leg_orders)
 
 
 def test_dispatch_approved_signal_routes_put_credit_spread_7_in_paper_mode(monkeypatch) -> None:

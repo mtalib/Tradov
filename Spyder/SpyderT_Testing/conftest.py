@@ -246,7 +246,7 @@ def sample_option_order():
     from Spyder.SpyderB_Broker.SpyderB02_OrderManager import Order, SecurityType
 
     return Order(
-        symbol="SPY",
+        symbol="SPXW",
         side="buy_to_open",
         order_type="limit",
         quantity=5,
@@ -254,7 +254,7 @@ def sample_option_order():
         duration="day",
         security_type=SecurityType.OPTION,
         order_class="option",
-        option_symbol="SPY260220C00585000",
+        option_symbol="SPXW260220C00585000",
         expiry="2026-02-20",
         strike=585.0,
         right="call",
@@ -270,19 +270,19 @@ def sample_multileg_order():
 
     legs = [
         OptionLeg(
-            option_symbol="SPY260220P00570000",
+            option_symbol="SPXW260220P00570000",
             side="buy_to_open",
             quantity=1,
         ),
         OptionLeg(
-            option_symbol="SPY260220P00575000",
+            option_symbol="SPXW260220P00575000",
             side="sell_to_open",
             quantity=1,
         ),
     ]
 
     return Order(
-        symbol="SPY",
+        symbol="SPXW",
         side="multileg",
         order_type="credit",
         quantity=1,

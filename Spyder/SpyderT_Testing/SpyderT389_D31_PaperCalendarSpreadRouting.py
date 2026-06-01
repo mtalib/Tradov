@@ -114,9 +114,10 @@ def test_build_paper_calendar_spread_leg_orders_for_entry() -> None:
     assert len(leg_orders) == 2
     assert [order["side"] for order in leg_orders] == ["sell_to_open", "buy_to_open"]
     assert [order["symbol"] for order in leg_orders] == [
-        "SPY260619C00600000",
-        "SPY260717C00600000",
+        "SPXW260619C00600000",
+        "SPXW260717C00600000",
     ]
+    assert all(order["multileg_parent_symbol"] == "SPX" for order in leg_orders)
 
 
 def test_build_paper_calendar_spread_leg_orders_for_close() -> None:
