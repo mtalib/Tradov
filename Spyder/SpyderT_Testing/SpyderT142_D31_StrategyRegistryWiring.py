@@ -232,6 +232,21 @@ def test_d31_lean_allowlist_admits_butterfly_by_default(monkeypatch):
     assert "Butterfly" in orchestrator.available_strategies
 
 
+def test_d31_lean_allowlist_admits_pivot_mean_reversion_by_default(monkeypatch):
+    monkeypatch.delenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", raising=False)
+
+    mod = importlib.import_module("Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator")
+    orchestrator = mod.StrategyOrchestrator(event_manager=_StubEventManager())
+
+    assert "PivotMeanReversion" in orchestrator.lean_strategy_allowlist
+    assert "PivotMeanReversionStrategy" in orchestrator.lean_strategy_allowlist
+
+    orchestrator.lean_mode = True
+    orchestrator._initialize_strategy_registry()
+
+    assert "PivotMeanReversion" in orchestrator.available_strategies
+
+
 def test_d31_lean_weights_enable_butterfly_when_selector_flag_enabled(monkeypatch):
     monkeypatch.setenv("SPYDER_ENABLE_BUTTERFLY", "true")
 

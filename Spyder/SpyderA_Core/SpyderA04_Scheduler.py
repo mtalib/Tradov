@@ -363,9 +363,10 @@ class Scheduler:
         else:
             self.scheduler = BackgroundScheduler(timezone=EASTERN_TZ)
 
-        # Task management
+         # Task management
         self.tasks: dict[str, ScheduledTask] = {}
         self._task_lock = threading.RLock()
+        self._feature_flags = None  # Initialize to None for cleanup
 
         # Trading windows
         self.trading_windows: dict[str, TradingWindow] = {}
@@ -385,6 +386,9 @@ class Scheduler:
         # Market calendar
         self.market_calendar = MarketCalendar()
 
+        # Set up feature flag listener for event clock allowlist synchronization
+        self._setup_feature_flag_listener()
+
         # Task history database
         self.db_path = Path.home() / ".spyder" / "scheduler.db"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -399,178 +403,108 @@ class Scheduler:
             self._data_update_interval = 5
             self._risk_check_interval = 15
 
-        # Event-clock configuration (P0-3): blackout pre/post windows around
-        # high-impact events with a periodic feed-state publication.
-        self.event_clock_config = {
-            'enabled': True,
-            'sources': 'calendar+manual',
-            'high_impact_only': True,
-            'blackout_pre_minutes': 30,
-            'blackout_post_minutes': 30,
-            'allowlist_strategies': [],
-            'max_size_multiplier': 0.25,
-        }
-        self._event_calendar_events: list[dict[str, Any]] = []
-        self._event_clock_manual_state: dict[str, Any] | None = None
-        self._last_event_clock_state: str | None = None
-        self._load_event_clock_config()
-        self._event_clock_handler_id: str | None = None
-        self._register_event_clock_handlers()
-
-        # Performance metrics
-        self.metrics = {
-            'tasks_executed': 0,
-            'tasks_succeeded': 0,
-            'tasks_failed': 0,
-            'tasks_missed': 0,
-            'total_execution_time_ms': 0,
-            'last_heartbeat': None,
-        }
-
-        # Register scheduler event handlers
-        self._register_scheduler_handlers()
-
-        # Schedule default tasks
-        self._schedule_default_tasks()
-
-        self.logger.info("Scheduler initialized")
-
-    def _init_database(self):
-        """Initialize task history database"""
+    def _setup_feature_flag_listener(self) -> None:
+        """Set up listener for feature flag changes to synchronize with event clock allowlist."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.executescript(TASK_HISTORY_SCHEMA)
-            self.logger.info("Task history database initialized")
+            from Spyder.SpyderU_Utilities.SpyderU11_FeatureFlags import get_feature_flags
+
+            self._feature_flags = get_feature_flags()
+            self._feature_flags.add_listener(self._on_feature_flag_changed)
+
+            self.logger.debug("Feature flag listener registered for event clock allowlist synchronization")
         except Exception as e:
-            self.logger.error("Database initialization failed: %s", e)
+            self.logger.warning(f"Failed to set up feature flag listener: {e}")
 
-    def _init_default_windows(self):
-        """Initialize default trading windows"""
-        # Regular market hours window
-        self.trading_windows["regular_market"] = TradingWindow(
-            name="Regular Market Hours",
-            start_time=time(9, 30),
-            end_time=time(16, 15),
-            enabled=True
-        )
+    def _on_feature_flag_changed(self, feature_name: str, action: str) -> None:
+        """Handle feature flag changes to update event clock allowlist."""
+        # Only handle specific feature flags that affect strategy allowlist
+        strategy_feature_flags = {
+            "SPYDER_ENABLE_BULL_CALL_SPREAD",
+            "SPYDER_ENABLE_BEAR_PUT_SPREAD",
+            "SPYDER_ENABLE_PIVOT_MEAN_REVERSION",
+            "SPYDER_ENABLE_PUT_CREDIT_SPREAD_7",
+            "SPYDER_ENABLE_BUTTERFLY",
+            "SPYDER_ENABLE_BULLISH_STRANGLE"
+        }
 
-        # Opening range window
-        self.trading_windows["opening_range"] = TradingWindow(
-            name="Opening Range",
-            start_time=time(9, 30),
-            end_time=time(9, 45),
-            enabled=True
-        )
+        if feature_name not in strategy_feature_flags:
+            return
 
-        self.trading_windows["post_open_fade"] = TradingWindow(
-            name="Post-Open Fade",
-            start_time=time(9, 45),
-            end_time=time(10, 15),
-            enabled=True
-        )
+        try:
+            # Get current feature flag states
+            bull_call_enabled = self._feature_flags.is_enabled("SPYDER_ENABLE_BULL_CALL_SPREAD")
+            bear_put_enabled = self._feature_flags.is_enabled("SPYDER_ENABLE_BEAR_PUT_SPREAD")
+            pivot_enabled = self._feature_flags.is_enabled("SPYDER_ENABLE_PIVOT_MEAN_REVERSION")
+            put_credit_spread_7_enabled = self._feature_flags.is_enabled("SPYDER_ENABLE_PUT_CREDIT_SPREAD_7")
+            butterfly_enabled = self._feature_flags.is_enabled("SPYDER_ENABLE_BUTTERFLY")
+            bullish_strangle_enabled = self._feature_flags.is_enabled("SPYDER_ENABLE_BULLISH_STRANGLE")
 
-        self.trading_windows["primary_session"] = TradingWindow(
-            name="Primary Session",
-            start_time=time(10, 15),
-            end_time=time(11, 30),
-            enabled=True
-        )
+            # Build the new allowlist based on enabled feature flags
+            # Start with the base strategies that are always allowed
+            new_allowlist = []
 
-        self.trading_windows["lunch_drift"] = TradingWindow(
-            name="Lunch Drift",
-            start_time=time(11, 30),
-            end_time=time(13, 0),
-            enabled=True
-        )
+            # Add Bull Call Spread if enabled
+            if bull_call_enabled:
+                new_allowlist.append("D15")
 
-        self.trading_windows["afternoon_continuation"] = TradingWindow(
-            name="Afternoon Continuation",
-            start_time=time(13, 0),
-            end_time=time(14, 30),
-            enabled=True
-        )
+            # Add Bear Put Spread if enabled
+            if bear_put_enabled:
+                new_allowlist.append("D16")
 
-        self.trading_windows["pre_moc"] = TradingWindow(
-            name="Pre-MOC",
-            start_time=time(14, 30),
-            end_time=time(15, 0),
-            enabled=True
-        )
+            # Add Put Credit Spread 7 if enabled
+            if put_credit_spread_7_enabled:
+                new_allowlist.append("D39")
 
-        self.trading_windows["moc_close"] = TradingWindow(
-            name="MOC / Close",
-            start_time=time(15, 0),
-            end_time=time(16, 0),
-            enabled=True
-        )
+            # Add Butterfly if enabled
+            if butterfly_enabled:
+                new_allowlist.append("D24")
 
-        # Closing range window
-        self.trading_windows["closing_range"] = TradingWindow(
-            name="Closing Range",
-            start_time=time(15, 45),
-            end_time=time(16, 15),
-            enabled=True
-        )
+            # Add Bullish Strangle if enabled
+            if bullish_strangle_enabled:
+                new_allowlist.append("D37")
 
-        # Pre-market window
-        self.trading_windows["premarket"] = TradingWindow(
-            name="Pre-Market",
-            start_time=time(7, 0),
-            end_time=time(9, 30),
-            enabled=False
-        )
+            # Add Pivot Mean Reversion if enabled
+            if pivot_enabled:
+                new_allowlist.append("D34")
 
-    def _load_session_window_config(self) -> None:
-        """Load autonomous session-window policy from A03 readiness config."""
+            # Update the configuration if the allowlist has changed
+            self._update_event_clock_allowlist(new_allowlist)
+
+            self.logger.debug(
+                f"Updated event clock allowlist due to {feature_name} {action}: {new_allowlist}"
+            )
+        except Exception as e:
+            self.logger.error(f"Error handling feature flag change {feature_name} {action}: {e}")
+
+    def _update_event_clock_allowlist(self, new_allowlist: list[str]) -> None:
+        """Update the event clock allowlist in configuration."""
         try:
             from Spyder.SpyderA_Core.SpyderA03_Configuration import get_config_manager
 
             cm = get_config_manager()
-            mode = str(cm.get("trading.mode", "paper") or "paper")
-            base_config = cm.config_data if isinstance(getattr(cm, "config_data", None), dict) else {}
-            readiness = cm.validate_autonomous_readiness_config(base_config, mode)
-            session_cfg = (
-                readiness.get("effective", {})
-                .get("autonomous_readiness", {})
-                .get("session_window", {})
-            )
 
-            if isinstance(session_cfg, dict):
-                merged_cfg = dict(self.session_window_config)
-                merged_cfg.update(session_cfg)
-                self.session_window_config = merged_cfg
+            # Get the current config data
+            config_data = cm.config_data if isinstance(getattr(cm, "config_data", None), dict) else {}
 
-                start_time = self._time_from_hhmm(str(merged_cfg.get("primary_start_et", "09:30")), time(9, 30))
-                end_time = self._time_from_hhmm(str(merged_cfg.get("primary_end_et", "16:15")), time(16, 15))
-                close_start = self._minutes_before(end_time, 30)
+            # Ensure autonomous_readiness.event_clock.allowlist_strategies exists
+            if "autonomous_readiness" not in config_data:
+                config_data["autonomous_readiness"] = {}
+            if "event_clock" not in config_data["autonomous_readiness"]:
+                config_data["autonomous_readiness"]["event_clock"] = {}
 
-                self.trading_windows["regular_market"].start_time = start_time
-                self.trading_windows["regular_market"].end_time = end_time
-                self.trading_windows["closing_range"].start_time = close_start
-                self.trading_windows["closing_range"].end_time = end_time
+            # Update the allowlist
+            config_data["autonomous_readiness"]["event_clock"]["allowlist_strategies"] = new_allowlist
 
-                self.logger.info(
-                    "Loaded session_window config: start=%s end=%s cutoff=%s",
-                    merged_cfg.get("primary_start_et"),
-                    merged_cfg.get("primary_end_et"),
-                    merged_cfg.get("zero_dte_no_new_risk_cutoff_et"),
-                )
+            # Save the updated configuration
+            cm.config_data = config_data
+            cm._save_config()
+
+            # Reload the event clock configuration to pick up the changes
+            self._load_event_clock_config()
+
+            self.logger.debug(f"Event clock allowlist updated to: {new_allowlist}")
         except Exception as e:
-            self.logger.warning("Session-window config load skipped; using defaults: %s", e)
-
-    def _time_from_hhmm(self, value: str, fallback: time) -> time:
-        """Parse HH:MM into a time object with fallback on parse errors."""
-        try:
-            parsed = datetime.strptime(value.strip(), "%H:%M")
-            return time(parsed.hour, parsed.minute)
-        except Exception:
-            return fallback
-
-    def _minutes_before(self, ref: time, minutes: int) -> time:
-        """Return a clock time that is N minutes before ref time."""
-        dt_ref = datetime.combine(date.today(), ref)
-        dt_new = dt_ref - timedelta(minutes=max(0, int(minutes)))
-        return dt_new.time()
+            self.logger.error(f"Failed to update event clock allowlist: {e}")
 
     def _load_event_clock_config(self):
         """Load event-clock policy from validated A03 autonomous readiness config."""
@@ -2117,6 +2051,11 @@ class Scheduler:
                 return True
 
             self.scheduler.shutdown(wait=wait)
+
+            # Remove feature flag listener to prevent memory leaks
+            if getattr(self, "_feature_flags", None) is not None:
+                self._feature_flags.remove_listener(self._on_feature_flag_changed)
+
             self.logger.info("Scheduler stopped")
 
             # Emit stop event

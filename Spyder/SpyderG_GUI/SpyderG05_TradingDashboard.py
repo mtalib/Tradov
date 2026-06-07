@@ -991,13 +991,14 @@ class SpyderTradingDashboard(QMainWindow):
         self._gui_allowlist_active: tuple[str, ...] = _GUI_INFO_ALLOWLIST_DEFAULT
         # User-facing SPX strategy allowlist (Advanced Controls).
         self._spx_strategy_candidates: tuple[str, ...] = (
-            "IronCondor",
-            "IronButterfly",
-            "Butterfly",
-            "BrokenWingButterfly",
             "BullPutSpread",
             "BearCallSpread",
+            "PivotMeanReversion",
             "ZeroHFT",
+            "Butterfly",
+            "IronCondor",
+            "IronButterfly",
+            "BrokenWingButterfly",
         )
         self._spx_allowed_strategies_active: tuple[str, ...] = self._load_allowed_strategies_state()
         self._apply_allowed_strategies_override(self._spx_allowed_strategies_active, announce=False)

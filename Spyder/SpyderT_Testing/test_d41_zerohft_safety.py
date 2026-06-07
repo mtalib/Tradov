@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 
-from Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator import StrategyOrchestrator
+from Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator import MarketRegime, StrategyOrchestrator
 from Spyder.SpyderD_Strategies.SpyderD40_MicroTrancheExecutor import MicroTranchePlan
 from Spyder.SpyderD_Strategies.SpyderD41_ZeroHFT import ZeroHFTStrategy
 from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
@@ -94,12 +94,16 @@ def _prime_zerohft_for_signal_generation(strategy: ZeroHFTStrategy) -> None:
     strategy.market_open_time = et_time(9, 30)
     strategy.entry_delay_minutes = 2
     strategy.runtime_cadence_enabled = True
-    strategy.runtime_cadence_seconds = 120
+    strategy.runtime_cadence_seconds = 60
     strategy.stop_loss = 1.50
     strategy.profit_target = 0.30
     strategy.tranche_quantity = 1
     strategy.min_premium = 0.35
-    strategy.max_daily_trades = 24
+    strategy.max_daily_trades = 48
+    strategy.max_positions = 4
+    strategy.max_vix = 35.0
+    strategy.min_iv_rank = 25.0
+    strategy.min_probability_profit = 0.60
     strategy._daily_tranche_count = 0
     strategy._refresh_daily_counters = lambda: None
     strategy._ensure_tail_hedge_ready = lambda: True
@@ -107,6 +111,20 @@ def _prime_zerohft_for_signal_generation(strategy: ZeroHFTStrategy) -> None:
     strategy._calendar_allows_entry = lambda: True
     strategy._gamma_allows_entry = lambda: True
     strategy.option_chain_fetcher = None
+
+
+def test_zerohft_constructor_exposes_runtime_config() -> None:
+    strategy = ZeroHFTStrategy(
+        event_manager=MagicMock(),
+        risk_profile=MagicMock(),
+        config={},
+    )
+
+    assert strategy.runtime_config["alias"] == "ZeroHFT"
+    assert strategy.symbol == "SPX"
+    assert strategy.runtime_config["runtime_cadence_seconds"] == 60
+    assert strategy.runtime_config["max_daily_trades"] == 48
+    assert strategy.runtime_config["spread_width_points"] == 3.0
 
 
 def test_zerohft_hard_tail_hedge_policy_blocks_entries(monkeypatch) -> None:
@@ -171,6 +189,16 @@ def test_zerohft_soft_tail_hedge_allows_after_retry_budget(monkeypatch) -> None:
     assert "soft mode" in strategy._tail_hedge_detail.lower()
 
 
+def test_zerohft_tail_hedge_allocator_can_mark_session_hedged() -> None:
+    strategy = _new_zerohft_for_gate_tests()
+    strategy.tail_hedge_required = True
+    strategy.tail_hedge_allocator = lambda symbol: symbol == "SPX"
+
+    assert strategy._ensure_tail_hedge_ready() is True
+    assert strategy._tail_hedge_status == "HEDGED"
+    assert "allocated" in strategy._tail_hedge_detail.lower()
+
+
 def test_zerohft_paper_only_mode_blocks_signal_generation(monkeypatch) -> None:
     strategy = _new_zerohft_for_gate_tests()
     strategy.paper_only = True
@@ -185,6 +213,24 @@ def test_zerohft_paper_only_mode_blocks_signal_generation(monkeypatch) -> None:
     signals = strategy.generate_signals(pd.DataFrame())
 
     assert signals == []
+
+
+def test_zerohft_logs_paper_mode_block(caplog, monkeypatch) -> None:
+    strategy = _new_zerohft_for_gate_tests()
+    strategy.paper_only = True
+    strategy._refresh_daily_counters = lambda: None
+
+    monkeypatch.setattr(
+        ZeroHFTStrategy,
+        "_is_paper_mode",
+        staticmethod(lambda: False),
+    )
+
+    with caplog.at_level("INFO"):
+        signals = strategy.generate_signals(pd.DataFrame())
+
+    assert signals == []
+    assert "ZeroHFT entry blocked at paper_mode" in caplog.text
 
 
 def test_zerohft_runtime_cadence_aligns_to_two_minute_boundaries() -> None:
@@ -243,6 +289,21 @@ def test_d31_env_allowlist_override_applies_zerohft_without_alias(monkeypatch) -
     assert orchestrator.lean_strategy_allowlist == {"ZeroHFT", "ZeroHFTStrategy"}
 
 
+def test_d31_lean_mode_falls_back_to_sole_allowlisted_zerohft() -> None:
+    orchestrator = StrategyOrchestrator.__new__(StrategyOrchestrator)
+    orchestrator.logger = SpyderLogger.get_logger("test.d31.lean_fallback")
+    orchestrator.lean_mode = True
+    orchestrator.lean_strategy_allowlist = {"ZeroHFT", "ZeroHFTStrategy"}
+    orchestrator.market_regime = SimpleNamespace(current_regime=MarketRegime.SIDEWAYS_LOW_VOL)
+    orchestrator._last_selector_feature_flag = "test"
+    orchestrator._record_selector_outcome_audit = lambda *args, **kwargs: None
+    orchestrator._select_strategy_name_for_regime = lambda: ("IronCondor", "Range/calm fallback regime — Iron Condor")
+
+    weights = orchestrator._get_regime_strategy_weights()
+
+    assert weights == {"ZeroHFT": 1.0}
+
+
 def test_zerohft_defined_risk_mode_skips_single_leg_fallback() -> None:
     strategy = _new_zerohft_for_gate_tests()
     _prime_zerohft_for_signal_generation(strategy)
@@ -255,6 +316,120 @@ def test_zerohft_defined_risk_mode_skips_single_leg_fallback() -> None:
     signals = strategy.generate_signals(pd.DataFrame())
 
     assert signals == []
+
+
+def test_zerohft_delta_band_rejects_out_of_band_shorts() -> None:
+    # Only out-of-band strikes exist (calls too deep, puts too cheap): skip entry.
+    options = [
+        {"option_type": "call", "strike": 5315.0, "greeks": {"delta": 0.40}, "symbol": "C1"},
+        {"option_type": "put", "strike": 5285.0, "greeks": {"delta": -0.02}, "symbol": "P1"},
+    ]
+
+    short_call, short_put = ZeroHFTStrategy._select_delta_targets(
+        options,
+        0.10,
+        delta_min=0.07,
+        delta_max=0.18,
+    )
+
+    assert short_call is None
+    assert short_put is None
+
+
+def test_zerohft_delta_band_keeps_in_band_short() -> None:
+    # In-band candidate must be preferred; out-of-band candidate must be ignored.
+    options = [
+        {"option_type": "call", "strike": 5315.0, "greeks": {"delta": 0.11}, "symbol": "C_IN"},
+        {"option_type": "call", "strike": 5300.0, "greeks": {"delta": 0.45}, "symbol": "C_OUT"},
+        {"option_type": "put", "strike": 5285.0, "greeks": {"delta": -0.12}, "symbol": "P_IN"},
+        {"option_type": "put", "strike": 5295.0, "greeks": {"delta": -0.55}, "symbol": "P_OUT"},
+    ]
+
+    short_call, short_put = ZeroHFTStrategy._select_delta_targets(
+        options,
+        0.10,
+        delta_min=0.07,
+        delta_max=0.18,
+    )
+
+    assert short_call["symbol"] == "C_IN"
+    assert short_put["symbol"] == "P_IN"
+
+
+def test_micro_tranche_executor_delta_band_rejects_out_of_band_shorts() -> None:
+    from Spyder.SpyderD_Strategies.SpyderD40_MicroTrancheExecutor import MicroTrancheExecutor
+
+    options = [
+        {"option_type": "call", "strike": 5315.0, "greeks": {"delta": 0.40}, "symbol": "C1"},
+        {"option_type": "put", "strike": 5285.0, "greeks": {"delta": -0.02}, "symbol": "P1"},
+    ]
+
+    short_call, short_put = MicroTrancheExecutor.select_delta_targets(
+        options,
+        0.10,
+        delta_min=0.07,
+        delta_max=0.18,
+    )
+
+    assert short_call is None
+    assert short_put is None
+
+
+def test_zerohft_max_positions_caps_concurrent_tranches() -> None:
+    strategy = _new_zerohft_for_gate_tests()
+    _prime_zerohft_for_signal_generation(strategy)
+    strategy.max_positions = 1
+    strategy.micro_executor = SimpleNamespace(
+        plan_once=lambda: (_sample_tranche_plan(), _sample_short_legs())
+    )
+    # One tranche already open (two legs share one order tag).
+    strategy._active_short_legs = {leg.symbol: leg for leg in _sample_short_legs()}
+
+    assert strategy._active_tranche_count() == 1
+    assert strategy.generate_signals(pd.DataFrame()) == []
+
+
+def test_zerohft_vix_gate_blocks_high_vol(monkeypatch) -> None:
+    strategy = _new_zerohft_for_gate_tests()
+    _prime_zerohft_for_signal_generation(strategy)
+    strategy.max_vix = 35.0
+    strategy.micro_executor = SimpleNamespace(
+        plan_once=lambda: (_sample_tranche_plan(), _sample_short_legs())
+    )
+
+    high_vix = pd.DataFrame({"vix": [42.0]})
+    assert strategy._market_data_allows_entry(high_vix) is False
+    assert strategy.generate_signals(high_vix) == []
+
+    calm_vix = pd.DataFrame({"vix": [18.0]})
+    assert strategy._market_data_allows_entry(calm_vix) is True
+
+
+def test_zerohft_iv_rank_gate_blocks_low_rank() -> None:
+    strategy = _new_zerohft_for_gate_tests()
+    _prime_zerohft_for_signal_generation(strategy)
+    strategy.min_iv_rank = 25.0
+
+    # Percentage form below floor.
+    assert strategy._market_data_allows_entry(pd.DataFrame({"iv_rank": [10.0]})) is False
+    # Fraction form (0-1) is normalized to a percentage.
+    assert strategy._market_data_allows_entry(pd.DataFrame({"iv_rank": [0.40]})) is True
+    # Absent column fails open.
+    assert strategy._market_data_allows_entry(pd.DataFrame({"close": [5300.0]})) is True
+
+
+def test_zerohft_probability_profit_gate_blocks_low_pop() -> None:
+    strategy = _new_zerohft_for_gate_tests()
+    _prime_zerohft_for_signal_generation(strategy)
+    strategy.min_probability_profit = 0.60
+
+    # POP ~= 1 - 0.10 - 0.11 = 0.79 → passes.
+    assert strategy._plan_meets_probability_profit(_sample_tranche_plan()) is True
+
+    risky_plan = _sample_tranche_plan()
+    risky_plan.short_call_delta = 0.30
+    risky_plan.short_put_delta = -0.30  # POP ~= 0.40 → blocked
+    assert strategy._plan_meets_probability_profit(risky_plan) is False
 
 
 def test_zerohft_multileg_plan_emits_single_serialized_signal() -> None:
@@ -511,6 +686,44 @@ def test_d31_zero_hft_defaults_inject_quote_dependencies() -> None:
         "expirations": {"date": ["2026-05-20"]}
     }
     assert resolved["gamma_engine"].underlying == "SPX"
+
+
+def test_d31_live_engine_wiring_backfills_zero_hft_planner() -> None:
+    orchestrator = StrategyOrchestrator(
+        event_manager=SimpleNamespace(
+            subscribe=lambda *args, **kwargs: None,
+            emit=lambda *args, **kwargs: None,
+            publish=lambda *args, **kwargs: None,
+            unsubscribe=lambda *args, **kwargs: None,
+        )
+    )
+    orchestrator.logger = SpyderLogger.get_logger("test.d31.zerohft_backfill")
+    orchestrator._audit_run_mode = "paper"
+
+    strategy = _new_zerohft_for_gate_tests()
+    strategy.calendar_service = SimpleNamespace(
+        entry_decision=lambda *_args, **_kwargs: SimpleNamespace(halt=False, reason=""),
+    )
+    strategy.entry_window_end = et_time(15, 35)
+    strategy._entry_start_time = lambda session_date=None: et_time(9, 32)
+    strategy.micro_executor = None
+    strategy.broker_client = None
+    strategy.gamma_engine = None
+    orchestrator.active_strategies = {"ZeroHFT": strategy}
+
+    quote_client = SimpleNamespace(
+        get_option_expirations=lambda symbol: {"expirations": {"date": ["2026-05-20"]}},
+        get_option_chain_with_greeks=lambda symbol, expiration: [],
+    )
+
+    orchestrator.set_live_engine(
+        SimpleNamespace(_get_paper_option_quote_client=lambda: quote_client)
+    )
+
+    assert strategy.broker_client is not None
+    assert strategy.gamma_engine is not None
+    assert strategy.micro_executor is not None
+    assert strategy.runtime_config["broker_client"] is strategy.broker_client
 
 
 def test_d31_builds_zero_hft_serialized_multileg_leg_orders() -> None:
