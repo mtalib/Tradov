@@ -867,6 +867,8 @@ class StrategyOrchestrator:
             "BullPutSpreadStrategy",
             "BearCallSpread",
             "BearCallSpreadStrategy",
+            "PivotMeanReversion",
+            "PivotMeanReversionStrategy",
             "ZeroHFT",
             "ZeroHFTStrategy",
             "Butterfly",
@@ -878,11 +880,9 @@ class StrategyOrchestrator:
             "BrokenWingButterfly",
             "BrokenWingButterflyStrategy",
         }
-        # Opt-in extension: D34 PivotMeanReversion. Gated by env flag so the
-        # default lean posture remains the baseline lean allowlist contract; setting
-        # SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true allows D30 to swap RANGE →
-        # PivotMeanReversion when the S08 pivot signal is firing, otherwise
-        # falls back to IronCondor for the same regime.
+        # D34 PivotMeanReversion remains feature-flagged for selector routing so
+        # D30 can prefer it on S08 pivot confirmation without changing the rest
+        # of the lean allowlist contract.
         if os.getenv("SPYDER_ENABLE_PIVOT_MEAN_REVERSION", "").strip().lower() in {
             "1", "true", "yes", "on", "y",
         }:
@@ -3312,6 +3312,7 @@ class StrategyOrchestrator:
         if strategy_type_normalized == "zero_hft":
             resolved.setdefault("target_dte", 0)
             resolved.setdefault("require_defined_risk_entry", True)
+            resolved.setdefault("spread_width_points", 3.0)
             if str(self._audit_run_mode or "").strip().lower() == "paper":
                 if resolved.get("broker_client") is None:
                     broker_client = self._build_zero_hft_paper_quote_broker()
@@ -4365,6 +4366,21 @@ class StrategyOrchestrator:
             ", ".join(sorted(selected_bases)),
         )
 
+    def _single_allowed_strategy_family_name(self) -> str | None:
+        """Return the only allowlisted strategy family when lean mode is narrowed."""
+        family_names: dict[str, str] = {}
+        for value in self.lean_strategy_allowlist:
+            cleaned = str(value).strip()
+            if not cleaned:
+                continue
+            family_name = cleaned[:-8] if cleaned.endswith("Strategy") else cleaned
+            family_names[family_name] = family_name
+
+        if len(family_names) != 1:
+            return None
+
+        return next(iter(family_names))
+
     def _maybe_override_paper_calendar_spread_selection(
         self,
         strategy_name: str | None,
@@ -4529,6 +4545,17 @@ class StrategyOrchestrator:
                 return {}
 
             if strategy_name not in self.lean_strategy_allowlist:
+                sole_allowed_strategy = self._single_allowed_strategy_family_name()
+                if sole_allowed_strategy is not None:
+                    self.logger.info(
+                        "D31 lean selector fell back to sole allowlisted strategy: regime=%s selector=%s fallback=%s reason=%s",
+                        regime.value,
+                        strategy_name,
+                        sole_allowed_strategy,
+                        selector_reason,
+                    )
+                    return {sole_allowed_strategy: 1.0}
+
                 self.logger.warning(
                     "D31 lean selector blocked by allowlist: regime=%s strategy=%s reason=%s",
                     regime.value,
@@ -9218,6 +9245,76 @@ class StrategyOrchestrator:
         self.logger.debug(
             "LiveEngine wired to StrategyOrchestrator for approved-signal dispatch"
         )
+        self._refresh_zero_hft_runtime_bindings()
+
+    def _refresh_zero_hft_runtime_bindings(self) -> None:
+        """Backfill ZeroHFT paper runtime integrations after engine wiring."""
+        if self._live_engine is None:
+            return
+
+        with self._strategies_lock:
+            active_strategies = list(self.active_strategies.items())
+
+        for strategy_id, strategy in active_strategies:
+            strategy_type = self._normalise_strategy_type_for_entry_gate(
+                getattr(strategy, "strategy_type", getattr(strategy, "name", strategy_id))
+            )
+            if strategy_type != "zero_hft":
+                continue
+
+            runtime_config = getattr(strategy, "runtime_config", None)
+            if not isinstance(runtime_config, dict):
+                runtime_config = {}
+
+            resolved_config = self._apply_strategy_runtime_config_defaults("ZeroHFT", runtime_config)
+            broker_client = resolved_config.get("broker_client")
+            gamma_engine = resolved_config.get("gamma_engine")
+            calendar_service = resolved_config.get("calendar_service") or getattr(
+                strategy,
+                "calendar_service",
+                None,
+            )
+
+            if broker_client is None or gamma_engine is None or calendar_service is None:
+                continue
+
+            try:
+                from Spyder.SpyderD_Strategies.SpyderD40_MicroTrancheExecutor import (
+                    MicroTrancheExecutor,
+                )
+
+                strategy.runtime_config = resolved_config
+                strategy.broker_client = broker_client
+                strategy.gamma_engine = gamma_engine
+                strategy.calendar_service = calendar_service
+                if getattr(strategy, "micro_executor", None) is None:
+                    strategy.micro_executor = MicroTrancheExecutor(
+                        broker_client=broker_client,
+                        gamma_engine=gamma_engine,
+                        calendar_service=calendar_service,
+                        target_delta=float(resolved_config.get("short_delta_target", 0.10)),
+                        short_delta_min=resolved_config.get("short_delta_min"),
+                        short_delta_max=resolved_config.get("short_delta_max"),
+                        wing_width_points=float(resolved_config.get("spread_width_points", 3.0)),
+                        tranche_quantity=int(resolved_config.get("tranche_quantity", 1)),
+                        min_net_credit=float(resolved_config.get("min_premium", 0.35)),
+                        underlying_symbol=str(resolved_config.get("symbol") or "SPX").upper(),
+                        option_root=str(resolved_config.get("option_root") or "SPXW").upper(),
+                        paper_only=bool(resolved_config.get("paper_only", True)),
+                        start_time=resolved_config.get("entry_delay_time") or strategy._entry_start_time(),
+                        end_time=resolved_config.get("entry_window_end") or strategy.entry_window_end,
+                    )
+                self.logger.info(
+                    "ZeroHFT runtime bindings refreshed after LiveEngine wiring (strategy=%s)",
+                    strategy_id,
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    "ZeroHFT runtime rebinding failed for %s: %s",
+                    strategy_id,
+                    exc,
+                    exc_info=True,
+                )
 
     def set_regime_engine(self, engine: Any) -> None:
         """Attach or replace the optional L09 regime engine after startup."""

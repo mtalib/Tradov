@@ -232,6 +232,7 @@ class FeatureFlags:
         self.features: dict[str, FeatureFlag] = {}
         self.cache_timestamp = 0.0
         self.lock = threading.RLock()
+        self._listeners: list[callable] = []
         self.environment = os.getenv("SPYDER_ENV", "development")
         self.user_id = os.getenv("SPYDER_USER_ID", "default")
 
@@ -241,6 +242,30 @@ class FeatureFlags:
         self.logger.info(
             "%s initialized with %s features", self.__class__.__name__, len(self.features)
         )
+
+    def add_listener(self, listener: callable) -> None:
+        """Add a listener to be notified when feature flags change."""
+        with self.lock:
+            if listener not in self._listeners:
+                self._listeners.append(listener)
+
+    def remove_listener(self, listener: callable) -> None:
+        """Remove a listener."""
+        with self.lock:
+            if listener in self._listeners:
+                self._listeners.remove(listener)
+
+    def _notify_listeners(self, feature_name: str, action: str) -> None:
+        """Notify all listeners that a feature flag has changed."""
+        listeners = []
+        with self.lock:
+            listeners = self._listeners.copy()
+
+        for listener in listeners:
+            try:
+                listener(feature_name, action)
+            except Exception as e:
+                self.logger.error(f"Error in feature flag listener: {e}")
 
     # ==========================================================================
     # PUBLIC METHODS - FEATURE CHECKING
@@ -353,6 +378,7 @@ class FeatureFlags:
                     self._save_configuration()
 
                 self.logger.info("Feature %s enabled", feature_name)
+                self._notify_listeners(feature_name, "enabled")
                 return True
 
         except Exception as e:
@@ -381,10 +407,11 @@ class FeatureFlags:
                         self._save_configuration()
 
                     self.logger.info("Feature %s disabled", feature_name)
+                    self._notify_listeners(feature_name, "disabled")
                     return True
-                else:
-                    self.logger.warning("Feature %s not found", feature_name)
-                    return False
+
+                self.logger.warning("Feature %s not found", feature_name)
+                return False
 
         except Exception as e:
             self.logger.error("Failed to disable feature %s: %s", feature_name, e)
@@ -419,6 +446,7 @@ class FeatureFlags:
                         self._save_configuration()
 
                     self.logger.info("Feature %s rollout set to %s%%", feature_name, percentage)
+                    self._notify_listeners(feature_name, "rollout_changed")
                     return True
                 else:
                     self.logger.warning("Feature %s not found", feature_name)
@@ -466,6 +494,7 @@ class FeatureFlags:
 
                 self._save_configuration()
                 self.logger.info("Created feature flag: %s", name)
+                self._notify_listeners(name, "created")
                 return True
 
         except Exception as e:

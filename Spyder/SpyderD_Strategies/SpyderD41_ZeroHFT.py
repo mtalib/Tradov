@@ -51,23 +51,21 @@ _ZERO_HFT_DEFAULT_CONFIG: dict[str, Any] = {
     "symbol": "SPX",
     "entry_delay_minutes": 2,
     "runtime_cadence_enabled": True,
-    "runtime_cadence_seconds": 120,
+    "runtime_cadence_seconds": 60,
     "entry_window_end": "15:35",
     "time_stop": "15:50",
-    "max_daily_trades": 24,
+    "max_daily_trades": 48,
     "max_positions": 4,
     "tranche_quantity": 1,
-    "spread_width_points": 10.0,
+    "spread_width_points": 3.0,
     "short_delta_min": 0.07,
     "short_delta_max": 0.18,
     "short_delta_target": 0.10,
     "min_premium": 0.35,
     "profit_target": 0.30,
     "stop_loss": 1.50,
-    "threat_buffer": 0.50,
     "max_short_delta": 0.35,
     "min_probability_profit": 0.60,
-    "min_setup_score": 40,
     "min_iv_rank": 25,
     "max_vix": 35,
     "prefer_delta_selection": True,
@@ -113,8 +111,8 @@ def build_zero_hft_runtime_config(config: dict[str, Any] | None = None) -> dict[
     resolved["symbol"] = str(resolved.get("symbol") or "SPX").upper()
     resolved["entry_delay_minutes"] = int(resolved.get("entry_delay_minutes", 2))
     resolved["runtime_cadence_enabled"] = bool(resolved.get("runtime_cadence_enabled", True))
-    resolved["runtime_cadence_seconds"] = max(1, int(resolved.get("runtime_cadence_seconds", 120)))
-    resolved["max_daily_trades"] = int(resolved.get("max_daily_trades", 24))
+    resolved["runtime_cadence_seconds"] = max(1, int(resolved.get("runtime_cadence_seconds", 60)))
+    resolved["max_daily_trades"] = int(resolved.get("max_daily_trades", 48))
     resolved["max_positions"] = int(resolved.get("max_positions", 4))
     resolved["tranche_quantity"] = max(1, int(resolved.get("tranche_quantity", 1)))
     resolved["short_delta_min"] = float(resolved.get("short_delta_min", 0.07))
@@ -124,6 +122,9 @@ def build_zero_hft_runtime_config(config: dict[str, Any] | None = None) -> dict[
     resolved["min_premium"] = float(resolved.get("min_premium", 0.35))
     resolved["profit_target"] = float(resolved.get("profit_target", 0.30))
     resolved["stop_loss"] = float(resolved.get("stop_loss", 1.50))
+    resolved["max_vix"] = float(resolved.get("max_vix", 35.0))
+    resolved["min_iv_rank"] = float(resolved.get("min_iv_rank", 25.0))
+    resolved["min_probability_profit"] = float(resolved.get("min_probability_profit", 0.60))
     resolved["entry_window_end"] = _coerce_intraday_time(
         resolved.get("entry_window_end"),
         15,
@@ -161,6 +162,7 @@ class ZeroHFTStrategy(BaseStrategy):
         )
 
         self.name = ZERO_HFT_ALIAS
+        self.runtime_config = runtime_config
         self.runtime_config["alias"] = ZERO_HFT_ALIAS
         self.symbol = str(self.runtime_config["symbol"])
         self.profile_name = str(self.runtime_config.get("profile") or "micro_tranche")
@@ -174,6 +176,9 @@ class ZeroHFTStrategy(BaseStrategy):
         self.min_premium = float(self.runtime_config["min_premium"])
         self.profit_target = float(self.runtime_config["profit_target"])
         self.stop_loss = float(self.runtime_config["stop_loss"])
+        self.max_vix = float(self.runtime_config.get("max_vix", 35.0))
+        self.min_iv_rank = float(self.runtime_config.get("min_iv_rank", 25.0))
+        self.min_probability_profit = float(self.runtime_config.get("min_probability_profit", 0.60))
         self.entry_delay_minutes = int(self.runtime_config["entry_delay_minutes"])
         self.runtime_cadence_enabled = bool(self.runtime_config.get("runtime_cadence_enabled", True))
         self.runtime_cadence_seconds = int(self.runtime_config.get("runtime_cadence_seconds", 120))
@@ -217,7 +222,9 @@ class ZeroHFTStrategy(BaseStrategy):
                 gamma_engine=self.gamma_engine,
                 calendar_service=self.calendar_service,
                 target_delta=self.short_delta_target,
-                wing_width_points=float(self.runtime_config.get("spread_width_points", 10.0)),
+                short_delta_min=self.short_delta_min,
+                short_delta_max=self.short_delta_max,
+                wing_width_points=float(self.runtime_config.get("spread_width_points", 3.0)),
                 tranche_quantity=self.tranche_quantity,
                 min_net_credit=self.min_premium,
                 underlying_symbol=self.symbol,
@@ -453,6 +460,18 @@ class ZeroHFTStrategy(BaseStrategy):
             self._set_tail_hedge_status("HEDGED", "Tail hedge verified for current session")
             return True
 
+        hedge_allocator = getattr(self, "tail_hedge_allocator", None)
+        if callable(hedge_allocator):
+            try:
+                hedge_result = hedge_allocator(self.symbol)
+                if bool(hedge_result):
+                    self._tail_hedged_session_date = session_date
+                    self._reset_tail_hedge_retry_state(session_date)
+                    self._set_tail_hedge_status("HEDGED", "Tail hedge allocated for current session")
+                    return True
+            except Exception as exc:
+                self.logger.warning("ZeroHFT tail hedge allocation failed: %s", exc)
+
         if callable(self.tail_hedge_establisher):
             retry_not_before = getattr(self, "_tail_hedge_retry_not_before", None)
             if retry_not_before is not None and now < retry_not_before:
@@ -546,6 +565,88 @@ class ZeroHFTStrategy(BaseStrategy):
             self.logger.warning("ZeroHFT gamma gate failed-open: %s", exc)
             return True
 
+    def _active_tranche_count(self) -> int:
+        """Count distinct open tranches (one order tag per tranche)."""
+        return len({
+            str(leg.order_tag).strip()
+            for leg in self._active_short_legs.values()
+            if str(getattr(leg, "order_tag", "")).strip()
+        })
+
+    @staticmethod
+    def _extract_latest_scalar(
+        market_data: Any,
+        candidates: tuple[str, ...],
+    ) -> float | None:
+        """Return the latest numeric value for any matching market-data column."""
+        if not isinstance(market_data, pd.DataFrame):
+            return None
+        for candidate in candidates:
+            if candidate not in market_data:
+                continue
+            series = market_data[candidate]
+            if isinstance(series, pd.Series):
+                series = series.dropna()
+                if series.empty:
+                    continue
+                try:
+                    return float(series.iloc[-1])
+                except (TypeError, ValueError):
+                    continue
+            try:
+                return float(series)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def _market_data_allows_entry(self, market_data: pd.DataFrame) -> bool:
+        """Apply VIX and IV-rank volatility gates; fail-open when data is absent."""
+        vix = self._extract_latest_scalar(market_data, ("vix", "VIX", "^VIX"))
+        if vix is not None and vix > self.max_vix:
+            self.logger.info("ZeroHFT vetoed: VIX %.2f > max %.2f", vix, self.max_vix)
+            return False
+
+        iv_rank = self._extract_latest_scalar(market_data, ("iv_rank", "IVR", "ivr"))
+        if iv_rank is not None:
+            # Accept either a 0-1 fraction or a 0-100 percentage.
+            if 0.0 <= iv_rank <= 1.0:
+                iv_rank *= 100.0
+            if iv_rank < self.min_iv_rank:
+                self.logger.info(
+                    "ZeroHFT vetoed: IV rank %.1f < min %.1f", iv_rank, self.min_iv_rank
+                )
+                return False
+        return True
+
+    def _log_entry_gate_block(self, gate: str, reason: str, **details: Any) -> None:
+        """Emit a consistent trace line when ZeroHFT skips an entry cycle."""
+        detail_bits = ", ".join(
+            f"{key}={value}"
+            for key, value in details.items()
+            if value is not None and value != ""
+        )
+        if detail_bits:
+            self.logger.info("ZeroHFT entry blocked at %s: %s | %s", gate, reason, detail_bits)
+        else:
+            self.logger.info("ZeroHFT entry blocked at %s: %s", gate, reason)
+
+    def _plan_meets_probability_profit(self, plan: MicroTranchePlan) -> bool:
+        """Gate a tranche on approximate probability of profit from short deltas.
+
+        For a defined-risk credit structure the probability that neither short
+        leg finishes in the money is approximated by ``1 - |callΔ| - |putΔ|``,
+        the standard delta-as-POP proxy.
+        """
+        pop = 1.0 - abs(float(plan.short_call_delta)) - abs(float(plan.short_put_delta))
+        if pop < self.min_probability_profit:
+            self.logger.info(
+                "ZeroHFT vetoed: est. POP %.2f < min %.2f",
+                pop,
+                self.min_probability_profit,
+            )
+            return False
+        return True
+
     @staticmethod
     def _extract_price(option_row: dict[str, Any]) -> tuple[float, float, float]:
         bid = float(option_row.get("bid") or 0.0)
@@ -559,6 +660,8 @@ class ZeroHFTStrategy(BaseStrategy):
     def _select_delta_targets(
         options: list[dict[str, Any]],
         target_delta: float,
+        delta_min: float | None = None,
+        delta_max: float | None = None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         calls = [
             opt
@@ -576,8 +679,15 @@ class ZeroHFTStrategy(BaseStrategy):
             raw = greeks.get("delta")
             return float(raw) if raw is not None else None
 
-        calls = [opt for opt in calls if _delta(opt) is not None]
-        puts = [opt for opt in puts if _delta(opt) is not None]
+        def _in_band(opt: dict[str, Any]) -> bool:
+            abs_delta = abs(_delta(opt) or 0.0)
+            return not (
+                (delta_min is not None and abs_delta < delta_min)
+                or (delta_max is not None and abs_delta > delta_max)
+            )
+
+        calls = [opt for opt in calls if _delta(opt) is not None and _in_band(opt)]
+        puts = [opt for opt in puts if _delta(opt) is not None and _in_band(opt)]
         if not calls or not puts:
             return None, None
 
@@ -677,31 +787,80 @@ class ZeroHFTStrategy(BaseStrategy):
         self._refresh_daily_counters()
         if self.paper_only and not self._is_paper_mode():
             self._set_tail_hedge_status("HALTED", "ZeroHFT paper-only wiring active")
+            self._log_entry_gate_block("paper_mode", "paper_only mode is active outside paper runtime")
             return []
 
         if not self._ensure_tail_hedge_ready():
+            self._log_entry_gate_block(
+                "tail_hedge",
+                getattr(self, "_tail_hedge_detail", "tail hedge unavailable"),
+            )
             return []
 
-        if self._daily_tranche_count >= self.max_daily_trades:
+        daily_trades = self._daily_tranche_count
+        if daily_trades >= self.max_daily_trades:
+            self._log_entry_gate_block(
+                "daily_trade_limit",
+                "daily tranche cap reached",
+                count=daily_trades,
+                max_daily_trades=self.max_daily_trades,
+            )
+            return []
+        active_tranches = self._active_tranche_count()
+        if active_tranches >= self.max_positions:
+            self._log_entry_gate_block(
+                "position_limit",
+                "active tranche cap reached",
+                active=active_tranches,
+                max_positions=self.max_positions,
+            )
             return []
         if not self._within_entry_window():
+            now = now_et()
+            delayed_open = datetime.combine(
+                now.date(),
+                self.market_open_time,
+                tzinfo=now.tzinfo,
+            ) + timedelta(minutes=self.entry_delay_minutes)
+            self._log_entry_gate_block(
+                "entry_window",
+                "outside allowed ET window",
+                now=now.strftime("%H:%M:%S ET"),
+                start=delayed_open.strftime("%H:%M ET"),
+                end=self.entry_window_end.strftime("%H:%M ET"),
+            )
             return []
         if not self._calendar_allows_entry():
             return []
         if not self._gamma_allows_entry():
             return []
+        if not self._market_data_allows_entry(market_data):
+            return []
 
         if self.micro_executor is not None:
             plan, short_legs = self.micro_executor.plan_once()
-            if plan is not None:
-                signal = self._build_multileg_signal(plan)
-                self._remember_pending_short_legs(
-                    str(signal.metadata.get("order_tag") or plan.tag),
-                    short_legs,
+            if plan is None:
+                self._log_entry_gate_block(
+                    "planner",
+                    "micro-tranche planner returned no qualifying setup",
                 )
-                self._daily_tranche_count += 1
-                return [signal]
-            return []
+                return []
+            if not self._plan_meets_probability_profit(plan):
+                self._log_entry_gate_block(
+                    "pop_gate",
+                    "planner setup failed probability-of-profit threshold",
+                    call_delta=plan.short_call_delta,
+                    put_delta=plan.short_put_delta,
+                    min_pop=self.min_probability_profit,
+                )
+                return []
+            signal = self._build_multileg_signal(plan)
+            self._remember_pending_short_legs(
+                str(signal.metadata.get("order_tag") or plan.tag),
+                short_legs,
+            )
+            self._daily_tranche_count += 1
+            return [signal]
 
         if self.require_defined_risk_entry:
             self.logger.info(
@@ -724,9 +883,27 @@ class ZeroHFTStrategy(BaseStrategy):
                 option_rows = [row for row in attrs_chain if isinstance(row, dict)]
 
         if not option_rows:
+            self._log_entry_gate_block(
+                "option_chain",
+                "no option chain data available for fallback entry",
+            )
             return []
 
-        short_call, short_put = self._select_delta_targets(option_rows, self.short_delta_target)
+        short_call, short_put = self._select_delta_targets(
+            option_rows,
+            self.short_delta_target,
+            delta_min=self.short_delta_min,
+            delta_max=self.short_delta_max,
+        )
+        if short_call is None or short_put is None:
+            self._log_entry_gate_block(
+                "delta_band",
+                "no call/put contracts satisfied the configured delta band",
+                target=self.short_delta_target,
+                min_delta=self.short_delta_min,
+                max_delta=self.short_delta_max,
+            )
+            return []
         signals: list[TradingSignal] = []
         if short_call is not None:
             signal = self._build_signal(option_row=short_call, signal_side="sell")

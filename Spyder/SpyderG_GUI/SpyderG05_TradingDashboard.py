@@ -63,6 +63,7 @@ from datetime import time as dt_time
 from datetime import tzinfo
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytz
@@ -990,13 +991,14 @@ class SpyderTradingDashboard(QMainWindow):
         self._gui_allowlist_active: tuple[str, ...] = _GUI_INFO_ALLOWLIST_DEFAULT
         # User-facing SPX strategy allowlist (Advanced Controls).
         self._spx_strategy_candidates: tuple[str, ...] = (
-            "IronCondor",
-            "IronButterfly",
-            "Butterfly",
-            "BrokenWingButterfly",
             "BullPutSpread",
             "BearCallSpread",
+            "PivotMeanReversion",
             "ZeroHFT",
+            "Butterfly",
+            "IronCondor",
+            "IronButterfly",
+            "BrokenWingButterfly",
         )
         self._spx_allowed_strategies_active: tuple[str, ...] = self._load_allowed_strategies_state()
         self._apply_allowed_strategies_override(self._spx_allowed_strategies_active, announce=False)
@@ -1169,8 +1171,10 @@ class SpyderTradingDashboard(QMainWindow):
         self.recent_trades_history_btn = None
         self.trade_audit_btn = None
         self.allowed_strategies_btn = None
-        self.zero_hft_hedge_status_label = None
-        self.zero_hft_short_leg_status_label = None
+        self.strategies_running_btn = None
+        self._running_strategies_dialog = None
+        self._running_strategies_dialog_body = None
+        self._running_strategies_dialog_timer = None
         self.decision_log_btn = None
         self.veto_toggle_btn = None
         self.readiness_btn = None
@@ -5559,52 +5563,194 @@ class SpyderTradingDashboard(QMainWindow):
         if start_btn is not None and presentation.start_tooltip is not None:
             start_btn.setToolTip(presentation.start_tooltip)
 
-    def _refresh_zero_hft_tail_hedge_status(self) -> None:
-        """Refresh the ZeroHFT tail-hedge badge based on strategy runtime status."""
-        label = getattr(self, "zero_hft_hedge_status_label", None)
-        if label is None:
+    def _get_running_strategies_snapshot(self) -> list[dict[str, Any]]:
+        """Build a stable snapshot of strategies currently active in the orchestrator."""
+        supervisor = getattr(self, "_session_supervisor", None)
+        orchestrator = getattr(supervisor, "orchestrator", None) if supervisor else None
+        if orchestrator is None:
+            return []
+
+        strategies_lock = getattr(orchestrator, "_strategies_lock", None)
+        if strategies_lock is None:
+            active_snapshot = list(getattr(orchestrator, "active_strategies", {}).items())
+            paused_snapshot = set(getattr(orchestrator, "paused_strategies", set()) or set())
+        else:
+            with strategies_lock:
+                active_snapshot = list(getattr(orchestrator, "active_strategies", {}).items())
+                paused_snapshot = set(getattr(orchestrator, "paused_strategies", set()) or set())
+
+        snapshot: list[dict[str, Any]] = []
+        for strategy_id, strategy in active_snapshot:
+            state_payload: dict[str, Any] = {}
+            get_state = getattr(strategy, "get_state", None)
+            if callable(get_state):
+                try:
+                    raw_state = get_state()
+                except Exception:
+                    raw_state = None
+                if isinstance(raw_state, dict):
+                    state_payload = raw_state
+
+            name = str(state_payload.get("name") or getattr(strategy, "name", strategy_id) or strategy_id)
+            strategy_type = str(
+                state_payload.get("strategy_type") or getattr(strategy, "strategy_type", "") or ""
+            ).strip()
+            raw_state = str(state_payload.get("state") or getattr(strategy, "state", "unknown") or "unknown")
+            normalized_state = raw_state.strip().lower()
+            state_label = "PAUSED" if strategy_id in paused_snapshot or normalized_state == "paused" else normalized_state.upper()
+
+            open_positions = state_payload.get("open_positions")
+            if open_positions is None:
+                positions = getattr(strategy, "positions", {}) or {}
+                open_positions = len(positions) if hasattr(positions, "__len__") else 0
+
+            active_signals = state_payload.get("active_signals")
+            if active_signals is None:
+                signals = getattr(strategy, "active_signals", {}) or {}
+                active_signals = len(signals) if hasattr(signals, "__len__") else 0
+
+            item: dict[str, Any] = {
+                "strategy_id": str(strategy_id),
+                "name": name,
+                "strategy_type": strategy_type,
+                "state": state_label,
+                "open_positions": int(open_positions),
+                "active_signals": int(active_signals),
+            }
+
+            is_zero_hft = name == "ZeroHFT" or strategy_type == "zero_hft"
+            if is_zero_hft:
+                item["tail_hedge_status"] = str(
+                    getattr(
+                        strategy,
+                        "_tail_hedge_status",
+                        os.environ.get("SPYDER_ZEROHFT_TAIL_HEDGE_STATUS", "UNKNOWN"),
+                    )
+                ).strip().upper() or "UNKNOWN"
+                item["tail_hedge_detail"] = str(
+                    getattr(
+                        strategy,
+                        "_tail_hedge_detail",
+                        os.environ.get("SPYDER_ZEROHFT_TAIL_HEDGE_DETAIL", ""),
+                    )
+                ).strip()
+                item["short_risk_status"] = str(
+                    getattr(
+                        strategy,
+                        "_short_leg_risk_status",
+                        os.environ.get("SPYDER_ZEROHFT_SHORT_LEG_STATUS", "UNKNOWN"),
+                    )
+                ).strip().upper() or "UNKNOWN"
+                item["short_risk_detail"] = str(
+                    getattr(
+                        strategy,
+                        "_short_leg_risk_detail",
+                        os.environ.get("SPYDER_ZEROHFT_SHORT_LEG_DETAIL", ""),
+                    )
+                ).strip()
+
+            snapshot.append(item)
+
+        snapshot.sort(key=lambda item: (item["name"].lower(), item["strategy_id"]))
+        return snapshot
+
+    def _build_running_strategies_status_html(self) -> str:
+        """Render the current running-strategy snapshot as a compact HTML report."""
+        snapshot = self._get_running_strategies_snapshot()
+        if not snapshot:
+            return (
+                "<h3 style='color:#FFFFFF;'>Running Strategy Status</h3>"
+                "<p style='color:#D0D0D0;'>No strategies are currently running.</p>"
+            )
+
+        blocks: list[str] = ["<h3 style='color:#FFFFFF;'>Running Strategy Status</h3>"]
+        for item in snapshot:
+            details = [
+                f"<b>State:</b> {_html.escape(str(item['state']))}",
+                f"<b>Open positions:</b> {int(item['open_positions'])}",
+                f"<b>Active signals:</b> {int(item['active_signals'])}",
+            ]
+            strategy_type = str(item.get("strategy_type") or "").strip()
+            if strategy_type:
+                details.insert(1, f"<b>Type:</b> {_html.escape(strategy_type)}")
+
+            tail_hedge_status = str(item.get("tail_hedge_status") or "").strip()
+            if tail_hedge_status:
+                details.append(f"<b>Tail hedge:</b> {_html.escape(tail_hedge_status)}")
+                tail_hedge_detail = str(item.get("tail_hedge_detail") or "").strip()
+                if tail_hedge_detail:
+                    details.append(f"<span style='color:#B0B0B0;'>{_html.escape(tail_hedge_detail)}</span>")
+
+            short_risk_status = str(item.get("short_risk_status") or "").strip()
+            if short_risk_status:
+                details.append(f"<b>Short risk:</b> {_html.escape(short_risk_status)}")
+                short_risk_detail = str(item.get("short_risk_detail") or "").strip()
+                if short_risk_detail:
+                    details.append(f"<span style='color:#B0B0B0;'>{_html.escape(short_risk_detail)}</span>")
+
+            blocks.append(
+                "<div style='margin: 0 0 14px 0; padding: 10px; "
+                "border: 1px solid #2D2D2D; border-radius: 6px; background-color: #101010;'>"
+                f"<div style='color:#FFFFFF; font-size:13px; font-weight:600;'>{_html.escape(str(item['name']))}</div>"
+                f"<div style='color:#E0E0E0; margin-top:6px; line-height:1.5;'>{'<br>'.join(details)}</div>"
+                "</div>"
+            )
+
+        return "".join(blocks)
+
+    def _refresh_running_strategies_dialog_body(self) -> None:
+        """Refresh the running-strategies dialog body with the latest snapshot."""
+        body = getattr(self, "_running_strategies_dialog_body", None)
+        if body is None:
             return
 
-        status = str(os.environ.get("SPYDER_ZEROHFT_TAIL_HEDGE_STATUS", "UNKNOWN")).strip().upper()
-        detail = str(os.environ.get("SPYDER_ZEROHFT_TAIL_HEDGE_DETAIL", "")).strip()
+        body.setHtml(self._build_running_strategies_status_html())
 
-        status_styles = {
-            "HEDGED": "#4CD137",
-            "HALTED": "#E55039",
-            "UNHEDGED": "#F6B93B",
-            "UNKNOWN": "#95A5A6",
-        }
-        color = status_styles.get(status, "#95A5A6")
+    def _clear_running_strategies_dialog_state(self, _result: int | None = None) -> None:
+        """Release dialog-local running-strategies state after the dialog closes."""
+        timer = getattr(self, "_running_strategies_dialog_timer", None)
+        if timer is not None:
+            timer.stop()
 
-        label.setText(f"ZeroHFT Tail Hedge: {status}")
-        label.setStyleSheet(
-            f"color: #FFFFFF; background-color: {color}; font-size: 11px; "
-            "padding: 4px 8px; border-radius: 4px;"
-        )
-        label.setToolTip(detail or "ZeroHFT tail-hedge status is not yet available")
+        self._running_strategies_dialog_timer = None
+        self._running_strategies_dialog_body = None
+        self._running_strategies_dialog = None
 
-    def _refresh_zero_hft_short_leg_status(self) -> None:
-        """Refresh the ZeroHFT short-leg risk badge based on strategy runtime state."""
-        label = getattr(self, "zero_hft_short_leg_status_label", None)
-        if label is None:
+    def _open_running_strategies_dialog(self) -> None:
+        """Show an auto-refreshing snapshot of currently running strategies."""
+        existing_dialog = getattr(self, "_running_strategies_dialog", None)
+        if existing_dialog is not None and existing_dialog.isVisible():
+            self._refresh_running_strategies_dialog_body()
+            existing_dialog.raise_()
+            existing_dialog.activateWindow()
             return
 
-        status = str(os.environ.get("SPYDER_ZEROHFT_SHORT_LEG_STATUS", "UNKNOWN")).strip().upper()
-        detail = str(os.environ.get("SPYDER_ZEROHFT_SHORT_LEG_DETAIL", "")).strip()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("STRATEGIES RUNNING")
+        dialog.setMinimumSize(620, 420)
 
-        status_styles = {
-            "CLEAR": "#4CD137",
-            "ACTIVE": "#F6B93B",
-            "UNKNOWN": "#95A5A6",
-        }
-        color = status_styles.get(status, "#95A5A6")
+        layout = QVBoxLayout(dialog)
 
-        label.setText(f"ZeroHFT Short Risk: {status}")
-        label.setStyleSheet(
-            f"color: #FFFFFF; background-color: {color}; font-size: 11px; "
-            "padding: 4px 8px; border-radius: 4px;"
-        )
-        label.setToolTip(detail or "ZeroHFT short-leg risk state is not yet available")
+        body = QTextEdit()
+        body.setReadOnly(True)
+        layout.addWidget(body)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(dialog.reject)
+        btns.accepted.connect(dialog.accept)
+        layout.addWidget(btns)
+
+        self._running_strategies_dialog = dialog
+        self._running_strategies_dialog_body = body
+        self._refresh_running_strategies_dialog_body()
+
+        timer = QTimer(dialog)
+        timer.timeout.connect(self._refresh_running_strategies_dialog_body)
+        timer.start(5000)
+        self._running_strategies_dialog_timer = timer
+
+        dialog.finished.connect(self._clear_running_strategies_dialog_state)
+        dialog.exec()
 
     def _start_unified_session_supervisor(self) -> bool:
         """Start SessionSupervisor using the currently selected trading mode."""
@@ -7686,14 +7832,6 @@ class SpyderTradingDashboard(QMainWindow):
         self.chart_timer = QTimer()
         self.chart_timer.timeout.connect(self.update_chart)
         self.chart_timer.start(30000)
-
-        # Keep ZeroHFT tail-hedge status badge in sync with runtime state.
-        self.zero_hft_status_timer = QTimer(self)
-        self.zero_hft_status_timer.timeout.connect(self._refresh_zero_hft_tail_hedge_status)
-        self.zero_hft_status_timer.timeout.connect(self._refresh_zero_hft_short_leg_status)
-        self.zero_hft_status_timer.start(5000)
-        self._refresh_zero_hft_tail_hedge_status()
-        self._refresh_zero_hft_short_leg_status()
 
     def _start_decision_flow_timer(self) -> None:
         """Start the compact decision-flow timer once runtime warmup is complete."""

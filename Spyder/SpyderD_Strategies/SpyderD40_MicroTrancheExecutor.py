@@ -111,6 +111,8 @@ class MicroTrancheExecutor:
         gamma_engine: GammaRegimeEngine,
         calendar_service: EventCalendarService,
         target_delta: float = 0.10,
+        short_delta_min: float | None = None,
+        short_delta_max: float | None = None,
         wing_width_points: float = 5.0,
         tranche_quantity: int = 1,
         min_net_credit: float = 0.05,
@@ -125,6 +127,8 @@ class MicroTrancheExecutor:
         self.gamma = gamma_engine
         self.calendar = calendar_service
         self.target_delta = target_delta
+        self.short_delta_min = None if short_delta_min is None else float(short_delta_min)
+        self.short_delta_max = None if short_delta_max is None else float(short_delta_max)
         self.wing_width = wing_width_points
         self.tranche_quantity = tranche_quantity
         self.min_net_credit = float(min_net_credit)
@@ -274,7 +278,12 @@ class MicroTrancheExecutor:
             return None, []
 
         options = [self._extract_quote(opt) for opt in raw_chain or []]
-        short_call, short_put = self.select_delta_targets(options, self.target_delta)
+        short_call, short_put = self.select_delta_targets(
+            options,
+            self.target_delta,
+            delta_min=self.short_delta_min,
+            delta_max=self.short_delta_max,
+        )
         if not short_call or not short_put:
             self.logger.info("MicroTrancheExecutor no short strikes in target delta band")
             return None, []
@@ -413,8 +422,20 @@ class MicroTrancheExecutor:
         return result, short_legs
 
     @staticmethod
-    def select_delta_targets(options: list[dict[str, Any]], target_delta: float) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        """Select nearest call/put options by absolute target delta."""
+    def select_delta_targets(
+        options: list[dict[str, Any]],
+        target_delta: float,
+        delta_min: float | None = None,
+        delta_max: float | None = None,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Select nearest call/put options by absolute target delta.
+
+        When ``delta_min``/``delta_max`` are supplied, candidates outside the
+        absolute-delta band are rejected so the executor never sells a short
+        leg riskier than the configured band; if no strike falls inside the
+        band, the side is skipped (returns ``None``) rather than substituting a
+        higher-delta short.
+        """
 
         calls = [opt for opt in options if str(opt.get("option_type", "")).lower() == OptionType.CALL.value]
         puts = [opt for opt in options if str(opt.get("option_type", "")).lower() == OptionType.PUT.value]
@@ -424,8 +445,16 @@ class MicroTrancheExecutor:
             value = greeks.get("delta")
             return float(value) if value is not None else None
 
-        calls = [opt for opt in calls if _delta(opt) is not None]
-        puts = [opt for opt in puts if _delta(opt) is not None]
+        def _in_band(opt: dict[str, Any]) -> bool:
+            abs_delta = abs(_delta(opt) or 0.0)
+            if delta_min is not None and abs_delta < delta_min:
+                return False
+            if delta_max is not None and abs_delta > delta_max:
+                return False
+            return True
+
+        calls = [opt for opt in calls if _delta(opt) is not None and _in_band(opt)]
+        puts = [opt for opt in puts if _delta(opt) is not None and _in_band(opt)]
         if not calls or not puts:
             return None, None
 
