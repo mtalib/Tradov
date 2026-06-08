@@ -1,16 +1,16 @@
-# CLAUDE.md - AI Assistant Context for Spyder Trading System
+# CLAUDE.md - AI Assistant Context for Tradov Trading System
 
 ## 🚨 CRITICAL RULES
 
 1. **NEVER commit to main branch** - Always use feature branches
 2. **NEVER hardcode credentials** - Use .env file for all sensitive data
-3. **NEVER execute live trades without explicit confirmation** - Default to SpyderBox paper mode with live Tradier data
+3. **NEVER execute live trades without explicit confirmation** - Default to TradovBox paper mode with live Tradier data
 4. **ALWAYS test Tradier API changes in paper mode first**
 5. **ALWAYS verify API connectivity before executing trades**
 
 ## 🎯 Project Context
 
-You are working on **Spyder**, a sophisticated algorithmic trading system that:
+You are working on **Tradov**, a sophisticated algorithmic trading system that:
 - Connects to Tradier API through live/production endpoints only
 - Processes real-time market data via Databento (OPRA) and Tradier
 - Manages risk and positions with real financial implications
@@ -23,45 +23,45 @@ You are working on **Spyder**, a sophisticated algorithmic trading system that:
 ### Module Series Structure
 
 **Core System Modules**
-- `SpyderA_Core` → System orchestration & main entry point
-- `SpyderB_Broker` → Tradier API connection & order management
-- `SpyderC_MarketData` → Real-time data processing (Databento + Tradier)
-- `SpyderD_Strategies` → Trading strategy implementations
-- `SpyderE_Risk` → Risk management & position sizing
+- `TradovA_Core` → System orchestration & main entry point
+- `TradovB_Broker` → Tradier API connection & order management
+- `TradovC_MarketData` → Real-time data processing (Databento + Tradier)
+- `TradovD_Strategies` → Trading strategy implementations
+- `TradovE_Risk` → Risk management & position sizing
 
 **Analysis & Intelligence**
-- `SpyderF_Analysis` → Technical analysis & indicators
-- `SpyderL_ML` → Machine learning models & predictions
-- `SpyderN_OptionsAnalytics` → Options pricing & Greeks
-- `SpyderO_TradingIntelligence` → Advanced analytics
-- `SpyderV_QuantModels` → Quantitative models & backtesting
+- `TradovF_Analysis` → Technical analysis & indicators
+- `TradovL_ML` → Machine learning models & predictions
+- `TradovN_OptionsAnalytics` → Options pricing & Greeks
+- `TradovO_TradingIntelligence` → Advanced analytics
+- `TradovV_QuantModels` → Quantitative models & backtesting
 
 **User Interface & Reporting**
-- `SpyderG_GUI` → PyQt6 graphical interface
-- `SpyderJ_Alerts` → Notification & alert system
-- `SpyderK_Reports` → Performance reports & analytics
+- `TradovG_GUI` → PyQt6 graphical interface
+- `TradovJ_Alerts` → Notification & alert system
+- `TradovK_Reports` → Performance reports & analytics
 
 **Infrastructure & Management**
-- `SpyderH_Storage` → Data persistence & caching
-- `SpyderI_Integration` → Third-party integrations
-- `SpyderM_Monitoring` → System health monitoring
-- `SpyderP_PortfolioMgmt` → Portfolio optimization
-- `SpyderR_Runtime` → Runtime configuration & management
+- `TradovH_Storage` → Data persistence & caching
+- `TradovI_Integration` → Third-party integrations
+- `TradovM_Monitoring` → System health monitoring
+- `TradovP_PortfolioMgmt` → Portfolio optimization
+- `TradovR_Runtime` → Runtime configuration & management
 
 **Support & Automation**
-- `SpyderQ_Scripts` → Utility scripts (.sh & .py)
-- `SpyderS_Signals` → Custom signal generation
-- `SpyderT_Testing` → Testing framework & utilities
-- `SpyderU_Utilities` → Shared utilities & helpers
-- `SpyderX_Agents` → AI agents & automation
-- `SpyderZ_Communication` → Inter-module messaging
+- `TradovQ_Scripts` → Utility scripts (.sh & .py)
+- `TradovS_Signals` → Custom signal generation
+- `TradovT_Testing` → Testing framework & utilities
+- `TradovU_Utilities` → Shared utilities & helpers
+- `TradovX_Agents` → AI agents & automation
+- `TradovZ_Communication` → Inter-module messaging
 
 ## 📋 Before Starting Any Task
 
 1. **Check current mode**: Verify if system is in PAPER or LIVE mode
-2. **Verify API connectivity**: Use SpyderB40_TradierClient to check connection status
+2. **Verify API connectivity**: Use TradovB40_TradierClient to check connection status
 3. **Review recent logs**: Check logs/ directory for any recent errors
-4. **Understand the module**: Each SpyderX module has specific responsibilities - respect boundaries
+4. **Understand the module**: Each TradovX module has specific responsibilities - respect boundaries
 
 ## 🔧 Technology Stack
 
@@ -75,7 +75,7 @@ You are working on **Spyder**, a sophisticated algorithmic trading system that:
 - Broker: Tradier API (REST) — no local gateway required
 - Market Data: Databento (OPRA.PILLAR) for real-time options data
 - Fallback: Tradier quotes API for testing and redundancy
-- Modes: Paper (SpyderBox local paper ledger with live Tradier data) / Live (real trading)
+- Modes: Paper (TradovBox local paper ledger with live Tradier data) / Live (real trading)
 
 **GUI & Visualization**
 - Framework: PySide6 with qt6-wayland
@@ -91,22 +91,22 @@ You are working on **Spyder**, a sophisticated algorithmic trading system that:
 
 ```bash
 # Environment Setup
-cd /home/adam/Projects/Spyder
+cd /home/adam/Projects/Tradov
 source .venv/bin/activate
 
 # System Operations
-python SpyderA_Core/SpyderA01_Main.py              # Start main system
-python Spyder/SpyderB_Broker/SpyderB40_TradierClient.py  # Test Tradier connection
-python SpyderM_Monitoring/check_status.py          # Check system health
+python TradovA_Core/TradovA01_Main.py              # Start main system
+python Tradov/TradovB_Broker/TradovB40_TradierClient.py  # Test Tradier connection
+python TradovM_Monitoring/check_status.py          # Check system health
 
 # Testing & Development
-pytest SpyderT_Testing/                             # Run all tests
-pytest SpyderT_Testing/test_specific_module.py     # Run specific tests
+pytest TradovT_Testing/                             # Run all tests
+pytest TradovT_Testing/test_specific_module.py     # Run specific tests
 tail -f logs/spyder_main.log                       # Monitor logs
 
 # Gateway Management
 ps aux | grep -i gateway                            # Check if Gateway running
-python SpyderB_Broker/SpyderB12_GatewayAutomation.py  # Manage Gateway
+python TradovB_Broker/TradovB12_GatewayAutomation.py  # Manage Gateway
 
 🔧 Development Workflow
 
@@ -115,11 +115,11 @@ python SpyderB_Broker/SpyderB12_GatewayAutomation.py  # Manage Gateway
 git checkout -b feature/your-feature-name
 # Make changes following module conventions
 git add .
-git commit -m "feat(SpyderX): description of changes"
+git commit -m "feat(TradovX): description of changes"
 ```
 
 ### 2. Testing Protocol
-- **Unit Tests**: `pytest SpyderT_Testing/test_your_module.py`
+- **Unit Tests**: `pytest TradovT_Testing/test_your_module.py`
 - **Paper Trading**: Test all market interactions in paper mode
 - **Integration**: Run system integration tests
 - **Log Review**: `tail -f logs/spyder_main.log`
@@ -142,10 +142,10 @@ Follow the pattern from `research/PythonModuleTemplate.py`:
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Options Trading System v1.0
 
-Series: SpyderX_ModuleName
-Module: SpyderX##_SpecificPurpose.py
+Series: TradovX_ModuleName
+Module: TradovX##_SpecificPurpose.py
 Purpose: Brief description of module functionality
 
 Author: [Author Name]
@@ -160,7 +160,7 @@ import standard_library_modules
 import third_party_modules
 
 # Local imports
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
+from TradovU_Utilities.TradovU01_Logger import TradovLogger
 ```
 
 ## 🎯 Development Priorities

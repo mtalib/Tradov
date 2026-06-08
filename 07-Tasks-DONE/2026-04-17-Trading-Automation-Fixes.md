@@ -2,14 +2,14 @@
 
 **Date:** 2026-04-17
 **Branch:** `refactor/g05-widget-extraction`
-**Module:** `Spyder/SpyderR_Runtime/SpyderR11_PaperStrategyRunner.py`
-**Companion launcher:** `Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py`
+**Module:** `Tradov/TradovR_Runtime/TradovR11_PaperStrategyRunner.py`
+**Companion launcher:** `Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py`
 
 ---
 
 ## 1. Executive Summary
 
-This report documents the full implementation lifecycle for the autonomous paper trading runner (`SpyderR11_PaperStrategyRunner`), delivered across two sessions on 2026-04-17.
+This report documents the full implementation lifecycle for the autonomous paper trading runner (`TradovR11_PaperStrategyRunner`), delivered across two sessions on 2026-04-17.
 
 The system autonomously:
 - Pulls live SPY + VIX quotes via Tradier (read-only, no live trades placed)
@@ -42,7 +42,7 @@ PaperStrategyRunner.tick():
      a. adapter.regime_gate(ctx)          ← VIX cap check
      b. adapter.evaluate_entry(ctx, runner) → ProposedPosition
      c. _size_position(max_loss)          ← 1% equity risk budget
-     d. _risk_gate(proposal, contracts)   ← SpyderE01 RiskManager
+     d. _risk_gate(proposal, contracts)   ← TradovE01 RiskManager
      e. _greek_gate(proposal, contracts)  ← portfolio delta/gamma/vega caps
      f. Stamp contracts on legs, record position, harness.record_trade()
 ```
@@ -128,7 +128,7 @@ After Session 1, two safety gaps remained:
 
 ### 4.2 Implementation: Regime Gate
 
-**Approach:** Lightweight VIX-based cap on `StrategyAdapter`, preferred over wiring `SpyderF10_MarketRegimeDetector` directly because F10 is a heavy stateful class with monitoring threads and ML initialisation — too costly for a per-tick call. The cap constant and the `regime_gate` seam are designed so a future `F10Adapter` subclass can replace the VIX check with full regime classification without changing the runner.
+**Approach:** Lightweight VIX-based cap on `StrategyAdapter`, preferred over wiring `TradovF10_MarketRegimeDetector` directly because F10 is a heavy stateful class with monitoring threads and ML initialisation — too costly for a per-tick call. The cap constant and the `regime_gate` seam are designed so a future `F10Adapter` subclass can replace the VIX check with full regime classification without changing the runner.
 
 **New constants:**
 
@@ -173,7 +173,7 @@ A single Tradier API call now returns both quotes. `MarketContext.vix` carries t
 
 ### 4.3 Implementation: Portfolio Greek Gate
 
-**Approach:** Inline `_greek_gate()` inside `PaperStrategyRunner`, preferred over wiring `SpyderE15_GreekLimitsManager` directly because E15 is similarly heavy (monitoring threads, ML regime classifier, Prometheus integration). The cap constants and method signature are designed to be replaced by an E15 delegation call.
+**Approach:** Inline `_greek_gate()` inside `PaperStrategyRunner`, preferred over wiring `TradovE15_GreekLimitsManager` directly because E15 is similarly heavy (monitoring threads, ML regime classifier, Prometheus integration). The cap constants and method signature are designed to be replaced by an E15 delegation call.
 
 **New constants:**
 
@@ -346,13 +346,13 @@ All well under portfolio caps: delta 11.80 < 50, gamma 0.888 < 10, vega 14.64 < 
 
 ### 7.1 Real D-series strategy routing (deferred)
 
-**What:** Replace `BullPutAdapter` / `ZeroDTEAdapter` inline logic with proper `D03Adapter(SpyderD03_CreditSpread)` and `D04Adapter(SpyderD04_ZeroDTE)` wrappers that delegate entry/exit to the real D-class signal interface.
+**What:** Replace `BullPutAdapter` / `ZeroDTEAdapter` inline logic with proper `D03Adapter(TradovD03_CreditSpread)` and `D04Adapter(TradovD04_ZeroDTE)` wrappers that delegate entry/exit to the real D-class signal interface.
 
-**Why deferred:** D03/D04 require `EventManager + RiskProfile + OHLCV DataFrame + their own chain provider`. Plugging them in properly touches 5+ modules and is a 1–2 day refactor. The real value of D-class integration is their coupling to `SpyderL07_PaperTradeLearner` and `SpyderL08_EntryOptimizer` — those dependencies don't yet exist in the paper runner. Defer until ML integration is ready.
+**Why deferred:** D03/D04 require `EventManager + RiskProfile + OHLCV DataFrame + their own chain provider`. Plugging them in properly touches 5+ modules and is a 1–2 day refactor. The real value of D-class integration is their coupling to `TradovL07_PaperTradeLearner` and `TradovL08_EntryOptimizer` — those dependencies don't yet exist in the paper runner. Defer until ML integration is ready.
 
 **Seam:** `StrategyAdapter.evaluate_entry()` is the natural extension point. A future `D03Adapter(StrategyAdapter)` wraps the D-class signal output with no changes to the runner.
 
-### 7.2 SpyderF09_EntryFilters (deferred)
+### 7.2 TradovF09_EntryFilters (deferred)
 
 **What:** Pre-entry filter set — spread quality, volume confirmation, news guard, extended time-of-day rules.
 
@@ -360,7 +360,7 @@ All well under portfolio caps: delta 11.80 < 50, gamma 0.888 < 10, vega 14.64 < 
 
 **Seam:** `StrategyAdapter.within_entry_window()` can be expanded to accept the `MarketContext` and consult F09 without changing the runner.
 
-### 7.3 SpyderE03_StopLossManager (deferred)
+### 7.3 TradovE03_StopLossManager (deferred)
 
 **What:** Replace inline stop logic in `StrategyAdapter.evaluate_exit()` with E03 delegation — trailing stops, time-based stops, Greeks-based stops.
 
@@ -368,11 +368,11 @@ All well under portfolio caps: delta 11.80 < 50, gamma 0.888 < 10, vega 14.64 < 
 
 **Seam:** `StrategyAdapter.evaluate_exit()` — replace return value logic with `E03StopLossManager.check(pos, ctx)`.
 
-### 7.4 SpyderR02_PaperEngine (intentionally skipped)
+### 7.4 TradovR02_PaperEngine (intentionally skipped)
 
 **Why:** R02 adds an abstraction layer that duplicates what `PaperTradingHarness` already does (record trades, track P&L). Our inline fill model (mid ± $0.02 slippage) gives full control with less code. Only worth revisiting if `OrderManager` event integration is needed for another subsystem.
 
-### 7.5 Full SpyderF10_MarketRegimeDetector integration (future)
+### 7.5 Full TradovF10_MarketRegimeDetector integration (future)
 
 **What:** Replace the VIX cap in `regime_gate()` with a call to `MarketRegimeDetector.get_current_regime()` for composite regime classification (trend + volatility + liquidity + breadth).
 
@@ -392,7 +392,7 @@ class F10RegimeAdapter(BullPutAdapter):
         return super().regime_gate(ctx)
 ```
 
-### 7.6 Full SpyderE15_GreekLimitsManager integration (future)
+### 7.6 Full TradovE15_GreekLimitsManager integration (future)
 
 **What:** Replace inline `_greek_gate()` with `GreekLimitsManager.check_strategy_violations()`.
 
@@ -407,10 +407,10 @@ class F10RegimeAdapter(BullPutAdapter):
 ```bash
 # Paper mode (live data, simulated execution)
 source .venv/bin/activate
-python Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py --with-strategies --verbose --heartbeat 60
+python Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py --with-strategies --verbose --heartbeat 60
 
 # Optional env override for starting equity
-PAPER_STARTING_EQUITY=50000 python Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py --with-strategies
+PAPER_STARTING_EQUITY=50000 python Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py --with-strategies
 ```
 
 **Environment variables read:**
@@ -429,5 +429,5 @@ PAPER_STARTING_EQUITY=50000 python Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py 
 
 | File | Nature |
 |---|---|
-| `Spyder/SpyderR_Runtime/SpyderR11_PaperStrategyRunner.py` | All implementation |
-| `Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py` | Unchanged — factory signature preserved |
+| `Tradov/TradovR_Runtime/TradovR11_PaperStrategyRunner.py` | All implementation |
+| `Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py` | Unchanged — factory signature preserved |

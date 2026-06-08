@@ -1,7 +1,7 @@
-# SPYDER TRADING SYSTEM
+# TRADOV TRADING SYSTEM
 ## Evolved Credit Spread Strategy — Institutional Performance Brief
 
-**Prepared by:** Spyder Autonomous Trading System  
+**Prepared by:** Tradov Autonomous Trading System  
 **Date:** April 22, 2026  
 **Strategy:** Credit Spread — Generation 15 (AI-Evolved)  
 **Classification:** Confidential — For Institutional Use Only  
@@ -10,9 +10,9 @@
 
 ## EXECUTIVE SUMMARY
 
-Spyder's AI-driven genetic algorithm has completed **15 generations of autonomous strategy evolution**, producing a Credit Spread strategy with a **fitness score of 0.799** — a **67% improvement** from the baseline generation (0.477). Live verification using QuantLib institutional pricing confirms the evolved strategy achieves **all four institutional-grade benchmarks simultaneously**, producing a **Sharpe Ratio of 2.66**, **Sortino Ratio of 5.04**, a **maximum drawdown of only −5.94%**, and an **annualised return of 31.19%**.
+Tradov's AI-driven genetic algorithm has completed **15 generations of autonomous strategy evolution**, producing a Credit Spread strategy with a **fitness score of 0.799** — a **67% improvement** from the baseline generation (0.477). Live verification using QuantLib institutional pricing confirms the evolved strategy achieves **all four institutional-grade benchmarks simultaneously**, producing a **Sharpe Ratio of 2.66**, **Sortino Ratio of 5.04**, a **maximum drawdown of only −5.94%**, and an **annualised return of 31.19%**.
 
-The strategy was priced, stress-tested, and graded entirely without human intervention by the Spyder autonomous trading engine.
+The strategy was priced, stress-tested, and graded entirely without human intervention by the Tradov autonomous trading engine.
 
 ---
 
@@ -34,7 +34,7 @@ The strategy was priced, stress-tested, and graded entirely without human interv
 
 ### Credit Spread — Generation 15
 
-The Spyder genetic algorithm iteratively evolved candidate strategies across **15 generations**, selecting for risk-adjusted return, drawdown resilience, and capital efficiency. The winning genome converged on a **bull put credit spread** with the following characteristics:
+The Tradov genetic algorithm iteratively evolved candidate strategies across **15 generations**, selecting for risk-adjusted return, drawdown resilience, and capital efficiency. The winning genome converged on a **bull put credit spread** with the following characteristics:
 
 | Parameter | Value |
 |---|---|
@@ -100,7 +100,7 @@ The evolved strategy was validated with live QuantLib Black-Scholes pricing on a
 
 ## GENETIC EVOLUTION PROGRESS
 
-Spyder's AI ran **20 total evolutionary generations** (15 converging + 5 validation), demonstrating continuous, compounding improvement with no human intervention:
+Tradov's AI ran **20 total evolutionary generations** (15 converging + 5 validation), demonstrating continuous, compounding improvement with no human intervention:
 
 ```
 FITNESS SCORE PROGRESSION
@@ -138,7 +138,7 @@ Good Hedge Fund               █████████████░░░�
 Elite Hedge Fund              █████████████████░░░░  1.80
 Two Sigma / Citadel range     ███████████████████░░  2.20
 
-► SPYDER EVOLVED STRATEGY    ██████████████████████  2.66 ◄
+► TRADOV EVOLVED STRATEGY    ██████████████████████  2.66 ◄
 
 Renaissance Medallion (est.)  ██████████████████████████  4.00+
 ```
@@ -154,7 +154,7 @@ Typical Equity Fund          █████████████████
 Average Options Seller       ████████████░░░░░░░░  −18.0%
 Well-Managed Hedge Fund      ████████░░░░░░░░░░░░  −12.0%
 
-► SPYDER EVOLVED STRATEGY    ████░░░░░░░░░░░░░░░░   −5.9% ◄
+► TRADOV EVOLVED STRATEGY    ████░░░░░░░░░░░░░░░░   −5.9% ◄
 ```
 
 ### Calmar Ratio Excellence
@@ -178,24 +178,24 @@ The evolved strategy was evaluated against all four institutional-grade criteria
 **Final Grade: 🏆 INSTITUTIONAL GRADE**  
 *"Strategy meets top-tier institutional standards."*
 
-This is the highest possible classification in Spyder's assessment framework. All four criteria were met at the **EXCELLENT** level, not merely the minimum threshold.
+This is the highest possible classification in Tradov's assessment framework. All four criteria were met at the **EXCELLENT** level, not merely the minimum threshold.
 
 ---
 
 ## TECHNOLOGY STACK
 
-The results above were produced entirely by Spyder's autonomous technology stack, with no manual parameter tuning:
+The results above were produced entirely by Tradov's autonomous technology stack, with no manual parameter tuning:
 
 | Component | Technology | Role |
 |---|---|---|
-| **Genetic Algorithm** | Custom Python — SpyderD18 / SpyderL | Strategy evolution & fitness selection |
+| **Genetic Algorithm** | Custom Python — TradovD18 / TradovL | Strategy evolution & fitness selection |
 | **Options Pricing** | QuantLib (institutional) | Black-Scholes-Merton exact pricing |
-| **Greeks Calculation** | QuantLib + SpyderN04 | Delta, Gamma, Theta, Vega |
-| **Performance Analytics** | SpyderU20 + scipy/statsmodels | Sharpe, Sortino, Calmar, drawdown |
+| **Greeks Calculation** | QuantLib + TradovN04 | Delta, Gamma, Theta, Vega |
+| **Performance Analytics** | TradovU20 + scipy/statsmodels | Sharpe, Sortino, Calmar, drawdown |
 | **Distributed Computing** | Ray (8/8 libraries active) | Parallel backtesting & evaluation |
-| **Risk Management** | SpyderE01–E23 (23 modules) | Pre-trade validation & Greek limits |
+| **Risk Management** | TradovE01–E23 (23 modules) | Pre-trade validation & Greek limits |
 | **Market Data** | Databento real-time feed | Live SPY options chain data |
-| **Broker Integration** | Tradier API — SpyderB40 | Live/paper order execution |
+| **Broker Integration** | Tradier API — TradovB40 | Live/paper order execution |
 
 All 8 of 8 institutional libraries were confirmed active at time of evaluation:  
 `QuantLib ✅ · Ray ✅ · scipy ✅ · statsmodels ✅ · PyTorch ✅ · TensorFlow ✅ · XGBoost ✅ · stable-baselines3 ✅`
@@ -204,7 +204,7 @@ All 8 of 8 institutional libraries were confirmed active at time of evaluation:
 
 ## CAPABILITY CONFIRMATION
 
-The T06 live test run confirmed all four core Spyder capabilities are fully operational:
+The T06 live test run confirmed all four core Tradov capabilities are fully operational:
 
 | Capability | Status | Evidence |
 |---|---|---|
@@ -217,15 +217,15 @@ The T06 live test run confirmed all four core Spyder capabilities are fully oper
 
 ## PEER COMPARISON
 
-The Spyder evolved strategy was benchmarked against the reference institutions that define quantitative excellence:
+The Tradov evolved strategy was benchmarked against the reference institutions that define quantitative excellence:
 
-| Institution | Known Strength | Spyder Equivalent |
+| Institution | Known Strength | Tradov Equivalent |
 |---|---|---|
-| **Renaissance Technologies** | Genetic & statistical algorithms | SpyderL / SpyderD genetic strategy evolution |
-| **Two Sigma** | AI-driven strategy discovery | SpyderX/Y agent-based opportunity scanning |
-| **Goldman Sachs** | Institutional options pricing | SpyderN + QuantLib integration |
-| **AQR Capital Management** | Factor-based performance analytics | SpyderU20 + SpyderK institutional analytics |
-| **D.E. Shaw** | Systematic risk management | SpyderE risk management (23 dedicated modules) |
+| **Renaissance Technologies** | Genetic & statistical algorithms | TradovL / TradovD genetic strategy evolution |
+| **Two Sigma** | AI-driven strategy discovery | TradovX/Y agent-based opportunity scanning |
+| **Goldman Sachs** | Institutional options pricing | TradovN + QuantLib integration |
+| **AQR Capital Management** | Factor-based performance analytics | TradovU20 + TradovK institutional analytics |
+| **D.E. Shaw** | Systematic risk management | TradovE risk management (23 dedicated modules) |
 
 ---
 
@@ -235,10 +235,10 @@ The Spyder evolved strategy was benchmarked against the reference institutions t
 
 SPY options markets present a structurally persistent edge for disciplined credit spread strategies:
 - **VIX overestimates realised volatility** approximately 85% of the time, meaning premium sellers collect above-fair compensation consistently
-- **0-DTE and short-DTE options** carry disproportionate theta decay in the final days to expiry — the timeframe Spyder targets
+- **0-DTE and short-DTE options** carry disproportionate theta decay in the final days to expiry — the timeframe Tradov targets
 - **Institutional market makers** maintain predictable hedging flows that create systematic pricing inefficiencies exploitable by quantitative systems
 
-### Why Spyder
+### Why Tradov
 
 1. **Autonomous improvement** — The system gets better without human intervention. Each generation improves on the last.
 2. **Defined risk** — Credit spreads cap the maximum loss. The system never risks more than allocated.
@@ -263,9 +263,9 @@ SPY options markets present a structurally persistent edge for disciplined credi
 
 ## RISK DISCLOSURES
 
-*This document is prepared for informational and evaluation purposes only. Past simulated performance is not indicative of future live results. Options trading involves significant risk of loss. All performance figures shown are derived from simulation using historical statistical parameters and QuantLib theoretical pricing; they do not represent actual trading results. Live trading results may differ materially due to execution risk, slippage, market impact, liquidity constraints, and regime changes not captured in simulation. Capital deployed in options strategies is subject to total loss. This document does not constitute an offer or solicitation to invest. Spyder operates in paper/sandbox mode until full live-trading validation is complete.*
+*This document is prepared for informational and evaluation purposes only. Past simulated performance is not indicative of future live results. Options trading involves significant risk of loss. All performance figures shown are derived from simulation using historical statistical parameters and QuantLib theoretical pricing; they do not represent actual trading results. Live trading results may differ materially due to execution risk, slippage, market impact, liquidity constraints, and regime changes not captured in simulation. Capital deployed in options strategies is subject to total loss. This document does not constitute an offer or solicitation to invest. Tradov operates in paper/sandbox mode until full live-trading validation is complete.*
 
 ---
 
-*Document generated by Spyder Autonomous Trading System — April 22, 2026*  
-*Spyder v1.0 · SpyderT06 Evolved Strategy Test · QuantLib Institutional Pricing Verified*
+*Document generated by Tradov Autonomous Trading System — April 22, 2026*  
+*Tradov v1.0 · TradovT06 Evolved Strategy Test · QuantLib Institutional Pricing Verified*

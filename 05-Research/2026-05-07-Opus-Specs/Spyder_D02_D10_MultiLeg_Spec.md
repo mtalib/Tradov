@@ -1,12 +1,12 @@
 # Spec: D02 IronCondor + D10 IronButterfly — Multi-Leg Remediation
 
 **Files:**
-- `Spyder/SpyderD_Strategies/SpyderD02_IronCondor.py`
-- `Spyder/SpyderD_Strategies/SpyderD10_IronButterfly.py`
+- `Tradov/TradovD_Strategies/TradovD02_IronCondor.py`
+- `Tradov/TradovD_Strategies/TradovD10_IronButterfly.py`
 
 **Status:** Both modules grade C — architectural contract violations, doc drift, silent-data-fabrication bugs, and a mathematically broken strike-scoring function in D02.
 
-**Read first:** `Spyder_Strategy_Audit_Master_Plan.md` — sections "Cross-cutting decisions required" answers all three of the open questions before this spec can be executed.
+**Read first:** `Tradov_Strategy_Audit_Master_Plan.md` — sections "Cross-cutting decisions required" answers all three of the open questions before this spec can be executed.
 
 ---
 
@@ -17,7 +17,7 @@
 | ID | Severity | Description |
 |---|---|---|
 | MULTILEG-01 | P0 | `generate_signals()` returns `[]` unconditionally — sync `BaseStrategy` contract is dead code |
-| MULTILEG-02 | P1 | Header docstring references `D26_MultiLegStrategyCoordinator` but import is `SpyderD32_MultiLegStrategyCoordinator` |
+| MULTILEG-02 | P1 | Header docstring references `D26_MultiLegStrategyCoordinator` but import is `TradovD32_MultiLegStrategyCoordinator` |
 | MULTILEG-03 | P0 | Silent fallback to synthetic IV: `market_data.get('iv', pd.Series([0.20]))` and `pd.Series([0.20] * 100)` fabricate "good setup" recommendations from fake data |
 | MULTILEG-04 | P2 | Several `except Exception` blocks return defaults that look like real analysis (e.g. `iv_rank: 50.0`, `confidence_score: 0.0`) — production failures masquerade as "neutral analysis" |
 | MULTILEG-05 | P2 | `active_setups` list is unbounded; never trimmed |
@@ -44,11 +44,11 @@
 
 ### 2.1 STEP 1 — Resolve coordinator name (MULTILEG-02)
 
-Per master plan Decision 1, the canonical name is **`SpyderD32_MultiLegStrategyCoordinator`**.
+Per master plan Decision 1, the canonical name is **`TradovD32_MultiLegStrategyCoordinator`**.
 
 #### D02 — find and replace
 
-In `SpyderD02_IronCondor.py` header docstring (lines ~17–35):
+In `TradovD02_IronCondor.py` header docstring (lines ~17–35):
 
 **Find:**
 ```
@@ -108,7 +108,7 @@ In `get_strategy_performance()`:
 
 #### D10 — apply the identical pattern
 
-Repeat the same six string replacements in `SpyderD10_IronButterfly.py`. The string content is identical except where the strategy is named (e.g. `Iron Condor` vs `Iron Butterfly`). Search the whole file for the literal `D26` and replace with `D32`.
+Repeat the same six string replacements in `TradovD10_IronButterfly.py`. The string content is identical except where the strategy is named (e.g. `Iron Condor` vs `Iron Butterfly`). Search the whole file for the literal `D26` and replace with `D32`.
 
 ### 2.2 STEP 2 — Restore `generate_signals` contract (MULTILEG-01, MULTILEG-06)
 
@@ -203,7 +203,7 @@ Per master plan Decision 2, **Option A** (sync wrapper around async analysis) is
         carried in ``signal.metadata`` for the multi-leg coordinator.
         """
         try:
-            from Spyder.SpyderD_Strategies.SpyderD01_BaseStrategy import (
+            from Tradov.TradovD_Strategies.TradovD01_BaseStrategy import (
                 SignalStrength,
                 SignalType,
                 TradingSignal,
@@ -261,7 +261,7 @@ Per master plan Decision 2, **Option A** (sync wrapper around async analysis) is
 
 #### D10 — apply the analogous pattern
 
-Repeat the change in `SpyderD10_IronButterfly.py`, substituting:
+Repeat the change in `TradovD10_IronButterfly.py`, substituting:
 
 - `analyze_iron_condor_opportunity` → `analyze_iron_butterfly_opportunity`
 - `IronCondorAnalysis` → `IronButterflyAnalysis`
@@ -393,7 +393,7 @@ Apply the same treatment to `_analyze_expected_move_for_ic` — it also reads `m
 
 #### D10 — apply the same pattern
 
-Repeat for `SpyderD10_IronButterfly.py`:
+Repeat for `TradovD10_IronButterfly.py`:
 
 - Rewrite `_analyze_iv_for_iron_butterfly` using the same `empty_result` / explicit-check structure (substitute `iv_suitable_for_ib` and `IB_MIN_IV_RANK`/`IB_MAX_IV_RANK`).
 - Rewrite `_analyze_expected_move_for_ib` to use the explicit IV check.

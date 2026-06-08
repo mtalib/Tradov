@@ -1,11 +1,11 @@
 ## 10. Standards/Python/Type-Hints.md
 
 ```markdown
-# Type Hints Standards for Spyder Trading System
+# Type Hints Standards for Tradov Trading System
 
 ## Overview
 
-Type hints are mandatory throughout the Spyder trading system to ensure code reliability, enable better IDE support, and catch potential errors before they can cause financial losses. This document defines comprehensive type annotation standards for all Python code.
+Type hints are mandatory throughout the Tradov trading system to ensure code reliability, enable better IDE support, and catch potential errors before they can cause financial losses. This document defines comprehensive type annotation standards for all Python code.
 
 ## Basic Type Annotations
 
@@ -722,14 +722,14 @@ warn_unused_ignores = True
 warn_unreachable = True
 strict_equality = True
 
-# Specific rules for Spyder modules
-[mypy-SpyderB_Broker.*]
+# Specific rules for Tradov modules
+[mypy-TradovB_Broker.*]
 strict_optional = True
 
-[mypy-SpyderD_Strategies.*]
+[mypy-TradovD_Strategies.*]
 disallow_any_generics = True
 
-[mypy-SpyderE_Risk.*]
+[mypy-TradovE_Risk.*]
 strict = True
 disallow_any_expr = True
 """
@@ -851,4 +851,4 @@ class RiskMetrics(TypedDict):
 
 ---
 
-Following these type annotation standards ensures the Spyder trading system maintains type safety throughout its codebase, reducing runtime errors and improving code maintainability in this critical financial application.
+Following these type annotation standards ensures the Tradov trading system maintains type safety throughout its codebase, reducing runtime errors and improving code maintainability in this critical financial application.

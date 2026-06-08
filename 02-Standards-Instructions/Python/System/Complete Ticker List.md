@@ -24,7 +24,7 @@ The document `IBKR_ticker_symbols_list.md` contains:
 
 1. **Current Issue:** "API handshake timeouts despite correct Gateway configuration"
 2. **Suspected Cause:** "Account-level API permissions not enabled"  
-3. **System:** Spyder Autonomous Options Trading System v1.0
+3. **System:** Tradov Autonomous Options Trading System v1.0
 4. **Platform:** Ubuntu 25.04, IB Gateway 10.39, Python ib_async
 
 ## 📞 **When Contacting IBKR Support:**

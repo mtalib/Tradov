@@ -78,5 +78,5 @@ The intended deployment path for this strategy is **Paper-First**. Live deployme
 
 ## References
 
-[1] Income Academy. "Amazing 7 DTE SPX Put Credit Spread Case Study!" YouTube, https://youtu.be/Fip0OY11NGg. Spyder adapts the structure to SPY options for live use.
+[1] Income Academy. "Amazing 7 DTE SPX Put Credit Spread Case Study!" YouTube, https://youtu.be/Fip0OY11NGg. Tradov adapts the structure to SPY options for live use.
 [2] Options Cafe. "SPY Put Credit Spreads Strategy: Rules and a 91% Win Rate." https://options.cafe/blog/spy-put-credit-spreads-strategy/.

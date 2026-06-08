@@ -1,11 +1,11 @@
 ## 13. Standards/Trading/Strategy-Development.md
 
 ```markdown
-# Strategy Development Standards for Spyder Trading System
+# Strategy Development Standards for Tradov Trading System
 
 ## Overview
 
-This document defines the standards and best practices for developing trading strategies within the Spyder system. All strategies must follow these guidelines to ensure consistency, reliability, and proper risk management in live trading environments.
+This document defines the standards and best practices for developing trading strategies within the Tradov system. All strategies must follow these guidelines to ensure consistency, reliability, and proper risk management in live trading environments.
 
 ## Strategy Architecture Standards
 
@@ -51,7 +51,7 @@ class BaseStrategy(ABC):
         self.is_active = False
         self.positions = {}
         self.performance_metrics = {}
-        self.logger = SpyderLogger.get_logger(f"Strategy.{name}")
+        self.logger = TradovLogger.get_logger(f"Strategy.{name}")
         
         # Initialize strategy-specific components
         self._initialize_strategy()
@@ -1030,17 +1030,17 @@ class StrategyCodeReviewChecklist:
 
 ---
 
-These strategy development standards ensure that all trading strategies in the Spyder system are built to institutional quality standards with proper testing, documentation, and risk management. Following these guidelines is essential for maintaining system reliability and protecting capital in live trading environments.
+These strategy development standards ensure that all trading strategies in the Tradov system are built to institutional quality standards with proper testing, documentation, and risk management. Following these guidelines is essential for maintaining system reliability and protecting capital in live trading environments.
 ```
 
 ## 14. Standards/Trading/IBKR-Integration.md
 
 ```markdown
-# Interactive Brokers Integration Standards for Spyder Trading System
+# Interactive Brokers Integration Standards for Tradov Trading System
 
 ## Overview
 
-This document defines the standards and best practices for integrating with Interactive Brokers (IBKR) API within the Spyder trading system. Proper IBKR integration is critical for reliable order execution, real-time data processing, and account management.
+This document defines the standards and best practices for integrating with Interactive Brokers (IBKR) API within the Tradov trading system. Proper IBKR integration is critical for reliable order execution, real-time data processing, and account management.
 
 ## Connection Management Standards
 
@@ -1103,7 +1103,7 @@ class IBKRConnectionManager:
         # Thread safety
         self._connection_lock = threading.RLock()
         
-        self.logger = SpyderLogger.get_logger("IBKRConnection")
+        self.logger = TradovLogger.get_logger("IBKRConnection")
     
     def connect(self) -> bool:
         """Establish connection to IBKR Gateway."""

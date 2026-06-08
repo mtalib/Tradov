@@ -1,402 +1,402 @@
-SpyderA_Core/
+TradovA_Core/
   __init__.py
-  SpyderA01_Main.py
-  SpyderA02_TradingEngine.py
-  SpyderA03_Configuration.py
-  SpyderA04_Scheduler.py
-  SpyderA05_EventManager.py
-  SpyderA06_MasterController.py
-  SpyderA08_FSeriesOrchestrator.py
-SpyderB_Broker/
+  TradovA01_Main.py
+  TradovA02_TradingEngine.py
+  TradovA03_Configuration.py
+  TradovA04_Scheduler.py
+  TradovA05_EventManager.py
+  TradovA06_MasterController.py
+  TradovA08_FSeriesOrchestrator.py
+TradovB_Broker/
   __init__.py
-  SpyderB00_OrderTypes.py
-  SpyderB01_SpyderClient_Fixed.py
-  SpyderB01_SpyderClient.py
-  SpyderB02_OrderManager.py
-  SpyderB03_PositionTracker.py
-  SpyderB04_AccountManager.py
-  SpyderB05_ConnectionManager.py
-  SpyderB06_ContractBuilder.py
-  SpyderB06_RemoteTWSAdapter.py
-  SpyderB07_MarketDataManager.py
-  SpyderB08_MultiClientDataManager.py
-  SpyderB09_IBClientPortal.py
-  SpyderB10_IBDataTypes.py
-  SpyderB11_AsyncIOBridge.py
-  SpyderB12_GatewayAutomation.py
-  SpyderB13_GatewayConfig.py
-  SpyderB14_MultiClientWatchdog.py
-  SpyderB15_PrometheusMetrics.py
-  SpyderB16_GatewayIntegration.py
-  SpyderB17_ServerMonitor.py
-  SpyderB18_ZurichConnectivityDiagnostic.py
-  SpyderB20_IntegratedConnectivityManager.py
-  SpyderB21_GatewayStartupAutomation.py
-  SpyderB22_IntegrationTestSuite.py
-  SpyderB23_BashrcConfiguration.py
-  SpyderB24_ConfigurationMigration.py
-  SpyderB25_GatewayInstaller.py
-  SpyderB26_PySideAsyncBridge.py
-  SpyderB27_IBDataConnector.py
-  SpyderB27_PooledClientManager.py
-  SpyderB28_IBKRConnectionTester.py
-  SpyderB29_EnhancedConnectionManager.py
-  SpyderB30_IBConnectionPool.py
-  SpyderB30_SPYOptionsChainManager.py
-  SpyderB31_PooledMultiClientManager.py
-  SpyderB33_APIFloodProtection.py
-SpyderC_MarketData/
+  TradovB00_OrderTypes.py
+  TradovB01_TradovClient_Fixed.py
+  TradovB01_TradovClient.py
+  TradovB02_OrderManager.py
+  TradovB03_PositionTracker.py
+  TradovB04_AccountManager.py
+  TradovB05_ConnectionManager.py
+  TradovB06_ContractBuilder.py
+  TradovB06_RemoteTWSAdapter.py
+  TradovB07_MarketDataManager.py
+  TradovB08_MultiClientDataManager.py
+  TradovB09_IBClientPortal.py
+  TradovB10_IBDataTypes.py
+  TradovB11_AsyncIOBridge.py
+  TradovB12_GatewayAutomation.py
+  TradovB13_GatewayConfig.py
+  TradovB14_MultiClientWatchdog.py
+  TradovB15_PrometheusMetrics.py
+  TradovB16_GatewayIntegration.py
+  TradovB17_ServerMonitor.py
+  TradovB18_ZurichConnectivityDiagnostic.py
+  TradovB20_IntegratedConnectivityManager.py
+  TradovB21_GatewayStartupAutomation.py
+  TradovB22_IntegrationTestSuite.py
+  TradovB23_BashrcConfiguration.py
+  TradovB24_ConfigurationMigration.py
+  TradovB25_GatewayInstaller.py
+  TradovB26_PySideAsyncBridge.py
+  TradovB27_IBDataConnector.py
+  TradovB27_PooledClientManager.py
+  TradovB28_IBKRConnectionTester.py
+  TradovB29_EnhancedConnectionManager.py
+  TradovB30_IBConnectionPool.py
+  TradovB30_SPYOptionsChainManager.py
+  TradovB31_PooledMultiClientManager.py
+  TradovB33_APIFloodProtection.py
+TradovC_MarketData/
   __init__.py
-  SpyderC01_DataFeed.py
-  SpyderC02_HistoricalData.py
-  SpyderC03_OptionChain.py
-  SpyderC04_MarketInternals.py
-  SpyderC05_VolumeProfile.py
-  SpyderC06_DataValidator.py
-  SpyderC07_OPRAFeed.py
-  SpyderC08_SPYFeed.py
-  SpyderC09_NewsManager.py
-  SpyderC10_VIXAnalyzer.py
-  SpyderC11_FuturesBasis.py
-  SpyderC12_DarkPoolFlow.py
-  SpyderC13_IndexComponents.py
-  SpyderC14_UltraLowLatencyFeed.py
-  SpyderC15_MicrostructureAnalyzer.py
-  SpyderC16_MarketDataCache.py
-  SpyderC17_MarketConfigManager.py
-  SpyderC18_SKEWCalculator.py
-  SpyderC19_AfterHoursDataManager.py
-  SpyderC20_MarketDataHub.py
-  SpyderC22_FactorDataProvider.py
-  SpyderC23_RealTimeDataOptimizer.py
-  SpyderC24_ModelDataPipeline.py
-SpyderD_Strategies/
+  TradovC01_DataFeed.py
+  TradovC02_HistoricalData.py
+  TradovC03_OptionChain.py
+  TradovC04_MarketInternals.py
+  TradovC05_VolumeProfile.py
+  TradovC06_DataValidator.py
+  TradovC07_OPRAFeed.py
+  TradovC08_SPYFeed.py
+  TradovC09_NewsManager.py
+  TradovC10_VIXAnalyzer.py
+  TradovC11_FuturesBasis.py
+  TradovC12_DarkPoolFlow.py
+  TradovC13_IndexComponents.py
+  TradovC14_UltraLowLatencyFeed.py
+  TradovC15_MicrostructureAnalyzer.py
+  TradovC16_MarketDataCache.py
+  TradovC17_MarketConfigManager.py
+  TradovC18_SKEWCalculator.py
+  TradovC19_AfterHoursDataManager.py
+  TradovC20_MarketDataHub.py
+  TradovC22_FactorDataProvider.py
+  TradovC23_RealTimeDataOptimizer.py
+  TradovC24_ModelDataPipeline.py
+TradovD_Strategies/
   __init__.py
-  SpyderD00_StrategyConstants.py
-  SpyderD01_BaseStrategy.py
-  SpyderD02_IronCondor.py
-  SpyderD03_CreditSpread.py
-  SpyderD04_ZeroDTE.py
-  SpyderD05_Straddle.py
-  SpyderD08_OpeningRangeBreakout.py
-  SpyderD09_GreeksBasedStrategy.py
-  SpyderD10_IronButterfly.py
-  SpyderD11_SpecializedZeroDTE.py
-  SpyderD12_RSIMeanReversion.py
-  SpyderD12_StrategyOrchestrator.py
-  SpyderD13_MACrossover.py
-  SpyderD14_CalendarSpread.py
-  SpyderD15_StraddleStrangle.py
-  SpyderD16_RatioSpreads.py
-  SpyderD17_DiagonalSpread.py
-  SpyderD18_EvolvedCreditSpread.py
-  SpyderD19_JadeLizard.py
-  SpyderD20_VerticalSpreadOptimizer.py
-  SpyderD21_DoubleCalendar.py
-  SpyderD22_AdaptiveVolatility.py
-  SpyderD25_UnifiedCreditSpreadEngine.py
-  SpyderD26_GammaScalper.py
-  SpyderD26_MultiLegStrategyCoordinator.py
-SpyderE_Risk/
+  TradovD00_StrategyConstants.py
+  TradovD01_BaseStrategy.py
+  TradovD02_IronCondor.py
+  TradovD03_CreditSpread.py
+  TradovD04_ZeroDTE.py
+  TradovD05_Straddle.py
+  TradovD08_OpeningRangeBreakout.py
+  TradovD09_GreeksBasedStrategy.py
+  TradovD10_IronButterfly.py
+  TradovD11_SpecializedZeroDTE.py
+  TradovD12_RSIMeanReversion.py
+  TradovD12_StrategyOrchestrator.py
+  TradovD13_MACrossover.py
+  TradovD14_CalendarSpread.py
+  TradovD15_StraddleStrangle.py
+  TradovD16_RatioSpreads.py
+  TradovD17_DiagonalSpread.py
+  TradovD18_EvolvedCreditSpread.py
+  TradovD19_JadeLizard.py
+  TradovD20_VerticalSpreadOptimizer.py
+  TradovD21_DoubleCalendar.py
+  TradovD22_AdaptiveVolatility.py
+  TradovD25_UnifiedCreditSpreadEngine.py
+  TradovD26_GammaScalper.py
+  TradovD26_MultiLegStrategyCoordinator.py
+TradovE_Risk/
   __init__.py
-  SpyderE01_RiskManager.py
-  SpyderE02_PositionSizer.py
-  SpyderE03_StopLossManager.py
-  SpyderE04_DrawdownControl.py
-  SpyderE05_AutomaticRebalancer.py
-  SpyderE06_RiskMetrics.py
-  SpyderE07_RealTimeStressTesting.py
-  SpyderE08_PositionGroupValidator.py
-  SpyderE09_VolatilityRiskManager.py
-  SpyderE10_CorrelationRiskManager.py
-  SpyderE11_MaxLossProtection.py
-  SpyderE12_PortfolioVaR.py
-  SpyderE13_DayProfitTarget.py
-  SpyderE14_PortfolioOptimizer.py
-  SpyderE15_GreekLimitsManager.py
-  SpyderE16_CircuitBreakerProtocol.py
-  SpyderE18_FSeriesRiskIntegrator.py
-  SpyderE19_UnifiedRiskCoordinator.py
-SpyderF_Analysis/
+  TradovE01_RiskManager.py
+  TradovE02_PositionSizer.py
+  TradovE03_StopLossManager.py
+  TradovE04_DrawdownControl.py
+  TradovE05_AutomaticRebalancer.py
+  TradovE06_RiskMetrics.py
+  TradovE07_RealTimeStressTesting.py
+  TradovE08_PositionGroupValidator.py
+  TradovE09_VolatilityRiskManager.py
+  TradovE10_CorrelationRiskManager.py
+  TradovE11_MaxLossProtection.py
+  TradovE12_PortfolioVaR.py
+  TradovE13_DayProfitTarget.py
+  TradovE14_PortfolioOptimizer.py
+  TradovE15_GreekLimitsManager.py
+  TradovE16_CircuitBreakerProtocol.py
+  TradovE18_FSeriesRiskIntegrator.py
+  TradovE19_UnifiedRiskCoordinator.py
+TradovF_Analysis/
   __init__.py
   mock_talib.py
-  SpyderF01_Indicators.py
-  SpyderF02_PriceAction.py
-  SpyderF03_SupportResistance.py
-  SpyderF04_VolatilityAnalysis.py
-  SpyderF05_TrendDetection.py
-  SpyderF06_GreeksCalculator.py
-  SpyderF07_GapAnalyzer.py
-  SpyderF08_VolatilityRegime.py
-  SpyderF09_EntryFilters.py
-  SpyderF10_MarketRegimeDetector.py
-  SpyderF11_GreeksAggregator.py
-  SpyderF12_AdvancedBacktestingEngine.py
-  SpyderF13_ModelValidation.py
-  SpyderF14_MarketMicrostructure.py
-  SpyderF16_RealTimeAnalytics.py
-  SpyderF17_UnifiedPerformanceEngine.py
-SpyderG_GUI/
+  TradovF01_Indicators.py
+  TradovF02_PriceAction.py
+  TradovF03_SupportResistance.py
+  TradovF04_VolatilityAnalysis.py
+  TradovF05_TrendDetection.py
+  TradovF06_GreeksCalculator.py
+  TradovF07_GapAnalyzer.py
+  TradovF08_VolatilityRegime.py
+  TradovF09_EntryFilters.py
+  TradovF10_MarketRegimeDetector.py
+  TradovF11_GreeksAggregator.py
+  TradovF12_AdvancedBacktestingEngine.py
+  TradovF13_ModelValidation.py
+  TradovF14_MarketMicrostructure.py
+  TradovF16_RealTimeAnalytics.py
+  TradovF17_UnifiedPerformanceEngine.py
+TradovG_GUI/
   __init__.py
-  SpyderG00_ApplicationManager.py
-  SpyderG01_MainWindow.py
-  SpyderG02_GUIEntry.py
-  SpyderG03_OptionChainWidget.py
-  SpyderG04_ChartWidget.py
-  SpyderG04_ChartWidgetPlotly.py
-  SpyderG04_PlotlyDataBridge.py
-  SpyderG04_PlotlyTemplates.py
-  SpyderG05_TradingDashboard.py
-  SpyderG06_ClientMonitorPanel.py
-  SpyderG07_PrometheusMetricsDisplay.py
-  SpyderG08_DashboardDataBridge.py
-  SpyderG08_EnhancedLauncher.py
-  SpyderG09_RiskParametersDialog.py
-  SpyderG10_CustomMetricsIntegration.py
-  SpyderG11_SkewMonitorDialog.py
-  SpyderG12_SignalInfoDialog.py
-  SpyderG13_EnhancedWidgets.py
-  SpyderG14_GatewayControlPanel.bak.py
-  SpyderG14_GatewayControlPanel.py
-  SpyderG15_ClientConnectionManager.py
-SpyderH_Storage/
+  TradovG00_ApplicationManager.py
+  TradovG01_MainWindow.py
+  TradovG02_GUIEntry.py
+  TradovG03_OptionChainWidget.py
+  TradovG04_ChartWidget.py
+  TradovG04_ChartWidgetPlotly.py
+  TradovG04_PlotlyDataBridge.py
+  TradovG04_PlotlyTemplates.py
+  TradovG05_TradingDashboard.py
+  TradovG06_ClientMonitorPanel.py
+  TradovG07_PrometheusMetricsDisplay.py
+  TradovG08_DashboardDataBridge.py
+  TradovG08_EnhancedLauncher.py
+  TradovG09_RiskParametersDialog.py
+  TradovG10_CustomMetricsIntegration.py
+  TradovG11_SkewMonitorDialog.py
+  TradovG12_SignalInfoDialog.py
+  TradovG13_EnhancedWidgets.py
+  TradovG14_GatewayControlPanel.bak.py
+  TradovG14_GatewayControlPanel.py
+  TradovG15_ClientConnectionManager.py
+TradovH_Storage/
   __init__.py
-  SpyderH01_DataAccessLayer.py
-  SpyderH02_DatabaseManager.py
-  SpyderH02_TradeRepository.py
-  SpyderH03_MarketDataCache.py
-  SpyderH07_PerformanceAnalytics.py
-SpyderI_Integration/
+  TradovH01_DataAccessLayer.py
+  TradovH02_DatabaseManager.py
+  TradovH02_TradeRepository.py
+  TradovH03_MarketDataCache.py
+  TradovH07_PerformanceAnalytics.py
+TradovI_Integration/
   __init__.py
-  SpyderI01_IBAutomaterFixed.py
-  SpyderI01_IntegrationHub.py
-  SpyderI02_EventRouter_Clean.py
-  SpyderI02_EventRouter.py
-  SpyderI03_ConfigManager.py
-  SpyderI04_DiagnosticsEngine_Core.py
-  SpyderI04_DiagnosticsEngine_DataCollector.py
-  SpyderI04_DiagnosticsEngine_HealthChecks.py
-  SpyderI04_DiagnosticsEngine_Types.py
-  SpyderI04_DiagnosticsEngine_Utils.py
-  SpyderI04_SyntaxValidator.py
-  SpyderI06_AgentMessageBus.py
-SpyderJ_Alerts/
+  TradovI01_IBAutomaterFixed.py
+  TradovI01_IntegrationHub.py
+  TradovI02_EventRouter_Clean.py
+  TradovI02_EventRouter.py
+  TradovI03_ConfigManager.py
+  TradovI04_DiagnosticsEngine_Core.py
+  TradovI04_DiagnosticsEngine_DataCollector.py
+  TradovI04_DiagnosticsEngine_HealthChecks.py
+  TradovI04_DiagnosticsEngine_Types.py
+  TradovI04_DiagnosticsEngine_Utils.py
+  TradovI04_SyntaxValidator.py
+  TradovI06_AgentMessageBus.py
+TradovJ_Alerts/
   __init__.py
-  SpyderJ01_AlertManager.py
-  SpyderJ02_EmailNotifier.py
-  SpyderJ04_DesktopNotifier.py
-  SpyderJ05_TelegramBot.py
-SpyderK_Reports/
+  TradovJ01_AlertManager.py
+  TradovJ02_EmailNotifier.py
+  TradovJ04_DesktopNotifier.py
+  TradovJ05_TelegramBot.py
+TradovK_Reports/
   __init__.py
-  SpyderK01_ReportGenerator.py
-  SpyderK02_DailyTradingReport.py
-  SpyderK03_PerformanceDashboard.py
-  SpyderK04_ExecutionAnalytics.py
-  SpyderK05_RiskReport.py
-  SpyderK06_PortfolioAnalytics.py
-  SpyderK07_StrategyComparison.py
-  SpyderK08_MLPerformanceReport.py
-  SpyderK09_RegulatoryReports.py
-  SpyderK10_RealTimePerformanceAnalytics.py
-SpyderL_ML/
+  TradovK01_ReportGenerator.py
+  TradovK02_DailyTradingReport.py
+  TradovK03_PerformanceDashboard.py
+  TradovK04_ExecutionAnalytics.py
+  TradovK05_RiskReport.py
+  TradovK06_PortfolioAnalytics.py
+  TradovK07_StrategyComparison.py
+  TradovK08_MLPerformanceReport.py
+  TradovK09_RegulatoryReports.py
+  TradovK10_RealTimePerformanceAnalytics.py
+TradovL_ML/
   __init__.py
-  SpyderL01_MLPredictor.py
-  SpyderL07_PaperTradeLearner.py
-  SpyderL08_EntryOptimizer.py
-  SpyderL09_UnifiedRegimeEngine.py
-  SpyderL10_FeatureEngineering.py
-  SpyderL11_MLModelManager.py
-  SpyderL12_RandomForestEnsemble.py
-  SpyderL13_LSTMPricer.py
-  SpyderL14_RealTimePredictor.py
-  SpyderL15_MOmentPredictor.py
-  SpyderL16_OptionsAdjustmentRL.py
-  SpyderL17_FederatedLearning.py
-  SpyderL18_EnhancedMLIntegration.py
-SpyderM_Monitoring/
+  TradovL01_MLPredictor.py
+  TradovL07_PaperTradeLearner.py
+  TradovL08_EntryOptimizer.py
+  TradovL09_UnifiedRegimeEngine.py
+  TradovL10_FeatureEngineering.py
+  TradovL11_MLModelManager.py
+  TradovL12_RandomForestEnsemble.py
+  TradovL13_LSTMPricer.py
+  TradovL14_RealTimePredictor.py
+  TradovL15_MOmentPredictor.py
+  TradovL16_OptionsAdjustmentRL.py
+  TradovL17_FederatedLearning.py
+  TradovL18_EnhancedMLIntegration.py
+TradovM_Monitoring/
   __init__.py
-  SpyderM01_SystemMonitor.py
-  SpyderM03_AIAgentMonitor.py
-  SpyderM03_MigrationMonitor.py
-  SpyderM04_TradingMetrics.py
-  SpyderM05_TransactionCostAnalysis.py
-  SpyderM06_HMMRegimeDetector.py
-SpyderN_OptionsAnalytics/
+  TradovM01_SystemMonitor.py
+  TradovM03_AIAgentMonitor.py
+  TradovM03_MigrationMonitor.py
+  TradovM04_TradingMetrics.py
+  TradovM05_TransactionCostAnalysis.py
+  TradovM06_HMMRegimeDetector.py
+TradovN_OptionsAnalytics/
   __init__.py
-  SpyderN01_OptionsPricer.py
-  SpyderN02_ImpliedVolatilityEngine.py
-  SpyderN03_OptionsChainManager.py
-  SpyderN04_OptionsGreeksCalculator.py
-  SpyderN05_OptionsExpirationManager.py
-  SpyderN06_VolatilitySurfaceBuilder.py
-  SpyderN07_OptionsFlowTracker.py
-  SpyderN08_VolatilitySurface.py
-  SpyderN09_GammaExposure.py
-  SpyderN10_OptionsFlowAnalyzer.py
-  SpyderN11_OptionsGreeksFlow.py
-  SpyderN12_VolatilitySurfaceAI.py
-  SpyderN13_MarketImpactModel.py
-SpyderO_TradingIntelligence/
+  TradovN01_OptionsPricer.py
+  TradovN02_ImpliedVolatilityEngine.py
+  TradovN03_OptionsChainManager.py
+  TradovN04_OptionsGreeksCalculator.py
+  TradovN05_OptionsExpirationManager.py
+  TradovN06_VolatilitySurfaceBuilder.py
+  TradovN07_OptionsFlowTracker.py
+  TradovN08_VolatilitySurface.py
+  TradovN09_GammaExposure.py
+  TradovN10_OptionsFlowAnalyzer.py
+  TradovN11_OptionsGreeksFlow.py
+  TradovN12_VolatilitySurfaceAI.py
+  TradovN13_MarketImpactModel.py
+TradovO_TradingIntelligence/
   __init__.py
-  SpyderO01_CoreTechnicalIndicators.py
-  SpyderO02_TradingOpportunityScanner.py
-  SpyderO03_StrategyOptimizers.py
-SpyderP_PortfolioMgmt/
+  TradovO01_CoreTechnicalIndicators.py
+  TradovO02_TradingOpportunityScanner.py
+  TradovO03_StrategyOptimizers.py
+TradovP_PortfolioMgmt/
   __init__.py
-  SpyderP01_PortfolioManager.py
-  SpyderP02_AllocationOptimizer.py
-  SpyderP03_CorrelationAnalyzer.py
-  SpyderP04_CapitalAllocator.py
-  SpyderP05_MultiStrategyAllocator.py
-  SpyderP06_StrategyRotation.py
-SpyderQ_Scripts/
+  TradovP01_PortfolioManager.py
+  TradovP02_AllocationOptimizer.py
+  TradovP03_CorrelationAnalyzer.py
+  TradovP04_CapitalAllocator.py
+  TradovP05_MultiStrategyAllocator.py
+  TradovP06_StrategyRotation.py
+TradovQ_Scripts/
   archived/
     README.md
-    SpyderQ01_Setup.sh
-    SpyderQ02_Dependencies.sh
-    SpyderQ03_InstallGateway.sh
-    SpyderQ05_InstallCommands.sh
-    SpyderQ06_MigrateToQSeries.sh
-    SpyderQ35_VerifySystem.sh
+    TradovQ01_Setup.sh
+    TradovQ02_Dependencies.sh
+    TradovQ03_InstallGateway.sh
+    TradovQ05_InstallCommands.sh
+    TradovQ06_MigrateToQSeries.sh
+    TradovQ35_VerifySystem.sh
   __init__.py
   Setup Installation Q00.md
-  SpyderQ10_StartAll.sh
-  SpyderQ11_StopAll.sh
-  SpyderQ14_MainLauncher.py
-  SpyderQ15_LaunchGateway.sh
-  SpyderQ16_SpyderControl.sh
-  SpyderQ20_Status.sh
-  SpyderQ21_Monitor.sh
-  SpyderQ22_CheckIBStatus.py
-  SpyderQ24_ProductionWatchdog.py
-  SpyderQ25_SystemMonitor.py
-  SpyderQ30_Diagnostics.sh
-  SpyderQ40_Cleanup.sh
-  SpyderQ41_Backup.sh
-  SpyderQ45_Diagnostics.py
-  SpyderQ50_ExportData.sh
-  SpyderQ70_Watchdog.service
-  SpyderQ71_Metrics.service
-  SpyderQ72_IBWatchdog.service
-  SpyderQ74_SpyderMain.service
-  SpyderQ80_VerifyDashboardIntegration.py
-  SpyderQ90_SystemUtilities.py
-  SpyderQ91_MonitoringUtilities.py
-  SpyderQ92_DiagnosticsUtilities.py
-  SpyderQ95_TransitionManager.sh
-SpyderR_Runtime/
+  TradovQ10_StartAll.sh
+  TradovQ11_StopAll.sh
+  TradovQ14_MainLauncher.py
+  TradovQ15_LaunchGateway.sh
+  TradovQ16_TradovControl.sh
+  TradovQ20_Status.sh
+  TradovQ21_Monitor.sh
+  TradovQ22_CheckIBStatus.py
+  TradovQ24_ProductionWatchdog.py
+  TradovQ25_SystemMonitor.py
+  TradovQ30_Diagnostics.sh
+  TradovQ40_Cleanup.sh
+  TradovQ41_Backup.sh
+  TradovQ45_Diagnostics.py
+  TradovQ50_ExportData.sh
+  TradovQ70_Watchdog.service
+  TradovQ71_Metrics.service
+  TradovQ72_IBWatchdog.service
+  TradovQ74_TradovMain.service
+  TradovQ80_VerifyDashboardIntegration.py
+  TradovQ90_SystemUtilities.py
+  TradovQ91_MonitoringUtilities.py
+  TradovQ92_DiagnosticsUtilities.py
+  TradovQ95_TransitionManager.sh
+TradovR_Runtime/
   __init__.py
-  SpyderR01_BacktestEngine.py
-  SpyderR02_PaperEngine.py
-  SpyderR03_PaperMonitor.py
-  SpyderR04_LiveEngine.py
-  SpyderR05_WorkingBridge.py
-  SpyderR06_IBDataBridge_Enhanced.py
-  SpyderR06_IBDataBridge.py
-  SpyderR07_LiveDashboard.py
-  SpyderR08_EnhancedBacktestEngine.py
-  SpyderR09_ProductionDeploymentManager.py
-SpyderS_Signals/
+  TradovR01_BacktestEngine.py
+  TradovR02_PaperEngine.py
+  TradovR03_PaperMonitor.py
+  TradovR04_LiveEngine.py
+  TradovR05_WorkingBridge.py
+  TradovR06_IBDataBridge_Enhanced.py
+  TradovR06_IBDataBridge.py
+  TradovR07_LiveDashboard.py
+  TradovR08_EnhancedBacktestEngine.py
+  TradovR09_ProductionDeploymentManager.py
+TradovS_Signals/
   __init__.py
-  SpyderS01_DIXCalculator.py
-  SpyderS02_DIXScheduler.py
-  SpyderS03_BlackSwanIndicator.py
-  SpyderS04_BlackSwanScheduler.py
-  SpyderS05_GEXDEXCalculator.py
-  SpyderS06_SKEWCalculator.py
-  SpyderS07_CustomMetricsOrchestrator.py
-SpyderT_Testing/
+  TradovS01_DIXCalculator.py
+  TradovS02_DIXScheduler.py
+  TradovS03_BlackSwanIndicator.py
+  TradovS04_BlackSwanScheduler.py
+  TradovS05_GEXDEXCalculator.py
+  TradovS06_SKEWCalculator.py
+  TradovS07_CustomMetricsOrchestrator.py
+TradovT_Testing/
   __init__.py
   advanced_protocol_test.py
   detailed_handshake_test.py
   ibkr_diagnostic_collector.py
   quick_gateway_check.py
-  SpyderT01_UnitTestFramework.py
-  SpyderT02_BrokerTestSuite.py
-  SpyderT03_BlackSwanValidator.py
-  SpyderT05_LiveIBConnectionTest.py
-  SpyderT06_EvolvedStrategyTest.py
-  SpyderT07_AdvancedEvolutionPush.py
-  SpyderT08_FixedSystemIntegration.py
-  SpyderT09_TestDashboard.py
-  SpyderT10_DashboardRisk.py
-  SpyderT11_EliteEvolvedStrategyTest.py
-  SpyderT12_FullSystemIntegration.py
-  SpyderT13_MultiClientIntegrationTest.py
-  SpyderT14_RiskSuiteIntegrationTest.py
-  SpyderT15_FullSystemTest.py
-  SpyderT16_SystemHealthMonitor.py
-  SpyderT17_ComprehensiveSystemTest.py
-  SpyderT20_DIXDemo.py
-  SpyderT21_DIXQuickStart.py
-  SpyderT22_FSeriesIntegrationValidator.py
-  SpyderT99_SystemDiagnostic.py
+  TradovT01_UnitTestFramework.py
+  TradovT02_BrokerTestSuite.py
+  TradovT03_BlackSwanValidator.py
+  TradovT05_LiveIBConnectionTest.py
+  TradovT06_EvolvedStrategyTest.py
+  TradovT07_AdvancedEvolutionPush.py
+  TradovT08_FixedSystemIntegration.py
+  TradovT09_TestDashboard.py
+  TradovT10_DashboardRisk.py
+  TradovT11_EliteEvolvedStrategyTest.py
+  TradovT12_FullSystemIntegration.py
+  TradovT13_MultiClientIntegrationTest.py
+  TradovT14_RiskSuiteIntegrationTest.py
+  TradovT15_FullSystemTest.py
+  TradovT16_SystemHealthMonitor.py
+  TradovT17_ComprehensiveSystemTest.py
+  TradovT20_DIXDemo.py
+  TradovT21_DIXQuickStart.py
+  TradovT22_FSeriesIntegrationValidator.py
+  TradovT99_SystemDiagnostic.py
   test_client_ids.py
   verbose_connection_test.py
-SpyderU_Utilities/
+TradovU_Utilities/
   __init__.py
-  SpyderU01_Logger.py
-  SpyderU02_ErrorHandler.py
-  SpyderU03_DateTimeUtils.py
-  SpyderU04_Encryption.py
-  SpyderU05_NetworkUtils.py
-  SpyderU06_MathUtils.py
-  SpyderU07_Constants.py
-  SpyderU08_Validators.py
-  SpyderU09_DataTypes.py
-  SpyderU10_TradingCalendar.py
-  SpyderU11_FeatureFlags.py
-  SpyderU12_AgentIntegration.py
-  SpyderU13_TechnicalIndicators.py
-  SpyderU14_OptionStrategies.py
-  SpyderU15_PerformanceMetrics.py
-  SpyderU16_TechnicalAnalysis.py
-  SpyderU17_IBErrorCodes.py
-  SpyderU18_DependencyAnalyzer.py
-  SpyderU19_InteractionMatrix.py
-  SpyderU20_IBGatewayWatchdog.py
-  SpyderU20_InstitutionalLibraries.py
-  SpyderU21_IBGatewayJVMConfig.py
-  SpyderU22_ETTimeDisplay.py
-  SpyderU23_MemoryMonitor.py
-  SpyderU24_StyleManager.py
-  SpyderU27_SystemOptimizer.py
-  SpyderU30_ClientIDManager.py
-  SpyderU31_GatewayHealthMonitor.py
-SpyderV_QuantModels/
+  TradovU01_Logger.py
+  TradovU02_ErrorHandler.py
+  TradovU03_DateTimeUtils.py
+  TradovU04_Encryption.py
+  TradovU05_NetworkUtils.py
+  TradovU06_MathUtils.py
+  TradovU07_Constants.py
+  TradovU08_Validators.py
+  TradovU09_DataTypes.py
+  TradovU10_TradingCalendar.py
+  TradovU11_FeatureFlags.py
+  TradovU12_AgentIntegration.py
+  TradovU13_TechnicalIndicators.py
+  TradovU14_OptionStrategies.py
+  TradovU15_PerformanceMetrics.py
+  TradovU16_TechnicalAnalysis.py
+  TradovU17_IBErrorCodes.py
+  TradovU18_DependencyAnalyzer.py
+  TradovU19_InteractionMatrix.py
+  TradovU20_IBGatewayWatchdog.py
+  TradovU20_InstitutionalLibraries.py
+  TradovU21_IBGatewayJVMConfig.py
+  TradovU22_ETTimeDisplay.py
+  TradovU23_MemoryMonitor.py
+  TradovU24_StyleManager.py
+  TradovU27_SystemOptimizer.py
+  TradovU30_ClientIDManager.py
+  TradovU31_GatewayHealthMonitor.py
+TradovV_QuantModels/
   __init__.py
   __init__.py.bak2
-  SpyderV01_QuantEngine.py
-  SpyderV02_ModelManager.py
-  SpyderV03_DataInterface.py
-  SpyderV04_RiskManager.py
-  SpyderV05_PricingEngine.py
-  SpyderV06_VolatilityEngine.py
-  SpyderV07_AdvancedModels.py
-  SpyderV08_AIModels.py
-SpyderX_Agents/
+  TradovV01_QuantEngine.py
+  TradovV02_ModelManager.py
+  TradovV03_DataInterface.py
+  TradovV04_RiskManager.py
+  TradovV05_PricingEngine.py
+  TradovV06_VolatilityEngine.py
+  TradovV07_AdvancedModels.py
+  TradovV08_AIModels.py
+TradovX_Agents/
   __init__.py
-  SpyderX01_GreeksAgent.py
-  SpyderX02_FlowAgent.py
-  SpyderX03_StrategyDirectorAgent.py
-  SpyderX04_RiskGuardianAgent.py
-  SpyderX05_MLResearchAgent.py
-  SpyderX06_BacktestingAgent.py
-  SpyderX07_ExecutionStrategyAgent.py
-  SpyderX09_AlertManagerAgent.py
-  SpyderX10_QuantModelsAgent.py
-  SpyderX11_SentimentAnalysisAgent.py
-  SpyderX12_SystemHealthAgent.py
-  SpyderX13_MarketAnalysisAgent.py
-  SpyderX14_OrchestratorAgent.py
-  SpyderX15_StrategyGeneratorAgent.py
-  SpyderX16_MetaCoordinator.py
-SpyderZ_Communication/
+  TradovX01_GreeksAgent.py
+  TradovX02_FlowAgent.py
+  TradovX03_StrategyDirectorAgent.py
+  TradovX04_RiskGuardianAgent.py
+  TradovX05_MLResearchAgent.py
+  TradovX06_BacktestingAgent.py
+  TradovX07_ExecutionStrategyAgent.py
+  TradovX09_AlertManagerAgent.py
+  TradovX10_QuantModelsAgent.py
+  TradovX11_SentimentAnalysisAgent.py
+  TradovX12_SystemHealthAgent.py
+  TradovX13_MarketAnalysisAgent.py
+  TradovX14_OrchestratorAgent.py
+  TradovX15_StrategyGeneratorAgent.py
+  TradovX16_MetaCoordinator.py
+TradovZ_Communication/
   __init__.py
-  SpyderZ01_ZeroMQIntegration.py
-  SpyderZ02_MessageProtocol.py
-  SpyderZ03_TradingCoordinator.py
-  SpyderZ04_VolatilityEngine.py
-  SpyderZ05_OrderRouter.py
-  SpyderZ06_AutoHedger.py
-  SpyderZ07_MultiProcessManager.py
+  TradovZ01_ZeroMQIntegration.py
+  TradovZ02_MessageProtocol.py
+  TradovZ03_TradingCoordinator.py
+  TradovZ04_VolatilityEngine.py
+  TradovZ05_OrderRouter.py
+  TradovZ06_AutoHedger.py
+  TradovZ07_MultiProcessManager.py

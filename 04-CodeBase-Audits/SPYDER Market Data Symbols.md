@@ -1,4 +1,4 @@
-SPYDER Market Data Symbols by Update Frequency
+TRADOV Market Data Symbols by Update Frequency
 
 ⚡ 1 SECOND UPDATES (Critical & High Priority)
 Core Market Data

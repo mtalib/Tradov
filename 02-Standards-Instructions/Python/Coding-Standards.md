@@ -1,26 +1,26 @@
  Standards/Python/Coding-Standards.md
 
 ```markdown
-# Python Coding Standards for Spyder Trading System
+# Python Coding Standards for Tradov Trading System
 
 ## Overview
 
-This document defines the coding standards and conventions used throughout the Spyder trading system. Consistency in coding style improves readability, maintainability, and reduces the likelihood of errors in a system that handles real financial transactions.
+This document defines the coding standards and conventions used throughout the Tradov trading system. Consistency in coding style improves readability, maintainability, and reduces the likelihood of errors in a system that handles real financial transactions.
 
 ## File Structure & Organization
 
 ### Module File Template
 
-Every Python module in the Spyder system should follow this structure:
+Every Python module in the Tradov system should follow this structure:
 
 ```python
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Options Trading System v1.0
 
-Series: SpyderX_ModuleName
-Module: SpyderXNN_SpecificFunction.py
+Series: TradovX_ModuleName
+Module: TradovXNN_SpecificFunction.py
 Purpose: Brief description of what this module does
 
 Author: [Author Name]
@@ -66,8 +66,8 @@ import numpy as np
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from TradovU_Utilities.TradovU01_Logger import TradovLogger
+from TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler
 
 # ==============================================================================
 # CONSTANTS
@@ -99,15 +99,15 @@ class ModuleConfig:
 # ==============================================================================
 class StandardModule:
     """
-    Standard module template following Spyder conventions.
+    Standard module template following Tradov conventions.
     
     This class demonstrates the expected structure, documentation,
-    and coding patterns for all modules in the Spyder system.
+    and coding patterns for all modules in the Tradov system.
     """
     
     def __init__(self, config: Optional[ModuleConfig] = None):
         """Initialize the module with configuration."""
-        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
+        self.logger = TradovLogger.get_logger(self.__class__.__name__)
         self.config = config or ModuleConfig(name=self.__class__.__name__)
         self.state = ModuleState.INITIALIZING
         
@@ -153,8 +153,8 @@ if __name__ == "__main__":
 ## Naming Conventions
 
 ### Module and File Naming
-- **Module Names**: `SpyderX_CategoryName` (e.g., `SpyderB_Broker`)
-- **File Names**: `SpyderXNN_SpecificFunction.py` (e.g., `SpyderB01_ConnectionManager.py`)
+- **Module Names**: `TradovX_CategoryName` (e.g., `TradovB_Broker`)
+- **File Names**: `TradovXNN_SpecificFunction.py` (e.g., `TradovB01_ConnectionManager.py`)
 - **Series Letters**: Follow the established series system (A=Core, B=Broker, etc.)
 - **Numbers**: Sequential numbering within each series (01, 02, 03...)
 
@@ -284,22 +284,22 @@ def _retry_order_execution(self, order_data: dict, max_retries: int = 3) -> bool
 
 ### Custom Exception Classes
 ```python
-class SpyderException(Exception):
-    """Base exception class for all Spyder-specific errors."""
+class TradovException(Exception):
+    """Base exception class for all Tradov-specific errors."""
     pass
 
-class TradingError(SpyderException):
+class TradingError(TradovException):
     """Raised when trading operations fail."""
     pass
 
-class DataValidationError(SpyderException):
+class DataValidationError(TradovException):
     """Raised when data validation fails."""
     
     def __init__(self, message: str, invalid_data: Any = None):
         super().__init__(message)
         self.invalid_data = invalid_data
 
-class ConnectionTimeoutError(SpyderException):
+class ConnectionTimeoutError(TradovException):
     """Raised when connection operations timeout."""
     
     def __init__(self, timeout_duration: float, operation: str):
@@ -312,11 +312,11 @@ class ConnectionTimeoutError(SpyderException):
 
 ### Logger Configuration
 ```python
-class SpyderModule:
+class TradovModule:
     """Standard module with proper logging setup."""
     
     def __init__(self, name: str):
-        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
+        self.logger = TradovLogger.get_logger(self.__class__.__name__)
         self.name = name
         
     def process_data(self, data: Any) -> bool:
@@ -435,7 +435,7 @@ def calculate_options_greeks(
 ```python
 class TradingStrategy:
     """
-    Base class for all trading strategies in the Spyder system.
+    Base class for all trading strategies in the Tradov system.
     
     This class provides the standard interface and common functionality
     that all trading strategies should implement or inherit.
@@ -460,7 +460,7 @@ class TradingStrategy:
         
         # Private attributes
         self._config = config or {}
-        self._logger = SpyderLogger.get_logger(f"{self.__class__.__name__}.{name}")
+        self._logger = TradovLogger.get_logger(f"{self.__class__.__name__}.{name}")
         self._risk_manager = None
         
         # Initialize strategy
@@ -598,7 +598,7 @@ class OrderManager:
     def __init__(self, broker_client=None, risk_manager=None):
         self._broker_client = broker_client or DefaultBrokerClient()
         self._risk_manager = risk_manager or DefaultRiskManager()
-        self._logger = SpyderLogger.get_logger(self.__class__.__name__)
+        self._logger = TradovLogger.get_logger(self.__class__.__name__)
         
     def submit_order(self, order_data: dict) -> bool:
         """Submit order with validation and risk checks."""
@@ -649,8 +649,8 @@ class OrderManager:
 - **Performance**: Are there any performance bottlenecks?
 - **Testing**: Is the code structured to be testable?
 - **Documentation**: Is the code adequately documented?
-- **Standards**: Does the code follow Spyder conventions?
+- **Standards**: Does the code follow Tradov conventions?
 
 ---
 
-Following these coding standards ensures consistency, maintainability, and reliability across the entire Spyder trading system. These standards are living documents that evolve with the system and development best practices.
+Following these coding standards ensures consistency, maintainability, and reliability across the entire Tradov trading system. These standards are living documents that evolve with the system and development best practices.

@@ -1,13 +1,13 @@
-# SPEC-SPYDER-02 — Backtesting Framework Module
+# SPEC-TRADOV-02 — Backtesting Framework Module
 
 | Field | Value |
 |---|---|
-| Spec ID | SPEC-SPYDER-02 |
-| Module | `spyder/backtest/` (package) |
+| Spec ID | SPEC-TRADOV-02 |
+| Module | `tradov/backtest/` (package) |
 | Version | 1.0.0 |
 | Status | Ready for implementation |
-| Depends on | SPEC-SPYDER-04 (Greeks for synthetic chain pricing) |
-| Target | Reproducible, slippage-aware backtesting of all Spyder strategies |
+| Depends on | SPEC-TRADOV-04 (Greeks for synthetic chain pricing) |
+| Target | Reproducible, slippage-aware backtesting of all Tradov strategies |
 
 ---
 
@@ -38,7 +38,7 @@ The custom engine is the gatekeeper for live deployment. `vectorbt` and `backtra
 ## 3. Architecture
 
 ```
-spyder/backtest/
+tradov/backtest/
 ├── __init__.py
 ├── engine.py            # BacktestEngine — main event loop
 ├── clock.py             # SimClock; replaces real wall clock
@@ -56,7 +56,7 @@ spyder/backtest/
 │   └── greeks_attrib.py # P/L attribution by greek
 ├── reports/
 │   ├── html_report.py   # Standalone HTML with embedded charts
-│   └── pdf_report.py    # ReportLab-based PDF (same toolkit as Spyder investor PDF)
+│   └── pdf_report.py    # ReportLab-based PDF (same toolkit as Tradov investor PDF)
 └── adapters/
     ├── vectorbt_adapter.py  # For research sweeps
     └── backtrader_adapter.py
@@ -139,7 +139,7 @@ class BacktestEngine:
 Store on local SSD per Captova local-first principle:
 
 ```
-~/spyder-data/
+~/tradov-data/
 ├── chains/
 │   └── SPY/
 │       └── year=2025/
@@ -254,20 +254,20 @@ The `BacktestResult` exposes these computed metrics (every metric is a method, n
 
 ---
 
-## 9. Reference Run (for SPEC-SPYDER-01 validation)
+## 9. Reference Run (for SPEC-TRADOV-01 validation)
 
 ```python
-from spyder.backtest import BacktestEngine, ChainDataSource
-from spyder.backtest.slippage import WidenedHalfSpreadSlippage
-from spyder.backtest.commissions import TradierStandard
-from spyder.strategies.condor_0dte import CondorStrategy, CondorConfig
+from tradov.backtest import BacktestEngine, ChainDataSource
+from tradov.backtest.slippage import WidenedHalfSpreadSlippage
+from tradov.backtest.commissions import TradierStandard
+from tradov.strategies.condor_0dte import CondorStrategy, CondorConfig
 from datetime import date
 
 engine = BacktestEngine(
     start_date    = date(2024, 1, 2),
     end_date      = date(2026, 5, 5),
     bar_resolution= BarResolution.MINUTE,
-    chain_source  = ChainDataSource.from_local_parquet("~/spyder-data/chains/SPY"),
+    chain_source  = ChainDataSource.from_local_parquet("~/tradov-data/chains/SPY"),
     slippage      = WidenedHalfSpreadSlippage(widen_factor=1.5),
     commissions   = TradierStandard(),
     starting_nav  = 50_000.0,
@@ -279,9 +279,9 @@ engine.register_strategy(lambda ctx: CondorStrategy(ctx, cfg))
 result = engine.run()
 
 result.print_summary()
-result.write_html_report("~/spyder-reports/condor_0dte_2024-2026.html")
-result.write_pdf_report("~/spyder-reports/condor_0dte_2024-2026.pdf")
-result.write_trade_log_csv("~/spyder-reports/condor_0dte_2024-2026_trades.csv")
+result.write_html_report("~/tradov-reports/condor_0dte_2024-2026.html")
+result.write_pdf_report("~/tradov-reports/condor_0dte_2024-2026.pdf")
+result.write_trade_log_csv("~/tradov-reports/condor_0dte_2024-2026_trades.csv")
 ```
 
 ---
@@ -291,7 +291,7 @@ result.write_trade_log_csv("~/spyder-reports/condor_0dte_2024-2026_trades.csv")
 Pure backtests overfit. The framework supports walk-forward analysis natively:
 
 ```python
-from spyder.backtest import WalkForwardRunner
+from tradov.backtest import WalkForwardRunner
 
 wf = WalkForwardRunner(
     in_sample_months  = 12,
@@ -353,7 +353,7 @@ class BacktestResult:
 For fast parameter sweeps over signal-only research (not full options simulation).
 
 ```python
-from spyder.backtest.adapters.vectorbt_adapter import VbtSignalSweep
+from tradov.backtest.adapters.vectorbt_adapter import VbtSignalSweep
 
 sweep = VbtSignalSweep(
     signal_fn = lambda spy_close, vix: (vix < 25) & (spy_close > spy_close.rolling(50).mean()),
@@ -397,8 +397,8 @@ For event-driven sanity checks of the custom engine. Should produce within 1% of
 
 ## 14. Acceptance Criteria
 
-- [ ] Strategy modules import nothing from `spyder.backtest` or `spyder.live` directly
-- [ ] One year of minute-resolution backtest of SPEC-SPYDER-01 completes in under 60s on the RTX 4070 dev box
+- [ ] Strategy modules import nothing from `tradov.backtest` or `tradov.live` directly
+- [ ] One year of minute-resolution backtest of SPEC-TRADOV-01 completes in under 60s on the RTX 4070 dev box
 - [ ] HTML and PDF reports generate from the same `BacktestResult` object
 - [ ] Walk-forward runner produces non-leaking out-of-sample results
 - [ ] All metrics match published reference values to ±0.5% on canonical test data

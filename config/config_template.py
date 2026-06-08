@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-SPYDER - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Options Trading System v1.0
 
-Series: SpyderX_Unknown
+Series: TradovX_Unknown
 Module: config_template.py
-Purpose: Configuration template for Spyder trading system (Tradier).
+Purpose: Configuration template for Tradov trading system (Tradier).
 
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2026-02-26 Time: 12:00:00
 
 Module Description:
-    Template configuration for Spyder trading system.
+    Template configuration for Tradov trading system.
     Copy config_template.py to config.py and fill in your API keys.
     Never commit real credentials — use environment variables via .env.
 """

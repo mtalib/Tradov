@@ -1,7 +1,7 @@
 # G05 Trading Dashboard — Separation-of-Concerns Audit
 
 **Date:** 2026-04-15
-**File audited:** [SpyderG05_TradingDashboard.py](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py)
+**File audited:** [TradovG05_TradingDashboard.py](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py)
 **Scope:** Identify work the dashboard performs in-line that belongs in dedicated modules.
 
 ---
@@ -63,7 +63,7 @@ found.
 
 ## Summary
 
-`SpyderG05_TradingDashboard.py` is ~3,800 lines and acts as a GUI **and** a
+`TradovG05_TradingDashboard.py` is ~3,800 lines and acts as a GUI **and** a
 data-fetching engine, trading engine, indicator engine, order manager, and
 analytics loader. A GUI module should *display* state and *dispatch* user
 actions; the bulk of this file does neither. Every item below is functionality
@@ -76,62 +76,62 @@ headlessly, or replaced without losing business logic.
 
 ### 1a. Full Tradier quote/balance/chain/bars fetch inside the worker
 - **Location:** `ThreadSafeMarketDataWorker._fetch_live_data_from_tradier` —
-  [L569-L738](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L569-L738)
+  [L569-L738](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L569-L738)
 - **What it does:** Instantiates `TradierClient` directly, fetches quotes for
   ~14 symbols, pulls account balances (with dual paper/live routing logic),
   fetches the SPY options chain, computes CPC, fetches 5-min bars, and writes
   two JSON cache files.
-- **Should live in:** `SpyderC_MarketData/` (quote fetching & caching) and
-  `SpyderB_Broker/SpyderB40_TradierClient` wrappers. The GUI should subscribe
+- **Should live in:** `TradovC_MarketData/` (quote fetching & caching) and
+  `TradovB_Broker/TradovB40_TradierClient` wrappers. The GUI should subscribe
   to a `MarketDataFeed` protocol and receive dict updates — nothing more.
 
 ### 1b. Duplicate fast-path fetcher
-- **Location:** `_fetch_quotes_fast` — [L740-L865](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L740-L865)
+- **Location:** `_fetch_quotes_fast` — [L740-L865](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L740-L865)
 - **Problem:** Re-implements the same Tradier fetch logic with a subset of
   symbols, merges into the same JSON file, and additionally pulls `$TICK`,
   `$ADD`, `$TRIN` from **yfinance** via a throttled counter. The GUI should
   never import `yfinance` or `dotenv`.
-- **Should live in:** `SpyderC_MarketData/` as a `MarketInternalsFeed`
+- **Should live in:** `TradovC_MarketData/` as a `MarketInternalsFeed`
   provider with yfinance adapter isolated behind the provider protocol.
 
 ### 1c. Symbol remap table hardcoded in worker
-- **Location:** `_sym_remap` dicts at [L668](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L668) and
-  [L782](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L782)
+- **Location:** `_sym_remap` dicts at [L668](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L668) and
+  [L782](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L782)
 - **Problem:** `VIX9D→VXV`, `UUP→DXY` adapter logic is duplicated in two places
   inside the GUI. Any new proxy will drift.
-- **Should live in:** A single `SymbolAdapter` in `SpyderC_MarketData/`.
+- **Should live in:** A single `SymbolAdapter` in `TradovC_MarketData/`.
 
 ### 1d. Persistent JSON cache written from GUI
 - **Problem:** The worker writes `live_data.json` and `spy_5min_chart.json`
   directly. Storage is an `H_Storage` concern; the dashboard is both producer
   and consumer of its own side-channel.
-- **Should live in:** `SpyderH_Storage/` or the market-data cache layer.
+- **Should live in:** `TradovH_Storage/` or the market-data cache layer.
 
 ---
 
 ## 2. CPC / PCALL computation (HIGH)
 
-- **Location:** [L679-L726](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L679-L726)
+- **Location:** [L679-L726](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L679-L726)
 - **What it does:** Fetches SPY option expirations, picks the nearest, pulls
   the full chain, sums put vs call volume, derives CPC ratio and change, and
   stamps `PCALL` as an alias.
 - **Problem:** This is a derived market metric — it belongs next to the other
   custom metrics (GEX/DEX/DIX/SWAN) that **are** correctly produced by
-  `SpyderS07_CustomMetricsOrchestrator`. It is the odd one out.
-- **Should live in:** `SpyderS_Signals/` as a `CPCCalculator` feeding S07.
+  `TradovS07_CustomMetricsOrchestrator`. It is the odd one out.
+- **Should live in:** `TradovS_Signals/` as a `CPCCalculator` feeding S07.
 
 ---
 
 ## 3. Chart indicators computed in `update_chart` (HIGH)
 
-- **Location:** `update_chart` — [L2130-L2250](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L2130-L2250)
+- **Location:** `update_chart` — [L2130-L2250](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L2130-L2250)
 - **What the view does:**
   - Computes Fibonacci pivot points (P, R1/R2/R3, S1/S2/S3) from loaded bars.
   - Computes 20-period SMA.
   - Computes session VWAP from typical price × volume.
 - **Problem:** These are indicator calculations, not rendering. They belong
-  wherever the rest of SPYDER's technical analysis lives (there is almost
-  certainly an `SpyderT_TechnicalAnalysis` or similar — the GUI should ask for
+  wherever the rest of TRADOV's technical analysis lives (there is almost
+  certainly an `TradovT_TechnicalAnalysis` or similar — the GUI should ask for
   a precomputed series).
 - **Should live in:** A `ChartIndicators` service that returns a dataclass of
   `(pivots, ma20, vwap)` given an OHLCV frame.
@@ -140,17 +140,17 @@ headlessly, or replaced without losing business logic.
 
 ## 4. Embedded paper trading engine (CRITICAL)
 
-- **Location:** `_PaperTradingWorker` — [L1470-L1760](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L1470-L1760)
+- **Location:** `_PaperTradingWorker` — [L1470-L1760](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L1470-L1760)
 - **What it does:** Full trading engine inside the GUI file:
   - Dual-MA momentum strategy (`_generate_signal`)
   - Order execution simulation (`_execute_paper_buy`, `_execute_paper_sell`)
   - Position MTM, cash, realized/unrealized P&L, peak equity, max drawdown
   - Direct Tradier polling loop for SPY prices
 - **Problem:** The docstring at the top of the file explicitly claims paper
-  trading is delegated to **`SpyderR02_PaperEngine`**, yet the real
+  trading is delegated to **`TradovR02_PaperEngine`**, yet the real
   implementation is a private class in the GUI module. This is the most
   significant violation in the file.
-- **Should live in:** `SpyderR_Trading/SpyderR02_PaperEngine`. The GUI should
+- **Should live in:** `TradovR_Trading/TradovR02_PaperEngine`. The GUI should
   instantiate it and wire signals only.
 
 ---
@@ -158,7 +158,7 @@ headlessly, or replaced without losing business logic.
 ## 5. Order placement & close logic (HIGH)
 
 ### 5a. `close_strategy` builds OCC symbols and submits multileg orders
-- **Location:** [L3280-L3430](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L3280-L3430)
+- **Location:** [L3280-L3430](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L3280-L3430)
 - **What it does:** Parses UI leg dicts, infers expiry year from current
   month, maps "Sell Put"/"Buy Call" strings to `OrderSide` enums, builds OCC
   symbols via `build_option_symbol`, and calls `place_multileg_order`
@@ -167,10 +167,10 @@ headlessly, or replaced without losing business logic.
   rollover logic are trading concerns, not view concerns. The view should
   call `order_manager.close_strategy(strategy_id)`.
 - **Should live in:** An `OrderManager` / `StrategyManager` in
-  `SpyderR_Trading/`.
+  `TradovR_Trading/`.
 
 ### 5b. `_fetch_pending_orders`, `_cancel_orders`, `_refresh_positions_table`
-- **Location:** [L2860-L3050](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L2860-L3050)
+- **Location:** [L2860-L3050](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L2860-L3050)
 - **Problem:** Directly hits `client.get_orders()`, `client.get_positions()`,
   `client.cancel_order()`. Parses the nested Tradier response shape
   (`orders_node.get("order", [])` + dict-vs-list normalization) inside the GUI.
@@ -181,12 +181,12 @@ headlessly, or replaced without losing business logic.
 
 ## 6. Account balance dual-routing (MEDIUM)
 
-- **Location:** [L589-L635](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L589-L635)
+- **Location:** [L589-L635](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L589-L635)
 - **Problem:** The worker contains the business rule "paper mode balances
   come from sandbox credentials, live from production credentials," including
   falling back through `total_equity → total_cash → option_buying_power →
   buying_power`. This is account-management logic, not UI.
-- **Should live in:** `SpyderB_Broker/` account service.
+- **Should live in:** `TradovB_Broker/` account service.
 
 ---
 
@@ -205,21 +205,21 @@ headlessly, or replaced without losing business logic.
 
 ## 8. Circuit-breaker manipulation (MEDIUM)
 
-- **Location:** `_heartbeat_check` — [L532-L545](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L532-L545)
+- **Location:** `_heartbeat_check` — [L532-L545](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L532-L545)
 - **What it does:** Imports `tradier_breaker` / `massive_breaker` singletons
   and calls `_tradier_breaker.reset()` when a heartbeat succeeds.
 - **Problem:** The GUI is reaching into a utility singleton to mutate
   cross-cutting state. Breaker reset policy should be owned by whoever
   *trips* the breaker.
-- **Should live in:** `SpyderU41_CircuitBreaker` itself (auto-reset on
+- **Should live in:** `TradovU41_CircuitBreaker` itself (auto-reset on
   successful health check) or the health-check service.
 
 ---
 
 ## 9. Performance analytics loaded inline (LOW)
 
-- **Location:** `_refresh_pnl_table` — [L3180-L3195](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L3180-L3195)
-- **Problem:** Imports `SpyderH07_PerformanceAnalytics` inside the slot,
+- **Location:** `_refresh_pnl_table` — [L3180-L3195](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L3180-L3195)
+- **Problem:** Imports `TradovH07_PerformanceAnalytics` inside the slot,
   instantiates it, and calls `get_summary_stats()` every time metrics update.
   Imports-inside-methods usually indicate a missing service boundary.
 - **Should live in:** Injected at dashboard construction; the slot should
@@ -230,12 +230,12 @@ headlessly, or replaced without losing business logic.
 ## 10. Simulation data generation (LOW — extraction only)
 
 - **Location:** `_init_simulation_data` / `_update_simulation_data` —
-  [L866-L960](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L866-L960)
-- **Context:** SPYDER exposes **SIMULATED** as a first-class feed choice
+  [L866-L960](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L866-L960)
+- **Context:** TRADOV exposes **SIMULATED** as a first-class feed choice
   (alongside Tradier and Massive) so the UI can be exercised when no live
   feed is available. The logic itself is legitimate — the issue is purely
   *where it lives*.
-- **Should live in:** `SpyderC_MarketData/SimulationFeedProvider`
+- **Should live in:** `TradovC_MarketData/SimulationFeedProvider`
   implementing the same `MarketDataFeed` protocol as the real providers.
   The GUI selects it the same way it selects Tradier or Massive; it does
   not contain the random walk or the hardcoded base prices itself.
@@ -258,7 +258,7 @@ headlessly, or replaced without losing business logic.
 | Analytics load (§9) | Low | ~15 | DI cleanup |
 
 Total: roughly **1,000 lines** of non-view code currently embedded in the
-dashboard. After extraction, `SpyderG05_TradingDashboard.py` should shrink to
+dashboard. After extraction, `TradovG05_TradingDashboard.py` should shrink to
 widgets, layout, Qt signal wiring, and slot handlers that call service
 methods — everything else should be replaceable behind an interface.
 
@@ -266,7 +266,7 @@ methods — everything else should be replaceable behind an interface.
 
 ## Recommended next steps
 
-1. **Verify `SpyderR02_PaperEngine` exists.** The docstring claims it; if it
+1. **Verify `TradovR02_PaperEngine` exists.** The docstring claims it; if it
    does, `_PaperTradingWorker` should be deleted and the GUI should import
    R02. If R02 doesn't exist, create it by lifting `_PaperTradingWorker`
    verbatim — this is the highest-value extraction.
@@ -297,7 +297,7 @@ authentic to the trader. None of it should survive into a shipping build.
 
 ### 11a. Rotating fake AI activity log
 - **Location:** `generate_automation_activity` —
-  [L5678-L5703](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L5678-L5703)
+  [L5678-L5703](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L5678-L5703)
 - **What it does:** A QTimer rotates through a hardcoded list of 15
   plausible-sounding strings ("Scanning options chains for SPY",
   "Analyzing volatility surface patterns", "Monitoring delta-gamma hedging
@@ -310,9 +310,9 @@ authentic to the trader. None of it should survive into a shipping build.
 
 ### 11b. Fake test strategies loaded at startup
 - **Location:** `load_test_data` —
-  [L5744-L6172](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L5744-L6172)
+  [L5744-L6172](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L5744-L6172)
   — called unconditionally from the constructor at
-  [L2170](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L2170).
+  [L2170](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L2170).
 - **What it does:** Loads three hardcoded fake strategies (IRON CONDOR,
   COVERED CALL, IRON BUTTERFLY) with fake timestamps, fake legs, fake
   P&L, fake strikes, into the positions tree on every startup.
@@ -323,7 +323,7 @@ authentic to the trader. None of it should survive into a shipping build.
 
 ### 11c. Hardcoded-green Prometheus indicators
 - **Location:** `update_prometheus_metrics` —
-  [L5717-L5742](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L5717-L5742)
+  [L5717-L5742](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L5717-L5742)
 - **What it does:** A QTimer forces every system component indicator,
   every client indicator, and every internal-module indicator to the
   "positive" (green) color, regardless of actual health state. Only
@@ -336,7 +336,7 @@ authentic to the trader. None of it should survive into a shipping build.
 
 ### 11d. Greeks stuck at 0.0
 - **Location:** `update_greek_risks` —
-  [L5705-L5715](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L5705-L5715)
+  [L5705-L5715](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L5705-L5715)
 - **What it does:** A QTimer writes 0.0 to delta/gamma/theta/vega bars
   every tick. The docstring admits "shows 0.0 until live position data is
   wired."
@@ -361,7 +361,7 @@ authentic to the trader. None of it should survive into a shipping build.
 
 ### Note on the SIMULATED feed
 
-SPYDER has a legitimate **SIMULATED** feed option that produces
+TRADOV has a legitimate **SIMULATED** feed option that produces
 plausible-looking data without a live connection. That is *not* fake
 content in the §11 sense — it's a real provider behind the
 `MarketDataFeed` protocol, selected explicitly by the user.
@@ -389,11 +389,11 @@ deception risk even though its data pipeline is legitimate.
 ## 12. `_paper_worker` attribute-access bug (HIGH — real defect)
 
 - **Location:** `_start_paper_trading` creates `self._paper_worker` at
-  [L5051](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L5051);
+  [L5051](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L5051);
   `_stop_paper_trading` reads it unguarded at
-  [L5068](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L5068);
+  [L5068](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L5068);
   `stop_trading` reads it at
-  [L5252](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L5252).
+  [L5252](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L5252).
 - **Problem:** `self._paper_worker` is never initialized in `__init__`.
   Calling `stop_trading` before `_start_paper_trading` (e.g., if a user
   clicks STOP while paper engine failed to start, or on a window close
@@ -408,26 +408,26 @@ deception risk even though its data pipeline is legitimate.
 ## 13. Trading calendar embedded in GUI module (HIGH)
 
 - **Location:** Module-level constants and functions —
-  [L351-L370](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L351-L370):
+  [L351-L370](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L351-L370):
   `MARKET_OPEN_TIME`, `MARKET_CLOSE_TIME`, `TRADIER_CONNECT_TIME`,
   `REALTIME_QUOTE_MAX_AGE_SECONDS`, `is_market_hours()`,
   `is_tradier_window()`.
 - **Problem:** Trading-session arithmetic is used *everywhere* in the
   system (paper engine, broker adapter, strategy runner). Defining it in
   the GUI means every non-GUI caller has to import from
-  `SpyderG_GUI/SpyderG05_TradingDashboard.py` — a circular-dependency
+  `TradovG_GUI/TradovG05_TradingDashboard.py` — a circular-dependency
   magnet.
-- **Should live in:** `SpyderU_Utilities/` or
-  `SpyderC_MarketData/TradingCalendar`.
+- **Should live in:** `TradovU_Utilities/` or
+  `TradovC_MarketData/TradingCalendar`.
 
 ---
 
 ## 14. Index-proxy math duplicated in GUI (HIGH)
 
 - **Location:** `update_toolbar_with_real_data` —
-  [L2449-L2522](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L2449-L2522)
+  [L2449-L2522](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L2449-L2522)
   AND the module-level helper `update_toolbar_with_real_data_helper` —
-  [L6451](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L6451).
+  [L6451](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L6451).
 - **What it does:** Hardcodes the proxies SPX = SPY × 10, COMP = QQQ ×
   37.5, DJI = DIA × 100, RUT = IWM × 10, with inline comments explaining
   Tradier index-feed quirks (delayed $DJI, missing IXIC, RUT change=None).
@@ -436,7 +436,7 @@ deception risk even though its data pipeline is legitimate.
   tomorrow, or if a different broker provides real indices, two copies of
   the table must change. The trader-facing number comes from arithmetic
   the GUI invented.
-- **Should live in:** `SpyderC_MarketData/IndexProxyAdapter` — returns a
+- **Should live in:** `TradovC_MarketData/IndexProxyAdapter` — returns a
   proper `QuoteDict` for `SPX/COMP/DJI/RUT` regardless of feed. The GUI
   reads `live_data["SPX"]` and renders.
 
@@ -446,16 +446,16 @@ deception risk even though its data pipeline is legitimate.
 
 - **Location:**
   - `apply_real_data_patch_to_dashboard(dashboard, data_file)` —
-    [L6332](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L6332)
+    [L6332](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L6332)
   - `update_toolbar_with_real_data_helper(dashboard, live_data)` —
-    [L6451](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L6451)
+    [L6451](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L6451)
 - **Problem:** These are module-level functions that take the dashboard
   as a parameter and mutate its widgets. They duplicate instance methods
   (`update_toolbar_with_real_data`) and introduce a second injection
   pathway for live data — the in-worker signal and the file-polling
   module function race each other. Called from
-  [L6440](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L6440) and
-  [L6557](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L6557).
+  [L6440](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L6440) and
+  [L6557](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L6557).
 - **Should live in:** Delete. One signal path, one code path.
 
 ---
@@ -463,7 +463,7 @@ deception risk even though its data pipeline is legitimate.
 ## 16. Parallel connection-state mirrors (HIGH)
 
 - **Location:** `determine_data_status` —
-  [L5358](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L5358)
+  [L5358](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L5358)
   and multiple fields on the dashboard instance.
 - **Problem:** The GUI maintains several separately-mutable flags that
   represent the same underlying truth:
@@ -483,14 +483,14 @@ deception risk even though its data pipeline is legitimate.
 ## 17. Hardcoded risk parameters (HIGH)
 
 - **Location:** `load_default_risk_parameters` —
-  [L6173](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L6173),
-  called from [L2171](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L2171).
+  [L6173](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L6173),
+  called from [L2171](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L2171).
 - **Problem:** Max position size, max daily loss, stop loss, Kelly
   fraction, etc. are written as literals into the GUI's risk-panel
   widgets at startup. Risk limits are an **enforcement** concern owned
   by the order manager / risk service (principle #7: "safety gates are
   UX, not logic").
-- **Should live in:** `SpyderR_Trading/RiskManager` — publishes current
+- **Should live in:** `TradovR_Trading/RiskManager` — publishes current
   limits; GUI reads to populate the panel.
 
 ---
@@ -498,7 +498,7 @@ deception risk even though its data pipeline is legitimate.
 ## 18. Mode-switch policy mixed with UX (HIGH)
 
 - **Location:** `_on_mode_btn_clicked` —
-  [L4625-L4800+](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L4625)
+  [L4625-L4800+](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L4625)
 - **What it does:** Implements the full PAPER↔LIVE state machine: checks
   `trading_active`, fetches pending orders from the broker, cancels them,
   checks open positions, requires typed confirmation, and finally flips
@@ -524,7 +524,7 @@ they confuse future readers:
 - `_deprecated_gateway_*` methods — name tells the story.
 - Module-level `apply_real_data_patch_to_dashboard` +
   `update_toolbar_with_real_data_helper` — see §15.
-- `SpyderErrorHandler` imported at top of file but not referenced.
+- `TradovErrorHandler` imported at top of file but not referenced.
 - Simulation data with hardcoded Feb-2026 prices (SPY 585.25, etc.) in
   `_init_simulation_data` (already noted in §10 but worth reiterating:
   the constants are stale and should either come from a config file or
@@ -539,7 +539,7 @@ subsystems actively misleads anyone reading the file.
 
 - **Pattern:** Multiple `except Exception: pass` and
   `except Exception as e: self.logger.debug(…)` blocks throughout the
-  worker (e.g., [L2521-L2522](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L2521-L2522)).
+  worker (e.g., [L2521-L2522](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L2521-L2522)).
 - **Problem:** A failing toolbar update or feed parse is reduced to a
   DEBUG log the trader never sees. Combined with §11c's all-green
   indicators, the system actively hides failures. The worker also has an
@@ -556,7 +556,7 @@ subsystems actively misleads anyone reading the file.
 - **Location:** `_on_custom_metrics_updated` slot + the `QTimer.singleShot`
   chain that starts the custom-metrics orchestrator.
 - **Problem:** The GUI starts, stops, and polls
-  `SpyderS07_CustomMetricsOrchestrator`. The slot also applies hardcoded
+  `TradovS07_CustomMetricsOrchestrator`. The slot also applies hardcoded
   unit scaling (GEX × 1e9, DEX × 1e6) before displaying — unit conversion
   is a metric-layer concern, and the orchestrator should publish values
   in display units or ship a formatter.
@@ -569,7 +569,7 @@ subsystems actively misleads anyone reading the file.
 ## 22. `_heartbeat_check` is a 100-line god-method (HIGH)
 
 - **Location:** `_heartbeat_check` —
-  [L559](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L559) onward.
+  [L559](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L559) onward.
 - **Problem:** Single method mixes: market-hours check, Tradier probe,
   circuit-breaker reset (§8), staleness check, indicator-color update,
   feed-provider selection, and log emission. Each of those is a separate
@@ -596,7 +596,7 @@ subsystems actively misleads anyone reading the file.
 ## 24. Context-menu action stubs (MEDIUM)
 
 - **Location:** `_on_close_position`, `_on_roll_position`,
-  `_on_adjust_position` — [L3835-L3850](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L3835-L3850)
+  `_on_adjust_position` — [L3835-L3850](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L3835-L3850)
 - **Problem:** These slots only call `self.logger.info("… requested")`.
   The right-click menu invites the trader to take an action that silently
   does nothing. Either wire them to the real order manager or remove
@@ -620,8 +620,8 @@ subsystems actively misleads anyone reading the file.
 ## 26. App-wide theme injection from dashboard class (MEDIUM)
 
 - **Location:** `setup_white_tooltips` —
-  [L6247](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L6247),
-  called from [L2182](../Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py#L2182).
+  [L6247](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L6247),
+  called from [L2182](../Tradov/TradovG_GUI/TradovG05_TradingDashboard.py#L2182).
 - **Problem:** The dashboard sets a **QApplication-wide** stylesheet
   from its own constructor. Two dashboards in the same process would
   fight; a future dialog that styled itself would be overridden. Theme
@@ -705,7 +705,7 @@ surface area that extraction has to preserve.
   status.
 3. **Extract §13 trading calendar and §23 file I/O** into service/util layers.
   These are still concrete non-GUI responsibilities in the dashboard.
-4. **Verify / create `SpyderR02_PaperEngine`** (first-pass §4) and move
+4. **Verify / create `TradovR02_PaperEngine`** (first-pass §4) and move
   `_PaperTradingWorker` into it.
 5. **Create `MarketDataFeed` protocol** (first-pass §1) and move the
   Tradier fetch, any remaining index-proxy math (§14), and JSON cache I/O

@@ -1,4 +1,4 @@
-# Spyder Signal & Indicator Integration Audit
+# Tradov Signal & Indicator Integration Audit
 **Date:** 2026-04-21  
 **Branch:** fix/audit-v14-all  
 **Scope:** Are all displayed and hidden indicators wired to trade decisions? Are QuantModels, Agents, and AutoAgents actively used?
@@ -9,7 +9,7 @@
 
 Out of ~30 indicators displayed in the Market Overview panel, **only 6 are fully wired** to actual trade go/no-go decisions. The majority are collected, displayed, and calculated — but never consulted before an order is placed.
 
-SpyderV (QuantModels), SpyderX (Agents), and SpyderY (AutoAgents) are **architecturally present but not in the live trade decision hot-path.** They run in parallel but their outputs are not consumed by the D-series strategies or E-series risk managers.
+TradovV (QuantModels), TradovX (Agents), and TradovY (AutoAgents) are **architecturally present but not in the live trade decision hot-path.** They run in parallel but their outputs are not consumed by the D-series strategies or E-series risk managers.
 
 **Severity: HIGH** — the system is trading with a fraction of the intelligence it has available.
 
@@ -82,10 +82,10 @@ Legend: ✅ Wired | ⚠️ Calculated but not wired | ❌ Not calculated / stub 
 ### 1.8 Custom Metrics
 | Symbol | Status | Notes |
 |--------|--------|-------|
-| GEX | 🔒 Feature-flagged | R08 uses it behind `SPYDER_REGIME_STRUCTURE=1` env var (off by default); L09 UnifiedRegimeEngine uses it for regime |
+| GEX | 🔒 Feature-flagged | R08 uses it behind `TRADOV_REGIME_STRUCTURE=1` env var (off by default); L09 UnifiedRegimeEngine uses it for regime |
 | DEX (Delta Exposure) | ⚠️ Not wired | Y01 MarketSenseAgent reads it for reporting — not in trade gate |
 | OGL (options gamma line) | ⚠️ Not wired | Displayed — not used in decisions |
-| DIX | 🔒 Feature-flagged | R08 uses it behind `SPYDER_REGIME_STRUCTURE=1` (off by default) |
+| DIX | 🔒 Feature-flagged | R08 uses it behind `TRADOV_REGIME_STRUCTURE=1` (off by default) |
 | WRS (Weighted Regime Score) | ⚠️ Not wired | S12 calculates it — only displayed in S07 metrics output |
 | PSR (Probabilistic Sharpe) | ⚠️ Not wired | E07 calculates it — used as a REPORTING metric, not a trade gate |
 | SWAN (tail-risk index) | ✅ Wired | R08 blocks entries when SWAN ≥ 2.0 — this IS enforced |
@@ -108,7 +108,7 @@ The system has **four separate regime detectors** that don't talk to each other:
 
 ---
 
-## PART 3: SPYDERV (QUANTMODELS) AUDIT
+## PART 3: TRADOVV (QUANTMODELS) AUDIT
 
 ### Status: **NOT INTEGRATED into live trading hot-path**
 
@@ -127,13 +127,13 @@ The system has **four separate regime detectors** that don't talk to each other:
 - V04 is mentioned in docstring — not imported or called
 - X04 has a `# placeholder` comment with a log warning: `"AI risk placeholder in use — X04 model not wired"`
 
-**F06 GreeksCalculator** references `SpyderV09_IVEngine` as the "canonical BSM engine" in a docstring comment only — no actual import.
+**F06 GreeksCalculator** references `TradovV09_IVEngine` as the "canonical BSM engine" in a docstring comment only — no actual import.
 
-**Conclusion:** SpyderV is a self-contained quant library that runs in isolation. Its output never flows into trade decisions, position sizing, or risk validation.
+**Conclusion:** TradovV is a self-contained quant library that runs in isolation. Its output never flows into trade decisions, position sizing, or risk validation.
 
 ---
 
-## PART 4: SPYDERX (AGENTS) AUDIT
+## PART 4: TRADOVX (AGENTS) AUDIT
 
 ### Status: **Registered but outputs not consumed by trade engine**
 
@@ -159,7 +159,7 @@ The system has **four separate regime detectors** that don't talk to each other:
 
 ---
 
-## PART 5: SPYDERY (AUTOAGENTS) AUDIT
+## PART 5: TRADOVY (AUTOAGENTS) AUDIT
 
 ### Status: **Running but outputs not consumed by trading engine**
 
@@ -216,9 +216,9 @@ PSR                       YES          YES          NO (reporting only)
 SWAN                      YES          YES          YES (R08 paper engine gate)
 PMR signals               YES          YES          YES (D34 strategy)
 ──────────────────────────────────────────────────────────────────────────
-SpyderV QuantModels        YES          NO           NO
-SpyderX Agents             YES          NO           NO (placeholder)
-SpyderY AutoAgents         YES          NO           NO (bus gap)
+TradovV QuantModels        YES          NO           NO
+TradovX Agents             YES          NO           NO (placeholder)
+TradovY AutoAgents         YES          NO           NO (bus gap)
 ```
 
 ---
@@ -233,10 +233,10 @@ Priority is ordered by impact on trade quality and risk management.
 
 #### P1-A: Wire Y03 RiskSentinelAgent veto to E01 RiskManager
 **Problem:** Y03 has veto authority but publishes to a bus nobody reads.  
-**Fix:** Add an AgentMessageBus subscription in `SpyderE01_RiskManager` that sets a `_agent_veto_active` flag. The existing `validate_signal()` method checks this flag.
+**Fix:** Add an AgentMessageBus subscription in `TradovE01_RiskManager` that sets a `_agent_veto_active` flag. The existing `validate_signal()` method checks this flag.
 
 ```python
-# In SpyderE01_RiskManager.__init__():
+# In TradovE01_RiskManager.__init__():
 if self.agent_message_bus:
     self.agent_message_bus.subscribe("risk.circuit_breaker", self._on_agent_circuit_breaker)
 
@@ -245,21 +245,21 @@ def _on_agent_circuit_breaker(self, message: dict) -> None:
     self._y03_veto = (state in ("warning", "halt"))
 ```
 
-**Files:** `SpyderE_Risk/SpyderE01_RiskManager.py`, `SpyderY_AutoAgents/SpyderY03_RiskSentinelAgent.py`
+**Files:** `TradovE_Risk/TradovE01_RiskManager.py`, `TradovY_AutoAgents/TradovY03_RiskSentinelAgent.py`
 
 ---
 
 #### P1-B: Enable GEX/DIX regime gate by default (remove env-var flag)
-**Problem:** `SPYDER_REGIME_STRUCTURE=1` must be set manually; it defaults off.  
-**Fix:** Flip the default to `1` in `SpyderR08_PaperTradingQtWorker._regime_preferred_direction()`. Add the same logic to `SpyderR04_LiveEngine` (currently missing entirely).
+**Problem:** `TRADOV_REGIME_STRUCTURE=1` must be set manually; it defaults off.  
+**Fix:** Flip the default to `1` in `TradovR08_PaperTradingQtWorker._regime_preferred_direction()`. Add the same logic to `TradovR04_LiveEngine` (currently missing entirely).
 
-**Files:** `SpyderR_Runtime/SpyderR08_PaperTradingQtWorker.py`, `SpyderR_Runtime/SpyderR04_LiveEngine.py`
+**Files:** `TradovR_Runtime/TradovR08_PaperTradingQtWorker.py`, `TradovR_Runtime/TradovR04_LiveEngine.py`
 
 ---
 
 #### P1-C: Wire VIX term structure (VIX9D / VXV) to premium-selling gate
 **Problem:** Selling premium in VIX backwardation (VIX9D > VXV) is high-risk — not checked.  
-**Fix:** Add a `vix_term_structure_check` to `SpyderF09_EntryFilters._check_volatility_filters()`:
+**Fix:** Add a `vix_term_structure_check` to `TradovF09_EntryFilters._check_volatility_filters()`:
 
 ```python
 vix9d = params.get('vix9d', vix)
@@ -269,7 +269,7 @@ if vix9d > vxv and strategy_type in PREMIUM_SELLING_STRATEGIES:
     checks.append(FilterCheck(FAIL, "VIX backwardation: VIX9D > VXV"))
 ```
 
-**Files:** `SpyderF_Analysis/SpyderF09_EntryFilters.py`, strategy callers that invoke `assess_entry()`
+**Files:** `TradovF_Analysis/TradovF09_EntryFilters.py`, strategy callers that invoke `assess_entry()`
 
 ---
 
@@ -287,7 +287,7 @@ if vix9d > vxv and strategy_type in PREMIUM_SELLING_STRATEGIES:
 
 The C04 MarketInternals data should be passed through S07 (already has NYMO) to the entry params dict.
 
-**Files:** `SpyderF_Analysis/SpyderF09_EntryFilters.py`, `SpyderS_Signals/SpyderS07_CustomMetricsOrchestrator.py`
+**Files:** `TradovF_Analysis/TradovF09_EntryFilters.py`, `TradovS_Signals/TradovS07_CustomMetricsOrchestrator.py`
 
 ---
 
@@ -295,7 +295,7 @@ The C04 MarketInternals data should be passed through S07 (already has NYMO) to 
 **Problem:** F09 has a `FilterType.SKEW` but it checks IV skew (term skew), not the CBOE SKEW index (tail-risk).  
 **Fix:** Add a CBOE SKEW check — when SKEW > 145 (extreme tail-risk), block Iron Condors and credit spreads; allow only directional hedges.
 
-**Files:** `SpyderF_Analysis/SpyderF09_EntryFilters.py`
+**Files:** `TradovF_Analysis/TradovF09_EntryFilters.py`
 
 ---
 
@@ -305,7 +305,7 @@ The C04 MarketInternals data should be passed through S07 (already has NYMO) to 
 - CPC > 1.2 → extreme fear → contrarian bullish bias (allow bull-put spreads)
 - CPC < 0.5 → extreme complacency → add hedge bias
 
-**Files:** `SpyderF_Analysis/SpyderF09_EntryFilters.py` or `SpyderD_Strategies/SpyderD30_RegimeGatedSelector.py`
+**Files:** `TradovF_Analysis/TradovF09_EntryFilters.py` or `TradovD_Strategies/TradovD30_RegimeGatedSelector.py`
 
 ---
 
@@ -325,15 +325,15 @@ def _classify_market_regime(self, vix_level: float, ...) -> MarketRegime:
         ...
 ```
 
-**Files:** `SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`, `SpyderL_ML/SpyderL09_UnifiedRegimeEngine.py`
+**Files:** `TradovD_Strategies/TradovD31_StrategyOrchestrator.py`, `TradovL_ML/TradovL09_UnifiedRegimeEngine.py`
 
 ---
 
 #### P3-B: Feed C04 MarketInternals into F10 MarketRegimeDetector
 **Problem:** F10 has `advance_decline_ratio` in its data model but C04 is never wired to it.  
-**Fix:** In `SpyderA08_FSeriesOrchestrator`, connect C04 data output to F10's `market_data` dict update.
+**Fix:** In `TradovA08_FSeriesOrchestrator`, connect C04 data output to F10's `market_data` dict update.
 
-**Files:** `SpyderA_Core/SpyderA08_FSeriesOrchestrator.py`, `SpyderC_MarketData/SpyderC04_MarketInternals.py`
+**Files:** `TradovA_Core/TradovA08_FSeriesOrchestrator.py`, `TradovC_MarketData/TradovC04_MarketInternals.py`
 
 ---
 
@@ -343,7 +343,7 @@ def _classify_market_regime(self, vix_level: float, ...) -> MarketRegime:
 **Problem:** Y02 publishes `signals.validated` but D31 doesn't subscribe.  
 **Approach:** D31 should have an optional `_y02_signal_queue` that receives validated signals. When Y02 approves/rejects a pending signal, D31 respects it with a configurable timeout (if Y02 doesn't respond in N seconds, proceed without approval).
 
-**Files:** `SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`, `SpyderY_AutoAgents/SpyderY02_StrategyPilotAgent.py`
+**Files:** `TradovD_Strategies/TradovD31_StrategyOrchestrator.py`, `TradovY_AutoAgents/TradovY02_StrategyPilotAgent.py`
 
 ---
 
@@ -351,7 +351,7 @@ def _classify_market_regime(self, vix_level: float, ...) -> MarketRegime:
 **Problem:** Y01 calls F10 and publishes regime changes — D31 ignores them.  
 **Fix:** D31 subscribes to `market.regime_change` on the AgentMessageBus and updates `market_regime.current_regime` accordingly.
 
-**Files:** `SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`
+**Files:** `TradovD_Strategies/TradovD31_StrategyOrchestrator.py`
 
 ---
 
@@ -361,7 +361,7 @@ def _classify_market_regime(self, vix_level: float, ...) -> MarketRegime:
 **Problem:** E19 has a clearly marked `# placeholder` that returns static values.  
 **Fix:** Call `X04_RiskGuardianAgent.analyze_risk(positions, portfolio_metrics)` and use the `ai_risk_score` in E19's risk aggregation. Weight it at 10-15% of total risk score initially.
 
-**Files:** `SpyderE_Risk/SpyderE19_UnifiedRiskCoordinator.py`, `SpyderX_Agents/SpyderX04_RiskGuardianAgent.py`
+**Files:** `TradovE_Risk/TradovE19_UnifiedRiskCoordinator.py`, `TradovX_Agents/TradovX04_RiskGuardianAgent.py`
 
 ---
 
@@ -369,7 +369,7 @@ def _classify_market_regime(self, vix_level: float, ...) -> MarketRegime:
 **Problem:** X03 generates strategy recommendations but D31 ignores them.  
 **Fix:** D31 queries X03 once per regime update and uses its output to bias `_get_regime_strategy_weights()`.
 
-**Files:** `SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`, `SpyderX_Agents/SpyderX03_StrategyDirectorAgent.py`
+**Files:** `TradovD_Strategies/TradovD31_StrategyOrchestrator.py`, `TradovX_Agents/TradovX03_StrategyDirectorAgent.py`
 
 ---
 
@@ -377,7 +377,7 @@ def _classify_market_regime(self, vix_level: float, ...) -> MarketRegime:
 **Problem:** X01 analyses Greeks exposure but E15 runs its own independent calculation.  
 **Fix:** After each position update, E15 queries X01 for hedge recommendations. X01's output can be used to auto-generate hedge orders when Greeks drift.
 
-**Files:** `SpyderE_Risk/SpyderE15_GreekLimitsManager.py`, `SpyderX_Agents/SpyderX01_GreeksAgent.py`
+**Files:** `TradovE_Risk/TradovE15_GreekLimitsManager.py`, `TradovX_Agents/TradovX01_GreeksAgent.py`
 
 ---
 
@@ -385,7 +385,7 @@ def _classify_market_regime(self, vix_level: float, ...) -> MarketRegime:
 
 #### P6-A: Replace N-series BSM with V05 PricingEngine
 **Problem:** N-series has its own pricing engine; V05 has Heston, SABR, jump-diffusion — never used.  
-**Fix:** In `SpyderN01_OptionsPricer`, add optional V05 call for enhanced pricing when model is available.
+**Fix:** In `TradovN01_OptionsPricer`, add optional V05 call for enhanced pricing when model is available.
 
 #### P6-B: Wire V06 VolatilityEngine into F08 VolatilityRegime
 **Problem:** F08 uses simple HV calculations; V06 has GARCH, EGARCH, HAR-RV — never called.  
@@ -420,15 +420,15 @@ def _classify_market_regime(self, vix_level: float, ...) -> MarketRegime:
 
 | File | Change |
 |------|--------|
-| `SpyderE_Risk/SpyderE01_RiskManager.py` | Subscribe to Y03 veto on AgentMessageBus |
-| `SpyderF_Analysis/SpyderF09_EntryFilters.py` | Add TICK, TRIN, NYMO, CBOE SKEW, VIX9D/VXV filters |
-| `SpyderR_Runtime/SpyderR08_PaperTradingQtWorker.py` | Enable SPYDER_REGIME_STRUCTURE by default |
-| `SpyderR_Runtime/SpyderR04_LiveEngine.py` | Add GEX/DIX/SWAN regime logic (currently missing entirely) |
-| `SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py` | Replace simple regime with L09; subscribe to Y01/Y02 bus |
-| `SpyderE_Risk/SpyderE19_UnifiedRiskCoordinator.py` | Remove X04 placeholder; call real X04 agent |
-| `SpyderA_Core/SpyderA08_FSeriesOrchestrator.py` | Wire C04 → F10 data flow |
-| `SpyderY_AutoAgents/SpyderY03_RiskSentinelAgent.py` | Ensure circuit_breaker message format is standardised |
-| `SpyderD_Strategies/SpyderD30_RegimeGatedSelector.py` | Add CPC contrarian signal |
+| `TradovE_Risk/TradovE01_RiskManager.py` | Subscribe to Y03 veto on AgentMessageBus |
+| `TradovF_Analysis/TradovF09_EntryFilters.py` | Add TICK, TRIN, NYMO, CBOE SKEW, VIX9D/VXV filters |
+| `TradovR_Runtime/TradovR08_PaperTradingQtWorker.py` | Enable TRADOV_REGIME_STRUCTURE by default |
+| `TradovR_Runtime/TradovR04_LiveEngine.py` | Add GEX/DIX/SWAN regime logic (currently missing entirely) |
+| `TradovD_Strategies/TradovD31_StrategyOrchestrator.py` | Replace simple regime with L09; subscribe to Y01/Y02 bus |
+| `TradovE_Risk/TradovE19_UnifiedRiskCoordinator.py` | Remove X04 placeholder; call real X04 agent |
+| `TradovA_Core/TradovA08_FSeriesOrchestrator.py` | Wire C04 → F10 data flow |
+| `TradovY_AutoAgents/TradovY03_RiskSentinelAgent.py` | Ensure circuit_breaker message format is standardised |
+| `TradovD_Strategies/TradovD30_RegimeGatedSelector.py` | Add CPC contrarian signal |
 
 ---
 

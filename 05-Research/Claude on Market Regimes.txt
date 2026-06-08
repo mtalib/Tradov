@@ -18,7 +18,7 @@ By statistical fitting: If you let the data decide (e.g., fitting a Hidden Marko
 
 So the pragmatic answer is that 2 to 4 is the sweet spot for most applications. Two (calm vs. stressed) is the simplest useful model. Four (trend × volatility) is the richest model that remains interpretable and actionable without overfitting. Beyond that, you're usually adding complexity without proportional signal — unless you're incorporating macro state variables like inflation or credit conditions, in which case the regime space can expand meaningfully.
 
-Given your work on Spyder and the WRS macro signal, the 4-regime framework (trend × volatility) is probably the most natural fit — your WRS signal could serve as one of the regime classifiers feeding into that structure.
+Given your work on Tradov and the WRS macro signal, the 4-regime framework (trend × volatility) is probably the most natural fit — your WRS signal could serve as one of the regime classifiers feeding into that structure.
 
 You said: For an autonomous SPY options trading system, what are the minimum number of symbols and indicators, and signals do you need?
 For an autonomous SPY options trading system, what are the minimum number of symbols and indicators, and signals do you need?
@@ -27,7 +27,7 @@ For an autonomous SPY options trading system, what are the minimum number of sym
 Claude responded: Great question — this is really about finding the minimum viable signal set that gives you enough edge without overengineering.
 
 Synthesized quantitative trading principles for practical system design
-Great question — this is really about finding the minimum viable signal set that gives you enough edge without overengineering. Here's how I'd frame it for an autonomous SPY options credit spread system like Spyder:
+Great question — this is really about finding the minimum viable signal set that gives you enough edge without overengineering. Here's how I'd frame it for an autonomous SPY options credit spread system like Tradov:
 
 Symbols
 You need surprisingly few. The minimum viable set:

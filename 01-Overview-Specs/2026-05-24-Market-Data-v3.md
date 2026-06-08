@@ -33,7 +33,7 @@ not being carried end-to-end across every consumer surface. Some stale custom me
 could still be rendered, merged, or replayed as if they were live.
 
 The root issue was downstream propagation, not the complete absence of freshness data.
-`SpyderS07_CustomMetricsOrchestrator` already produced bucket quality information.
+`TradovS07_CustomMetricsOrchestrator` already produced bucket quality information.
 The missing piece was consistent enforcement in the dashboard, helper boundaries,
 breadth dialog, cached restore path, and D31 disk-backed IV enrichment.
 
@@ -74,14 +74,14 @@ findings validated after the snapshot.
 
 | Module | Improvement | Outcome |
 |--------|-------------|---------|
-| `SpyderS07_CustomMetricsOrchestrator` | Formatted custom metric entries now carry `quality_bucket` and `stale` | Downstream consumers receive freshness explicitly |
-| `SpyderG05_TradingDashboard` | Stale widgets render unavailable, stale signal-panel keys are cleared, stale liquidity payloads are suppressed, cached restore is limited to 15 minutes | Main dashboard no longer presents stale custom metrics as live |
-| `SpyderG106_CustomMetricWidgetUpdateHelper` | Rejects stale entries during widget fanout | Row widgets only update from live values |
-| `SpyderG107_CustomMetricSignalPanelSyncHelper` | Treats stale entries as absent and returns keys to clear from `_live` | Signal panel does not keep stale live-state residues |
-| `SpyderG108_CustomMetricBreadthDialogSyncHelper` | Emits a stale envelope with NaN breadth values, blank regime, and `stale = true` | Breadth consumers can distinguish stale from missing |
-| `SpyderG109_RegimePillStateHelper` | Ignores stale SWAN/DIX-style inputs | Regime pills fall back instead of trusting expired values |
-| `SpyderG17_MarketInternalsWidget` | Adds explicit stale rendering for internals panels and dialog-level stale status | Open breadth dialog shows `STALE` instead of retaining old numbers |
-| `SpyderD31_StrategyOrchestrator` | Prefers `overview_metrics_snapshot.json`, ignores stale entries, and rejects disk snapshots older than 180 seconds | Strategy preprocessing only consumes fresh IV/IVR hints |
+| `TradovS07_CustomMetricsOrchestrator` | Formatted custom metric entries now carry `quality_bucket` and `stale` | Downstream consumers receive freshness explicitly |
+| `TradovG05_TradingDashboard` | Stale widgets render unavailable, stale signal-panel keys are cleared, stale liquidity payloads are suppressed, cached restore is limited to 15 minutes | Main dashboard no longer presents stale custom metrics as live |
+| `TradovG106_CustomMetricWidgetUpdateHelper` | Rejects stale entries during widget fanout | Row widgets only update from live values |
+| `TradovG107_CustomMetricSignalPanelSyncHelper` | Treats stale entries as absent and returns keys to clear from `_live` | Signal panel does not keep stale live-state residues |
+| `TradovG108_CustomMetricBreadthDialogSyncHelper` | Emits a stale envelope with NaN breadth values, blank regime, and `stale = true` | Breadth consumers can distinguish stale from missing |
+| `TradovG109_RegimePillStateHelper` | Ignores stale SWAN/DIX-style inputs | Regime pills fall back instead of trusting expired values |
+| `TradovG17_MarketInternalsWidget` | Adds explicit stale rendering for internals panels and dialog-level stale status | Open breadth dialog shows `STALE` instead of retaining old numbers |
+| `TradovD31_StrategyOrchestrator` | Prefers `overview_metrics_snapshot.json`, ignores stale entries, and rejects disk snapshots older than 180 seconds | Strategy preprocessing only consumes fresh IV/IVR hints |
 | Focused tests | Added or updated regressions around S07, G05 helper boundaries, G17, and D31 | Freshness behavior is now covered by targeted checks |
 
 ---
@@ -95,12 +95,12 @@ findings validated after the snapshot.
 - **Primary use:** Equity, ETF, and index real-time quotes; historical OHLCV; SPY options chain
 - **Confirmed index symbols (current policy):** `VIX`, `ADD`, `TICK`, `TNX`, `XLK`, `XLF`
 - **Not confirmed by Tradier docs:** `$TRIN`, `$TRINQ`, `$TICKQ`; these are excluded from `TRADIER_FETCHABLE_SYMBOLS` in C04 and sourced via S11 instead
-- **Rate limits:** Token-bucket via `SpyderU40_RateLimiter`; G18 batches all equity symbols into a single call
+- **Rate limits:** Token-bucket via `TradovU40_RateLimiter`; G18 batches all equity symbols into a single call
 - **Status at reference snapshot:** Live and healthy
 
 ### 4.2 TradingView Playwright scraper (S11)
 
-- **Module:** `SpyderS11_TradingViewInternals`
+- **Module:** `TradovS11_TradingViewInternals`
 - **Method:** Playwright headless Chromium scrapes public TradingView symbol pages
 - **Symbols scraped:** `USI-TICK`, `USI-TRIN.NY`, `USI-ADD`, `USI-VOLD`, `USI-UVOL`, `USI-DVOL`, and sector ETF breadth
 - **Not available via TradingView:** `USI-NYMO` returns 404, so NYMO is computed from ADD EMA instead
@@ -110,7 +110,7 @@ findings validated after the snapshot.
 
 ### 4.3 Massive API
 
-- **Client:** `SpyderC27_MassiveClient` / `SpyderC29_DataProviderRouter`
+- **Client:** `TradovC27_MassiveClient` / `TradovC29_DataProviderRouter`
 - **Primary use:** Real-time streaming options Greeks, flow, and equity data
 - **Env var:** `MASSIVE_API_KEY`
 - **Dashboard use:** GEX, DEX, OGL, VEX, and CHEX through the N09 engine wired into S07
@@ -123,13 +123,13 @@ findings validated after the snapshot.
 ### 4.5 FINRA ATS (S01)
 
 - **Use:** Off-exchange dark-pool volume for DIX calculation
-- **Coverage:** S&P 500 constituents with market caps cached at `~/.spyder/market_caps_cache/`
+- **Coverage:** S&P 500 constituents with market caps cached at `~/.tradov/market_caps_cache/`
 - **Reference value:** DIX 43.20% at 13:00 UTC (09:00 ET), file `data/dix_history_20260522.json`
 - **Recent trend:** 44.4% -> 41.0% -> 41.0% -> 43.2% -> 43.2%
 
 ### 4.6 FRED (S09)
 
-- **Module:** `SpyderS09_FREDClient`
+- **Module:** `TradovS09_FREDClient`
 - **Reference status:** FRED bucket age was 6312 seconds, so it was stale and using cached prior-session values
 - **Series used:** GS2, GS5, GS10, GS30, T10Y2Y, T10Y3M, DFEDTARU
 - **Reference current YIELD_10Y:** 4.32 from G18 Tradier TNX while FRED was stale
@@ -232,7 +232,7 @@ orderly broad-based buying. RVOL 0.06 confirmed it was still very early in the s
 
 - **Value:** 65.4%
 - **Breadth regime:** `bull`
-- **Source:** `SpyderS11_TradingViewInternals` snapshot at 13:44 UTC
+- **Source:** `TradovS11_TradingViewInternals` snapshot at 13:44 UTC
 
 ### 7.3 Freshness note
 
@@ -250,7 +250,7 @@ screen. It now renders the Market Internals dialog explicitly as stale.
 | **VXV** | 20.00 | -0.76 | -3.66% | yfinance `^VXV` | C10 timer | VIX/VXV = 0.843, normal contango |
 | **VVIX** | 92.71 | +0.83 | +0.91% | G18 / Tradier `VVIX` | 30 s | Elevated versus typical, but not alarming |
 | **SKEW (G18)** | 136.96 | 0.00 | 0.00% | G18 / Tradier `SKEW` | 30 s | Direct Tradier index quote; no new CBOE intraday print |
-| **SKEW (S07/C18)** | 98.33 | --- | --- | S07 `SpyderC18_SKEWCalculator` | 5 min | Intraday options-chain replication |
+| **SKEW (S07/C18)** | 98.33 | --- | --- | S07 `TradovC18_SKEWCalculator` | 5 min | Intraday options-chain replication |
 
 ### 8.1 VIX regime classification (`C10.VIXLevel`)
 
@@ -359,7 +359,7 @@ risk-off flight to safety. HYG and LQD also confirmed benign credit conditions.
 | **Value** | +0.264B (+$264M) |
 | **Formatted display** | `+0.3B` |
 | **Source** | N09 GammaExposure engine wired into S07 |
-| **Data feed** | OPTIONS chain via `SpyderB40_TradierClient` |
+| **Data feed** | OPTIONS chain via `TradovB40_TradierClient` |
 | **Interpretation** | Dealers were net long gamma, implying volatility suppression |
 | **GEX_REGIME** | `moderate_positive` |
 | **Zero gamma level** | N/A (`ZERO_GAMMA = ---`) |
@@ -413,7 +413,7 @@ risk-off flight to safety. HYG and LQD also confirmed benign credit conditions.
 |-----------|-------|
 | **Value** | 43.20% |
 | **Status** | BULLISH (threshold >= 43%) |
-| **Source** | `SpyderS01_DIXCalculator` |
+| **Source** | `TradovS01_DIXCalculator` |
 | **Primary data** | FINRA ATS off-exchange prints; computed at 09:00 ET daily |
 | **Formula** | `DIX = sum(dark_dollar_volume) / sum(total_dollar_volume)` across the S&P 500 |
 | **File** | `data/dix_history_20260522.json` |
@@ -460,7 +460,7 @@ risk-off flight to safety. HYG and LQD also confirmed benign credit conditions.
 | **Formula** | `WRS = Price(WMT) / LUXURY_INDEX` |
 | **Luxury basket** | LVMUY, CFRUY, HESAY, PPRUY, BURBY, SWGAY, RACE, TPR, CPRI |
 | **Primary data** | Tradier `/markets/history`; yfinance fallback |
-| **Cache** | `~/.spyder/wrs_cache/` |
+| **Cache** | `~/.tradov/wrs_cache/` |
 | **Cadence** | Daily close with 4-hour TTL |
 | **Note** | Raw ratio appears small because WMT is divided by a base-100 compounded luxury index |
 
@@ -484,7 +484,7 @@ risk-off flight to safety. HYG and LQD also confirmed benign credit conditions.
 | **Formula** | Four-component composite: volatility, credit stress, liquidity, and market internals |
 | **Most recent component scores** | `volatility = 1.85`, `credit_stress = 1.09`, `liquidity = 1.50`, `market_internals = 1.90` |
 | **Interpretation** | Low tail-risk environment |
-| **Source** | `SpyderS03_BlackSwanIndicator` |
+| **Source** | `TradovS03_BlackSwanIndicator` |
 | **Freshness** | Age 0 s |
 
 ### 12.12 PMR - Paper Mode Relay
@@ -560,7 +560,7 @@ was still bearish.
 | BREADTH_DEFENSIVE | --- | TradingView scrape returned NaN |
 | BREADTH_SPREAD | --- | TradingView scrape returned NaN |
 | SECTOR_MOMENTUM_DISPERSION | --- | Not calculated |
-| Source | `SpyderS11_TradingViewInternals` snapshot at 13:44 UTC |
+| Source | `TradovS11_TradingViewInternals` snapshot at 13:44 UTC |
 
 ### 13.6 IV term structure detail
 
@@ -635,17 +635,17 @@ The following checks were run against the touched freshness and strategy paths.
 
 | Validation slice | Result |
 |------------------|--------|
-| `SpyderT161_S07_BreadthQualityFeed.py` | Passed |
-| `SpyderT320_G05_CustomMetricBreadthDialogSync.py` + `SpyderT321_G108_CustomMetricBreadthDialogSyncHelper.py` + `SpyderT387_G17_MarketInternalsStaleBreadth.py` | Passed (7 tests) |
-| `SpyderT386_D31_LiveOptionsSnapshotAgeGate.py` | Passed |
-| `SpyderT141_D31_EntryTrustGate.py` + `SpyderT147_F09_DecisionPathControls.py` + `SpyderT386_D31_LiveOptionsSnapshotAgeGate.py` | Passed (33 tests) |
+| `TradovT161_S07_BreadthQualityFeed.py` | Passed |
+| `TradovT320_G05_CustomMetricBreadthDialogSync.py` + `TradovT321_G108_CustomMetricBreadthDialogSyncHelper.py` + `TradovT387_G17_MarketInternalsStaleBreadth.py` | Passed (7 tests) |
+| `TradovT386_D31_LiveOptionsSnapshotAgeGate.py` | Passed |
+| `TradovT141_D31_EntryTrustGate.py` + `TradovT147_F09_DecisionPathControls.py` + `TradovT386_D31_LiveOptionsSnapshotAgeGate.py` | Passed (33 tests) |
 
 ### 15.2 Broader touched-slice regression
 
 The broader custom-metrics regression slice passed for the freshness work itself and
 stopped only on one known unrelated failure:
 
-- `SpyderT217_G05_OffHoursCacheRestore.py::test_apply_proven_real_data_pattern_logs_dia_and_vxv_detail`
+- `TradovT217_G05_OffHoursCacheRestore.py::test_apply_proven_real_data_pattern_logs_dia_and_vxv_detail`
 
 That failure pre-dated the final stale-breadth fix and was not part of the market-data
 freshness issue addressed here.
@@ -666,10 +666,10 @@ An additional manual startup observation was captured on Sunday, 2026-05-24 at
 | `Skipped cached Market Overview metrics older than 15m` | The new warm-restart age gate was exercised in a real off-hours startup path |
 | `Connected to Tradier API` | Broker connectivity was available even though the market was closed |
 | `HMM not available - using fallback classifier` | Optional HMM dependency was absent; the risk stack fell back to its non-HMM classifier |
-| `Dashboard initialized` / `SPYDER DASHBOARD STARTED` | GUI startup completed successfully |
+| `Dashboard initialized` / `TRADOV DASHBOARD STARTED` | GUI startup completed successfully |
 
 This off-hours observation materially supports the cache-freshness remediation: on a
-Sunday startup, Spyder did not replay stale Market Overview metrics older than 15
+Sunday startup, Tradov did not replay stale Market Overview metrics older than 15
 minutes. That is the expected behavior for the G05 cached restore boundary added in
 this remediation.
 
@@ -724,7 +724,7 @@ report.
 | AAII / NAAIM formatter displays `nan` | Still open | The raw values are present, but formatting is still wrong |
 | HMM not available on observed Sunday startup | Known environment limitation | The system fell back to the non-HMM regime classifier; this is separate from the market-data freshness path |
 | SKEW source discrepancy (Tradier vs C18) | Expected | Architectural dual-source difference, not a freshness bug |
-| Off-hours log assertion in `SpyderT217_G05_OffHoursCacheRestore` | Pre-existing unrelated failure | Did not block the freshness fix |
+| Off-hours log assertion in `TradovT217_G05_OffHoursCacheRestore` | Pre-existing unrelated failure | Did not block the freshness fix |
 | Upstream stale buckets (FRED, ECO, SENTIMENT, VOL_SURFACE, and others) | Depends on providers / runtime cadence | v3 prevents stale presentation leaks but does not fabricate fresh upstream data |
 
 ---

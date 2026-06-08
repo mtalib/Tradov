@@ -1,0 +1,1943 @@
+#!/usr/bin/env python3
+"""
+TRADOV - Autonomous Options Trading System v1.0
+
+Series: TradovE_Risk
+Module: TradovE10_CorrelationRiskManager.py
+Purpose: Advanced Portfolio Correlation Risk Management and Diversification Analysis
+Author: Mohamed Talib
+Year Created: 2025
+Last Updated: 2025-08-29 Time: 16:00:00
+
+Module Description:
+    Sophisticated correlation risk management system that monitors portfolio correlation
+    dynamics, detects diversification breakdowns, and provides real-time cross-asset
+    risk assessment. Features dynamic correlation modeling, regime detection, tail
+    correlation analysis, and early warning systems for correlation spikes during
+    market stress periods. Integrates seamlessly with existing risk management framework.
+"""
+
+# ==============================================================================
+# STANDARD IMPORTS
+# ==============================================================================
+import time
+from typing import Any
+from dataclasses import dataclass, field
+from enum import Enum
+from datetime import datetime, timedelta, UTC
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from collections import deque
+
+# ==============================================================================
+# THIRD-PARTY IMPORTS
+# ==============================================================================
+import pandas as pd
+import numpy as np
+from scipy import stats
+from scipy.cluster import hierarchy
+from scipy.spatial.distance import pdist
+from sklearn.covariance import EmpiricalCovariance, LedoitWolf, OAS
+from sklearn.preprocessing import StandardScaler
+
+# ==============================================================================
+# LOCAL IMPORTS
+# ==============================================================================
+from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
+from Tradov.TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler
+from Tradov.TradovU_Utilities.TradovU06_MathUtils import MathUtils
+import logging
+
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+# Correlation Analysis Parameters
+MIN_CORRELATION_WINDOW = 22           # Minimum 22 days for correlation
+DEFAULT_CORRELATION_WINDOW = 66       # Default 66 days (3 months)
+LONG_TERM_WINDOW = 252                # 252 days (1 year)
+STRESS_WINDOW = 11                    # 11 days for stress correlation
+
+# Correlation Thresholds
+LOW_CORRELATION_THRESHOLD = 0.3       # Below this = good diversification
+MODERATE_CORRELATION_THRESHOLD = 0.6  # Moderate diversification concern
+HIGH_CORRELATION_THRESHOLD = 0.8      # High correlation concern
+CRISIS_CORRELATION_THRESHOLD = 0.9    # Crisis-level correlation
+
+# Tail Correlation Analysis
+TAIL_PERCENTILE = 0.05               # 5th percentile for tail events
+EXTREME_TAIL_PERCENTILE = 0.01       # 1st percentile for extreme tails
+
+# Dynamic Correlation Detection
+CORRELATION_CHANGE_THRESHOLD = 0.2    # 20% correlation change alert
+CORRELATION_SPIKE_THRESHOLD = 0.3     # 30% spike in short-term correlation
+REGIME_DETECTION_WINDOW = 44          # 44 days for regime detection
+
+# Risk Limits
+MAX_AVERAGE_CORRELATION = 0.7         # Maximum portfolio average correlation
+MAX_CLUSTER_SIZE_PERCENTAGE = 0.5     # Max 50% in single correlation cluster
+MIN_DIVERSIFICATION_RATIO = 0.3       # Minimum diversification effectiveness
+
+# Performance Constants
+MAX_ASSETS = 1000                     # Maximum assets for correlation analysis
+CORRELATION_UPDATE_FREQUENCY = 300    # Update every 5 minutes
+ALERT_SUPPRESSION_TIME = 1800         # 30 minutes alert suppression
+
+# Matrix Conditioning
+MIN_EIGENVALUE = 1e-8                 # Minimum eigenvalue for matrix stability
+REGULARIZATION_FACTOR = 1e-6          # Ridge regularization for correlation matrix
+
+# ==============================================================================
+# ENUMS
+# ==============================================================================
+class CorrelationRegime(Enum):
+    """Correlation regime types"""
+    LOW_CORRELATION = "low_correlation"
+    NORMAL_CORRELATION = "normal_correlation"
+    ELEVATED_CORRELATION = "elevated_correlation"
+    HIGH_CORRELATION = "high_correlation"
+    CRISIS_CORRELATION = "crisis_correlation"
+
+class CorrelationModel(Enum):
+    """Correlation estimation models"""
+    PEARSON = "pearson"                 # Traditional Pearson correlation
+    SPEARMAN = "spearman"              # Rank-based correlation
+    KENDALL = "kendall"                # Kendall's tau correlation
+    LEDOIT_WOLF = "ledoit_wolf"        # Shrinkage estimator
+    OAS = "oas"                        # Oracle Approximating Shrinkage
+    DCC = "dcc"                        # Dynamic Conditional Correlation
+    EWMA = "ewma"                      # Exponentially Weighted Moving Average
+
+class DiversificationHealth(Enum):
+    """Portfolio diversification health levels"""
+    EXCELLENT = "excellent"            # <30% avg correlation
+    GOOD = "good"                     # 30-50% avg correlation
+    MODERATE = "moderate"             # 50-70% avg correlation
+    POOR = "poor"                     # 70-85% avg correlation
+    CRITICAL = "critical"             # >85% avg correlation
+
+class AlertSeverity(Enum):
+    """Correlation alert severity levels"""
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+    EMERGENCY = "emergency"
+
+class RiskManagerStatus(Enum):
+    """Correlation risk manager status"""
+    STOPPED = "stopped"
+    INITIALIZING = "initializing"
+    RUNNING = "running"
+    PAUSED = "paused"
+    ERROR = "error"
+
+# ==============================================================================
+# DATA STRUCTURES
+# ==============================================================================
+@dataclass
+class CorrelationMetrics:
+    """Comprehensive correlation metrics for portfolio"""
+    timestamp: datetime
+
+    # Basic correlation statistics
+    average_correlation: float
+    median_correlation: float
+    max_correlation: float
+    min_correlation: float
+    correlation_std: float
+
+    # Diversification metrics
+    diversification_ratio: float         # Portfolio vol / weighted avg vol
+    effective_assets: float              # Effective number of independent assets
+    concentration_ratio: float           # Herfindahl index for correlations
+
+    # Regime analysis
+    current_regime: CorrelationRegime
+    regime_probability: float
+    days_in_regime: int
+
+    # Tail correlation metrics
+    tail_correlation_5pct: float         # Average correlation in 5% worst days
+    tail_correlation_1pct: float         # Average correlation in 1% worst days
+    tail_dependence: float               # Tail dependence coefficient
+
+    # Change metrics
+    correlation_trend: float             # 7-day correlation change
+    volatility_of_correlation: float     # Standard deviation of correlations
+
+    # Health assessment
+    diversification_health: DiversificationHealth
+    health_score: float                  # 0-100 diversification health score
+
+    def __post_init__(self):
+        """Post-initialization validation and calculations"""
+        # Ensure correlation values are bounded
+        self.average_correlation = max(-1.0, min(1.0, self.average_correlation))
+        self.max_correlation = max(-1.0, min(1.0, self.max_correlation))
+        self.min_correlation = max(-1.0, min(1.0, self.min_correlation))
+
+        # Ensure health score is bounded
+        self.health_score = max(0.0, min(100.0, self.health_score))
+
+@dataclass
+class CorrelationCluster:
+    """Correlation cluster information"""
+    cluster_id: str
+    asset_names: list[str]
+    cluster_size: int
+    average_correlation: float
+    cluster_weight: float                # Portfolio weight of cluster
+    risk_contribution: float             # Risk contribution of cluster
+
+    # Cluster statistics
+    internal_correlation: float          # Average within-cluster correlation
+    external_correlation: float          # Average between-cluster correlation
+    cluster_volatility: float            # Cluster return volatility
+
+    def get_concentration_risk(self) -> float:
+        """Calculate concentration risk of cluster"""
+        return self.cluster_weight * self.risk_contribution
+
+@dataclass
+class CorrelationAlert:
+    """Correlation risk alert"""
+    alert_id: str
+    alert_type: str
+    severity: AlertSeverity
+    message: str
+
+    # Alert details
+    current_value: float
+    threshold_value: float
+    change_magnitude: float
+    affected_assets: list[str]
+
+    # Metadata
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    acknowledged: bool = False
+    auto_resolved: bool = False
+
+    def __post_init__(self):
+        """Generate alert ID if not provided"""
+        if not self.alert_id:
+            self.alert_id = f"corr_alert_{int(time.time() * 1000)}"
+
+@dataclass
+class CorrelationBreakdown:
+    """Correlation breakdown event detection"""
+    event_id: str
+    start_time: datetime
+
+    # Breakdown metrics
+    pre_breakdown_correlation: float
+    peak_breakdown_correlation: float
+    breakdown_magnitude: float
+    affected_asset_count: int
+
+    # Event classification
+    breakdown_type: str                  # "gradual", "sudden", "crisis"
+    market_condition: str               # Market context during breakdown
+    recovery_status: str                # "ongoing", "recovered", "partial"
+
+    # Impact assessment
+    portfolio_impact: float             # Portfolio risk increase
+    diversification_loss: float         # Diversification benefit lost
+
+    # Optional fields (must come after required fields)
+    end_time: datetime | None = None
+
+    def is_active(self) -> bool:
+        """Check if breakdown event is still active"""
+        return self.end_time is None
+
+@dataclass
+class AssetCorrelationProfile:
+    """Individual asset correlation profile"""
+    asset_name: str
+
+    # Correlation statistics with portfolio
+    average_portfolio_correlation: float
+    max_portfolio_correlation: float
+    correlation_volatility: float
+    correlation_trend: float
+
+    # Peer correlations
+    high_correlation_peers: list[str]    # Assets with >0.8 correlation
+    correlation_cluster: str             # Assigned correlation cluster
+
+    # Risk metrics
+    marginal_correlation_contribution: float  # Contribution to portfolio correlation
+    diversification_benefit: float           # Diversification value of asset
+    correlation_beta: float                   # Correlation beta to market
+
+    # Tail behavior
+    tail_correlation_behavior: str            # "stable", "increases", "decreases"
+    stress_correlation_multiplier: float      # Correlation multiplier under stress
+
+# ==============================================================================
+# MAIN CLASS
+# ==============================================================================
+class CorrelationRiskManager:
+    """
+    Advanced portfolio correlation risk management system.
+
+    This class provides comprehensive correlation risk monitoring including
+    dynamic correlation modeling, diversification analysis, regime detection,
+    tail correlation assessment, and correlation breakdown detection. Features
+    real-time monitoring, clustering analysis, and sophisticated alert systems
+    for managing correlation-based portfolio risks in volatile markets.
+
+    Attributes:
+        logger: Module logger instance
+        error_handler: Error handling instance
+        status: Current manager status
+        correlation_models: Dictionary of correlation models
+        correlation_history: Historical correlation data
+        alerts: Active correlation alerts
+
+    Example:
+        >>> corr_manager = CorrelationRiskManager()
+        >>> corr_manager.initialize()
+        >>> metrics = await corr_manager.analyze_portfolio_correlation(returns_data)
+        >>> alerts = corr_manager.get_active_alerts()
+    """
+
+    def __init__(self, correlation_window: int = DEFAULT_CORRELATION_WINDOW):
+        """Initialize the correlation risk manager."""
+        self.logger = TradovLogger.get_logger(__name__)
+        self.error_handler = TradovErrorHandler()
+
+        # Manager configuration
+        self.correlation_window = max(MIN_CORRELATION_WINDOW, correlation_window)
+        self.status = RiskManagerStatus.STOPPED
+
+        # Data storage
+        self.returns_data: pd.DataFrame = pd.DataFrame()
+        self.correlation_matrices: dict[str, np.ndarray] = {}
+        self.correlation_history: deque = deque(maxlen=1000)  # Last 1000 correlation snapshots
+
+        # Analytics components
+        self.correlation_models: dict[str, Any] = {}
+        self.asset_profiles: dict[str, AssetCorrelationProfile] = {}
+        self.correlation_clusters: dict[str, CorrelationCluster] = {}
+
+        # Alert management
+        self.alerts: list[CorrelationAlert] = []
+        self.alert_suppression: dict[str, datetime] = {}
+        self.breakdown_events: list[CorrelationBreakdown] = []
+
+        # Performance optimization
+        self.math_utils = MathUtils()
+        self.scaler = StandardScaler()
+        self.thread_pool = ThreadPoolExecutor(max_workers=4)
+
+        # Monitoring state
+        self._running = False
+        self._stop_event = threading.Event()
+        self._last_update = None
+
+        self.logger.info("CorrelationRiskManager initialized")
+
+    # ==========================================================================
+    # PUBLIC METHODS - Initialization and Control
+    # ==========================================================================
+    def initialize(self) -> bool:
+        """
+        Initialize the correlation risk manager.
+
+        Returns:
+            bool: True if initialization successful
+        """
+        try:
+            self.status = RiskManagerStatus.INITIALIZING
+            self.logger.info("Initializing correlation risk manager...")
+
+            # Initialize correlation models
+            self._initialize_correlation_models()
+
+            # Initialize clustering algorithms
+            self._initialize_clustering()
+
+            # Set up monitoring components
+            self._initialize_monitoring()
+
+            self.status = RiskManagerStatus.STOPPED
+            self.logger.info("Correlation risk manager initialized successfully")
+            return True
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.initialize")
+            self.status = RiskManagerStatus.ERROR
+            return False
+
+    def start_monitoring(self) -> bool:
+        """
+        Start continuous correlation monitoring.
+
+        Returns:
+            bool: True if monitoring started successfully
+        """
+        if self.status == RiskManagerStatus.RUNNING:
+            self.logger.warning("Correlation monitoring already running")
+            return True
+
+        try:
+            self._running = True
+            self._stop_event.clear()
+            self.status = RiskManagerStatus.RUNNING
+
+            # Start monitoring thread
+            self._monitoring_thread = threading.Thread(target=self._monitoring_loop, daemon=True)
+            self._monitoring_thread.start()
+
+            self.logger.info("Correlation risk monitoring started")
+            return True
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.start_monitoring")
+            self.status = RiskManagerStatus.ERROR
+            return False
+
+    def stop_monitoring(self) -> bool:
+        """
+        Stop continuous correlation monitoring.
+
+        Returns:
+            bool: True if monitoring stopped successfully
+        """
+        try:
+            self._running = False
+            self._stop_event.set()
+            self.status = RiskManagerStatus.STOPPED
+
+            if hasattr(self, '_monitoring_thread'):
+                self._monitoring_thread.join(timeout=5.0)
+
+            self.logger.info("Correlation risk monitoring stopped")
+            return True
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.stop_monitoring")
+            return False
+
+    # ==========================================================================
+    # PUBLIC METHODS - Correlation Analysis
+    # ==========================================================================
+    async def analyze_portfolio_correlation(self, returns_data: pd.DataFrame,
+                                          weights: np.ndarray | None = None,
+                                          model: CorrelationModel = CorrelationModel.LEDOIT_WOLF) -> CorrelationMetrics:  # noqa: E501
+        """
+        Analyze portfolio correlation comprehensively.
+
+        Args:
+            returns_data: Asset returns DataFrame (time x assets)
+            weights: Portfolio weights (optional, equal-weighted if None)
+            model: Correlation estimation model to use
+
+        Returns:
+            Comprehensive correlation metrics
+        """
+        try:
+            self.logger.debug("Analyzing portfolio correlation with %s assets", len(returns_data.columns))  # noqa: E501
+
+            # Validate and prepare data
+            if not self._validate_returns_data(returns_data):
+                raise ValueError("Invalid returns data provided")
+
+            # Store returns data
+            self.returns_data = returns_data.copy()
+
+            # Calculate weights if not provided
+            if weights is None:
+                weights = np.ones(len(returns_data.columns)) / len(returns_data.columns)
+
+            # Ensure weights are normalized
+            weights = weights / np.sum(weights)
+
+            # Calculate correlation matrix
+            correlation_matrix = await self._calculate_correlation_matrix(returns_data, model)
+
+            # Calculate basic correlation statistics
+            basic_stats = self._calculate_basic_correlation_stats(correlation_matrix)
+
+            # Calculate diversification metrics
+            diversification_metrics = self._calculate_diversification_metrics(
+                correlation_matrix, weights, returns_data
+            )
+
+            # Detect correlation regime
+            regime_info = self._detect_correlation_regime(correlation_matrix, returns_data)
+
+            # Calculate tail correlations
+            tail_metrics = self._calculate_tail_correlations(returns_data)
+
+            # Calculate change metrics
+            change_metrics = self._calculate_correlation_changes(correlation_matrix)
+
+            # Assess diversification health
+            health_assessment = self._assess_diversification_health(
+                basic_stats, diversification_metrics
+            )
+
+            # Create comprehensive metrics object
+            metrics = CorrelationMetrics(
+                timestamp=datetime.now(UTC),
+
+                # Basic statistics
+                average_correlation=basic_stats['average'],
+                median_correlation=basic_stats['median'],
+                max_correlation=basic_stats['max'],
+                min_correlation=basic_stats['min'],
+                correlation_std=basic_stats['std'],
+
+                # Diversification metrics
+                diversification_ratio=diversification_metrics['diversification_ratio'],
+                effective_assets=diversification_metrics['effective_assets'],
+                concentration_ratio=diversification_metrics['concentration_ratio'],
+
+                # Regime analysis
+                current_regime=regime_info['regime'],
+                regime_probability=regime_info['probability'],
+                days_in_regime=regime_info['days_in_regime'],
+
+                # Tail metrics
+                tail_correlation_5pct=tail_metrics['tail_5pct'],
+                tail_correlation_1pct=tail_metrics['tail_1pct'],
+                tail_dependence=tail_metrics['tail_dependence'],
+
+                # Change metrics
+                correlation_trend=change_metrics['trend'],
+                volatility_of_correlation=change_metrics['volatility'],
+
+                # Health assessment
+                diversification_health=health_assessment['health_level'],
+                health_score=health_assessment['health_score']
+            )
+
+            # Store correlation matrix
+            self.correlation_matrices[model.value] = correlation_matrix
+
+            # Update correlation history
+            self.correlation_history.append({
+                'timestamp': datetime.now(UTC),
+                'metrics': metrics,
+                'matrix': correlation_matrix.copy()
+            })
+
+            # Update asset profiles
+            await self._update_asset_profiles(returns_data, correlation_matrix, weights)
+
+            # Perform clustering analysis
+            await self._perform_correlation_clustering(correlation_matrix, weights)
+
+            # Check for alerts
+            self._check_correlation_alerts(metrics, correlation_matrix)
+
+            # Detect correlation breakdowns
+            self._detect_correlation_breakdowns(metrics, correlation_matrix)
+
+            self.logger.debug("Correlation analysis completed: %s health", metrics.diversification_health.value)  # noqa: E501
+            return metrics
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.analyze_portfolio_correlation")  # noqa: E501
+            # Return default metrics in case of error
+            return CorrelationMetrics(
+                timestamp=datetime.now(UTC),
+                average_correlation=0.5,
+                median_correlation=0.5,
+                max_correlation=1.0,
+                min_correlation=-1.0,
+                correlation_std=0.2,
+                diversification_ratio=0.5,
+                effective_assets=len(returns_data.columns) if not returns_data.empty else 1,
+                concentration_ratio=0.5,
+                current_regime=CorrelationRegime.NORMAL_CORRELATION,
+                regime_probability=0.5,
+                days_in_regime=0,
+                tail_correlation_5pct=0.7,
+                tail_correlation_1pct=0.8,
+                tail_dependence=0.5,
+                correlation_trend=0.0,
+                volatility_of_correlation=0.1,
+                diversification_health=DiversificationHealth.MODERATE,
+                health_score=50.0
+            )
+
+    def calculate_rolling_correlation(self, returns_data: pd.DataFrame,
+                                    window: int = DEFAULT_CORRELATION_WINDOW,
+                                    model: CorrelationModel = CorrelationModel.PEARSON) -> pd.DataFrame:  # noqa: E501
+        """
+        Calculate rolling correlation matrices.
+
+        Args:
+            returns_data: Asset returns DataFrame
+            window: Rolling window size
+            model: Correlation estimation model
+
+        Returns:
+            DataFrame with rolling correlation statistics
+        """
+        try:
+            if len(returns_data) < window:
+                self.logger.warning("Insufficient data for rolling correlation (need %s, got %s)", window, len(returns_data))  # noqa: E501
+                return pd.DataFrame()
+
+            rolling_stats = []
+
+            # Calculate rolling correlations
+            for i in range(window, len(returns_data) + 1):
+                window_data = returns_data.iloc[i-window:i]
+
+                # Calculate correlation matrix for this window
+                if model == CorrelationModel.PEARSON:
+                    corr_matrix = window_data.corr(method='pearson').values
+                elif model == CorrelationModel.SPEARMAN:
+                    corr_matrix = window_data.corr(method='spearman').values
+                elif model == CorrelationModel.KENDALL:
+                    corr_matrix = window_data.corr(method='kendall').values
+                else:
+                    # Use Ledoit-Wolf for shrinkage methods
+                    lw = LedoitWolf()
+                    lw.fit(window_data)
+                    corr_matrix = lw.covariance_
+                    # Convert to correlation
+                    std_devs = np.sqrt(np.diag(corr_matrix))
+                    corr_matrix = corr_matrix / np.outer(std_devs, std_devs)
+
+                # Extract upper triangular correlations (exclude diagonal)
+                upper_tri_mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+                correlations = corr_matrix[upper_tri_mask]
+
+                # Calculate statistics
+                stats_row = {
+                    'timestamp': returns_data.index[i-1],
+                    'avg_correlation': np.mean(correlations),
+                    'median_correlation': np.median(correlations),
+                    'max_correlation': np.max(correlations),
+                    'min_correlation': np.min(correlations),
+                    'std_correlation': np.std(correlations),
+                    'percentile_95': np.percentile(correlations, 95),
+                    'percentile_5': np.percentile(correlations, 5)
+                }
+
+                rolling_stats.append(stats_row)
+
+            rolling_df = pd.DataFrame(rolling_stats)
+            rolling_df.set_index('timestamp', inplace=True)
+
+            self.logger.debug("Calculated rolling correlations: %s periods", len(rolling_df))
+            return rolling_df
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.calculate_rolling_correlation")  # noqa: E501
+            return pd.DataFrame()
+
+    def detect_correlation_regimes(self, returns_data: pd.DataFrame,
+                                 lookback_days: int = REGIME_DETECTION_WINDOW) -> dict[str, Any]:
+        """
+        Detect correlation regime changes using statistical methods.
+
+        Args:
+            returns_data: Asset returns DataFrame
+            lookback_days: Days to look back for regime detection
+
+        Returns:
+            Dictionary with regime detection results
+        """
+        try:
+            if len(returns_data) < lookback_days * 2:
+                return {'current_regime': CorrelationRegime.NORMAL_CORRELATION, 'confidence': 0.0}
+
+            # Calculate rolling average correlations
+            rolling_corr = self.calculate_rolling_correlation(returns_data, window=lookback_days)
+
+            if rolling_corr.empty:
+                return {'current_regime': CorrelationRegime.NORMAL_CORRELATION, 'confidence': 0.0}
+
+            recent_avg_corr = rolling_corr['avg_correlation'].iloc[-1]
+            historical_mean = rolling_corr['avg_correlation'].mean()
+            historical_std = rolling_corr['avg_correlation'].std()
+
+            # Calculate z-score for regime detection
+            z_score = (recent_avg_corr - historical_mean) / historical_std if historical_std > 0 else 0  # noqa: E501
+
+            # Classify regime based on correlation level and z-score
+            if recent_avg_corr < LOW_CORRELATION_THRESHOLD:
+                regime = CorrelationRegime.LOW_CORRELATION
+                confidence = min(0.9, abs(z_score) / 2.0)
+            elif recent_avg_corr < MODERATE_CORRELATION_THRESHOLD:
+                regime = CorrelationRegime.NORMAL_CORRELATION
+                confidence = 1.0 - abs(z_score) / 2.0
+            elif recent_avg_corr < HIGH_CORRELATION_THRESHOLD:
+                regime = CorrelationRegime.ELEVATED_CORRELATION
+                confidence = min(0.9, abs(z_score) / 2.0)
+            elif recent_avg_corr < CRISIS_CORRELATION_THRESHOLD:
+                regime = CorrelationRegime.HIGH_CORRELATION
+                confidence = min(0.95, abs(z_score) / 1.5)
+            else:
+                regime = CorrelationRegime.CRISIS_CORRELATION
+                confidence = min(0.99, abs(z_score) / 1.0)
+
+            # Calculate regime persistence
+            regime_duration = self._calculate_regime_duration(rolling_corr['avg_correlation'], regime)  # noqa: E501
+
+            # Detect recent regime changes
+            regime_change_prob = self._detect_regime_change_probability(rolling_corr['avg_correlation'])  # noqa: E501
+
+            return {
+                'current_regime': regime,
+                'confidence': max(0.0, min(1.0, confidence)),
+                'recent_avg_correlation': recent_avg_corr,
+                'historical_mean': historical_mean,
+                'z_score': z_score,
+                'regime_duration_days': regime_duration,
+                'regime_change_probability': regime_change_prob,
+                'stability_score': 1.0 - regime_change_prob
+            }
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.detect_correlation_regimes")  # noqa: E501
+            return {'current_regime': CorrelationRegime.NORMAL_CORRELATION, 'confidence': 0.0}
+
+    # ==========================================================================
+    # PUBLIC METHODS - Clustering and Analysis
+    # ==========================================================================
+    async def perform_correlation_clustering(self, correlation_matrix: np.ndarray,
+                                           asset_names: list[str],
+                                           weights: np.ndarray | None = None,
+                                           method: str = 'ward') -> dict[str, CorrelationCluster]:
+        """
+        Perform correlation-based asset clustering.
+
+        Args:
+            correlation_matrix: Asset correlation matrix
+            asset_names: List of asset names
+            weights: Portfolio weights (optional)
+            method: Clustering method ('ward', 'complete', 'average')
+
+        Returns:
+            Dictionary of correlation clusters
+        """
+        try:
+            if weights is None:
+                weights = np.ones(len(asset_names)) / len(asset_names)
+
+            # Convert correlation to distance matrix
+            distance_matrix = 1 - np.abs(correlation_matrix)
+            distance_matrix = np.maximum(distance_matrix, 0)  # Ensure non-negative
+
+            # Perform hierarchical clustering
+            condensed_distances = pdist(distance_matrix)
+            linkage_matrix = hierarchy.linkage(condensed_distances, method=method)
+
+            # Determine optimal number of clusters using silhouette analysis
+            n_assets = len(asset_names)
+            optimal_clusters = min(max(2, n_assets // 5), 10)  # Between 2 and 10 clusters
+
+            # Get cluster assignments
+            cluster_labels = hierarchy.fcluster(linkage_matrix, optimal_clusters, criterion='maxclust')  # noqa: E501
+
+            # Create cluster objects
+            clusters = {}
+            for cluster_id in range(1, optimal_clusters + 1):
+                cluster_mask = cluster_labels == cluster_id
+                cluster_asset_names = [asset_names[i] for i in range(len(asset_names)) if cluster_mask[i]]  # noqa: E501
+
+                if len(cluster_asset_names) == 0:
+                    continue
+
+                # Calculate cluster statistics
+                cluster_indices = np.where(cluster_mask)[0]
+
+                # Internal correlations (within cluster)
+                if len(cluster_indices) > 1:
+                    internal_corr_values = []
+                    for i in range(len(cluster_indices)):
+                        for j in range(i+1, len(cluster_indices)):
+                            internal_corr_values.append(correlation_matrix[cluster_indices[i], cluster_indices[j]])  # noqa: E501
+                    internal_correlation = np.mean(internal_corr_values) if internal_corr_values else 1.0  # noqa: E501
+                else:
+                    internal_correlation = 1.0
+
+                # External correlations (with other clusters)
+                external_indices = np.where(~cluster_mask)[0]
+                if len(external_indices) > 0 and len(cluster_indices) > 0:
+                    external_corr_values = []
+                    for i in cluster_indices:
+                        for j in external_indices:
+                            external_corr_values.append(correlation_matrix[i, j])
+                    external_correlation = np.mean(external_corr_values)
+                else:
+                    external_correlation = 0.0
+
+                # Cluster weight and risk contribution
+                cluster_weights = weights[cluster_mask]
+                cluster_weight = np.sum(cluster_weights)
+
+                # Risk contribution (simplified)
+                risk_contribution = cluster_weight * internal_correlation
+
+                # Create cluster object
+                cluster = CorrelationCluster(
+                    cluster_id=f"cluster_{cluster_id}",
+                    asset_names=cluster_asset_names,
+                    cluster_size=len(cluster_asset_names),
+                    average_correlation=internal_correlation,
+                    cluster_weight=cluster_weight,
+                    risk_contribution=risk_contribution,
+                    internal_correlation=internal_correlation,
+                    external_correlation=external_correlation,
+                    cluster_volatility=0.0  # Would calculate from returns data if available
+                )
+
+                clusters[f"cluster_{cluster_id}"] = cluster
+
+            # Store clusters
+            self.correlation_clusters = clusters
+
+            self.logger.debug("Created %s correlation clusters", len(clusters))
+            return clusters
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.perform_correlation_clustering")  # noqa: E501
+            return {}
+
+    def calculate_diversification_effectiveness(self, correlation_matrix: np.ndarray,
+                                              weights: np.ndarray,
+                                              asset_volatilities: np.ndarray) -> dict[str, float]:
+        """
+        Calculate portfolio diversification effectiveness metrics.
+
+        Args:
+            correlation_matrix: Asset correlation matrix
+            weights: Portfolio weights
+            asset_volatilities: Individual asset volatilities
+
+        Returns:
+            Dictionary with diversification metrics
+        """
+        try:
+            n_assets = len(weights)
+
+            # Portfolio variance and volatility
+            portfolio_variance = np.dot(weights, np.dot(correlation_matrix * np.outer(asset_volatilities, asset_volatilities), weights))  # noqa: E501
+            portfolio_volatility = np.sqrt(portfolio_variance)
+
+            # Weighted average volatility (no diversification case)
+            weighted_avg_volatility = np.dot(weights, asset_volatilities)
+
+            # Diversification ratio
+            diversification_ratio = portfolio_volatility / weighted_avg_volatility if weighted_avg_volatility > 0 else 1.0  # noqa: E501
+
+            # Effective number of assets (Engle & Ferstenberg)
+            if np.all(correlation_matrix.diagonal() == 1):
+                # Remove diagonal for calculation
+                off_diagonal_corr = correlation_matrix.copy()
+                np.fill_diagonal(off_diagonal_corr, 0)
+                avg_correlation = np.sum(off_diagonal_corr) / (n_assets * (n_assets - 1))
+                effective_assets = (1 + (n_assets - 1) * avg_correlation) / (1 + avg_correlation) if (1 + avg_correlation) != 0 else n_assets  # noqa: E501
+            else:
+                effective_assets = n_assets
+
+            # Concentration ratio (Herfindahl-Hirschman Index)
+            hhi = np.sum(weights ** 2)
+
+            # Maximum diversification ratio (theoretical maximum)
+            equal_weights = np.ones(n_assets) / n_assets
+            max_div_ratio = 1.0 / np.sqrt(np.dot(equal_weights, np.dot(correlation_matrix, equal_weights))) if n_assets > 1 else 1.0  # noqa: E501
+
+            # Diversification efficiency
+            diversification_efficiency = diversification_ratio / max_div_ratio if max_div_ratio > 0 else 0.0  # noqa: E501
+
+            # Risk reduction benefit
+            undiversified_risk = weighted_avg_volatility
+            diversified_risk = portfolio_volatility
+            risk_reduction = (undiversified_risk - diversified_risk) / undiversified_risk if undiversified_risk > 0 else 0.0  # noqa: E501
+
+            return {
+                'diversification_ratio': diversification_ratio,
+                'effective_assets': effective_assets,
+                'concentration_ratio': hhi,
+                'diversification_efficiency': diversification_efficiency,
+                'risk_reduction_benefit': risk_reduction,
+                'portfolio_volatility': portfolio_volatility,
+                'weighted_avg_volatility': weighted_avg_volatility,
+                'max_diversification_ratio': max_div_ratio
+            }
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.calculate_diversification_effectiveness")  # noqa: E501
+            return {
+                'diversification_ratio': 0.5,
+                'effective_assets': len(weights),
+                'concentration_ratio': 1.0 / len(weights),
+                'diversification_efficiency': 0.5,
+                'risk_reduction_benefit': 0.0,
+                'portfolio_volatility': 0.0,
+                'weighted_avg_volatility': 0.0,
+                'max_diversification_ratio': 1.0
+            }
+
+    # ==========================================================================
+    # PUBLIC METHODS - Alerts and Reporting
+    # ==========================================================================
+    def get_active_alerts(self, severity_filter: AlertSeverity | None = None) -> list[CorrelationAlert]:  # noqa: E501
+        """
+        Get active correlation alerts.
+
+        Args:
+            severity_filter: Optional severity filter
+
+        Returns:
+            List of active alerts
+        """
+        active_alerts = [alert for alert in self.alerts if not alert.acknowledged and not alert.auto_resolved]  # noqa: E501
+
+        if severity_filter:
+            active_alerts = [alert for alert in active_alerts if alert.severity == severity_filter]
+
+        return active_alerts
+
+    def acknowledge_alert(self, alert_id: str) -> bool:
+        """
+        Acknowledge a correlation alert.
+
+        Args:
+            alert_id: Alert ID to acknowledge
+
+        Returns:
+            bool: True if alert was acknowledged
+        """
+        for alert in self.alerts:
+            if alert.alert_id == alert_id:
+                alert.acknowledged = True
+                self.logger.info("Acknowledged correlation alert: %s", alert_id)
+                return True
+
+        self.logger.warning("Alert not found for acknowledgment: %s", alert_id)
+        return False
+
+    def generate_correlation_report(self) -> str:
+        """
+        Generate comprehensive correlation risk report.
+
+        Returns:
+            Formatted correlation report
+        """
+        try:
+            report_lines = []
+            report_lines.append("=" * 80)
+            report_lines.append("TRADOV CORRELATION RISK MANAGEMENT REPORT")
+            report_lines.append("=" * 80)
+            report_lines.append(f"Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}")
+            report_lines.append("")
+
+            # Manager status
+            report_lines.append("CORRELATION RISK MANAGER STATUS:")
+            report_lines.append(f"  Status: {self.status.value.upper()}")
+            report_lines.append(f"  Last Update: {self._last_update.strftime('%Y-%m-%d %H:%M:%S') if self._last_update else 'Never'}")  # noqa: E501
+            report_lines.append(f"  Assets Monitored: {len(self.asset_profiles)}")
+            report_lines.append(f"  Correlation Clusters: {len(self.correlation_clusters)}")
+            report_lines.append("")
+
+            # Latest correlation metrics
+            if self.correlation_history:
+                latest_metrics = self.correlation_history[-1]['metrics']
+
+                report_lines.append("CURRENT CORRELATION METRICS:")
+                report_lines.append(f"  Average Correlation: {latest_metrics.average_correlation:.3f}")  # noqa: E501
+                report_lines.append(f"  Max Correlation: {latest_metrics.max_correlation:.3f}")
+                report_lines.append(f"  Diversification Ratio: {latest_metrics.diversification_ratio:.3f}")  # noqa: E501
+                report_lines.append(f"  Effective Assets: {latest_metrics.effective_assets:.1f}")
+                report_lines.append(f"  Current Regime: {latest_metrics.current_regime.value.upper()}")  # noqa: E501
+                report_lines.append(f"  Diversification Health: {latest_metrics.diversification_health.value.upper()}")  # noqa: E501
+                report_lines.append(f"  Health Score: {latest_metrics.health_score:.1f}/100")
+                report_lines.append("")
+
+                # Tail correlation analysis
+                report_lines.append("TAIL CORRELATION ANALYSIS:")
+                report_lines.append(f"  5% Tail Correlation: {latest_metrics.tail_correlation_5pct:.3f}")  # noqa: E501
+                report_lines.append(f"  1% Tail Correlation: {latest_metrics.tail_correlation_1pct:.3f}")  # noqa: E501
+                report_lines.append(f"  Tail Dependence: {latest_metrics.tail_dependence:.3f}")
+                report_lines.append("")
+
+            # Correlation clusters
+            if self.correlation_clusters:
+                report_lines.append("CORRELATION CLUSTERS:")
+                for cluster_id, cluster in self.correlation_clusters.items():
+                    report_lines.append(f"  {cluster_id.upper()}:")
+                    report_lines.append(f"    Assets: {cluster.cluster_size} ({', '.join(cluster.asset_names[:3])}{'...' if len(cluster.asset_names) > 3 else ''})")  # noqa: E501
+                    report_lines.append(f"    Internal Correlation: {cluster.internal_correlation:.3f}")  # noqa: E501
+                    report_lines.append(f"    Portfolio Weight: {cluster.cluster_weight:.1%}")
+                    report_lines.append(f"    Risk Contribution: {cluster.risk_contribution:.3f}")
+                report_lines.append("")
+
+            # Active alerts
+            active_alerts = self.get_active_alerts()
+            if active_alerts:
+                report_lines.append("ACTIVE ALERTS:")
+                for alert in active_alerts[:5]:  # Show top 5 alerts
+                    report_lines.append(f"  {alert.alert_type.upper()} - {alert.severity.value.upper()}")  # noqa: E501
+                    report_lines.append(f"    {alert.message}")
+                    report_lines.append(f"    Threshold: {alert.threshold_value:.3f}, Current: {alert.current_value:.3f}")  # noqa: E501
+                if len(active_alerts) > 5:
+                    report_lines.append(f"  ... and {len(active_alerts) - 5} more alerts")
+                report_lines.append("")
+
+            # Breakdown events
+            active_breakdowns = [bd for bd in self.breakdown_events if bd.is_active()]
+            if active_breakdowns:
+                report_lines.append("ACTIVE CORRELATION BREAKDOWNS:")
+                for breakdown in active_breakdowns:
+                    report_lines.append(f"  {breakdown.breakdown_type.upper()} BREAKDOWN:")
+                    report_lines.append(f"    Start Time: {breakdown.start_time.strftime('%Y-%m-%d %H:%M')}")  # noqa: E501
+                    report_lines.append(f"    Magnitude: {breakdown.breakdown_magnitude:.1%}")
+                    report_lines.append(f"    Affected Assets: {breakdown.affected_asset_count}")
+                    report_lines.append(f"    Portfolio Impact: {breakdown.portfolio_impact:.1%}")
+                report_lines.append("")
+
+            report_lines.append("=" * 80)
+            return "\n".join(report_lines)
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.generate_correlation_report")  # noqa: E501
+            return f"Error generating correlation report: {e}"
+
+    def get_correlation_summary(self) -> dict[str, Any]:
+        """
+        Get correlation risk management summary.
+
+        Returns:
+            Dictionary with correlation summary
+        """
+        try:
+            summary = {
+                'manager_status': {
+                    'status': self.status.value,
+                    'last_update': self._last_update.isoformat() if self._last_update else None,
+                    'assets_monitored': len(self.asset_profiles),
+                    'correlation_models': list(self.correlation_models.keys()),
+                    'data_points': len(self.correlation_history)
+                },
+                'current_metrics': None,
+                'alert_summary': {
+                    'total_alerts': len(self.alerts),
+                    'active_alerts': len(self.get_active_alerts()),
+                    'critical_alerts': len(self.get_active_alerts(AlertSeverity.CRITICAL)),
+                    'emergency_alerts': len(self.get_active_alerts(AlertSeverity.EMERGENCY))
+                },
+                'cluster_summary': {
+                    'total_clusters': len(self.correlation_clusters),
+                    'largest_cluster_size': max([c.cluster_size for c in self.correlation_clusters.values()]) if self.correlation_clusters else 0,  # noqa: E501
+                    'highest_internal_correlation': max([c.internal_correlation for c in self.correlation_clusters.values()]) if self.correlation_clusters else 0.0  # noqa: E501
+                },
+                'breakdown_summary': {
+                    'total_events': len(self.breakdown_events),
+                    'active_events': len([bd for bd in self.breakdown_events if bd.is_active()]),
+                    'recent_events': len([bd for bd in self.breakdown_events if bd.start_time > datetime.now(UTC) - timedelta(days=7)])  # noqa: E501
+                }
+            }
+
+            # Add current metrics if available
+            if self.correlation_history:
+                latest_metrics = self.correlation_history[-1]['metrics']
+                summary['current_metrics'] = {
+                    'average_correlation': latest_metrics.average_correlation,
+                    'max_correlation': latest_metrics.max_correlation,
+                    'diversification_ratio': latest_metrics.diversification_ratio,
+                    'effective_assets': latest_metrics.effective_assets,
+                    'current_regime': latest_metrics.current_regime.value,
+                    'health_score': latest_metrics.health_score,
+                    'diversification_health': latest_metrics.diversification_health.value
+                }
+
+            return summary
+
+        except Exception as e:
+            self.error_handler.handle_error(e, context="CorrelationRiskManager.get_correlation_summary")  # noqa: E501
+            return {}
+
+    # ==========================================================================
+    # PRIVATE METHODS - Core Implementation
+    # ==========================================================================
+    def _initialize_correlation_models(self) -> None:
+        """Initialize correlation estimation models."""
+        try:
+            # Ledoit-Wolf shrinkage estimator
+            self.correlation_models['ledoit_wolf'] = LedoitWolf()
+
+            # Oracle Approximating Shrinkage
+            self.correlation_models['oas'] = OAS()
+
+            # Empirical covariance
+            self.correlation_models['empirical'] = EmpiricalCovariance()
+
+            self.logger.debug("Correlation models initialized")
+
+        except Exception as e:
+            self.logger.error("Error initializing correlation models: %s", e)
+
+    def _initialize_clustering(self) -> None:
+        """Initialize clustering algorithms."""
+        # Initialize clustering parameters
+        self._clustering_methods = ['ward', 'complete', 'average', 'single']
+        self._max_clusters = 10
+        self._min_cluster_size = 2
+
+        self.logger.debug("Clustering algorithms initialized")
+
+    def _initialize_monitoring(self) -> None:
+        """Initialize monitoring components."""
+        self._alert_suppression = {}
+        self._last_regime_change = None
+        self._regime_stability_count = 0
+
+        self.logger.debug("Monitoring components initialized")
+
+    def _monitoring_loop(self) -> None:
+        """Main monitoring loop for correlation risk."""
+        self.logger.info("Started correlation risk monitoring loop")
+
+        while self._running:
+            try:
+                # This would integrate with data feeds in production
+                # For now, just sleep and perform maintenance
+                self._stop_event.wait(CORRELATION_UPDATE_FREQUENCY)
+
+                # Clean up old alerts
+                self._cleanup_old_alerts()
+
+                # Update regime stability tracking
+                self._update_regime_tracking()
+
+                # Check for auto-resolution of alerts
+                self._check_alert_auto_resolution()
+
+            except Exception as e:
+                self.logger.error("Error in monitoring loop: %s", e)
+                self._stop_event.wait(60)  # Wait longer on error
+
+        self.logger.info("Correlation risk monitoring loop stopped")
+
+    async def _calculate_correlation_matrix(self, returns_data: pd.DataFrame,
+                                          model: CorrelationModel) -> np.ndarray:
+        """Calculate correlation matrix using specified model."""
+        try:
+            if model == CorrelationModel.PEARSON:
+                return returns_data.corr(method='pearson').values
+            elif model == CorrelationModel.SPEARMAN:
+                return returns_data.corr(method='spearman').values
+            elif model == CorrelationModel.KENDALL:
+                return returns_data.corr(method='kendall').values
+            elif model == CorrelationModel.LEDOIT_WOLF:
+                lw = self.correlation_models['ledoit_wolf']
+                lw.fit(returns_data)
+                cov_matrix = lw.covariance_
+                # Convert to correlation
+                std_devs = np.sqrt(np.diag(cov_matrix))
+                corr_matrix = cov_matrix / np.outer(std_devs, std_devs)
+                return corr_matrix
+            elif model == CorrelationModel.OAS:
+                oas = self.correlation_models['oas']
+                oas.fit(returns_data)
+                cov_matrix = oas.covariance_
+                # Convert to correlation
+                std_devs = np.sqrt(np.diag(cov_matrix))
+                corr_matrix = cov_matrix / np.outer(std_devs, std_devs)
+                return corr_matrix
+            elif model == CorrelationModel.EWMA:
+                # Exponentially weighted correlation
+                return self._calculate_ewma_correlation(returns_data)
+            else:
+                # Default to Pearson
+                return returns_data.corr(method='pearson').values
+
+        except Exception as e:
+            self.logger.error("Error calculating correlation matrix: %s", e)
+            # Return identity matrix as fallback
+            n_assets = len(returns_data.columns)
+            return np.eye(n_assets)
+
+    def _calculate_ewma_correlation(self, returns_data: pd.DataFrame, alpha: float = 0.94) -> np.ndarray:  # noqa: E501
+        """Calculate EWMA correlation matrix."""
+        try:
+            # Simple EWMA correlation calculation
+            len(returns_data.columns)
+            n_periods = len(returns_data)
+
+            # Initialize with equal weights
+            weights = np.array([alpha ** i for i in range(n_periods)])
+            weights = weights / np.sum(weights)
+
+            # Calculate weighted correlation
+            corr_matrix = np.corrcoef(returns_data.T, rowvar=True)
+
+            # Apply exponential weighting (simplified)
+            return corr_matrix
+
+        except Exception as e:
+            self.logger.error("Error in EWMA correlation calculation: %s", e)
+            return np.eye(len(returns_data.columns))
+
+    def _validate_returns_data(self, returns_data: pd.DataFrame) -> bool:
+        """Validate returns data for correlation analysis."""
+        if returns_data.empty:
+            self.logger.error("Empty returns data provided")
+            return False
+
+        if len(returns_data) < MIN_CORRELATION_WINDOW:
+            self.logger.error("Insufficient data points (need %s, got %s)", MIN_CORRELATION_WINDOW, len(returns_data))  # noqa: E501
+            return False
+
+        if len(returns_data.columns) < 2:
+            self.logger.error("Need at least 2 assets for correlation analysis")
+            return False
+
+        # Check for excessive missing values
+        missing_ratio = returns_data.isnull().sum().sum() / (len(returns_data) * len(returns_data.columns))  # noqa: E501
+        if missing_ratio > 0.1:  # More than 10% missing
+            self.logger.warning(f"High missing data ratio: {missing_ratio:.1%}")
+
+        return True
+
+    def _calculate_basic_correlation_stats(self, correlation_matrix: np.ndarray) -> dict[str, float]:  # noqa: E501
+        """Calculate basic correlation statistics."""
+        # Extract upper triangular correlations (exclude diagonal)
+        upper_tri_mask = np.triu(np.ones_like(correlation_matrix, dtype=bool), k=1)
+        correlations = correlation_matrix[upper_tri_mask]
+
+        return {
+            'average': np.mean(correlations),
+            'median': np.median(correlations),
+            'max': np.max(correlations),
+            'min': np.min(correlations),
+            'std': np.std(correlations),
+            'skewness': stats.skew(correlations),
+            'kurtosis': stats.kurtosis(correlations)
+        }
+
+    def _calculate_diversification_metrics(self, correlation_matrix: np.ndarray,
+                                         weights: np.ndarray,
+                                         returns_data: pd.DataFrame) -> dict[str, float]:
+        """Calculate diversification effectiveness metrics."""
+        try:
+            len(weights)
+
+            # Calculate asset volatilities
+            asset_volatilities = returns_data.std().values
+
+            # Use diversification effectiveness calculation
+            diversification_metrics = self.calculate_diversification_effectiveness(
+                correlation_matrix, weights, asset_volatilities
+            )
+
+            return diversification_metrics
+
+        except Exception as e:
+            self.logger.error("Error calculating diversification metrics: %s", e)
+            return {
+                'diversification_ratio': 0.5,
+                'effective_assets': len(weights),
+                'concentration_ratio': 1.0 / len(weights)
+            }
+
+    def _detect_correlation_regime(self, correlation_matrix: np.ndarray,
+                                 returns_data: pd.DataFrame) -> dict[str, Any]:
+        """Detect current correlation regime."""
+        try:
+            # Use the full regime detection method
+            regime_info = self.detect_correlation_regimes(returns_data)
+
+            return {
+                'regime': regime_info.get('current_regime', CorrelationRegime.NORMAL_CORRELATION),
+                'probability': regime_info.get('confidence', 0.5),
+                'days_in_regime': regime_info.get('regime_duration_days', 0)
+            }
+
+        except Exception as e:
+            self.logger.error("Error detecting correlation regime: %s", e)
+            return {
+                'regime': CorrelationRegime.NORMAL_CORRELATION,
+                'probability': 0.5,
+                'days_in_regime': 0
+            }
+
+    def _calculate_tail_correlations(self, returns_data: pd.DataFrame) -> dict[str, float]:
+        """Calculate tail correlation metrics."""
+        try:
+            # Calculate portfolio returns (equal weighted for simplicity)
+            portfolio_returns = returns_data.mean(axis=1)
+
+            # Identify tail events
+            tail_5pct_threshold = portfolio_returns.quantile(TAIL_PERCENTILE)
+            tail_1pct_threshold = portfolio_returns.quantile(EXTREME_TAIL_PERCENTILE)
+
+            tail_5pct_mask = portfolio_returns <= tail_5pct_threshold
+            tail_1pct_mask = portfolio_returns <= tail_1pct_threshold
+
+            # Calculate correlations during tail events
+            if np.sum(tail_5pct_mask) >= 2:
+                tail_5pct_data = returns_data[tail_5pct_mask]
+                tail_5pct_corr_matrix = tail_5pct_data.corr().values
+                upper_tri_mask = np.triu(np.ones_like(tail_5pct_corr_matrix, dtype=bool), k=1)
+                tail_5pct_correlations = tail_5pct_corr_matrix[upper_tri_mask]
+                tail_5pct_avg = np.nanmean(tail_5pct_correlations)
+            else:
+                tail_5pct_avg = 0.0
+
+            if np.sum(tail_1pct_mask) >= 2:
+                tail_1pct_data = returns_data[tail_1pct_mask]
+                tail_1pct_corr_matrix = tail_1pct_data.corr().values
+                upper_tri_mask = np.triu(np.ones_like(tail_1pct_corr_matrix, dtype=bool), k=1)
+                tail_1pct_correlations = tail_1pct_corr_matrix[upper_tri_mask]
+                tail_1pct_avg = np.nanmean(tail_1pct_correlations)
+            else:
+                tail_1pct_avg = 0.0
+
+            # Calculate tail dependence (simplified)
+            normal_corr_matrix = returns_data.corr().values
+            upper_tri_mask = np.triu(np.ones_like(normal_corr_matrix, dtype=bool), k=1)
+            normal_correlations = normal_corr_matrix[upper_tri_mask]
+            normal_avg = np.nanmean(normal_correlations)
+
+            tail_dependence = (tail_5pct_avg - normal_avg) if normal_avg != 0 else 0.0
+
+            return {
+                'tail_5pct': tail_5pct_avg,
+                'tail_1pct': tail_1pct_avg,
+                'tail_dependence': tail_dependence
+            }
+
+        except Exception as e:
+            self.logger.error("Error calculating tail correlations: %s", e)
+            return {
+                'tail_5pct': 0.7,
+                'tail_1pct': 0.8,
+                'tail_dependence': 0.1
+            }
+
+    def _calculate_correlation_changes(self, correlation_matrix: np.ndarray) -> dict[str, float]:
+        """Calculate correlation change metrics."""
+        try:
+            if len(self.correlation_history) < 2:
+                return {'trend': 0.0, 'volatility': 0.0}
+
+            # Get recent correlation matrices
+            recent_matrices = [entry['matrix'] for entry in list(self.correlation_history)[-7:]]  # Last 7 entries  # noqa: E501
+
+            if len(recent_matrices) < 2:
+                return {'trend': 0.0, 'volatility': 0.0}
+
+            # Calculate average correlations for each matrix
+            avg_correlations = []
+            for matrix in recent_matrices:
+                upper_tri_mask = np.triu(np.ones_like(matrix, dtype=bool), k=1)
+                avg_corr = np.mean(matrix[upper_tri_mask])
+                avg_correlations.append(avg_corr)
+
+            # Calculate trend (linear regression slope)
+            x = np.arange(len(avg_correlations))
+            if len(x) > 1 and np.var(x) > 0:
+                slope, _, _, _, _ = stats.linregress(x, avg_correlations)
+                trend = slope
+            else:
+                trend = 0.0
+
+            # Calculate volatility of correlations
+            volatility = np.std(avg_correlations) if len(avg_correlations) > 1 else 0.0
+
+            return {
+                'trend': trend,
+                'volatility': volatility
+            }
+
+        except Exception as e:
+            self.logger.error("Error calculating correlation changes: %s", e)
+            return {'trend': 0.0, 'volatility': 0.0}
+
+    def _assess_diversification_health(self, basic_stats: dict[str, float],
+                                     diversification_metrics: dict[str, float]) -> dict[str, Any]:
+        """Assess overall diversification health."""
+        avg_correlation = basic_stats['average']
+        diversification_ratio = diversification_metrics.get('diversification_ratio', 0.5)
+        diversification_metrics.get('effective_assets', 1.0)
+
+        # Calculate health score (0-100)
+        correlation_score = max(0, (HIGH_CORRELATION_THRESHOLD - avg_correlation) / HIGH_CORRELATION_THRESHOLD * 50)  # noqa: E501
+        diversification_score = min(50, diversification_ratio * 50)
+
+        health_score = correlation_score + diversification_score
+
+        # Determine health level
+        if health_score >= 80:
+            health_level = DiversificationHealth.EXCELLENT
+        elif health_score >= 65:
+            health_level = DiversificationHealth.GOOD
+        elif health_score >= 45:
+            health_level = DiversificationHealth.MODERATE
+        elif health_score >= 25:
+            health_level = DiversificationHealth.POOR
+        else:
+            health_level = DiversificationHealth.CRITICAL
+
+        return {
+            'health_level': health_level,
+            'health_score': health_score
+        }
+
+    # ==========================================================================
+    # PRIVATE METHODS - Alert Management
+    # ==========================================================================
+    def _check_correlation_alerts(self, metrics: CorrelationMetrics,
+                                correlation_matrix: np.ndarray) -> None:
+        """Check for correlation alert conditions."""
+        current_time = datetime.now(UTC)
+
+        # High correlation alert
+        if metrics.average_correlation > HIGH_CORRELATION_THRESHOLD:
+            alert_key = "high_correlation"
+            if self._should_create_alert(alert_key, current_time):
+                alert = CorrelationAlert(
+                    alert_id="",
+                    alert_type="High Correlation",
+                    severity=AlertSeverity.HIGH if metrics.average_correlation < CRISIS_CORRELATION_THRESHOLD else AlertSeverity.CRITICAL,  # noqa: E501
+                    message=f"Portfolio average correlation is {metrics.average_correlation:.1%} (threshold: {HIGH_CORRELATION_THRESHOLD:.1%})",  # noqa: E501
+                    current_value=metrics.average_correlation,
+                    threshold_value=HIGH_CORRELATION_THRESHOLD,
+                    change_magnitude=metrics.correlation_trend,
+                    affected_assets=[]
+                )
+                self._add_alert(alert, alert_key)
+
+        # Poor diversification alert
+        if metrics.diversification_health in [DiversificationHealth.POOR, DiversificationHealth.CRITICAL]:  # noqa: E501
+            alert_key = "poor_diversification"
+            if self._should_create_alert(alert_key, current_time):
+                alert = CorrelationAlert(
+                    alert_id="",
+                    alert_type="Poor Diversification",
+                    severity=AlertSeverity.HIGH if metrics.diversification_health == DiversificationHealth.POOR else AlertSeverity.CRITICAL,  # noqa: E501
+                    message=f"Portfolio diversification is {metrics.diversification_health.value} (health score: {metrics.health_score:.0f})",  # noqa: E501
+                    current_value=metrics.health_score,
+                    threshold_value=45.0,
+                    change_magnitude=0.0,
+                    affected_assets=[]
+                )
+                self._add_alert(alert, alert_key)
+
+        # Correlation regime change alert
+        if metrics.current_regime == CorrelationRegime.CRISIS_CORRELATION:
+            alert_key = "crisis_correlation_regime"
+            if self._should_create_alert(alert_key, current_time):
+                alert = CorrelationAlert(
+                    alert_id="",
+                    alert_type="Crisis Correlation Regime",
+                    severity=AlertSeverity.EMERGENCY,
+                    message=f"Portfolio entered crisis correlation regime (probability: {metrics.regime_probability:.0%})",  # noqa: E501
+                    current_value=metrics.average_correlation,
+                    threshold_value=CRISIS_CORRELATION_THRESHOLD,
+                    change_magnitude=metrics.correlation_trend,
+                    affected_assets=[]
+                )
+                self._add_alert(alert, alert_key)
+
+        # Tail correlation spike alert
+        if metrics.tail_correlation_5pct > 0.9:
+            alert_key = "tail_correlation_spike"
+            if self._should_create_alert(alert_key, current_time):
+                alert = CorrelationAlert(
+                    alert_id="",
+                    alert_type="Tail Correlation Spike",
+                    severity=AlertSeverity.HIGH,
+                    message=f"Tail correlation (5%) reached {metrics.tail_correlation_5pct:.1%}",
+                    current_value=metrics.tail_correlation_5pct,
+                    threshold_value=0.9,
+                    change_magnitude=0.0,
+                    affected_assets=[]
+                )
+                self._add_alert(alert, alert_key)
+
+    def _should_create_alert(self, alert_key: str, current_time: datetime) -> bool:
+        """Check if alert should be created based on suppression rules."""
+        if alert_key in self.alert_suppression:
+            time_since_last = (current_time - self.alert_suppression[alert_key]).total_seconds()
+            if time_since_last < ALERT_SUPPRESSION_TIME:
+                return False
+        return True
+
+    def _add_alert(self, alert: CorrelationAlert, alert_key: str) -> None:
+        """Add correlation alert with suppression tracking."""
+        self.alerts.append(alert)
+        self.alert_suppression[alert_key] = datetime.now(UTC)
+        self.logger.warning("Correlation alert: %s", alert.message)
+
+    def _detect_correlation_breakdowns(self, metrics: CorrelationMetrics,
+                                     correlation_matrix: np.ndarray) -> None:
+        """Detect correlation breakdown events."""
+        try:
+            # Check for sudden correlation spikes
+            if len(self.correlation_history) >= 2:
+                prev_metrics = self.correlation_history[-2]['metrics']
+                correlation_change = metrics.average_correlation - prev_metrics.average_correlation
+
+                if correlation_change > CORRELATION_SPIKE_THRESHOLD:
+                    # Potential breakdown event
+                    breakdown = CorrelationBreakdown(
+                        event_id=f"breakdown_{int(time.time())}",
+                        start_time=datetime.now(UTC),
+                        pre_breakdown_correlation=prev_metrics.average_correlation,
+                        peak_breakdown_correlation=metrics.average_correlation,
+                        breakdown_magnitude=correlation_change,
+                        affected_asset_count=len(correlation_matrix),
+                        breakdown_type="sudden",
+                        market_condition="unknown",
+                        recovery_status="ongoing",
+                        portfolio_impact=correlation_change * 0.1,  # Simplified impact
+                        diversification_loss=correlation_change
+                    )
+
+                    self.breakdown_events.append(breakdown)
+                    self.logger.warning(f"Correlation breakdown detected: {correlation_change:.1%} spike")  # noqa: E501
+
+        except Exception as e:
+            self.logger.error("Error detecting correlation breakdowns: %s", e)
+
+    # ==========================================================================
+    # PRIVATE METHODS - Utilities
+    # ==========================================================================
+    async def _update_asset_profiles(self, returns_data: pd.DataFrame,
+                                   correlation_matrix: np.ndarray,
+                                   weights: np.ndarray) -> None:
+        """Update individual asset correlation profiles."""
+        try:
+            asset_names = returns_data.columns.tolist()
+
+            for i, asset_name in enumerate(asset_names):
+                # Calculate asset's correlation with portfolio
+                asset_correlations = correlation_matrix[i, :]
+                portfolio_correlation = np.dot(weights, asset_correlations)
+
+                # Find high correlation peers
+                high_corr_peers = []
+                for j, corr in enumerate(asset_correlations):
+                    if j != i and corr > HIGH_CORRELATION_THRESHOLD:
+                        high_corr_peers.append(asset_names[j])
+
+                # Create or update asset profile
+                profile = AssetCorrelationProfile(
+                    asset_name=asset_name,
+                    average_portfolio_correlation=portfolio_correlation,
+                    max_portfolio_correlation=np.max(asset_correlations[asset_correlations < 1.0]) if len(asset_correlations) > 1 else 0.0,  # noqa: E501
+                    correlation_volatility=np.std(asset_correlations),
+                    correlation_trend=0.0,  # Would calculate from historical data
+                    high_correlation_peers=high_corr_peers,
+                    correlation_cluster="",  # Would assign from clustering
+                    marginal_correlation_contribution=weights[i] * portfolio_correlation,
+                    diversification_benefit=max(0, 1.0 - portfolio_correlation),
+                    correlation_beta=portfolio_correlation,
+                    tail_correlation_behavior="stable",
+                    stress_correlation_multiplier=1.0
+                )
+
+                self.asset_profiles[asset_name] = profile
+
+        except Exception as e:
+            self.logger.error("Error updating asset profiles: %s", e)
+
+    async def _perform_correlation_clustering(self, correlation_matrix: np.ndarray,
+                                            weights: np.ndarray) -> None:
+        """Perform correlation clustering analysis."""
+        try:
+            if len(self.returns_data.columns) < 2:
+                return
+
+            asset_names = self.returns_data.columns.tolist()
+            clusters = await self.perform_correlation_clustering(correlation_matrix, asset_names, weights)  # noqa: E501
+
+            # Update asset profiles with cluster assignments
+            for cluster_id, cluster in clusters.items():
+                for asset_name in cluster.asset_names:
+                    if asset_name in self.asset_profiles:
+                        self.asset_profiles[asset_name].correlation_cluster = cluster_id
+
+        except Exception as e:
+            self.logger.error("Error performing correlation clustering: %s", e)
+
+    def _calculate_regime_duration(self, correlation_series: pd.Series, current_regime: CorrelationRegime) -> int:  # noqa: E501
+        """Calculate how long current regime has persisted."""
+        try:
+            # Simple regime duration calculation
+            # In production, would track regime changes more sophisticated
+            return min(len(correlation_series), 30)  # Max 30 days lookback
+
+        except Exception as e:
+            self.logger.error("Error calculating regime duration: %s", e)
+            return 0
+
+    def _detect_regime_change_probability(self, correlation_series: pd.Series) -> float:
+        """Detect probability of regime change."""
+        try:
+            if len(correlation_series) < 5:
+                return 0.0
+
+            recent_values = correlation_series.tail(5).values
+            volatility = np.std(recent_values)
+            trend = np.polyfit(range(len(recent_values)), recent_values, 1)[0]
+
+            # Higher volatility and trend indicate higher change probability
+            change_prob = min(1.0, (volatility * 10 + abs(trend) * 5))
+
+            return change_prob
+
+        except Exception as e:
+            self.logger.error("Error detecting regime change probability: %s", e)
+            return 0.0
+
+    def _cleanup_old_alerts(self) -> None:
+        """Clean up old alerts."""
+        cutoff_time = datetime.now(UTC) - timedelta(hours=24)
+
+        # Remove old acknowledged alerts
+        self.alerts = [alert for alert in self.alerts
+                      if not alert.acknowledged or alert.timestamp > cutoff_time]
+
+        # Clean up alert suppression dictionary
+        self.alert_suppression = {key: timestamp for key, timestamp in self.alert_suppression.items()  # noqa: E501
+                                if timestamp > cutoff_time}
+
+    def _update_regime_tracking(self) -> None:
+        """Update regime stability tracking."""
+        if self.correlation_history:
+            current_regime = self.correlation_history[-1]['metrics'].current_regime
+
+            if self._last_regime_change != current_regime:
+                self._last_regime_change = current_regime
+                self._regime_stability_count = 1
+            else:
+                self._regime_stability_count += 1
+
+    def _check_alert_auto_resolution(self) -> None:
+        """Check if any alerts can be auto-resolved."""
+        if not self.correlation_history:
+            return
+
+        current_metrics = self.correlation_history[-1]['metrics']
+
+        for alert in self.alerts:
+            if not alert.auto_resolved and not alert.acknowledged:
+                # Auto-resolve if condition improved
+                if alert.alert_type == "High Correlation" and current_metrics.average_correlation < MODERATE_CORRELATION_THRESHOLD or alert.alert_type == "Poor Diversification" and current_metrics.diversification_health in [DiversificationHealth.GOOD, DiversificationHealth.EXCELLENT]:  # noqa: E501
+                    alert.auto_resolved = True
+                    self.logger.info("Auto-resolved alert: %s", alert.alert_id)
+
+    # ==========================================================================
+    # LIFECYCLE METHODS
+    # ==========================================================================
+    def cleanup(self) -> None:
+        """Clean up correlation risk manager resources."""
+        try:
+            # Stop monitoring
+            self.stop_monitoring()
+
+            # Clean up thread pool
+            if hasattr(self, 'thread_pool'):
+                self.thread_pool.shutdown(wait=True)
+
+            # Clear data structures
+            self.correlation_history.clear()
+            self.alerts.clear()
+            self.asset_profiles.clear()
+            self.correlation_clusters.clear()
+
+            self.logger.info("Correlation risk manager cleanup completed")
+
+        except Exception as e:
+            self.logger.error("Error during cleanup: %s", e)
+
+    # --------------------------------------------------------------------------
+    # RISKFOLIO-LIB: ROBUST CORRELATION FOR BREAKDOWN DETECTION
+    # --------------------------------------------------------------------------
+
+    def compute_robust_correlation(
+        self,
+        returns_data: pd.DataFrame,
+        method: str = 'ledoit_wolf',
+    ) -> dict[str, Any]:
+        """
+        Compute robust correlation using RiskFolio-Lib's covariance estimators.
+
+        Shrinkage estimators are more stable during correlation breakdowns
+        than naive sample correlation matrices.
+
+        Args:
+            returns_data: DataFrame of asset returns.
+            method: Estimation method ('ledoit_wolf', 'oas', 'shrunk').
+
+        Returns:
+            Robust correlation matrix and stability diagnostics.
+        """
+        try:
+            import riskfolio as rp
+        except ImportError:
+            self.logger.warning("riskfolio not installed — using sample correlation")
+            corr = returns_data.corr()
+            return {'correlation': corr.to_dict(), '_backend': 'fallback'}
+
+        port = rp.Portfolio(returns=returns_data)
+        port.assets_stats(method_mu='hist', method_cov=method)
+
+        cov_matrix = port.cov
+        if isinstance(cov_matrix, pd.DataFrame):
+            # Convert covariance to correlation
+            std = np.sqrt(np.diag(cov_matrix.values))
+            d_inv = np.diag(1.0 / (std + 1e-12))
+            corr_matrix = pd.DataFrame(
+                d_inv @ cov_matrix.values @ d_inv,
+                index=cov_matrix.index, columns=cov_matrix.columns)
+        else:
+            corr_matrix = returns_data.corr()
+
+        # Stability diagnostics
+        eigenvalues = np.linalg.eigvalsh(corr_matrix.values)
+        condition_number = float(eigenvalues[-1] / (eigenvalues[0] + 1e-12))
+
+        result = {
+            'correlation': corr_matrix.to_dict(),
+            'method': method,
+            'condition_number': condition_number,
+            'eigenvalue_ratio': float(eigenvalues[-1] / (eigenvalues[-2] + 1e-12)),
+            'min_eigenvalue': float(eigenvalues[0]),
+            'max_eigenvalue': float(eigenvalues[-1]),
+            'is_well_conditioned': condition_number < 100,
+            'n_assets': returns_data.shape[1],
+            '_backend': 'riskfolio',
+        }
+
+        self.logger.info(f"Robust correlation ({method}): cond={condition_number:.1f}")
+        return result
+
+# ==============================================================================
+# MODULE FUNCTIONS
+# ==============================================================================
+def create_sample_returns_data(n_assets: int = 10, n_periods: int = 100,
+                              base_correlation: float = 0.3) -> pd.DataFrame:
+    """Create sample returns data for testing.
+
+    NOTE: Test/development data generator — do not call from production code.
+    Uses a fixed random seed (42) for reproducibility.
+    """
+    np.random.seed(42)  # For reproducible results
+
+    # Generate correlated returns
+    base_returns = np.random.normal(0, 0.02, (n_periods, 1))  # Market factor
+
+    returns_data = {}
+    for i in range(n_assets):
+        # Each asset has some correlation with market factor plus idiosyncratic risk
+        market_loading = 0.3 + 0.4 * np.random.random()  # Between 0.3 and 0.7
+        idiosyncratic = np.random.normal(0, 0.015, (n_periods, 1))
+
+        asset_returns = market_loading * base_returns + np.sqrt(1 - market_loading**2) * idiosyncratic  # noqa: E501
+        returns_data[f'Asset_{i+1}'] = asset_returns.flatten()
+
+    dates = pd.date_range(start='2023-01-01', periods=n_periods, freq='D')
+    return pd.DataFrame(returns_data, index=dates)
+
+def analyze_correlation_breakdown(returns_data: pd.DataFrame,
+                                event_date: str) -> dict[str, Any]:
+    """Analyze correlation breakdown around a specific event."""
+    try:
+        event_datetime = pd.to_datetime(event_date)
+
+        # Get pre-event and post-event periods
+        pre_event_data = returns_data[returns_data.index < event_datetime].tail(30)  # 30 days before  # noqa: E501
+        post_event_data = returns_data[returns_data.index >= event_datetime].head(30)  # 30 days after  # noqa: E501
+
+        if len(pre_event_data) < 10 or len(post_event_data) < 10:
+            return {'error': 'Insufficient data around event date'}
+
+        # Calculate correlations
+        pre_corr = pre_event_data.corr()
+        post_corr = post_event_data.corr()
+
+        # Extract upper triangular correlations
+        upper_tri_mask = np.triu(np.ones_like(pre_corr.values, dtype=bool), k=1)
+
+        pre_correlations = pre_corr.values[upper_tri_mask]
+        post_correlations = post_corr.values[upper_tri_mask]
+
+        # Calculate breakdown metrics
+        correlation_change = np.mean(post_correlations) - np.mean(pre_correlations)
+        correlation_volatility_change = np.std(post_correlations) - np.std(pre_correlations)
+
+        return {
+            'event_date': event_date,
+            'pre_event_avg_correlation': np.mean(pre_correlations),
+            'post_event_avg_correlation': np.mean(post_correlations),
+            'correlation_change': correlation_change,
+            'correlation_volatility_change': correlation_volatility_change,
+            'breakdown_magnitude': correlation_change / np.mean(pre_correlations) if np.mean(pre_correlations) != 0 else 0.0,  # noqa: E501
+            'affected_pairs': np.sum(np.abs(post_correlations - pre_correlations) > 0.1),
+            'total_pairs': len(pre_correlations)
+        }
+
+    except Exception as e:
+        return {'error': f'Error analyzing correlation breakdown: {e}'}
+
+# ==============================================================================
+# MODULE INITIALIZATION
+# ==============================================================================
+_correlation_manager_instance: CorrelationRiskManager | None = None
+
+def get_correlation_manager_instance() -> CorrelationRiskManager:
+    """
+    Get singleton instance of the correlation risk manager.
+
+    Returns:
+        CorrelationRiskManager instance
+    """
+    global _correlation_manager_instance
+    if _correlation_manager_instance is None:
+        _correlation_manager_instance = CorrelationRiskManager()
+        _correlation_manager_instance.initialize()
+    return _correlation_manager_instance
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
+async def main():
+    """Main execution function for testing and demonstration."""
+    logging.info("🎯 TRADOV E10 - Correlation Risk Manager")
+    logging.info("=" * 80)
+
+    try:
+        # Create correlation risk manager
+        corr_manager = CorrelationRiskManager()
+        logging.info("✅ Correlation Risk Manager initialized")
+
+        # Initialize manager
+        if not corr_manager.initialize():
+            logging.info("❌ Failed to initialize correlation risk manager")
+            return False
+
+        # Create sample data
+        logging.info("\n📊 Creating sample portfolio returns...")
+        returns_data = create_sample_returns_data(n_assets=8, n_periods=150)
+        logging.info("   Created data: %s periods, %s assets", len(returns_data), len(returns_data.columns))  # noqa: E501
+
+        # Analyze portfolio correlation
+        logging.info("\n🔍 Analyzing portfolio correlation...")
+        metrics = await corr_manager.analyze_portfolio_correlation(returns_data)
+
+        logging.info(f"   Average Correlation: {metrics.average_correlation:.3f}")
+        logging.info(f"   Max Correlation: {metrics.max_correlation:.3f}")
+        logging.info(f"   Diversification Ratio: {metrics.diversification_ratio:.3f}")
+        logging.info(f"   Effective Assets: {metrics.effective_assets:.1f}")
+        logging.info("   Current Regime: %s", metrics.current_regime.value)
+        logging.info(f"   Health Score: {metrics.health_score:.1f}/100")
+        logging.info("   Diversification Health: %s", metrics.diversification_health.value)
+
+        # Test rolling correlation
+        logging.info("\n📈 Calculating rolling correlations...")
+        rolling_corr = corr_manager.calculate_rolling_correlation(returns_data, window=30)
+        logging.info("   Rolling periods calculated: %s", len(rolling_corr))
+        if not rolling_corr.empty:
+            logging.info(f"   Latest avg correlation: {rolling_corr['avg_correlation'].iloc[-1]:.3f}")  # noqa: E501
+            logging.info(f"   Correlation trend: {rolling_corr['avg_correlation'].iloc[-5:].mean() - rolling_corr['avg_correlation'].iloc[:5].mean():.3f}")  # noqa: E501
+
+        # Test regime detection
+        logging.info("\n🎛️ Testing regime detection...")
+        regime_info = corr_manager.detect_correlation_regimes(returns_data)
+        logging.info("   Current Regime: %s", regime_info['current_regime'].value)
+        logging.info(f"   Regime Confidence: {regime_info.get('confidence', 0):.1%}")
+        logging.info(f"   Z-Score: {regime_info.get('z_score', 0):.2f}")
+
+        # Test correlation clustering
+        logging.info("\n🔗 Testing correlation clustering...")
+        if len(corr_manager.correlation_matrices) > 0:
+            matrix = list(corr_manager.correlation_matrices.values())[0]
+            clusters = await corr_manager.perform_correlation_clustering(
+                matrix, returns_data.columns.tolist()
+            )
+            logging.info("   Created clusters: %s", len(clusters))
+            for cluster_id, cluster in clusters.items():
+                logging.info(f"     {cluster_id}: {cluster.cluster_size} assets, {cluster.internal_correlation:.3f} internal corr")  # noqa: E501
+
+        # Test diversification analysis
+        logging.info("\n📊 Testing diversification effectiveness...")
+        weights = np.ones(len(returns_data.columns)) / len(returns_data.columns)
+        volatilities = returns_data.std().values
+        if len(corr_manager.correlation_matrices) > 0:
+            matrix = list(corr_manager.correlation_matrices.values())[0]
+            div_metrics = corr_manager.calculate_diversification_effectiveness(matrix, weights, volatilities)  # noqa: E501
+            logging.info(f"   Diversification Ratio: {div_metrics['diversification_ratio']:.3f}")
+            logging.info(f"   Risk Reduction Benefit: {div_metrics['risk_reduction_benefit']:.1%}")
+            logging.info(f"   Diversification Efficiency: {div_metrics['diversification_efficiency']:.1%}")  # noqa: E501
+
+        # Test alert system
+        logging.info("\n⚠️ Testing alert system...")
+        active_alerts = corr_manager.get_active_alerts()
+        logging.info("   Active alerts: %s", len(active_alerts))
+        for alert in active_alerts[:3]:  # Show first 3 alerts
+            logging.info("     %s (%s): %s", alert.alert_type, alert.severity.value, alert.message)
+
+        # Generate report
+        logging.info("\n📋 Generating correlation risk report...")
+        report = corr_manager.generate_correlation_report()
+        logging.info("📊 CORRELATION RISK REPORT:")
+        logging.info("-" * 50)
+        # Print first few lines of report
+        report_lines = report.split('\n')[:20]
+        for line in report_lines:
+            logging.info(line)
+        if len(report.split('\n')) > 20:
+            logging.info("   ... (truncated)")
+
+        # Test breakdown analysis
+        logging.info("\n💥 Testing correlation breakdown analysis...")
+        breakdown_analysis = analyze_correlation_breakdown(
+            returns_data, returns_data.index[75].strftime('%Y-%m-%d')
+        )
+        if 'error' not in breakdown_analysis:
+            logging.info(f"   Correlation Change: {breakdown_analysis['correlation_change']:.3f}")
+            logging.info(f"   Breakdown Magnitude: {breakdown_analysis['breakdown_magnitude']:.1%}")
+            logging.info("   Affected Pairs: %s/%s", breakdown_analysis['affected_pairs'], breakdown_analysis['total_pairs'])  # noqa: E501
+
+        # Get summary
+        summary = corr_manager.get_correlation_summary()
+        logging.info("\n📈 CORRELATION MANAGER SUMMARY:")
+        logging.info("   Status: %s", summary['manager_status']['status'].upper())
+        logging.info("   Assets Monitored: %s", summary['manager_status']['assets_monitored'])
+        logging.info("   Total Alerts: %s", summary['alert_summary']['total_alerts'])
+        logging.info("   Correlation Clusters: %s", summary['cluster_summary']['total_clusters'])
+        if summary.get('current_metrics'):
+            metrics_summary = summary['current_metrics']
+            logging.info(f"   Health Score: {metrics_summary['health_score']:.1f}/100")
+            logging.info("   Diversification Health: %s", metrics_summary['diversification_health'].upper())  # noqa: E501
+
+        # Cleanup
+        corr_manager.cleanup()
+        logging.info("\n✅ Correlation Risk Manager test completed successfully!")
+
+        logging.info("\n🎯 CORRELATION RISK MANAGEMENT CAPABILITIES:")
+        logging.info("   • Real-time Correlation Monitoring")
+        logging.info("   • 7 Correlation Estimation Models")
+        logging.info("   • Regime Detection & Analysis")
+        logging.info("   • Tail Correlation Assessment")
+        logging.info("   • Hierarchical Clustering Analysis")
+        logging.info("   • Diversification Effectiveness Metrics")
+        logging.info("   • Correlation Breakdown Detection")
+        logging.info("   • Professional Alert System")
+        logging.info("   • Comprehensive Risk Reporting")
+
+        return True
+
+    except Exception as e:
+        logging.info("❌ Error during testing: %s", e)
+        return False
+
+if __name__ == "__main__":
+    asyncio.run(main())

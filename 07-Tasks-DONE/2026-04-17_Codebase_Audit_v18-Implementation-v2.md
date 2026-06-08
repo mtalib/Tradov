@@ -94,8 +94,8 @@ ec8b541  Merge fix/live-engine-async: Phase 2 — async fills, typed risk gate, 
 - Evidence: 0effff3 → 6981ce0.
 
 **9. Q10 Gate 4 — naive datetime.now() CI gate (Tier 2, this cycle)**
-- Status: ✅ CLOSED — added `check_no_naive_datetime_now()` as Gate 4 in `SpyderQ10_ProtocolComplianceGate.py`.
-- Scans all production `.py` files (excludes `SpyderQ_Scripts`, `SpyderT_Testing`, `__pycache__`).
+- Status: ✅ CLOSED — added `check_no_naive_datetime_now()` as Gate 4 in `TradovQ10_ProtocolComplianceGate.py`.
+- Scans all production `.py` files (excludes `TradovQ_Scripts`, `TradovT_Testing`, `__pycache__`).
 - Evidence: 0effff3 → 6981ce0.
 
 **10. `except BaseException` narrowing (Audit 3.1)**
@@ -111,23 +111,23 @@ ec8b541  Merge fix/live-engine-async: Phase 2 — async fills, typed risk gate, 
 ### 3.4 Dead code / legacy stub items (Tier 1, this cycle)
 
 **12. E13 IB dead stubs**
-- Status: ✅ CLOSED — removed `IB = None`, `Contract = None`, `Order = None`, `Fill = None` from `SpyderE13_DayProfitTarget.py`.
+- Status: ✅ CLOSED — removed `IB = None`, `Contract = None`, `Order = None`, `Fill = None` from `TradovE13_DayProfitTarget.py`.
 - Evidence: 0effff3.
 
 **13. U05 IB_ENDPOINTS dead config**
-- Status: ✅ CLOSED — deleted legacy IB gateway/TWS config dict from `SpyderU05_NetworkUtils.py`.
+- Status: ✅ CLOSED — deleted legacy IB gateway/TWS config dict from `TradovU05_NetworkUtils.py`.
 - Evidence: 0effff3.
 
 **14. G_GUI `__init__` G14 import**
-- Status: ✅ CLOSED — removed try/except import block for the deprecated `SpyderG14_Dashboard` from `SpyderG_GUI/__init__.py`.
+- Status: ✅ CLOSED — removed try/except import block for the deprecated `TradovG14_Dashboard` from `TradovG_GUI/__init__.py`.
 - Evidence: 0effff3.
 
 **15. J02 hardcoded password placeholder**
-- Status: ✅ CLOSED — changed `'encrypted_password'` → `'<REPLACE_ME>'` in `SpyderJ02_EmailNotifier.py` demo block (secrets scanner hygiene).
+- Status: ✅ CLOSED — changed `'encrypted_password'` → `'<REPLACE_ME>'` in `TradovJ02_EmailNotifier.py` demo block (secrets scanner hygiene).
 - Evidence: 0effff3.
 
 **16. T130 manual test gate**
-- Status: ✅ CLOSED — added `pytestmark = pytest.mark.manual` to `SpyderT130_IronCondorSandbox_Test.py`; registered `manual` marker in `pytest.ini`.
+- Status: ✅ CLOSED — added `pytestmark = pytest.mark.manual` to `TradovT130_IronCondorSandbox_Test.py`; registered `manual` marker in `pytest.ini`.
 - Evidence: 0effff3.
 
 ---
@@ -135,16 +135,16 @@ ec8b541  Merge fix/live-engine-async: Phase 2 — async fills, typed risk gate, 
 ### 3.5 Canonical regime wiring (Tier 3, this cycle)
 
 **17. Y01 MarketSenseAgent — regime source bypass**
-- Status: ✅ CLOSED — `SpyderY01_MarketSenseAgent.py` was the only production module directly instantiating `SpyderE21_HMMRegimeDetector` for live decisions, bypassing L09.
+- Status: ✅ CLOSED — `TradovY01_MarketSenseAgent.py` was the only production module directly instantiating `TradovE21_HMMRegimeDetector` for live decisions, bypassing L09.
 - Fix: Added L09 `UnifiedRegimeEngine` dual-import block (`L09_AVAILABLE` flag); rewrote `_build_snapshot()` regime section to try L09 first, fall back to E21 HMM, then F10 GARCH.
 - Evidence: 0effff3.
 
 **18. M06 HMMRegimeDetector — isolation confirmed**
-- Status: ✅ CONFIRMED ISOLATED — `SpyderM06_HMMRegimeDetector` has zero production callers outside tests and its own `__init__.py` re-export. No code change required; no rewiring needed.
-- Verification: `grep -rn "SpyderM06|M06_HMM|from.*M06" Spyder/ --include="*.py"` (excluding tests) returned empty output.
+- Status: ✅ CONFIRMED ISOLATED — `TradovM06_HMMRegimeDetector` has zero production callers outside tests and its own `__init__.py` re-export. No code change required; no rewiring needed.
+- Verification: `grep -rn "TradovM06|M06_HMM|from.*M06" Tradov/ --include="*.py"` (excluding tests) returned empty output.
 
 **19. T129 regime canonical wiring assertion**
-- Status: ✅ CLOSED — added `RegimeCanonicalWiringTest` class to `SpyderT129_ProtocolCompliance.py` with two tests:
+- Status: ✅ CLOSED — added `RegimeCanonicalWiringTest` class to `TradovT129_ProtocolCompliance.py` with two tests:
   - `test_d30_regime_gated_selector_prefers_l09`: asserts D30 imports `UnifiedRegimeEngine` and that the L09 import precedes E21.
   - `test_y01_market_sense_agent_prefers_l09`: asserts Y01 declares `L09_AVAILABLE` and checks L09 before E21 (`HMM_AVAILABLE`).
 - Evidence: 0effff3.
@@ -154,7 +154,7 @@ ec8b541  Merge fix/live-engine-async: Phase 2 — async fills, typed risk gate, 
 ### 3.6 G05 integrity cleanup (post-Phase 3, pre-Tier work)
 
 **20. G05 deceptive fallback text**
-- Status: ✅ CLOSED — removed deceptive fallback messaging, misleading automation/status log language, legacy client-manager stub block, unused `random` import, and fabricated simulation-default baseline message from `SpyderG05_TradingDashboard.py`.
+- Status: ✅ CLOSED — removed deceptive fallback messaging, misleading automation/status log language, legacy client-manager stub block, unused `random` import, and fabricated simulation-default baseline message from `TradovG05_TradingDashboard.py`.
 - Evidence: 8b903aa.
 
 **21. G05 audit rebaseline**
@@ -165,7 +165,7 @@ ec8b541  Merge fix/live-engine-async: Phase 2 — async fills, typed risk gate, 
 
 ## 4) Q10 Protocol Gate Status — Final
 
-All four gates are active in `SpyderQ10_ProtocolComplianceGate.py`:
+All four gates are active in `TradovQ10_ProtocolComplianceGate.py`:
 
 | Gate | Function | Checks |
 |---|---|---|
@@ -181,32 +181,32 @@ Gates 1–3 were delivered in Phases 1–3. Gate 4 was added in this cycle (0eff
 ## 5) Files Modified in Phase 5 (0effff3)
 
 **Tier 1 — Dead code / stubs:**
-- `Spyder/SpyderE_Risk/SpyderE13_DayProfitTarget.py`
-- `Spyder/SpyderU_Utilities/SpyderU05_NetworkUtils.py`
-- `Spyder/SpyderG_GUI/__init__.py`
-- `Spyder/SpyderJ_Alerts/SpyderJ02_EmailNotifier.py`
-- `Spyder/SpyderT_Testing/SpyderT09_TestDashboard.py`
-- `Spyder/SpyderT_Testing/SpyderT130_IronCondorSandbox_Test.py`
+- `Tradov/TradovE_Risk/TradovE13_DayProfitTarget.py`
+- `Tradov/TradovU_Utilities/TradovU05_NetworkUtils.py`
+- `Tradov/TradovG_GUI/__init__.py`
+- `Tradov/TradovJ_Alerts/TradovJ02_EmailNotifier.py`
+- `Tradov/TradovT_Testing/TradovT09_TestDashboard.py`
+- `Tradov/TradovT_Testing/TradovT130_IronCondorSandbox_Test.py`
 - `pytest.ini`
 
 **Tier 2 — Datetime hygiene:**
-- `Spyder/SpyderM_Monitoring/SpyderM01_SystemMonitor.py`
-- `Spyder/SpyderM_Monitoring/SpyderM03_AIAgentMonitor.py`
-- `Spyder/SpyderM_Monitoring/SpyderM04_TradingMetrics.py`
-- `Spyder/SpyderM_Monitoring/SpyderM07_MigrationMonitor.py`
-- `Spyder/SpyderK_Reports/SpyderK02_DailyTradingReport.py`
-- `Spyder/SpyderK_Reports/SpyderK03_PerformanceDashboard.py`
-- `Spyder/SpyderK_Reports/SpyderK04_ExecutionAnalytics.py`
-- `Spyder/SpyderK_Reports/SpyderK05_RiskReport.py`
-- `Spyder/SpyderK_Reports/SpyderK07_StrategyComparison.py`
-- `Spyder/SpyderK_Reports/SpyderK09_RegulatoryReports.py`
-- `Spyder/SpyderK_Reports/SpyderK10_RealTimePerformanceAnalytics.py`
-- `Spyder/SpyderK_Reports/SpyderK12_InstitutionalTearSheet.py`
-- `Spyder/SpyderQ_Scripts/SpyderQ10_ProtocolComplianceGate.py`
+- `Tradov/TradovM_Monitoring/TradovM01_SystemMonitor.py`
+- `Tradov/TradovM_Monitoring/TradovM03_AIAgentMonitor.py`
+- `Tradov/TradovM_Monitoring/TradovM04_TradingMetrics.py`
+- `Tradov/TradovM_Monitoring/TradovM07_MigrationMonitor.py`
+- `Tradov/TradovK_Reports/TradovK02_DailyTradingReport.py`
+- `Tradov/TradovK_Reports/TradovK03_PerformanceDashboard.py`
+- `Tradov/TradovK_Reports/TradovK04_ExecutionAnalytics.py`
+- `Tradov/TradovK_Reports/TradovK05_RiskReport.py`
+- `Tradov/TradovK_Reports/TradovK07_StrategyComparison.py`
+- `Tradov/TradovK_Reports/TradovK09_RegulatoryReports.py`
+- `Tradov/TradovK_Reports/TradovK10_RealTimePerformanceAnalytics.py`
+- `Tradov/TradovK_Reports/TradovK12_InstitutionalTearSheet.py`
+- `Tradov/TradovQ_Scripts/TradovQ10_ProtocolComplianceGate.py`
 
 **Tier 3 — Canonical regime wiring:**
-- `Spyder/SpyderY_AutoAgents/SpyderY01_MarketSenseAgent.py`
-- `Spyder/SpyderT_Testing/SpyderT129_ProtocolCompliance.py`
+- `Tradov/TradovY_AutoAgents/TradovY01_MarketSenseAgent.py`
+- `Tradov/TradovT_Testing/TradovT129_ProtocolCompliance.py`
 
 ---
 
@@ -215,8 +215,8 @@ Gates 1–3 were delivered in Phases 1–3. Gate 4 was added in this cycle (0eff
 The following items from audit v18 remain outside the hotfix remediation scope; Tier 4 has now started as a separate follow-up workstream, while Tier 5 remains deferred:
 
 **Mega-module decomposition (Tier 4 — active follow-up workstream):**
-- `SpyderG05_TradingDashboard.py` — Step A has now started on branch `refactor/g05-widget-extraction`. The file was 5,543 lines at refactor start; standalone widget/helpers were extracted into `SpyderG13_EnhancedWidgets.py`, reducing G05 to 4,548 lines. Full builder/controller separation remains open.
-- `SpyderB40_TradierClient.py` (~1,900 lines) — decompose into sub-clients.
+- `TradovG05_TradingDashboard.py` — Step A has now started on branch `refactor/g05-widget-extraction`. The file was 5,543 lines at refactor start; standalone widget/helpers were extracted into `TradovG13_EnhancedWidgets.py`, reducing G05 to 4,548 lines. Full builder/controller separation remains open.
+- `TradovB40_TradierClient.py` (~1,900 lines) — decompose into sub-clients.
 
 **Feature / enhancement backlog (Tier 5 — deferred):**
 - Provider-health router enhancements (audit v18 §5).

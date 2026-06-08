@@ -1,7 +1,7 @@
-# Spyder Trading System - Project Instructions
+# Tradov Trading System - Project Instructions
 
 ## Overview
-Spyder is a modular algorithmic trading system designed for automated trading through Interactive Brokers (IBKR). The system follows a strict modular architecture with clear separation of concerns.
+Tradov is a modular algorithmic trading system designed for automated trading through Interactive Brokers (IBKR). The system follows a strict modular architecture with clear separation of concerns.
 
 **📋 Related Documentation:**
 - [Trading Standards](Standards/Trading/) - Comprehensive operational standards
@@ -11,28 +11,28 @@ Spyder is a modular algorithmic trading system designed for automated trading th
 ## Key Principles
 
 ### Architecture Guidelines
-1. **Modular Design**: Each SpyderX module has a specific responsibility. Never mix concerns across modules.
-2. **Module Naming**: All modules follow SpyderX_Name pattern where X is a letter (A-Z) indicating the module's role in the system hierarchy.
-3. **File Naming**: Within each module, files follow SpyderX##_Purpose.py pattern (e.g., SpyderB01_IBConnection.py).
+1. **Modular Design**: Each TradovX module has a specific responsibility. Never mix concerns across modules.
+2. **Module Naming**: All modules follow TradovX_Name pattern where X is a letter (A-Z) indicating the module's role in the system hierarchy.
+3. **File Naming**: Within each module, files follow TradovX##_Purpose.py pattern (e.g., TradovB01_IBConnection.py).
 4. **Standards Compliance**: All development must follow [Trading Standards](Standards/Trading/) for performance, security, and deployment requirements.
 
 ### Code Standards
 1. **Error Handling**: Always use try-except blocks for external API calls, especially IBKR API operations
-2. **Logging**: Use the centralized logging system in SpyderU_Utilities. Never use print() for production code
+2. **Logging**: Use the centralized logging system in TradovU_Utilities. Never use print() for production code
 3. **Type Hints**: Always include type hints for function parameters and returns
 4. **Docstrings**: Use Google-style docstrings for all classes and public methods
 5. **Performance**: Follow [Performance Standards](Standards/Trading/Performance.md) for latency and throughput requirements
 6. **Security**: Implement [Security Standards](Standards/Trading/Security.md) for all trading system components
 
 ### IBKR Integration
-1. **Connection Management**: All IBKR connections must go through SpyderB_Broker module
-2. **Client IDs**: Use unique client IDs for different components (defined in SpyderB module)
-3. **Error Codes**: Handle IBKR-specific error codes appropriately (see SpyderB_Broker/error_codes.py)
+1. **Connection Management**: All IBKR connections must go through TradovB_Broker module
+2. **Client IDs**: Use unique client IDs for different components (defined in TradovB module)
+3. **Error Codes**: Handle IBKR-specific error codes appropriately (see TradovB_Broker/error_codes.py)
 4. **Rate Limiting**: Respect IBKR API rate limits (50 messages/second)
 5. **Integration Standards**: Follow [IBKR Integration Standards](Standards/Trading/IBKR-Integration.md) for best practices
 
 ### Testing Requirements
-1. **Unit Tests**: Each module should have corresponding tests in SpyderT_Testing
+1. **Unit Tests**: Each module should have corresponding tests in TradovT_Testing
 2. **Paper Trading**: Always test strategies in paper trading mode first
 3. **Connection Tests**: Run test_ib_connection.py before starting the system
 4. **Testing Protocols**: Follow comprehensive [Testing Protocols](Standards/Trading/Testing-Protocols.md) for all strategies and systems
@@ -46,40 +46,40 @@ Spyder is a modular algorithmic trading system designed for automated trading th
 ## Module Responsibilities
 
 ### Core System
-- **SpyderA_Core**: Main entry point, system initialization, orchestration
-- **SpyderB_Broker**: IBKR connection, order management, execution
-- **SpyderC_MarketData**: Real-time and historical data handling
+- **TradovA_Core**: Main entry point, system initialization, orchestration
+- **TradovB_Broker**: IBKR connection, order management, execution
+- **TradovC_MarketData**: Real-time and historical data handling
 
 ### Trading Logic
-- **SpyderD_Strategies**: Strategy implementations and backtesting
-- **SpyderE_Risk**: Risk management, position sizing, stop-loss
-- **SpyderS_Signals**: Signal generation and validation
+- **TradovD_Strategies**: Strategy implementations and backtesting
+- **TradovE_Risk**: Risk management, position sizing, stop-loss
+- **TradovS_Signals**: Signal generation and validation
 
 ### Analysis & Intelligence
-- **SpyderF_Analysis**: Technical indicators, market analysis
-- **SpyderL_ML**: Machine learning models and predictions
-- **SpyderO_TradingIntelligence**: Advanced analytics and insights
-- **SpyderV_QuantModels**: Quantitative models and statistical analysis
+- **TradovF_Analysis**: Technical indicators, market analysis
+- **TradovL_ML**: Machine learning models and predictions
+- **TradovO_TradingIntelligence**: Advanced analytics and insights
+- **TradovV_QuantModels**: Quantitative models and statistical analysis
 
 ### User Interface & Reporting
-- **SpyderG_GUI**: PyQt6 graphical interface
-- **SpyderK_Reports**: Performance reports and analytics
-- **SpyderJ_Alerts**: Notification and alert system
+- **TradovG_GUI**: PyQt6 graphical interface
+- **TradovK_Reports**: Performance reports and analytics
+- **TradovJ_Alerts**: Notification and alert system
 
 ### Infrastructure
-- **SpyderH_Storage**: Data persistence and database operations
-- **SpyderI_Integration**: Third-party service integrations
-- **SpyderM_Monitoring**: System health and performance monitoring
-- **SpyderR_Runtime**: Runtime configuration and management
+- **TradovH_Storage**: Data persistence and database operations
+- **TradovI_Integration**: Third-party service integrations
+- **TradovM_Monitoring**: System health and performance monitoring
+- **TradovR_Runtime**: Runtime configuration and management
 
 ### Support Modules
-- **SpyderN_OptionsAnalytics**: Options-specific calculations and Greeks
-- **SpyderP_PortfolioMgmt**: Portfolio optimization and management
-- **SpyderQ_Scripts**: Utility scripts and tools
-- **SpyderT_Testing**: Testing framework and test utilities
-- **SpyderU_Utilities**: Shared utilities and helpers
-- **SpyderX_Agents**: AI agents and automation
-- **SpyderZ_Communication**: Inter-module communication
+- **TradovN_OptionsAnalytics**: Options-specific calculations and Greeks
+- **TradovP_PortfolioMgmt**: Portfolio optimization and management
+- **TradovQ_Scripts**: Utility scripts and tools
+- **TradovT_Testing**: Testing framework and test utilities
+- **TradovU_Utilities**: Shared utilities and helpers
+- **TradovX_Agents**: AI agents and automation
+- **TradovZ_Communication**: Inter-module communication
 
 ## Common Tasks
 
@@ -89,10 +89,10 @@ Spyder is a modular algorithmic trading system designed for automated trading th
 source .venv/bin/activate
 
 # Start with GUI
-python SpyderA_Core/SpyderA01_Main.py
+python TradovA_Core/TradovA01_Main.py
 
 # Start in headless mode
-python SpyderA_Core/SpyderA01_Main.py --headless
+python TradovA_Core/TradovA01_Main.py --headless
 ```
 
 ### Testing Connection
@@ -102,16 +102,16 @@ python test_ib_connection.py
 
 ### Running Tests
 ```bash
-pytest SpyderT_Testing/
+pytest TradovT_Testing/
 ```
 
 ## Important Notes
 
-1. **IB Gateway**: Must be running before starting Spyder (use IB Gateway, not TWS for better stability)
+1. **IB Gateway**: Must be running before starting Tradov (use IB Gateway, not TWS for better stability)
 2. **Market Hours**: Some features only work during market hours
 3. **Paper vs Live**: Always specify paper/live mode explicitly in configuration
 4. **Logging**: Check logs/ directory for debugging information
-5. **Performance**: Monitor system performance through SpyderM_Monitoring dashboards
+5. **Performance**: Monitor system performance through TradovM_Monitoring dashboards
 6. **Risk Management**: All trading must comply with [Risk Management Standards](Standards/Trading/Risk-Management.md)
 7. **Deployment**: Follow [Deployment Standards](Standards/Trading/Deployment.md) for production releases
 8. **Monitoring**: Implement [Monitoring Standards](Standards/Trading/Monitoring.md) for system observability
@@ -130,7 +130,7 @@ pytest SpyderT_Testing/
 1. **Connection Failed**: Check IB Gateway is running and ports match .env configuration
 2. **No Market Data**: Verify market data subscriptions in IBKR account
 3. **Order Rejected**: Check account permissions and trading hours
-4. **High Memory Usage**: Review data retention settings in SpyderH_Storage
+4. **High Memory Usage**: Review data retention settings in TradovH_Storage
 
 ### Debug Mode
 Set `DEBUG=True` in .env file for verbose logging
@@ -159,6 +159,6 @@ When working on this project:
 - **Monitoring**: Implement [Monitoring Standards](Standards/Trading/Monitoring.md) for observability and alerting
 
 ### Key References
-- For technical architecture: See `Spyder-Architecture.json` for module structure and dependencies
+- For technical architecture: See `Tradov-Architecture.json` for module structure and dependencies
 - For operational standards: Reference appropriate documents in `Standards/Trading/`
 - For system requirements: Check `Standards/System/` for infrastructure and deployment standards

@@ -1,7 +1,7 @@
-SpyderProject/Glossary.md (Complete)
+TradovProject/Glossary.md (Complete)
 
 ```markdown
-# Spyder Trading System - Glossary
+# Tradov Trading System - Glossary
 
 ## Trading & Financial Terms
 
@@ -16,7 +16,7 @@ SpyderProject/Glossary.md (Complete)
 - **ITM (In-The-Money)**: Option with intrinsic value (calls above strike, puts below strike)
 - **OTM (Out-of-The-Money)**: Option with no intrinsic value
 - **Rho**: Sensitivity to interest rate changes
-- **SPY**: SPDR S&P 500 ETF Trust, primary trading instrument for Spyder
+- **SPY**: SPDR S&P 500 ETF Trust, primary trading instrument for Tradov
 - **Straddle**: Long call and long put with same strike and expiration
 - **Strangle**: Long call and long put with different strikes, same expiration
 - **Theta**: Time decay - rate of option value loss due to time passage
@@ -69,7 +69,7 @@ SpyderProject/Glossary.md (Complete)
 - **Bearer Token**: Authentication method for Tradier API requests
 - **Databento**: Institutional-grade market data provider (OPRA feed)
 - **OPRA.PILLAR**: Options Price Reporting Authority data via Databento
-- **Paper Mode**: Simulated trading with the SpyderBox local paper ledger while using live Tradier data
+- **Paper Mode**: Simulated trading with the TradovBox local paper ledger while using live Tradier data
 - **Account ID**: Unique identifier for Tradier trading account
 - **Symbol**: Ticker symbol (e.g., SPY for S&P 500 ETF)
 - **Tick Size**: Minimum price increment for an instrument
@@ -98,33 +98,33 @@ SpyderProject/Glossary.md (Complete)
 - **Unit Testing**: Testing individual components in isolation
 - **Virtual Environment**: Isolated Python environment for dependencies
 
-## Spyder-Specific Terms
+## Tradov-Specific Terms
 
 ### Module Series
-- **A-Series (SpyderA)**: Core system modules - orchestration and main entry
-- **B-Series (SpyderB)**: Broker integration modules - Tradier API connections and orders
-- **C-Series (SpyderC)**: Market data modules - real-time feeds and processing
-- **D-Series (SpyderD)**: Strategy modules - trading algorithm implementations
-- **E-Series (SpyderE)**: Risk management modules - position sizing and limits
-- **F-Series (SpyderF)**: Analysis modules - technical indicators and market analysis
-- **G-Series (SpyderG)**: GUI modules - user interface components
-- **H-Series (SpyderH)**: Storage modules - database and persistence
-- **I-Series (SpyderI)**: Integration modules - third-party service connections
-- **J-Series (SpyderJ)**: Alert modules - notifications and messaging
-- **K-Series (SpyderK)**: Report modules - performance analytics and reporting
-- **L-Series (SpyderL)**: Machine Learning modules - AI models and predictions
-- **M-Series (SpyderM)**: Monitoring modules - system health and metrics
-- **N-Series (SpyderN)**: Options Analytics modules - Greeks and pricing
-- **O-Series (SpyderO)**: Trading Intelligence modules - advanced analytics
-- **P-Series (SpyderP)**: Portfolio Management modules - optimization and allocation
-- **Q-Series (SpyderQ)**: Scripts - utility scripts and automation tools
-- **R-Series (SpyderR)**: Runtime modules - system execution and management
-- **S-Series (SpyderS)**: Signal modules - custom indicators and signals
-- **T-Series (SpyderT)**: Testing modules - unit tests and validation
-- **U-Series (SpyderU)**: Utility modules - shared functions and helpers
-- **V-Series (SpyderV)**: Quantitative Models - mathematical and statistical models
-- **X-Series (SpyderX)**: AI Agent modules - autonomous decision-making
-- **Z-Series (SpyderZ)**: Communication modules - inter-module messaging
+- **A-Series (TradovA)**: Core system modules - orchestration and main entry
+- **B-Series (TradovB)**: Broker integration modules - Tradier API connections and orders
+- **C-Series (TradovC)**: Market data modules - real-time feeds and processing
+- **D-Series (TradovD)**: Strategy modules - trading algorithm implementations
+- **E-Series (TradovE)**: Risk management modules - position sizing and limits
+- **F-Series (TradovF)**: Analysis modules - technical indicators and market analysis
+- **G-Series (TradovG)**: GUI modules - user interface components
+- **H-Series (TradovH)**: Storage modules - database and persistence
+- **I-Series (TradovI)**: Integration modules - third-party service connections
+- **J-Series (TradovJ)**: Alert modules - notifications and messaging
+- **K-Series (TradovK)**: Report modules - performance analytics and reporting
+- **L-Series (TradovL)**: Machine Learning modules - AI models and predictions
+- **M-Series (TradovM)**: Monitoring modules - system health and metrics
+- **N-Series (TradovN)**: Options Analytics modules - Greeks and pricing
+- **O-Series (TradovO)**: Trading Intelligence modules - advanced analytics
+- **P-Series (TradovP)**: Portfolio Management modules - optimization and allocation
+- **Q-Series (TradovQ)**: Scripts - utility scripts and automation tools
+- **R-Series (TradovR)**: Runtime modules - system execution and management
+- **S-Series (TradovS)**: Signal modules - custom indicators and signals
+- **T-Series (TradovT)**: Testing modules - unit tests and validation
+- **U-Series (TradovU)**: Utility modules - shared functions and helpers
+- **V-Series (TradovV)**: Quantitative Models - mathematical and statistical models
+- **X-Series (TradovX)**: AI Agent modules - autonomous decision-making
+- **Z-Series (TradovZ)**: Communication modules - inter-module messaging
 
 ### System Components
 - **Event Manager**: Central coordinator for system events
@@ -172,7 +172,7 @@ SpyderProject/Glossary.md (Complete)
 
 ### Operating System
 - **GNOME**: Desktop environment for Linux
-- **Ubuntu**: Linux distribution used for Spyder system
+- **Ubuntu**: Linux distribution used for Tradov system
 - **Virtual Environment**: Isolated Python runtime environment
 - **Wayland**: Display server protocol replacing X11
 - **systemd**: System and service manager for Linux

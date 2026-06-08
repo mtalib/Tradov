@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-SPYDER - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Options Trading System v1.0
 
-Series: SpyderX_Unknown
+Series: TradovX_Unknown
 Module: config.py
-Purpose: SPYDER - Tradier + Massive Configuration
+Purpose: TRADOV - Tradier + Massive Configuration
 
 Author: Mohamed Talib
 Year Created: 2025
 Last Updated: 2026-03-03 Time: 00:00:00
 
 Module Description:
-    SPYDER - Tradier + Massive Configuration
+    TRADOV - Tradier + Massive Configuration
 
 Change Log:
     2026-03-03:
@@ -34,8 +34,8 @@ _LIVE_ONLY_TRADING_MODES = {"paper", "live"}
 _LIVE_ONLY_TRADIER_ENVS = {"live", "production"}
 _TRUTHY_ENV_TOKENS = {"1", "true", "yes", "on"}
 _TRADIER_ENVIRONMENT_ERROR = (
-    "Spyder runs Tradier in live-only mode; paper trading uses the internal "
-    "SpyderBox ledger, not Tradier sandbox."
+    "Tradov runs Tradier in live-only mode; paper trading uses the internal "
+    "TradovBox ledger, not Tradier sandbox."
 )
 
 
@@ -110,7 +110,7 @@ ACTIVE_DATA_PROVIDER = os.environ.get("ACTIVE_DATA_PROVIDER", DATA_PROVIDER)  # 
 EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
 
 # Tradier API environment — always live/production. Paper mode uses live
-# market data while keeping fills inside the local SpyderBox paper ledger.
+# market data while keeping fills inside the local TradovBox paper ledger.
 _trading_mode_norm = str(TRADING_MODE).strip().lower()
 _tradier_env_default = "live"
 TRADIER_ENVIRONMENT = os.environ.get("TRADIER_ENVIRONMENT", _tradier_env_default)
@@ -234,7 +234,7 @@ STRATEGY_CONFIG = {
 # DATABASE AND LOGGING
 # ==============================================================================
 DATABASE_CONFIG = {
-    "db_path": "data/spyder.db",
+    "db_path": "data/tradov.db",
     "backup_enabled": True,
     "backup_interval_hours": 24,
     "backup_retention_days": 30,
@@ -243,7 +243,7 @@ DATABASE_CONFIG = {
 LOGGING_CONFIG = {
     "log_level": os.environ.get("LOG_LEVEL", "INFO"),
     "log_to_file": True,
-    "log_file_path": "logs/spyder.log",
+    "log_file_path": "logs/tradov.log",
     "log_rotation": "daily",
     "log_retention_days": 30,
     "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -313,9 +313,9 @@ def get_active_config():
             "TRADIER_MARKET_DATA_ENVIRONMENT must be 'live' or 'production'. "
             f"Got '{market_data_env}'. {_TRADIER_ENVIRONMENT_ERROR}"
         )
-    if _is_truthy_env(os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA")):
+    if _is_truthy_env(os.environ.get("TRADOV_ALLOW_SANDBOX_MARKET_DATA")):
         raise ConfigurationError(
-            "SPYDER_ALLOW_SANDBOX_MARKET_DATA is not permitted. "
+            "TRADOV_ALLOW_SANDBOX_MARKET_DATA is not permitted. "
             f"{_TRADIER_ENVIRONMENT_ERROR}"
         )
 
@@ -371,9 +371,9 @@ def validate_config():
             f"{_TRADIER_ENVIRONMENT_ERROR}"
         )
 
-    if _is_truthy_env(os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA")):
+    if _is_truthy_env(os.environ.get("TRADOV_ALLOW_SANDBOX_MARKET_DATA")):
         errors.append(
-            "SPYDER_ALLOW_SANDBOX_MARKET_DATA must be unset or false. "
+            "TRADOV_ALLOW_SANDBOX_MARKET_DATA must be unset or false. "
             f"{_TRADIER_ENVIRONMENT_ERROR}"
         )
 
@@ -440,9 +440,9 @@ def validate_startup_config() -> None:
             f"{_TRADIER_ENVIRONMENT_ERROR}"
         )
 
-    if _is_truthy_env(os.environ.get("SPYDER_ALLOW_SANDBOX_MARKET_DATA")):
+    if _is_truthy_env(os.environ.get("TRADOV_ALLOW_SANDBOX_MARKET_DATA")):
         problems.append(
-            "SPYDER_ALLOW_SANDBOX_MARKET_DATA must be unset or false. "
+            "TRADOV_ALLOW_SANDBOX_MARKET_DATA must be unset or false. "
             f"{_TRADIER_ENVIRONMENT_ERROR}"
         )
 
@@ -458,7 +458,7 @@ def validate_startup_config() -> None:
     if problems:
         bullet_list = "\n".join(f"  • {p}" for p in problems)
         raise ConfigurationError(
-            f"Spyder startup blocked — {len(problems)} configuration "
+            f"Tradov startup blocked — {len(problems)} configuration "
             f"problem(s) found:\n{bullet_list}\n"
             "Fix the issues above in your .env file and restart."
         )
@@ -493,7 +493,7 @@ def check_api_authentication():
 _cfg_logger = logging.getLogger(__name__)
 if __name__ != "__main__":
     _cfg_logger.debug(
-        "SPYDER Configuration loaded — execution: Tradier, "
+        "TRADOV Configuration loaded — execution: Tradier, "
         "market data: %s, trading mode: %s",
         DATA_PROVIDER.capitalize(),
         TRADING_MODE,

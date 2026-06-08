@@ -1,6 +1,6 @@
 # 2026-06-02 Mark ZeroHFT Strategy
 
-This note compares Mark's 0DTE SPX options approach with Spyder's ZeroHFT implementation. The goal is not to copy the interview literally, but to preserve the useful structure: short premium, defined risk, repeated small entries, and strict risk filtering.
+This note compares Mark's 0DTE SPX options approach with Tradov's ZeroHFT implementation. The goal is not to copy the interview literally, but to preserve the useful structure: short premium, defined risk, repeated small entries, and strict risk filtering.
 
 ## Core Thesis
 
@@ -36,9 +36,9 @@ The broader regime, stress, stance, and dispatch controls are not ZeroHFT-only. 
 
 The current code path is concentrated in:
 
-- [SpyderD41_ZeroHFT.py](/home/adam/Projects/Spyder/Spyder/SpyderD_Strategies/SpyderD41_ZeroHFT.py)
-- [SpyderD40_MicroTrancheExecutor.py](/home/adam/Projects/Spyder/Spyder/SpyderD_Strategies/SpyderD40_MicroTrancheExecutor.py)
-- [SpyderD31_StrategyOrchestrator.py](/home/adam/Projects/Spyder/Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py)
+- [TradovD41_ZeroHFT.py](/home/adam/Projects/Tradov/Tradov/TradovD_Strategies/TradovD41_ZeroHFT.py)
+- [TradovD40_MicroTrancheExecutor.py](/home/adam/Projects/Tradov/Tradov/TradovD_Strategies/TradovD40_MicroTrancheExecutor.py)
+- [TradovD31_StrategyOrchestrator.py](/home/adam/Projects/Tradov/Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py)
 
 ## Notable Gaps Versus the Interview
 

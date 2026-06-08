@@ -4,18 +4,18 @@
 
 ## Overview
 
-This guide shows how to integrate rate limiting and circuit breakers into the Spyder trading system for resilient API calls.
+This guide shows how to integrate rate limiting and circuit breakers into the Tradov trading system for resilient API calls.
 
 ---
 
 ## Components
 
-### 1. Rate Limiter (`SpyderU40_RateLimiter.py`)
+### 1. Rate Limiter (`TradovU40_RateLimiter.py`)
 **Purpose**: Prevent hitting API rate limits
 **Algorithm**: Token bucket
 **Use for**: Tradier, Polygon, any rate-limited API
 
-### 2. Circuit Breaker (`SpyderU41_CircuitBreaker.py`)
+### 2. Circuit Breaker (`TradovU41_CircuitBreaker.py`)
 **Purpose**: Prevent cascading failures
 **Pattern**: CLOSED → OPEN → HALF_OPEN → CLOSED
 **Use for**: Any external service that can fail
@@ -27,7 +27,7 @@ This guide shows how to integrate rate limiting and circuit breakers into the Sp
 ### Rate Limiting Example
 
 ```python
-from SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit, acquire_tradier
+from TradovU_Utilities.TradovU40_RateLimiter import rate_limit, acquire_tradier
 
 # Method 1: As decorator
 @rate_limit(requests_per_second=10)
@@ -48,7 +48,7 @@ async with RateLimiter(requests_per_second=5):
 ### Circuit Breaker Example
 
 ```python
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import circuit_breaker, tradier_breaker
+from TradovU_Utilities.TradovU41_CircuitBreaker import circuit_breaker, tradier_breaker
 
 # Method 1: As decorator
 @circuit_breaker(failure_threshold=5, recovery_timeout=60)
@@ -70,8 +70,8 @@ async with tradier_breaker:
 ### Combined Example (Rate Limit + Circuit Breaker)
 
 ```python
-from SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import circuit_breaker
+from TradovU_Utilities.TradovU40_RateLimiter import rate_limit
+from TradovU_Utilities.TradovU41_CircuitBreaker import circuit_breaker
 
 @rate_limit(requests_per_second=10)
 @circuit_breaker(failure_threshold=5, recovery_timeout=60)
@@ -91,10 +91,10 @@ async def protected_api_call(symbol):
 ### Tradier Client Integration
 
 ```python
-# SpyderB_Broker/SpyderB40_TradierClient.py
+# TradovB_Broker/TradovB40_TradierClient.py
 
-from SpyderU_Utilities.SpyderU40_RateLimiter import rate_limit, acquire_tradier
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
+from TradovU_Utilities.TradovU40_RateLimiter import rate_limit, acquire_tradier
+from TradovU_Utilities.TradovU41_CircuitBreaker import tradier_breaker
 
 class TradierClient:
 
@@ -132,10 +132,10 @@ class TradierClient:
 ### Polygon Handler Integration
 
 ```python
-# SpyderC_MarketData/SpyderC25_PolygonDataHandler.py
+# TradovC_MarketData/TradovC25_PolygonDataHandler.py
 
-from SpyderU_Utilities.SpyderU40_RateLimiter import acquire_polygon
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import polygon_breaker
+from TradovU_Utilities.TradovU40_RateLimiter import acquire_polygon
+from TradovU_Utilities.TradovU41_CircuitBreaker import polygon_breaker
 
 class PolygonDataHandler:
 
@@ -159,10 +159,10 @@ class PolygonDataHandler:
 ### Strategy Execution Integration
 
 ```python
-# SpyderD_Strategies/SpyderD01_BaseStrategy.py
+# TradovD_Strategies/TradovD01_BaseStrategy.py
 
-from SpyderU_Utilities.SpyderU40_RateLimiter import MultiRateLimiter
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import get_circuit_breaker
+from TradovU_Utilities.TradovU40_RateLimiter import MultiRateLimiter
+from TradovU_Utilities.TradovU41_CircuitBreaker import get_circuit_breaker
 
 class BaseStrategy:
 
@@ -234,8 +234,8 @@ polygon_breaker = CircuitBreaker(
 ### Custom Configuration
 
 ```python
-from SpyderU_Utilities.SpyderU40_RateLimiter import MultiRateLimiter
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import CircuitBreaker
+from TradovU_Utilities.TradovU40_RateLimiter import MultiRateLimiter
+from TradovU_Utilities.TradovU41_CircuitBreaker import CircuitBreaker
 
 # Custom rate limiter
 limiter = MultiRateLimiter()
@@ -257,7 +257,7 @@ breaker = CircuitBreaker(
 ### Check Circuit Breaker Status
 
 ```python
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
+from TradovU_Utilities.TradovU41_CircuitBreaker import tradier_breaker
 
 # Get statistics
 stats = tradier_breaker.get_stats()
@@ -288,7 +288,7 @@ logger.info("Circuit manually reset")
 ### Circuit Breaker Errors
 
 ```python
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import CircuitBreakerError
+from TradovU_Utilities.TradovU41_CircuitBreaker import CircuitBreakerError
 
 try:
     result = await protected_api_call()
@@ -337,7 +337,7 @@ async def api_call():
 
 ```python
 # ✅ Good: Use pre-configured breaker
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import tradier_breaker
+from TradovU_Utilities.TradovU41_CircuitBreaker import tradier_breaker
 
 @tradier_breaker.decorator
 async def call():
@@ -370,7 +370,7 @@ optional_breaker = CircuitBreaker(
 ```python
 # Log circuit breaker events
 import logging
-logging.getLogger("SpyderU_Utilities.SpyderU41_CircuitBreaker").setLevel(logging.INFO)
+logging.getLogger("TradovU_Utilities.TradovU41_CircuitBreaker").setLevel(logging.INFO)
 
 # Will log:
 # - Circuit opened (too many failures)
@@ -386,7 +386,7 @@ logging.getLogger("SpyderU_Utilities.SpyderU41_CircuitBreaker").setLevel(logging
 
 ```python
 import asyncio
-from SpyderU_Utilities.SpyderU40_RateLimiter import RateLimiter
+from TradovU_Utilities.TradovU40_RateLimiter import RateLimiter
 
 async def test_rate_limiting():
     limiter = RateLimiter(requests_per_second=5)
@@ -406,7 +406,7 @@ asyncio.run(test_rate_limiting())
 
 ```python
 import asyncio
-from SpyderU_Utilities.SpyderU41_CircuitBreaker import CircuitBreaker, CircuitBreakerError
+from TradovU_Utilities.TradovU41_CircuitBreaker import CircuitBreaker, CircuitBreakerError
 
 async def test_circuit_breaker():
     breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=5.0)

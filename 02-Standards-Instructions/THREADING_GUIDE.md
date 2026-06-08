@@ -1,8 +1,8 @@
-# Threading Guide for Spyder Trading System
+# Threading Guide for Tradov Trading System
 
 ## Overview
 
-The Spyder trading system uses three primary threading approaches:
+The Tradov trading system uses three primary threading approaches:
 1. **asyncio** - For I/O-bound operations, API calls, and async workflows
 2. **threading.Thread** - For CPU-bound background tasks
 3. **QThread** - For GUI updates and Qt signal/slot integration
@@ -56,7 +56,7 @@ This guide explains when to use each approach and documents best practices based
 
 ```python
 import asyncio
-from SpyderU_Utilities.SpyderU01_Logger import get_logger
+from TradovU_Utilities.TradovU01_Logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -111,7 +111,7 @@ async def monitor_connection(self):
 ### Working with Tradier API
 
 ```python
-from SpyderB_Broker.SpyderB40_TradierClient import TradierClient
+from TradovB_Broker.TradovB40_TradierClient import TradierClient
 
 async def submit_order_async(client: TradierClient, symbol: str, qty: int):
     """Submit order using asyncio integration."""
@@ -171,7 +171,7 @@ async def fetch_multiple_quotes(symbols: list[str]):
 
 ```python
 import threading
-from SpyderU_Utilities.SpyderU01_Logger import get_logger
+from TradovU_Utilities.TradovU01_Logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -280,7 +280,7 @@ class ThreadSafeCache:
 
 ### ✅ CORRECT Pattern: Worker Object + moveToThread
 
-**Reference**: See `/home/user/Spyder/2-DOCUMENTATION/FIXES_AND_BUGS/BUGFIX_QTIMER_THREADING_20251002.md`
+**Reference**: See `/home/user/Tradov/2-DOCUMENTATION/FIXES_AND_BUGS/BUGFIX_QTIMER_THREADING_20251002.md`
 
 ```python
 from PySide6.QtCore import QObject, QThread, Signal, QTimer
@@ -495,7 +495,7 @@ class Processor:
 
 ### asyncio + Qt (qasync)
 
-**Reference**: See `/home/user/Spyder/2-DOCUMENTATION/FIXES_AND_BUGS/ASYNCIO_EVENT_LOOP_FIX_SUMMARY.md`
+**Reference**: See `/home/user/Tradov/2-DOCUMENTATION/FIXES_AND_BUGS/ASYNCIO_EVENT_LOOP_FIX_SUMMARY.md`
 
 ```python
 import asyncio
@@ -669,16 +669,16 @@ with timeout_lock(lock, timeout=2.0):
 ## Reference Implementations
 
 ### Excellent Examples in Codebase:
-1. **QThread Pattern**: `SpyderG05_TradingDashboard.py` (Lines 425-489)
+1. **QThread Pattern**: `TradovG05_TradingDashboard.py` (Lines 425-489)
    - Proper worker object with `moveToThread()`
    - QTimer created in worker thread
    - Clean signal/slot communication
 
-2. **asyncio Integration**: `SpyderG05_TradingDashboard.py` (Lines 4380-4386)
+2. **asyncio Integration**: `TradovG05_TradingDashboard.py` (Lines 4380-4386)
    - qasync event loop integration
    - Qt + asyncio coordination
 
-3. **Thread Safety**: `SpyderX_Agents/` (All agent files)
+3. **Thread Safety**: `TradovX_Agents/` (All agent files)
    - Consistent Lock usage
    - Thread-safe data access
 

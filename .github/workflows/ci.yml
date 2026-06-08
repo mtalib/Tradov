@@ -1,4 +1,4 @@
-name: Spyder CI
+name: Tradov CI
 
 on:
   push:
@@ -37,10 +37,10 @@ jobs:
 
       - name: Run ruff (errors only — includes T201 print detection)
         run: |
-          ruff check Spyder/ \
+          ruff check Tradov/ \
             --select E,W,F,T20,B \
             --ignore E402,E501 \
-            --exclude Spyder/SpyderT_Testing,Spyder/SpyderQ_Scripts \
+            --exclude Tradov/TradovT_Testing,Tradov/TradovQ_Scripts \
             --output-format github
 
   # ─────────────────────────────────────────────────────────────────────────────
@@ -77,11 +77,11 @@ jobs:
         shell: bash
         run: |
           mapfile -t CI_SAFE_TEST_ARRAY < <(
-            find Spyder/SpyderT_Testing -maxdepth 1 -type f \( -name 'test_*.py' -o -name '*_test.py' \) | sort
+            find Tradov/TradovT_Testing -maxdepth 1 -type f \( -name 'test_*.py' -o -name '*_test.py' \) | sort
           )
 
           if [[ ${#CI_SAFE_TEST_ARRAY[@]} -eq 0 ]]; then
-            echo "No CI-safe pytest-named tests found in Spyder/SpyderT_Testing." | tee test-results.txt
+            echo "No CI-safe pytest-named tests found in Tradov/TradovT_Testing." | tee test-results.txt
             exit 1
           fi
 
@@ -150,7 +150,7 @@ jobs:
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
 
           mapfile -t CHANGED_TEST_ARRAY < <(
-            git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -E '^Spyder/SpyderT_Testing/.*\.py$' || true
+            git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -E '^Tradov/TradovT_Testing/.*\.py$' || true
           )
 
           if [[ ${#CHANGED_TEST_ARRAY[@]} -eq 0 ]]; then
@@ -159,7 +159,7 @@ jobs:
           fi
 
           mapfile -t CI_SAFE_CHANGED_TEST_ARRAY < <(
-            printf '%s\n' "${CHANGED_TEST_ARRAY[@]}" | grep -E '^Spyder/SpyderT_Testing/(test_.*\.py|.*_test\.py)$' || true
+            printf '%s\n' "${CHANGED_TEST_ARRAY[@]}" | grep -E '^Tradov/TradovT_Testing/(test_.*\.py|.*_test\.py)$' || true
           )
 
           if [[ ${#CI_SAFE_CHANGED_TEST_ARRAY[@]} -eq 0 ]]; then
@@ -287,9 +287,9 @@ jobs:
         shell: bash
         run: |
           bandit_exit=0
-          bandit -r Spyder/ \
+          bandit -r Tradov/ \
             --severity-level medium \
-            --exclude Spyder/SpyderT_Testing,Spyder/SpyderQ_Scripts \
+            --exclude Tradov/TradovT_Testing,Tradov/TradovQ_Scripts \
             --format txt \
             -o bandit-report.txt || bandit_exit=$?
 

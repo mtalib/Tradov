@@ -1,4 +1,4 @@
-# Test Coverage Guide for Spyder Trading System
+# Test Coverage Guide for Tradov Trading System
 
 ## Quick Start
 
@@ -6,10 +6,10 @@
 
 ```bash
 # Run all tests with coverage analysis
-bash SpyderQ_Scripts/run_coverage.sh
+bash TradovQ_Scripts/run_coverage.sh
 
 # Or manually:
-pytest SpyderT_Testing/ --cov=. --cov-report=html
+pytest TradovT_Testing/ --cov=. --cov-report=html
 ```
 
 ### View Results
@@ -88,9 +88,9 @@ cat coverage_output.txt
 ```
 Name                                   Stmts   Miss  Cover   Missing
 --------------------------------------------------------------------
-SpyderB_Broker/SpyderB40_TradierClient.py  663     45    93%   123-145, 234
-SpyderE_Risk/SpyderE01_RiskManager.py      830    421    49%   156-234, 456-789
-SpyderC_MarketData/SpyderC25_PolygonDataHandler.py  634    102    84%   45-67
+TradovB_Broker/TradovB40_TradierClient.py  663     45    93%   123-145, 234
+TradovE_Risk/TradovE01_RiskManager.py      830    421    49%   156-234, 456-789
+TradovC_MarketData/TradovC25_PolygonDataHandler.py  634    102    84%   45-67
 --------------------------------------------------------------------
 TOTAL                                   318430  89234    72%
 ```
@@ -109,17 +109,17 @@ TOTAL                                   318430  89234    72%
 
 Based on analysis, prioritize:
 
-1. **Broker Integration** (`SpyderB_Broker/`)
+1. **Broker Integration** (`TradovB_Broker/`)
    - Order execution
    - Position tracking
    - Account management
 
-2. **Risk Management** (`SpyderE_Risk/`)
+2. **Risk Management** (`TradovE_Risk/`)
    - Position sizing
    - Loss protection
    - Risk calculations
 
-3. **Market Data** (`SpyderC_MarketData/`)
+3. **Market Data** (`TradovC_MarketData/`)
    - Data validation
    - WebSocket handling
    - Feed processing
@@ -128,7 +128,7 @@ Based on analysis, prioritize:
 
 Lower priority for coverage:
 - GUI code (hard to test, less critical)
-- Utility scripts (`SpyderQ_Scripts/`)
+- Utility scripts (`TradovQ_Scripts/`)
 - Test files themselves
 - Configuration files
 
@@ -141,9 +141,9 @@ Lower priority for coverage:
 **For**: Individual functions and classes
 
 ```python
-# SpyderT_Testing/SpyderT_NewModule_Test.py
+# TradovT_Testing/TradovT_NewModule_Test.py
 import pytest
-from SpyderE_Risk.SpyderE01_RiskManager import RiskManager
+from TradovE_Risk.TradovE01_RiskManager import RiskManager
 
 def test_position_size_calculation():
     """Test position size calculation logic"""
@@ -197,8 +197,8 @@ Create `.coveragerc` in project root:
 source = .
 omit =
     */tests/*
-    */SpyderT_Testing/*
-    */SpyderQ_Scripts/*
+    */TradovT_Testing/*
+    */TradovQ_Scripts/*
     */__init__.py
     */conftest.py
 
@@ -226,7 +226,7 @@ directory = coverage_html
 ```yaml
 - name: Run Tests with Coverage
   run: |
-    pytest SpyderT_Testing/ \
+    pytest TradovT_Testing/ \
       --cov=. \
       --cov-report=xml \
       --cov-fail-under=70
@@ -293,13 +293,13 @@ pip install pytest-cov
 
 | Module | Target | Priority |
 |--------|--------|----------|
-| SpyderB_Broker | 80%+ | Critical |
-| SpyderE_Risk | 75%+ | Critical |
-| SpyderC_MarketData | 75%+ | Critical |
-| SpyderD_Strategies | 70%+ | High |
-| SpyderF_Analysis | 65%+ | High |
-| SpyderG_GUI | 30%+ | Low |
-| SpyderU_Utilities | 60%+ | Medium |
+| TradovB_Broker | 80%+ | Critical |
+| TradovE_Risk | 75%+ | Critical |
+| TradovC_MarketData | 75%+ | Critical |
+| TradovD_Strategies | 70%+ | High |
+| TradovF_Analysis | 65%+ | High |
+| TradovG_GUI | 30%+ | Low |
+| TradovU_Utilities | 60%+ | Medium |
 
 ---
 
@@ -313,7 +313,7 @@ pytest --cov --cov-report=term-missing
 pytest --cov --cov-report=html
 
 # Coverage for specific module
-pytest SpyderT_Testing/SpyderT40* --cov=SpyderB_Broker
+pytest TradovT_Testing/TradovT40* --cov=TradovB_Broker
 
 # Coverage with verbose test output
 pytest --cov -v

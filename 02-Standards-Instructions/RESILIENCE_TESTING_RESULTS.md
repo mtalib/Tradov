@@ -186,7 +186,7 @@ Polygon Circuit Breaker:
 
 ## Integration Points
 
-### TradierClient (SpyderB40)
+### TradierClient (TradovB40)
 **Protected Methods (6 new async endpoints):**
 ```python
 await client.place_order_async(symbol, side, qty)       # ✅ Working
@@ -203,7 +203,7 @@ status = TradierClient.get_circuit_breaker_status()  # ✅ Working
 TradierClient.reset_circuit_breaker()                # ✅ Working
 ```
 
-### PolygonDataHandler (SpyderC25)
+### PolygonDataHandler (TradovC25)
 **Protected Methods (3 new REST endpoints):**
 ```python
 await handler.fetch_historical_bars_async(symbol, from, to)  # ✅ Working

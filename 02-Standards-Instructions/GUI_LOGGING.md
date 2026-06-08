@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Spyder trading system now features **automatic integration between Python's logging system and the GUI dashboard**. All log messages (from `logger.info()`, `logger.warning()`, etc.) automatically appear in real-time on the dashboard display panels.
+The Tradov trading system now features **automatic integration between Python's logging system and the GUI dashboard**. All log messages (from `logger.info()`, `logger.warning()`, etc.) automatically appear in real-time on the dashboard display panels.
 
 ## Benefits
 
@@ -21,7 +21,7 @@ Python Logger
 logger.info("message")
      ↓
      ├──→ Console (stdout)
-     ├──→ File (logs/spyder.log)
+     ├──→ File (logs/tradov.log)
      └──→ GUI Dashboard (NEW!)
            ├──→ System Log Panel (infrastructure, connections, errors)
            └──→ Automation Log Panel (strategies, trades, signals)
@@ -38,9 +38,9 @@ logger.info("message")
 
 **Example messages:**
 ```
-ℹ️ SpyderB40_TradierClient - Connected to Tradier sandbox
-⚠️ SpyderC25_PolygonDataHandler - WebSocket reconnecting...
-❌ SpyderB_Broker - Order rejected: insufficient funds
+ℹ️ TradovB40_TradierClient - Connected to Tradier sandbox
+⚠️ TradovC25_PolygonDataHandler - WebSocket reconnecting...
+❌ TradovB_Broker - Order rejected: insufficient funds
 ```
 
 ### Automation Log Panel (Right panel)
@@ -52,9 +52,9 @@ logger.info("message")
 
 **Example messages:**
 ```
-ℹ️ SpyderD_Strategies - Iron Condor signal detected
-ℹ️ SpyderE_Risk - Position size validated: $5,000
-✅ SpyderB_Broker - Order filled: BUY 10 SPY CALL 450 @ $2.50
+ℹ️ TradovD_Strategies - Iron Condor signal detected
+ℹ️ TradovE_Risk - Position size validated: $5,000
+✅ TradovB_Broker - Order filled: BUY 10 SPY CALL 450 @ $2.50
 ```
 
 ## Configuration
@@ -89,7 +89,7 @@ GUI_LOG_LEVEL=INFO
 ### Basic Logging
 
 ```python
-from SpyderU_Utilities.SpyderU01_Logger import get_logger
+from TradovU_Utilities.TradovU01_Logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -128,18 +128,18 @@ logger.info("WebSocket connection established")
 ### Advanced: Custom Routing
 
 ```python
-from SpyderG_GUI.SpyderG99_GUILogHandler import FilteredGUILogHandler
+from TradovG_GUI.TradovG99_GUILogHandler import FilteredGUILogHandler
 
 # Only show logs from specific modules
 handler = FilteredGUILogHandler(
     dashboard,
-    include_modules=['SpyderB_Broker', 'SpyderD_Strategies']
+    include_modules=['TradovB_Broker', 'TradovD_Strategies']
 )
 
 # Exclude noisy modules
 handler = FilteredGUILogHandler(
     dashboard,
-    exclude_modules=['SpyderU_Utilities']
+    exclude_modules=['TradovU_Utilities']
 )
 ```
 
@@ -147,7 +147,7 @@ handler = FilteredGUILogHandler(
 
 ### GUILogHandler Class
 
-**Location:** `SpyderG_GUI/SpyderG99_GUILogHandler.py`
+**Location:** `TradovG_GUI/TradovG99_GUILogHandler.py`
 
 **Features:**
 - Thread-safe using Qt signals
@@ -158,11 +158,11 @@ handler = FilteredGUILogHandler(
 
 ### Integration Points
 
-**Main Application:** `SpyderA_Core/SpyderA01_Main.py`
+**Main Application:** `TradovA_Core/TradovA01_Main.py`
 
 ```python
 # Lines 146, 594-602, 618-626
-from SpyderG_GUI.SpyderG99_GUILogHandler import setup_gui_logging
+from TradovG_GUI.TradovG99_GUILogHandler import setup_gui_logging
 
 # After dashboard is created and shown:
 gui_log_handler = setup_gui_logging(dashboard, log_level="INFO")
@@ -175,7 +175,7 @@ gui_log_handler = setup_gui_logging(dashboard, log_level="INFO")
 Run the standalone test to verify GUI logging:
 
 ```bash
-python SpyderQ_Scripts/test_gui_logging.py
+python TradovQ_Scripts/test_gui_logging.py
 ```
 
 This will:
@@ -186,7 +186,7 @@ This will:
 
 ### Manual Testing
 
-1. Start Spyder: `python SpyderA_Core/SpyderA01_Main.py`
+1. Start Tradov: `python TradovA_Core/TradovA01_Main.py`
 2. Watch the System Log panel (bottom left)
 3. Watch the Automation Log panel (right panel)
 4. Verify startup messages appear
@@ -335,12 +335,12 @@ Potential improvements for future versions:
 
 ## References
 
-- **Main Handler:** `SpyderG_GUI/SpyderG99_GUILogHandler.py`
-- **Integration:** `SpyderA_Core/SpyderA01_Main.py` (lines 146, 594-602, 618-626)
-- **Dashboard:** `SpyderG_GUI/SpyderG05_TradingDashboard.py` (lines 2209, 2433, 3811, 3834)
-- **Logger:** `SpyderU_Utilities/SpyderU01_Logger.py`
+- **Main Handler:** `TradovG_GUI/TradovG99_GUILogHandler.py`
+- **Integration:** `TradovA_Core/TradovA01_Main.py` (lines 146, 594-602, 618-626)
+- **Dashboard:** `TradovG_GUI/TradovG05_TradingDashboard.py` (lines 2209, 2433, 3811, 3834)
+- **Logger:** `TradovU_Utilities/TradovU01_Logger.py`
 - **Config:** `.env.template` (line 88)
-- **Test:** `SpyderQ_Scripts/test_gui_logging.py`
+- **Test:** `TradovQ_Scripts/test_gui_logging.py`
 
 ---
 

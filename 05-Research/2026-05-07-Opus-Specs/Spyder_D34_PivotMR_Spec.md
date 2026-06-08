@@ -1,10 +1,10 @@
 # Spec: D34 PivotMeanReversion — Correctness & Performance Remediation
 
-**File:** `Spyder/SpyderD_Strategies/SpyderD34_PivotMeanReversion.py`
+**File:** `Tradov/TradovD_Strategies/TradovD34_PivotMeanReversion.py`
 
 **Status:** Module grade B+ — strongest of the five audited strategies. Issues are smaller but a couple are real correctness/perf bugs that will degrade behaviour in production.
 
-**Read first:** `Spyder_Strategy_Audit_Master_Plan.md`.
+**Read first:** `Tradov_Strategy_Audit_Master_Plan.md`.
 
 ---
 
@@ -15,7 +15,7 @@
 | PMR-01 | P1 | RSI curl confirmation is O(n²) per bar — recomputes full RSI 15× per candidate signal |
 | PMR-02 | P1 | `update_five_min_close` is misleadingly named — called every bar with current close, not only on 5-minute boundaries |
 | PMR-03 | P1 | VWAP NaN propagates silently into `check_vwap_target` — disables take-profit branch when no session bars exist |
-| PMR-04 | P2 | Local reimplementations of RSI / ATR / VWAP duplicate functionality that exists (or should exist) in `SpyderF20_Indicators` |
+| PMR-04 | P2 | Local reimplementations of RSI / ATR / VWAP duplicate functionality that exists (or should exist) in `TradovF20_Indicators` |
 | PMR-05 | P2 | `_open_trade_states` cleanup depends entirely on `on_position_closed` being called — state leaks if the broker callback is missed |
 | PMR-06 | P3 | `SIGNAL_EXPIRY_S = 120` represents ~17% of the 12-minute time-stop life; consider tightening |
 
@@ -405,23 +405,23 @@ Apply the same guard in `check_exit`:
 
 ### 2.4 STEP 4 — Consolidate indicators onto F20 (PMR-04)
 
-The local `_compute_rsi`, `_compute_atr`, `_compute_session_vwap`, and `_compute_vwap_slope_bps_per_min` should ultimately live in `SpyderF20_Indicators`. This is a two-phase change. **This spec performs Phase 1 only**; Phase 2 is a separate F20 spec.
+The local `_compute_rsi`, `_compute_atr`, `_compute_session_vwap`, and `_compute_vwap_slope_bps_per_min` should ultimately live in `TradovF20_Indicators`. This is a two-phase change. **This spec performs Phase 1 only**; Phase 2 is a separate F20 spec.
 
-**Phase 1 — wrap and re-export:** keep the local implementations as private aliases but mark them deprecated and route new code through F20 where F20 already provides an equivalent. ADX is already routed correctly; verify that `SpyderF20_Indicators` exposes `RSI`, `ATR`, `VWAP`, `VWAPSlope`. If it does, add the import:
+**Phase 1 — wrap and re-export:** keep the local implementations as private aliases but mark them deprecated and route new code through F20 where F20 already provides an equivalent. ADX is already routed correctly; verify that `TradovF20_Indicators` exposes `RSI`, `ATR`, `VWAP`, `VWAPSlope`. If it does, add the import:
 
 **Find** (in the `LOCAL IMPORTS` block):
 ```python
-from Spyder.SpyderF_Analysis.SpyderF20_Indicators import ADX as _f20_adx
+from Tradov.TradovF_Analysis.TradovF20_Indicators import ADX as _f20_adx
 ```
 
 **Replace:**
 ```python
-from Spyder.SpyderF_Analysis.SpyderF20_Indicators import ADX as _f20_adx
+from Tradov.TradovF_Analysis.TradovF20_Indicators import ADX as _f20_adx
 
 # Optional: prefer F20 for shared indicators when available. Falls back
 # to local implementations to keep this module standalone-runnable.
 try:
-    from Spyder.SpyderF_Analysis.SpyderF20_Indicators import (  # noqa: F401
+    from Tradov.TradovF_Analysis.TradovF20_Indicators import (  # noqa: F401
         RSI as _f20_rsi,
         ATR as _f20_atr,
     )
@@ -430,7 +430,7 @@ except ImportError:
     _F20_INDICATORS_AVAILABLE = False
 ```
 
-> **Implementer note:** if `SpyderF20_Indicators` does not currently export `RSI` and `ATR`, leave `_F20_INDICATORS_AVAILABLE = False` and the local implementations stay primary. Do **not** modify F20 as part of this spec.
+> **Implementer note:** if `TradovF20_Indicators` does not currently export `RSI` and `ATR`, leave `_F20_INDICATORS_AVAILABLE = False` and the local implementations stay primary. Do **not** modify F20 as part of this spec.
 
 Add a deprecation comment above each local implementation:
 
@@ -443,7 +443,7 @@ def _compute_rsi(closes: list[float], period: int = 14) -> float:
 **Replace:**
 ```python
 # Deprecated local indicator implementation — kept for module standalone use.
-# When SpyderF20_Indicators.RSI is available, the rolling cache in
+# When TradovF20_Indicators.RSI is available, the rolling cache in
 # `_refresh_bar_buffer` is the preferred path. This scalar helper is retained
 # only for ad-hoc callers (e.g. debug scripts).
 def _compute_rsi(closes: list[float], period: int = 14) -> float:
@@ -571,10 +571,10 @@ SIGNAL_EXPIRY_S  = 60         # signal valid for 1 minute
 
 After implementation, **all** of the following must hold:
 
-- [ ] `python -m py_compile SpyderD34_PivotMeanReversion.py` passes.
-- [ ] `ruff check SpyderD34_PivotMeanReversion.py` reports no new errors.
+- [ ] `python -m py_compile TradovD34_PivotMeanReversion.py` passes.
+- [ ] `ruff check TradovD34_PivotMeanReversion.py` reports no new errors.
 - [ ] `mypy --ignore-missing-imports` passes.
-- [ ] `_rsi_curl_confirms` no longer calls `_compute_rsi` in a loop. `grep -c "_compute_rsi" SpyderD34_PivotMeanReversion.py` returns ≤ 1 (the function definition itself).
+- [ ] `_rsi_curl_confirms` no longer calls `_compute_rsi` in a loop. `grep -c "_compute_rsi" TradovD34_PivotMeanReversion.py` returns ≤ 1 (the function definition itself).
 - [ ] No occurrence of the literal string `update_five_min_close` or `_five_min_bar_close` remains.
 - [ ] `OpenTradeState.check_vwap_target(spot, float('nan'))` returns `None` for both directions.
 - [ ] `should_exit_position` and `check_exit` both log a debug message when VWAP is NaN (verified by capturing logs in a synthetic test).
@@ -587,7 +587,7 @@ After implementation, **all** of the following must hold:
 
 ## 4. Out of scope for this spec
 
-- Modifying `SpyderF20_Indicators` to expose RSI/ATR/VWAP if not already present. (Phase 2; separate F20 spec.)
-- Modifying `SpyderS08_PivotMeanReversionSignal`.
+- Modifying `TradovF20_Indicators` to expose RSI/ATR/VWAP if not already present. (Phase 2; separate F20 spec.)
+- Modifying `TradovS08_PivotMeanReversionSignal`.
 - Changing the time-stop or underlying-stop thresholds.
 - Backtesting validation of the post-fix strategy.

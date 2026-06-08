@@ -138,8 +138,8 @@ Focused validation suites were executed after each implementation stage and afte
 
 Final focused run used:
 
-- SpyderT_Testing/SpyderT192_TelegramOperatorCommands.py
-- SpyderT_Testing/SpyderT135_A04_EventClockFeed.py
+- TradovT_Testing/TradovT192_TelegramOperatorCommands.py
+- TradovT_Testing/TradovT135_A04_EventClockFeed.py
 
 Final result:
 
@@ -155,13 +155,13 @@ Coverage of newly added behaviors includes durability persistence, replay, reten
 
 Primary completion scope includes:
 
-- Spyder/SpyderJ_Alerts/SpyderJ05_TelegramBot.py
-- Spyder/SpyderA_Core/SpyderA04_Scheduler.py
-- Spyder/SpyderA_Core/SpyderA03_Configuration.py
-- Spyder/SpyderA_Core/SpyderA06_MasterController.py
-- Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py
-- Spyder/SpyderT_Testing/SpyderT192_TelegramOperatorCommands.py
-- Spyder/SpyderT_Testing/SpyderT135_A04_EventClockFeed.py
+- Tradov/TradovJ_Alerts/TradovJ05_TelegramBot.py
+- Tradov/TradovA_Core/TradovA04_Scheduler.py
+- Tradov/TradovA_Core/TradovA03_Configuration.py
+- Tradov/TradovA_Core/TradovA06_MasterController.py
+- Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py
+- Tradov/TradovT_Testing/TradovT192_TelegramOperatorCommands.py
+- Tradov/TradovT_Testing/TradovT135_A04_EventClockFeed.py
 - 01-Overview-Specs/2026-05-04-24x5-Autonomous-Operations-Implementation-Report.md
 
 This completion report is added as final delivery evidence:

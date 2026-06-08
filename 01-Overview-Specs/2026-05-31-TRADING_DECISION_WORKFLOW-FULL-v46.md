@@ -11,7 +11,7 @@ Scope: 6-Regime Master Logic, dashboard pill reconciliation, and strategy mappin
 | v46 | 2026-05-31 | Policy/timing sync pass against current implementation. Corrected launch-hydration text to match `TRADIER_CONNECT_TIME=09:00` (removed stale `09:20` reference) and narrowed live-only enforcement wording to the current owning fail-closed surfaces (R12/Q02/Q10/B40/config), with legacy launcher fallback branches explicitly marked non-authoritative until retired. |
 | v45 | 2026-05-23 | Implementation audit of G05/G52/G109/G110/G111/D31/L09. Clarified that REGIME/STRESS are display-layer signals, STANCE/GATE come from D31 execution truth, and DISPATCH applies a display-regime HALT override over D31 recency state. Documented exact S07 and VIX-fallback thresholds, corrected market-data cold-path notes to match D31 fail-closed `CRISIS` behavior, and aligned the DISPATCH tooltip contract with flag-resolved BULL/BEAR/RANGE/overlay rendering. |
 | v44 | 2026-05-21 | Paper autostart moved to `09:00 ET`. `_A01_PAPER_LOAD_START_ET` changed from `09:25` to `09:00`; `_A01_PAPER_AUTOSTART_WARMUP_END_ET` changed from `09:33` to `09:00`. Button shows `PAPER ACTIVE` and data hydration begins at 09:00 ET (or immediately on later launches). The current session-window execution gate is `first_entry_not_before_et=09:45`. Section 1.2 timetable updated with the 09:45 opening-entry boundary; Sections 10.8 and 10.11 reflect the same anchor. |
-| v43 | 2026-05-21 | Pill bar audit: fixed two code bugs (G41 `build_pill_stylesheet` missing `"high vol"` token caused VOLATILE/HIGH-VOL GATE pill to render gray instead of amber; G52 `_STANCE_TIPS` all three entries incorrectly attributed to D30 — corrected to D31). Fixed Section 5.3 field-name table: STANCE source was `SpyderD30_RegimeGatedSelector` — corrected to `SpyderD31_StrategyOrchestrator._execution_stance_for_regime`. No logic or workflow changes. |
+| v43 | 2026-05-21 | Pill bar audit: fixed two code bugs (G41 `build_pill_stylesheet` missing `"high vol"` token caused VOLATILE/HIGH-VOL GATE pill to render gray instead of amber; G52 `_STANCE_TIPS` all three entries incorrectly attributed to D30 — corrected to D31). Fixed Section 5.3 field-name table: STANCE source was `TradovD30_RegimeGatedSelector` — corrected to `TradovD31_StrategyOrchestrator._execution_stance_for_regime`. No logic or workflow changes. |
 | v42 | 2026-05-20 | Status-quo reference: 6-regime pipeline, dual-path regime display/execution architecture, partial ODTE overlay, current classifier implementations for G109/L09/D31/G110 |
 
 ## 0) Verification Basis
@@ -24,17 +24,17 @@ This v46 snapshot is based on direct source inspection of:
 
 Focused regressions run for this audit:
 
-- `SpyderT184_RegimeV2DeterministicContract.py`
-- `SpyderT185_D31_MarketDataCacheShape.py`
-- `SpyderT195_D31_DispatchStateBadge.py`
-- `SpyderT209_G05_RegimePillExecutionTruth.py`
-- `SpyderT252_G52_RegimePillBarPresenter.py`
-- `SpyderT322_G05_RegimePillStatePlan.py`
-- `SpyderT324_G05_RegimePillStatusPlan.py`
-- `SpyderT325_G110_RegimePillStatusHelper.py`
-- `SpyderT380_G109_VixFallbackBull.py`
-- `SpyderT381_L09_ColdVixEma50.py`
-- `SpyderT382_G110_GateStartupFallback.py`
+- `TradovT184_RegimeV2DeterministicContract.py`
+- `TradovT185_D31_MarketDataCacheShape.py`
+- `TradovT195_D31_DispatchStateBadge.py`
+- `TradovT209_G05_RegimePillExecutionTruth.py`
+- `TradovT252_G52_RegimePillBarPresenter.py`
+- `TradovT322_G05_RegimePillStatePlan.py`
+- `TradovT324_G05_RegimePillStatusPlan.py`
+- `TradovT325_G110_RegimePillStatusHelper.py`
+- `TradovT380_G109_VixFallbackBull.py`
+- `TradovT381_L09_ColdVixEma50.py`
+- `TradovT382_G110_GateStartupFallback.py`
 
 Verification boundary:
 
@@ -49,7 +49,7 @@ Define a single deterministic workflow for regime detection and strategy gating 
 
 - The default trading universe is exactly **4 strategies** (Section 2).
 - **Baseline maximum 2 strategies active concurrently** — one long-term/swing slot and one intraday/0DTE slot. Both slots may be occupied simultaneously but must belong to different horizon buckets (`MAX_ACTIVE_HORIZON_BUCKETS = 2`).
-- **Live third-slot overlay admission is narrowly implemented.** When `SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`, D31 may admit one third `ultra_short` PivotMeanReversion slot only after the baseline two slots are already full and the overlay candidate still passes the E01 overlay gate. Audit-schema, runtime-disable, and paper-verification work remains incomplete.
+- **Live third-slot overlay admission is narrowly implemented.** When `TRADOV_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`, D31 may admit one third `ultra_short` PivotMeanReversion slot only after the baseline two slots are already full and the overlay candidate still passes the E01 overlay gate. Audit-schema, runtime-disable, and paper-verification work remains incomplete.
 - **CRISIS and EVENT regimes are hard halt states** (no new entries).
 - Operators may opt into extension strategies via env flags (Section 2.1). Extensions never relax CRISIS/EVENT halts.
 
@@ -82,9 +82,9 @@ PCA-PROXY and PCA-IV are surfaced through S07/G05/G13 for operator awareness and
 
 ## 1.2) Intraday SPY Options Activity Timetable
 
-The current automated paper/live session policy is intentionally more conservative than discretionary trader guidance. Spyder autostarts the session supervisor and begins data hydration at `09:00 ET`, skips new opening trades through the opening range, opens new risk at `09:45 ET` once the initial post-open settling window ends, allows a secondary `13:00–14:30 ET` window, and blocks new `0DTE` short-premium risk before pre-MOC.
+The current automated paper/live session policy is intentionally more conservative than discretionary trader guidance. Tradov autostarts the session supervisor and begins data hydration at `09:00 ET`, skips new opening trades through the opening range, opens new risk at `09:45 ET` once the initial post-open settling window ends, allows a secondary `13:00–14:30 ET` window, and blocks new `0DTE` short-premium risk before pre-MOC.
 
-| Window | ET | Professional read | Current Spyder execution policy |
+| Window | ET | Professional read | Current Tradov execution policy |
 |---|---|---|---|
 | **Pre-market / data hydration** | **`09:00`** | Session supervisor starts; Tradier connects (market data, account info, and execution all live) | **`PAPER ACTIVE` — data hydration begins; no trades (`first_entry_not_before_et` gate blocks entries until 09:45)** |
 | Opening range | `09:30–09:45` | Observe only; spreads and order flow are still settling | No new opening trades |
@@ -104,7 +104,7 @@ Current implementation anchors:
 - `first_entry_not_before_et=09:45` — no new entries before this time regardless of regime
 - `zero_dte_no_new_risk_cutoff_et=14:30`
 - `OPTIMAL_ENTRY_WINDOW=10:15–11:30`
-- explicit timetable windows are exposed through `SpyderU03_DateTimeUtils.get_trading_windows()` and `SpyderA04_Scheduler`
+- explicit timetable windows are exposed through `TradovU03_DateTimeUtils.get_trading_windows()` and `TradovA04_Scheduler`
 - `primary_end_et` remains `16:15` for broader session supervision and closeout timing
 
 ---
@@ -113,10 +113,10 @@ Current implementation anchors:
 
 | Regime | Trading Posture | Permitted Strategy |
 |---|---|---|
-| 1. BULL REGIME | Directional bullish premium | SpyderD06_BullPutSpread |
-| 2. BEAR REGIME | Directional bearish premium | SpyderD07_BearCallSpread |
-| 3. RANGE REGIME | Range / mean containment | SpyderD02_IronCondor |
-| 4. VOLATILE REGIME | High-volatility mean reversion | SpyderD10_IronButterfly |
+| 1. BULL REGIME | Directional bullish premium | TradovD06_BullPutSpread |
+| 2. BEAR REGIME | Directional bearish premium | TradovD07_BearCallSpread |
+| 3. RANGE REGIME | Range / mean containment | TradovD02_IronCondor |
+| 4. VOLATILE REGIME | High-volatility mean reversion | TradovD10_IronButterfly |
 | 5. CRISIS REGIME | Turbulent / disorderly | HARD HALT / KILL-SWITCH |
 | 6. EVENT REGIME | Scheduled macro transition window | HARD HALT / NO TRADE |
 
@@ -126,51 +126,51 @@ This is the default mapping with all extension flags off.
 
 Operators may enable narrow, regime-scoped strategy alternatives without changing the contract's hard policy (baseline lean allowlist, 2-strategy concurrency cap, hard halts on CRISIS/EVENT). All flags default **off**. Each flag swaps in an alternative strategy for a specific regime; the default mapping remains active for any regime whose flag is not set.
 
-### 2.1.1) `SPYDER_ENABLE_BULL_CALL_SPREAD` — debit alternative for BULL
+### 2.1.1) `TRADOV_ENABLE_BULL_CALL_SPREAD` — debit alternative for BULL
 
-When set to `true`, the BULL regime maps to **SpyderD15_BullCallSpread** (debit, directional) instead of SpyderD06_BullPutSpread (credit). All other regimes are unchanged.
+When set to `true`, the BULL regime maps to **TradovD15_BullCallSpread** (debit, directional) instead of TradovD06_BullPutSpread (credit). All other regimes are unchanged.
 
 | Flag state | BULL regime maps to |
 |---|---|
-| off (default) | SpyderD06_BullPutSpread |
-| on | SpyderD15_BullCallSpread |
+| off (default) | TradovD06_BullPutSpread |
+| on | TradovD15_BullCallSpread |
 
-### 2.1.2) `SPYDER_ENABLE_BEAR_PUT_SPREAD` — debit alternative for BEAR
+### 2.1.2) `TRADOV_ENABLE_BEAR_PUT_SPREAD` — debit alternative for BEAR
 
-When set to `true`, the BEAR regime maps to **SpyderD16_BearPutSpread** (debit, directional) instead of SpyderD07_BearCallSpread (credit). All other regimes are unchanged.
+When set to `true`, the BEAR regime maps to **TradovD16_BearPutSpread** (debit, directional) instead of TradovD07_BearCallSpread (credit). All other regimes are unchanged.
 
 | Flag state | BEAR regime maps to |
 |---|---|
-| off (default) | SpyderD07_BearCallSpread |
-| on | SpyderD16_BearPutSpread |
+| off (default) | TradovD07_BearCallSpread |
+| on | TradovD16_BearPutSpread |
 
-### 2.1.3) `SPYDER_ENABLE_PIVOT_MEAN_REVERSION` — pivot-conditional alternative for RANGE
+### 2.1.3) `TRADOV_ENABLE_PIVOT_MEAN_REVERSION` — pivot-conditional alternative for RANGE
 
-When set to `true`, the RANGE regime maps to **SpyderD34_PivotMeanReversion** *only when the S08 pivot signal is firing on the current tick*. When the pivot signal is not firing, RANGE falls back to SpyderD02_IronCondor (the default).
+When set to `true`, the RANGE regime maps to **TradovD34_PivotMeanReversion** *only when the S08 pivot signal is firing on the current tick*. When the pivot signal is not firing, RANGE falls back to TradovD02_IronCondor (the default).
 
 | RANGE regime + flag state | S08 `pivot_signal.fired` | Strategy |
 |---|---|---|
-| flag off (default) | any | SpyderD02_IronCondor |
-| flag on | `false` | SpyderD02_IronCondor |
-| flag on | `true` | SpyderD34_PivotMeanReversion |
+| flag off (default) | any | TradovD02_IronCondor |
+| flag on | `false` | TradovD02_IronCondor |
+| flag on | `true` | TradovD34_PivotMeanReversion |
 
-### 2.1.4) `SPYDER_ENABLE_PAPER_CALENDAR_SPREAD_ROUTING` — paper-only low-vol calendar override
+### 2.1.4) `TRADOV_ENABLE_PAPER_CALENDAR_SPREAD_ROUTING` — paper-only low-vol calendar override
 
-When set to `true`, **paper-mode lean routing only** may resolve low-volatility selections to **SpyderD14_CalendarSpread** instead of the default credit/range strategies. Live mode is unchanged. D31 then dispatches the resulting calendar signal as two explicit OCC option-leg orders (near short leg + far long leg).
+When set to `true`, **paper-mode lean routing only** may resolve low-volatility selections to **TradovD14_CalendarSpread** instead of the default credit/range strategies. Live mode is unchanged. D31 then dispatches the resulting calendar signal as two explicit OCC option-leg orders (near short leg + far long leg).
 
 This flag must be present **before startup**. D31 reads it during `StrategyOrchestrator` initialization, so toggling it after launch does not change the active lean allowlist for that run.
 
 | Context | flag off (default) | flag on |
 |---|---|---|
-| paper `BULL_LOW_VOL` | SpyderD06_BullPutSpread | SpyderD14_CalendarSpread |
-| paper `BEAR_LOW_VOL` | SpyderD07_BearCallSpread | SpyderD14_CalendarSpread |
-| paper `SIDEWAYS_LOW_VOL` | SpyderD02_IronCondor | SpyderD14_CalendarSpread |
+| paper `BULL_LOW_VOL` | TradovD06_BullPutSpread | TradovD14_CalendarSpread |
+| paper `BEAR_LOW_VOL` | TradovD07_BearCallSpread | TradovD14_CalendarSpread |
+| paper `SIDEWAYS_LOW_VOL` | TradovD02_IronCondor | TradovD14_CalendarSpread |
 | live any regime | unchanged | unchanged |
 
 ### Combined behavior
 
 - Multiple flags may be on simultaneously; each affects only its own regime.
-- `SPYDER_ENABLE_PAPER_CALENDAR_SPREAD_ROUTING` is paper-only and affects only the low-vol lean path; it does not widen live trading policy or change high-vol / CRISIS / EVENT behavior.
+- `TRADOV_ENABLE_PAPER_CALENDAR_SPREAD_ROUTING` is paper-only and affects only the low-vol lean path; it does not widen live trading policy or change high-vol / CRISIS / EVENT behavior.
 - BrokenWingButterfly is always permitted in lean mode; D30 routes `RECOVERY_MODE` and `HIGH_VOLATILITY` with bullish pivot support to that strategy without a feature flag.
 - D31 classifies strategies with `target_dte <= 1` as `ultra_short`; BrokenWingButterfly defaults to `target_dte = 0` unless explicitly overridden.
 - Baseline concurrency cap of 2 is unchanged — at most one long-term/swing strategy and one intraday/0DTE strategy may be active simultaneously.
@@ -231,10 +231,10 @@ The following six definitions are mandatory and must be preserved exactly in imp
 
 | # | Regime | Mathematical Trigger Logic | Strategy / Action |
 |---|---|---|---|
-| 1 | Bull Regime | SPY > 50-EMA AND VIX < 50-EMA | SpyderD06_BullPutSpread |
-| 2 | Bear Regime | SPY < 50-EMA AND VIX > 50-EMA | SpyderD07_BearCallSpread |
-| 3 | Range Regime | SPY within ATR bands AND VIX Contango | SpyderD02_IronCondor |
-| 4 | Volatile Regime | SPY ATR Elevated AND VIX > 80th PCTL | SpyderD10_IronButterfly |
+| 1 | Bull Regime | SPY > 50-EMA AND VIX < 50-EMA | TradovD06_BullPutSpread |
+| 2 | Bear Regime | SPY < 50-EMA AND VIX > 50-EMA | TradovD07_BearCallSpread |
+| 3 | Range Regime | SPY within ATR bands AND VIX Contango | TradovD02_IronCondor |
+| 4 | Volatile Regime | SPY ATR Elevated AND VIX > 80th PCTL | TradovD10_IronButterfly |
 | 5 | Crisis Regime | VIX9D > VIX (Term Structure Inversion) | HARD HALT / KILL-SWITCH |
 | 6 | Event Regime | Calendar Proximity (e.g. +/−30 mins of FOMC) | HARD HALT / NO TRADE |
 
@@ -272,7 +272,7 @@ Trigger (all):
 
 Action:
 - Regime = BULL
-- Strategy = SpyderD06_BullPutSpread (default; or SpyderD15_BullCallSpread if `SPYDER_ENABLE_BULL_CALL_SPREAD=true`)
+- Strategy = TradovD06_BullPutSpread (default; or TradovD15_BullCallSpread if `TRADOV_ENABLE_BULL_CALL_SPREAD=true`)
 
 ### Rule 3: BEAR REGIME
 
@@ -283,7 +283,7 @@ Trigger (all):
 
 Action:
 - Regime = BEAR
-- Strategy = SpyderD07_BearCallSpread (default; or SpyderD16_BearPutSpread if `SPYDER_ENABLE_BEAR_PUT_SPREAD=true`)
+- Strategy = TradovD07_BearCallSpread (default; or TradovD16_BearPutSpread if `TRADOV_ENABLE_BEAR_PUT_SPREAD=true`)
 
 ### Rule 4: RANGE REGIME
 
@@ -294,7 +294,7 @@ Trigger (all):
 
 Action:
 - Regime = RANGE
-- Strategy = SpyderD02_IronCondor (default; or SpyderD34_PivotMeanReversion if `SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true` AND S08 `pivot_signal.fired=true`)
+- Strategy = TradovD02_IronCondor (default; or TradovD34_PivotMeanReversion if `TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true` AND S08 `pivot_signal.fired=true`)
 
 ### Rule 5: VOLATILE REGIME
 
@@ -305,13 +305,13 @@ Trigger (all):
 
 Action:
 - Regime = VOLATILE
-- Strategy = SpyderD10_IronButterfly
+- Strategy = TradovD10_IronButterfly
 
 ### Rule 6: Fallback
 
 If no rule is matched:
 - Assign RANGE as safe fallback
-- Strategy = SpyderD02_IronCondor
+- Strategy = TradovD02_IronCondor
 
 ### Rule 6.1: Pivot Opportunity Overlay (execution qualifier, no new strategy)
 
@@ -323,18 +323,18 @@ Policy:
 - Regime classification in Rules 0–6 remains authoritative.
 - Pivot overlay only qualifies or delays entry timing for the mapped strategy.
 - Pivot overlay must never override EVENT or CRISIS hard-halt states.
-- When `SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true`, a firing pivot signal additionally swaps the RANGE-mapped strategy from IronCondor to D34 PivotMeanReversion (per Section 2.1.3).
+- When `TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true`, a firing pivot signal additionally swaps the RANGE-mapped strategy from IronCondor to D34 PivotMeanReversion (per Section 2.1.3).
 
 Source of truth:
-- Pivot overlay input is the live `SpyderS08_PivotMeanReversionSignal` payload.
+- Pivot overlay input is the live `TradovS08_PivotMeanReversionSignal` payload.
 - Required consumed fields: `direction`, `score`, `fired`, `nearest_level_name`, `nearest_level_price`, `atr_distance`, `reasons`, `penalties`.
 - Integration keys accepted in runtime payloads: `pivot_mr_signal` (preferred), `s08_pivot_signal` (fallback alias).
 
 Deterministic qualifiers by mapped strategy:
-- Bull regime → SpyderD06_BullPutSpread (or SpyderD15_BullCallSpread when extension flag is on): Prefer entries on rejection/hold above P or S1 with bullish micro-momentum. Block fresh entry if price is stretched into R2/R3 without pullback confirmation.
-- Bear regime → SpyderD07_BearCallSpread (or SpyderD16_BearPutSpread when extension flag is on): Prefer entries on rejection/hold below P or R1 with bearish micro-momentum. Block fresh entry if price is stretched into S2/S3 without bounce confirmation.
-- Range regime → SpyderD02_IronCondor (or SpyderD34_PivotMeanReversion when extension flag is on AND pivot fired): Prefer entries when price is rotating around P and remains inside R1/S1. Reduce confidence or delay when price is expanding toward R2 or S2.
-- Volatile regime → SpyderD10_IronButterfly: Prefer entries near central pivot magnet behavior after expansion/reversion signal. Delay entry on one-direction trend acceleration through R2/R3 or S2/S3.
+- Bull regime → TradovD06_BullPutSpread (or TradovD15_BullCallSpread when extension flag is on): Prefer entries on rejection/hold above P or S1 with bullish micro-momentum. Block fresh entry if price is stretched into R2/R3 without pullback confirmation.
+- Bear regime → TradovD07_BearCallSpread (or TradovD16_BearPutSpread when extension flag is on): Prefer entries on rejection/hold below P or R1 with bearish micro-momentum. Block fresh entry if price is stretched into S2/S3 without bounce confirmation.
+- Range regime → TradovD02_IronCondor (or TradovD34_PivotMeanReversion when extension flag is on AND pivot fired): Prefer entries when price is rotating around P and remains inside R1/S1. Reduce confidence or delay when price is expanding toward R2 or S2.
+- Volatile regime → TradovD10_IronButterfly: Prefer entries near central pivot magnet behavior after expansion/reversion signal. Delay entry on one-direction trend acceleration through R2/R3 or S2/S3.
 
 Logging requirement:
 - Every pivot-qualified block must emit `pivot_block_reason` and nearest level context.
@@ -383,10 +383,10 @@ Logging requirement:
 
 | Regime | Primary symbols to weight | Primary metrics to weight | Deterministic trigger + mapped strategy/action | Typical gate emphasis |
 |---|---|---|---|---|
-| BULL REGIME | SPY, QQQ, XLK, VIX, VIX9D | BREADTH_REGIME, GEX, DIX, dealer_flow, flow_imbalance | SPY > 50-EMA AND VIX < 50-EMA → SpyderD06_BullPutSpread | Confirm SPY-relative leadership (QQQ/XLK), reject weak participation (RVOL), guard against short-term vol stress (VIX9D/VIX) |
-| BEAR REGIME | SPY, IWM, XLF, VIX, VVIX | BREADTH_REGIME, SWAN, CHEX, wall_confidence, dealer_flow | SPY < 50-EMA AND VIX > 50-EMA → SpyderD07_BearCallSpread | Confirm downside breadth/financial weakness (IWM/XLF), tighten CPC/VVIX stress checks, require strong data_quality_feed |
-| RANGE REGIME | SPY, VIX, VIX9D, CPC | GEX, DIX, BREADTH_REGIME, rr_25d, fly_25d | SPY within ATR bands AND VIX Contango → SpyderD02_IronCondor | Favor neutral participation and stable vol-of-vol; block if cross-index confirmation or surface quality deteriorates |
-| VOLATILE REGIME | SPY, VIX, VIX9D, VVIX, SKEW | SWAN, VEX, CHEX, rr_25d, fly_25d, term_slope_0_7 | SPY ATR Elevated AND VIX > 80th PCTL → SpyderD10_IronButterfly | Emphasize vol-shock containment, skew/term-structure quality, and stricter surface_confidence/surface_age_ms thresholds |
+| BULL REGIME | SPY, QQQ, XLK, VIX, VIX9D | BREADTH_REGIME, GEX, DIX, dealer_flow, flow_imbalance | SPY > 50-EMA AND VIX < 50-EMA → TradovD06_BullPutSpread | Confirm SPY-relative leadership (QQQ/XLK), reject weak participation (RVOL), guard against short-term vol stress (VIX9D/VIX) |
+| BEAR REGIME | SPY, IWM, XLF, VIX, VVIX | BREADTH_REGIME, SWAN, CHEX, wall_confidence, dealer_flow | SPY < 50-EMA AND VIX > 50-EMA → TradovD07_BearCallSpread | Confirm downside breadth/financial weakness (IWM/XLF), tighten CPC/VVIX stress checks, require strong data_quality_feed |
+| RANGE REGIME | SPY, VIX, VIX9D, CPC | GEX, DIX, BREADTH_REGIME, rr_25d, fly_25d | SPY within ATR bands AND VIX Contango → TradovD02_IronCondor | Favor neutral participation and stable vol-of-vol; block if cross-index confirmation or surface quality deteriorates |
+| VOLATILE REGIME | SPY, VIX, VIX9D, VVIX, SKEW | SWAN, VEX, CHEX, rr_25d, fly_25d, term_slope_0_7 | SPY ATR Elevated AND VIX > 80th PCTL → TradovD10_IronButterfly | Emphasize vol-shock containment, skew/term-structure quality, and stricter surface_confidence/surface_age_ms thresholds |
 | CRISIS REGIME | SPY, VIX, VVIX, $TICK, $ADD, $TRIN | SWAN, CHEX, BREADTH_REGIME, YIELD_INVERTED, YIELD_SLOPE | VIX9D > VIX (Term Structure Inversion) → HARD HALT / KILL-SWITCH | Prefer hard-block posture; strongest dependence on data_quality_feed, stress metrics, and internals where available |
 | EVENT REGIME | SPY, VIX, VIX9D, QQQ, IWM, XLK, XLF | BREADTH_REGIME, DIX, GEX, YIELD_10Y, AAII_BULLISH, AAII_BEARISH, NAAIM_EXPOSURE | Calendar Proximity (e.g. +/−30 mins of FOMC) → HARD HALT / NO TRADE | Event-clock style caution: maintain confirmation gates, reduce trust in stale/aging surface inputs, and avoid over-reliance on any single macro print |
 
@@ -401,10 +401,10 @@ Interpretation notes:
 
 | Regime key | Primary symbols | Primary metrics | Deterministic trigger + action | Typical gate emphasis |
 |---|---|---|---|---|
-| `bull_trend` | SPY, QQQ, XLK, VIX, VIX9D | BREADTH_REGIME, GEX, DIX, dealer_flow, flow_imbalance | SPY > 50-EMA AND VIX < 50-EMA → SpyderD06_BullPutSpread | Confirm SPY-relative leadership (QQQ/XLK), reject weak participation (RVOL), guard against short-term vol stress (VIX9D/VIX) |
-| `bear_trend` | SPY, IWM, XLF, VIX, VVIX | BREADTH_REGIME, SWAN, CHEX, wall_confidence, dealer_flow | SPY < 50-EMA AND VIX > 50-EMA → SpyderD07_BearCallSpread | Confirm downside breadth/financial weakness (IWM/XLF), tighten CPC/VVIX stress checks, require strong data_quality_feed |
-| `range_calm` | SPY, VIX, VIX9D, CPC | GEX, DIX, BREADTH_REGIME, rr_25d, fly_25d | SPY within ATR bands AND VIX Contango → SpyderD02_IronCondor | Favor neutral participation and stable vol-of-vol; block if cross-index confirmation or surface quality deteriorates |
-| `high_vol_mean_reversion` | SPY, VIX, VIX9D, VVIX, SKEW | SWAN, VEX, CHEX, rr_25d, fly_25d, term_slope_0_7 | SPY ATR Elevated AND VIX > 80th PCTL → SpyderD10_IronButterfly | Emphasize vol-shock containment, skew/term-structure quality, and stricter surface_confidence/surface_age_ms thresholds |
+| `bull_trend` | SPY, QQQ, XLK, VIX, VIX9D | BREADTH_REGIME, GEX, DIX, dealer_flow, flow_imbalance | SPY > 50-EMA AND VIX < 50-EMA → TradovD06_BullPutSpread | Confirm SPY-relative leadership (QQQ/XLK), reject weak participation (RVOL), guard against short-term vol stress (VIX9D/VIX) |
+| `bear_trend` | SPY, IWM, XLF, VIX, VVIX | BREADTH_REGIME, SWAN, CHEX, wall_confidence, dealer_flow | SPY < 50-EMA AND VIX > 50-EMA → TradovD07_BearCallSpread | Confirm downside breadth/financial weakness (IWM/XLF), tighten CPC/VVIX stress checks, require strong data_quality_feed |
+| `range_calm` | SPY, VIX, VIX9D, CPC | GEX, DIX, BREADTH_REGIME, rr_25d, fly_25d | SPY within ATR bands AND VIX Contango → TradovD02_IronCondor | Favor neutral participation and stable vol-of-vol; block if cross-index confirmation or surface quality deteriorates |
+| `high_vol_mean_reversion` | SPY, VIX, VIX9D, VVIX, SKEW | SWAN, VEX, CHEX, rr_25d, fly_25d, term_slope_0_7 | SPY ATR Elevated AND VIX > 80th PCTL → TradovD10_IronButterfly | Emphasize vol-shock containment, skew/term-structure quality, and stricter surface_confidence/surface_age_ms thresholds |
 | `crisis_turbulent` | SPY, VIX, VVIX, $TICK, $ADD, $TRIN | SWAN, CHEX, BREADTH_REGIME, YIELD_INVERTED, YIELD_SLOPE | VIX9D > VIX (Term Structure Inversion) → HARD HALT / KILL-SWITCH | Prefer hard-block posture; strongest dependence on data_quality_feed, stress metrics, and internals where available |
 | `event_transition` | SPY, VIX, VIX9D, QQQ, IWM, XLK, XLF | BREADTH_REGIME, DIX, GEX, YIELD_10Y, AAII_BULLISH, AAII_BEARISH, NAAIM_EXPOSURE | Calendar Proximity (e.g. +/−30 mins of FOMC) → HARD HALT / NO TRADE | Event-clock style caution: maintain confirmation gates, reduce trust in stale/aging surface inputs, and avoid over-reliance on any single macro print |
 
@@ -415,16 +415,16 @@ Interpretation notes:
 | Internal Name | Dashboard Display Label | Source |
 |---|---|---|
 | Regime (display posture) | **Regime** | G05 `update_regime_pills()` → G109 `build_regime_pill_state_plan()` — display posture from S07 live metrics or sticky/VIX fallback; **not** L09 |
-| D31 stance derivation | **Strategy Stance** | D31 `get_execution_pill_state()` → `SpyderD31_StrategyOrchestrator._execution_stance_for_regime()` |
+| D31 stance derivation | **Strategy Stance** | D31 `get_execution_pill_state()` → `TradovD31_StrategyOrchestrator._execution_stance_for_regime()` |
 | Policy Key (D31 gate) | **Strategy Gate** | D31 `get_execution_pill_state()` → `_normalize_regime_policy_key()` → `_execution_gate_label_for_policy_key()` |
-| D31 dispatch state + halt | **Dispatch** | G111 `build_regime_dispatch_announcement_plan()` layering display-regime HALT over `SpyderD31.get_dispatch_state()` |
+| D31 dispatch state + halt | **Dispatch** | G111 `build_regime_dispatch_announcement_plan()` layering display-regime HALT over `TradovD31.get_dispatch_state()` |
 
 ### Dual-Regime-Path Architecture
 
 The pill bar is synchronized by ownership boundaries, not by a single classifier. Three related but distinct planners run inside G05:
 
 **Display REGIME path (operator posture awareness):**
-- Owner: `SpyderG109_RegimePillStateHelper.build_regime_pill_state_plan()`.
+- Owner: `TradovG109_RegimePillStateHelper.build_regime_pill_state_plan()`.
 - `s07_live` becomes `true` when SWAN and DIX have live values. SKEW and GEX participate when present; otherwise G109 falls back to `skew=120.0` and `gex=0.0`.
 - Exact S07 composite precedence:
   - `CRISIS` if `SWAN >= 2.0`
@@ -434,7 +434,7 @@ The pill bar is synchronized by ownership boundaries, not by a single classifier
   - `BEAR` if `DIX <= 40 and SWAN >= 1.85`
   - `BULL` if `DIX >= 43 and SWAN < 1.92`
   - `RANGE` otherwise
-- When S07 is offline, `SpyderG109_RegimePillStateHelper._classify_vix_regime()` provides the REGIME fallback. Current thresholds:
+- When S07 is offline, `TradovG109_RegimePillStateHelper._classify_vix_regime()` provides the REGIME fallback. Current thresholds:
   - `CRISIS` if `vix >= 35` or `vix9d > vix` (term-structure inversion)
   - `VOLATILE` if `vix >= 25`
   - `BEAR` if `spx_change_pct <= -1.5`
@@ -444,7 +444,7 @@ The pill bar is synchronized by ownership boundaries, not by a single classifier
 - Updates every 1 s. When S07 was recently live and classified a regime, a sticky value is preserved while S07 is temporarily offline.
 
 **STRESS path (same snapshot family, separate thresholds):**
-- Owner: `SpyderG110_RegimePillStatusHelper.build_regime_pill_status_plan()`.
+- Owner: `TradovG110_RegimePillStatusHelper.build_regime_pill_status_plan()`.
 - When `s07_live=true`, STRESS uses SWAN bands only:
   - `LOW` if `SWAN < 1.5`
   - `MEDIUM` if `1.5 <= SWAN < 2.0`
@@ -477,7 +477,7 @@ The L09 partial-path cases (confidence 0.75) apply when `vix_ema50` is NaN becau
 - These paths may disagree during low-confidence market conditions. This is intentional: the display pills convey *posture*; the execution regime conveys *what D31 is actually doing*.
 - REGIME and STRESS are intentionally related but not identical. The same live snapshot can legitimately show `REGIME: CRISIS` and `STRESS: HIGH` for `2.0 <= SWAN < 3.0`.
 - STANCE and GATE come from D31 execution truth via `get_execution_pill_state()`. If D31 has not yet classified, G05/G110 can fall back to display-regime-derived labels, but D31 normally returns startup-safe defaults (`CHOPPY` / `RANGE CALM`).
-- DISPATCH uses D31 `get_dispatch_state()` for `FLOWING / IDLE / BLOCKED / ERROR`, but `HALT` is imposed in `SpyderG111_RegimeDispatchAnnouncementHelper` whenever display REGIME is `CRISIS` or `EVENT`.
+- DISPATCH uses D31 `get_dispatch_state()` for `FLOWING / IDLE / BLOCKED / ERROR`, but `HALT` is imposed in `TradovG111_RegimeDispatchAnnouncementHelper` whenever display REGIME is `CRISIS` or `EVENT`.
 
 ### As-Implemented Synchronization Findings
 
@@ -562,17 +562,17 @@ The tooltip is structured in three sections:
 
 1. **State description** — drawn from `_DISPATCH_TIPS` (one entry per state).
 2. **Latest reason** — `Reason: <text>` from `D31.get_dispatch_state()` (omitted if no reason is available).
-3. **Flag-resolved strategy appendix and concurrency context** — always shown. G52 resolves `SPYDER_ENABLE_BULL_CALL_SPREAD`, `SPYDER_ENABLE_BEAR_PUT_SPREAD`, `SPYDER_ENABLE_PIVOT_MEAN_REVERSION`, and the overlay flag at render time.
+3. **Flag-resolved strategy appendix and concurrency context** — always shown. G52 resolves `TRADOV_ENABLE_BULL_CALL_SPREAD`, `TRADOV_ENABLE_BEAR_PUT_SPREAD`, `TRADOV_ENABLE_PIVOT_MEAN_REVERSION`, and the overlay flag at render time.
 
 > **Permitted strategies:**
-> - **BULL:** `SpyderD06_BullPutSpread` by default; `SpyderD15_BullCallSpread` when `SPYDER_ENABLE_BULL_CALL_SPREAD=true`
-> - **BEAR:** `SpyderD07_BearCallSpread` by default; `SpyderD16_BearPutSpread` when `SPYDER_ENABLE_BEAR_PUT_SPREAD=true`
-> - **RANGE:** `SpyderD02_IronCondor` by default; when `SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true`, the appendix keeps IronCondor as the base mapping and appends the conditional `SpyderD34_PivotMeanReversion` alternative for `S08 pivot_signal.fired=true`
-> - **VOLATILE:** SpyderD10_IronButterfly
+> - **BULL:** `TradovD06_BullPutSpread` by default; `TradovD15_BullCallSpread` when `TRADOV_ENABLE_BULL_CALL_SPREAD=true`
+> - **BEAR:** `TradovD07_BearCallSpread` by default; `TradovD16_BearPutSpread` when `TRADOV_ENABLE_BEAR_PUT_SPREAD=true`
+> - **RANGE:** `TradovD02_IronCondor` by default; when `TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true`, the appendix keeps IronCondor as the base mapping and appends the conditional `TradovD34_PivotMeanReversion` alternative for `S08 pivot_signal.fired=true`
+> - **VOLATILE:** TradovD10_IronButterfly
 >
 > **Concurrency limit:** Max 2 strategies open by default (one long-term/swing + one intraday/0DTE).
 >
-> **Overlay path:** Shown only when `SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`. This note reminds the operator that the third slot is still a narrow `ultra_short` PivotMeanReversion exception behind baseline-full admission and E01 risk checks.
+> **Overlay path:** Shown only when `TRADOV_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`. This note reminds the operator that the third slot is still a narrow `ultra_short` PivotMeanReversion exception behind baseline-full admission and E01 risk checks.
 
 Env flags are resolved at tooltip render time so changes take effect without a restart. The STANCE and GATE tooltips remain generic descriptive text; the DISPATCH tooltip is the authoritative flag-resolved strategy appendix.
 
@@ -601,11 +601,11 @@ Note: `phase="live-seeding"` is **not** a separate display gate. Once S14 can co
 ### Hard Policy
 
 - The default strategy universe is exactly:
-  - SpyderD06_BullPutSpread
-  - SpyderD07_BearCallSpread
-  - SpyderD02_IronCondor
-  - SpyderD10_IronButterfly
-- Section 2.1 opt-in flags may add up to three regime-scoped extension strategies (SpyderD15_BullCallSpread, SpyderD16_BearPutSpread, SpyderD34_PivotMeanReversion). Extensions do not relax the concurrency cap or CRISIS/EVENT hard halts.
+  - TradovD06_BullPutSpread
+  - TradovD07_BearCallSpread
+  - TradovD02_IronCondor
+  - TradovD10_IronButterfly
+- Section 2.1 opt-in flags may add up to three regime-scoped extension strategies (TradovD15_BullCallSpread, TradovD16_BearPutSpread, TradovD34_PivotMeanReversion). Extensions do not relax the concurrency cap or CRISIS/EVENT hard halts.
 
 ### Concurrency Cap
 
@@ -624,7 +624,7 @@ Note: `phase="live-seeding"` is **not** a separate display gate. Once S14 can co
 
 ### Activation Contract (all required)
 
-- Feature flag on: `SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`.
+- Feature flag on: `TRADOV_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`.
 - Regime is not EVENT and not CRISIS.
 - Overlay strategy candidate is PivotMeanReversion only (D34).
 - Post-trade projected Greeks remain inside tighter overlay limits (delta, gamma, vega).
@@ -729,13 +729,13 @@ L09's regime classifier requires per-symbol rolling tick series for SPY, VIX, VI
 - **Failure mode (current implementation)**: if the SPY cache has fewer than 2 closes, D31 fails closed to `MarketRegime.CRISIS` before allowing L09 to operate on fabricated data. If the L09 path finds no VIX ticks, D31 also fails closed to `CRISIS`. A warm VIX EMA50 is **not** required: with fewer than 50 VIX ticks, L09 uses the documented partial-path proxy thresholds (`vix < 22` for BULL, `vix > 28` for BEAR). The older `DATA_STALE` wording is aspirational, not the current D31 behavior. Synthesizing a default (`spy_price = 500.0`, NaN EMAs) is an explicit anti-pattern.
 - **Cache cold-start bridge**: D31 includes `_recover_cache_if_cold()`, which seeds SPY from `market_data/live_data.json` (written by G18 every 10 s) when the SPY cache has fewer than 2 closes, throttled to at most once per 30 s. This supports dashboard-only mode where G18 does not publish `EventType.MARKET_DATA` events to the A05 bus. VIX EMA50 requires 50 VIX ticks and is not seeded by this mechanism; the partial-path L09 logic (Section 8) handles that gap.
 
-This contract is verified by `Spyder/SpyderT_Testing/SpyderT185_D31_MarketDataCacheShape.py` and the cold-VIX-EMA partial-path coverage in `Spyder/SpyderT_Testing/SpyderT381_L09_ColdVixEma50.py`.
+This contract is verified by `Tradov/TradovT_Testing/TradovT185_D31_MarketDataCacheShape.py` and the cold-VIX-EMA partial-path coverage in `Tradov/TradovT_Testing/TradovT381_L09_ColdVixEma50.py`.
 
 ## 9.2) Current Operations Directive
 
-The system operates in **SpyderBox paper trading** for an extended evaluation period until results are consistently acceptable to the operator.
+The system operates in **TradovBox paper trading** for an extended evaluation period until results are consistently acceptable to the operator.
 
-- Default operating posture: `TRADING_MODE=paper` with local SpyderBox paper ledger (`SPYDER_PAPER_ACCOUNT_SOURCE=spyderbox_local`).
+- Default operating posture: `TRADING_MODE=paper` with local TradovBox paper ledger (`TRADOV_PAPER_ACCOUNT_SOURCE=spyderbox_local`).
 - Market-data and broker endpoints remain live (`TRADIER_ENVIRONMENT=live`, `TRADIER_MARKET_DATA_ENVIRONMENT=live`) so paper decisions are trained on live conditions.
 - Promotion to real live trading is explicit and gated:
   - Mode/arming switch requires exact typed phrase: `I WANT TO SWITCH TO REAL LIVE TRADING`.
@@ -743,13 +743,13 @@ The system operates in **SpyderBox paper trading** for an extended evaluation pe
   - If trading is active, mode/arming changes are blocked until the session is stopped.
 - Live-only market-data policy is fail-closed:
   - Startup aborts on sandbox requests (`LiveOnlyTradierPolicy` in R12).
-  - Shared config validation rejects `TRADING_MODE=sandbox`, rejects non-live `TRADIER_ENVIRONMENT` / `TRADIER_MARKET_DATA_ENVIRONMENT`, and rejects `SPYDER_ALLOW_SANDBOX_MARKET_DATA=true`.
+  - Shared config validation rejects `TRADING_MODE=sandbox`, rejects non-live `TRADIER_ENVIRONMENT` / `TRADIER_MARKET_DATA_ENVIRONMENT`, and rejects `TRADOV_ALLOW_SANDBOX_MARKET_DATA=true`.
   - Owning runtime launch/validation surfaces (R12/Q02/Q10/B40 and shared config) normalize defaults to live and fail closed on invalid/sandbox tokens.
   - Legacy utility launcher branches still contain sandbox-default fallback code in non-owning paths (for example A06/Q04 helper flows); these branches are not policy-authoritative while live-only fail-closed guards remain enforced upstream.
   - Standalone signal/data helper modules may keep legacy sandbox CLI flags for compatibility, but the flag is inert and the request is forced back to live.
-- **Live autostart is permanently disabled in A01.** Any `SPYDER_A01_AUTOSTART_MODE=live` request is forcibly downgraded to paper with a warning. There is no env flag that re-enables live autostart.
-- Desktop paper autostart is enabled by default (`SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR=1`, `SPYDER_A01_ALLOW_GUI_AUTOSTART=1`, `SPYDER_A01_AUTOSTART_MODE=paper` in `launch_spyder_desktop.sh`).
-- Paper `SpyderB03_PositionTracker` does not restore persisted JSON carryover on startup; paper truth is anchored on `R04.active_positions` and `H05` persistence, not on the B03 state file.
+- **Live autostart is permanently disabled in A01.** Any `TRADOV_A01_AUTOSTART_MODE=live` request is forcibly downgraded to paper with a warning. There is no env flag that re-enables live autostart.
+- Desktop paper autostart is enabled by default (`TRADOV_A01_AUTOSTART_SESSION_SUPERVISOR=1`, `TRADOV_A01_ALLOW_GUI_AUTOSTART=1`, `TRADOV_A01_AUTOSTART_MODE=paper` in `launch_spyder_desktop.sh`).
+- Paper `TradovB03_PositionTracker` does not restore persisted JSON carryover on startup; paper truth is anchored on `R04.active_positions` and `H05` persistence, not on the B03 state file.
 
 ## 9.3) ODTE Pivot Overlay Slot — Implementation Checklist
 
@@ -758,7 +758,7 @@ The system operates in **SpyderBox paper trading** for an extended evaluation pe
 1. Evaluate baseline guards first.
 2. If active-strategy count is below baseline cap (2), proceed with normal admission path.
 3. If active-strategy count is exactly baseline cap (2), attempt overlay admission only when all are true:
-   - `SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`
+   - `TRADOV_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`
    - candidate strategy normalized type is `pivot_mean_reversion`
    - candidate horizon bucket is `ultra_short`
    - no existing active or reserved `pivot_mean_reversion` position for same symbol
@@ -823,14 +823,14 @@ After overlay admission, D31/E01 must re-check disable triggers on each decision
 
 | Workstream | Owner Module(s) | Status | Sign-Off Criteria | Target Test File(s) |
 |---|---|---|---|---|
-| D31 overlay admission ordering | D31 | Partial | `add_strategy()` and `_on_strategy_signal()` enforce the narrow baseline-full PMR overlay path; audit/runtime verification is still incomplete | `SpyderT141_D31_EntryTrustGate.py` (passing), `SpyderT143_D31_AdmissionGuardrails.py` (passing), `SpyderT219_D31_ODTEOverlaySlot.py` (scaffold remains) |
-| D31 normalization and duplicate overlay guard | D31 | Partial | PMR aliases normalize to `pivot_mean_reversion`, PMR defaults to `ultra_short`, and D31 rejects a second overlay allocation; active-position/reservation interaction coverage is still pending | `SpyderT141_D31_EntryTrustGate.py` (passing), `SpyderT143_D31_AdmissionGuardrails.py` (passing), `SpyderT193_D31_DispatchResultHardening.py` (future regression) |
-| E01 overlay pre-trade verdict API | E01 | Implemented | `OverlayPretradeVerdict` and `validate_overlay_slot()` exist and fail closed on missing inputs | `SpyderT143_E00_RiskProtocol.py`, `SpyderT46_RiskManager_Test.py` |
-| Overlay risk thresholds | E01 | Implemented | Flat overlay thresholds deny on projected Greek breaches and daily-risk overuse | `SpyderT46_RiskManager_Test.py` |
-| Execution-quality and event-window gates | D31 + E01 + F09 | Partial | E01 denies blocked event-window/execution-quality cases and D31 calls the gate on the narrow signal path; broader allocation/runtime-disable coverage is still pending | `SpyderT46_RiskManager_Test.py`, `SpyderT141_D31_EntryTrustGate.py`, `SpyderT231_ODTE_ExecutionQualityEventWindow.py` (planned) |
-| Audit/telemetry schema | D31 + K-series reporting | Planned | Every overlay request emits required v34 keys and reason codes; events visible in decision logs and reports | `SpyderT232_D31_OverlayAuditSchema.py` (rename from T222_D31 scaffold) |
-| Runtime disable loop | D31 + E01 | Planned | Overlay auto-disables on trigger breach and remains blocked until gates recover | `SpyderT219_D31_ODTEOverlaySlot.py` (scaffold exists — implement), `SpyderT116_RSeries.py` (extend) |
-| End-to-end paper verification | R12 + D31 + E01 + B02/B40 | Planned | No clean paper replay of the overlay slice exists yet | `SpyderT55_PaperTradingHarness_Test.py` (extend), `SpyderT116_RSeries.py` (extend) |
+| D31 overlay admission ordering | D31 | Partial | `add_strategy()` and `_on_strategy_signal()` enforce the narrow baseline-full PMR overlay path; audit/runtime verification is still incomplete | `TradovT141_D31_EntryTrustGate.py` (passing), `TradovT143_D31_AdmissionGuardrails.py` (passing), `TradovT219_D31_ODTEOverlaySlot.py` (scaffold remains) |
+| D31 normalization and duplicate overlay guard | D31 | Partial | PMR aliases normalize to `pivot_mean_reversion`, PMR defaults to `ultra_short`, and D31 rejects a second overlay allocation; active-position/reservation interaction coverage is still pending | `TradovT141_D31_EntryTrustGate.py` (passing), `TradovT143_D31_AdmissionGuardrails.py` (passing), `TradovT193_D31_DispatchResultHardening.py` (future regression) |
+| E01 overlay pre-trade verdict API | E01 | Implemented | `OverlayPretradeVerdict` and `validate_overlay_slot()` exist and fail closed on missing inputs | `TradovT143_E00_RiskProtocol.py`, `TradovT46_RiskManager_Test.py` |
+| Overlay risk thresholds | E01 | Implemented | Flat overlay thresholds deny on projected Greek breaches and daily-risk overuse | `TradovT46_RiskManager_Test.py` |
+| Execution-quality and event-window gates | D31 + E01 + F09 | Partial | E01 denies blocked event-window/execution-quality cases and D31 calls the gate on the narrow signal path; broader allocation/runtime-disable coverage is still pending | `TradovT46_RiskManager_Test.py`, `TradovT141_D31_EntryTrustGate.py`, `TradovT231_ODTE_ExecutionQualityEventWindow.py` (planned) |
+| Audit/telemetry schema | D31 + K-series reporting | Planned | Every overlay request emits required v34 keys and reason codes; events visible in decision logs and reports | `TradovT232_D31_OverlayAuditSchema.py` (rename from T222_D31 scaffold) |
+| Runtime disable loop | D31 + E01 | Planned | Overlay auto-disables on trigger breach and remains blocked until gates recover | `TradovT219_D31_ODTEOverlaySlot.py` (scaffold exists — implement), `TradovT116_RSeries.py` (extend) |
+| End-to-end paper verification | R12 + D31 + E01 + B02/B40 | Planned | No clean paper replay of the overlay slice exists yet | `TradovT55_PaperTradingHarness_Test.py` (extend), `TradovT116_RSeries.py` (extend) |
 
 Sign-off rule:
 - Overlay policy is production-ready only after all rows are GREEN in CI and one clean paper-session replay confirms expected admission/block telemetry without duplicate entries.
@@ -842,7 +842,7 @@ Sign-off rule:
 - Completed: E00 typed `OverlayPretradeVerdict`, `RiskManagerProtocol.validate_overlay_slot()`, and E01 flat overlay risk-limit keys.
 - Completed: E01 `validate_overlay_slot()` fail-closed checks for missing inputs, event window, execution quality, daily risk, and projected Greek limits.
 - Completed: D31 PMR alias normalization, default `ultra_short` PMR classification, overlay metadata builder, narrow `_on_strategy_signal()` gate for baseline-full PMR candidates, and the `add_strategy()` third-slot admission exception.
-- Completed: focused validation in `SpyderT143_E00_RiskProtocol.py`, `SpyderT46_RiskManager_Test.py`, `SpyderT141_D31_EntryTrustGate.py`, and `SpyderT143_D31_AdmissionGuardrails.py`.
+- Completed: focused validation in `TradovT143_E00_RiskProtocol.py`, `TradovT46_RiskManager_Test.py`, `TradovT141_D31_EntryTrustGate.py`, and `TradovT143_D31_AdmissionGuardrails.py`.
 - Pending: expanded decision-log schema, runtime-disable loop, scaffold migration, and a clean paper-session replay.
 
 #### A) Keep the baseline contract explicit
@@ -853,7 +853,7 @@ Sign-off rule:
 #### B) D31 exact implementation surfaces
 
 1. `add_strategy()` is the owning strategy-allocation admission surface.
-   - The overlay exception fires only when all of: `SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`; normalized strategy type is `pivot_mean_reversion`; resolved `horizon_bucket == "ultra_short"`; baseline two slots are already occupied; no other overlay allocation is active.
+   - The overlay exception fires only when all of: `TRADOV_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true`; normalized strategy type is `pivot_mean_reversion`; resolved `horizon_bucket == "ultra_short"`; baseline two slots are already occupied; no other overlay allocation is active.
 
 2. `_normalise_strategy_type_for_entry_gate()` is the normalization anchor.
    - D34/PMR aliases (`pivotmeanreversion`, `pivot_mr`, `d34_pivotmr`) normalize to `pivot_mean_reversion`.
@@ -876,9 +876,9 @@ Pass the following fields from D31 to E01 inside `RiskValidationRequest.metadata
 
 #### D) E01 exact implementation surfaces
 
-1. `SpyderE00_RiskProtocol.py`: `OverlayPretradeVerdict` dataclass with `allow: bool`, `reason_code: str`, `limits_snapshot: dict`, `computed_values: dict`; `RiskManagerProtocol.validate_overlay_slot()` method.
+1. `TradovE00_RiskProtocol.py`: `OverlayPretradeVerdict` dataclass with `allow: bool`, `reason_code: str`, `limits_snapshot: dict`, `computed_values: dict`; `RiskManagerProtocol.validate_overlay_slot()` method.
 
-2. `SpyderE01_RiskManager.py`: `validate_overlay_slot()` under `_risk_lock`; reuses existing cold-start, stale-data, and veto behavior; flat overlay threshold keys in `RiskConfig.risk_limits`:
+2. `TradovE01_RiskManager.py`: `validate_overlay_slot()` under `_risk_lock`; reuses existing cold-start, stale-data, and veto behavior; flat overlay threshold keys in `RiskConfig.risk_limits`:
    - `overlay_max_daily_risk_used_fraction`
    - `overlay_max_expected_slippage_bps`
    - `overlay_max_projected_delta`
@@ -893,19 +893,19 @@ Pass the following fields from D31 to E01 inside `RiskValidationRequest.metadata
 
 #### F) Exact test migration plan
 
-1. Keep `SpyderT143_D31_AdmissionGuardrails.py` as the baseline regression for the live admission contract.
+1. Keep `TradovT143_D31_AdmissionGuardrails.py` as the baseline regression for the live admission contract.
 2. Convert the existing scaffold files instead of creating parallel duplicates:
-   - Rename `SpyderT220_E01_OverlayPretradeVerdict.py` → `SpyderT230_E01_OverlayPretradeVerdict.py`
-   - Rename `SpyderT222_D31_OverlayAuditSchema.py` → `SpyderT232_D31_OverlayAuditSchema.py`
-   - Keep `SpyderT219_D31_ODTEOverlaySlot.py` and replace the skip marker with real orchestrator fixture coverage.
+   - Rename `TradovT220_E01_OverlayPretradeVerdict.py` → `TradovT230_E01_OverlayPretradeVerdict.py`
+   - Rename `TradovT222_D31_OverlayAuditSchema.py` → `TradovT232_D31_OverlayAuditSchema.py`
+   - Keep `TradovT219_D31_ODTEOverlaySlot.py` and replace the skip marker with real orchestrator fixture coverage.
 
 3. Extend nearest existing owning suites:
-   - `SpyderT141_D31_EntryTrustGate.py`: overlay gating, event-window fail-closed behavior, normalized PMR alias handling.
-   - `SpyderT46_RiskManager_Test.py`: `validate_overlay_slot()` behavior on the real E01 class.
-   - `SpyderT58_RiskManagementTests.py`: flat risk-limit threshold handling.
-   - `SpyderT193_D31_DispatchResultHardening.py`: duplicate-entry and reservation interactions under overlay conditions.
+   - `TradovT141_D31_EntryTrustGate.py`: overlay gating, event-window fail-closed behavior, normalized PMR alias handling.
+   - `TradovT46_RiskManager_Test.py`: `validate_overlay_slot()` behavior on the real E01 class.
+   - `TradovT58_RiskManagementTests.py`: flat risk-limit threshold handling.
+   - `TradovT193_D31_DispatchResultHardening.py`: duplicate-entry and reservation interactions under overlay conditions.
 
-4. Keep `SpyderT231_ODTE_ExecutionQualityEventWindow.py` as a new focused integration test.
+4. Keep `TradovT231_ODTE_ExecutionQualityEventWindow.py` as a new focused integration test.
 
 #### G) Recommended implementation order
 
@@ -918,7 +918,7 @@ Pass the following fields from D31 to E01 inside `RiskValidationRequest.metadata
 
 ## 10) Current Implementation Status
 
-This section describes the current state of the Spyder trading decision pipeline as implemented. All components below are verified by passing tests.
+This section describes the current state of the Tradov trading decision pipeline as implemented. All components below are verified by passing tests.
 
 ### 10.1) Signal Path Gate Order (D31)
 
@@ -929,7 +929,7 @@ The live signal path in D31 evaluates in this order:
 3. In-flight entry reservation check (blocks duplicate entries during the pre-fill window)
 4. Open-position duplicate-entry check (blocks if R04 already reports an open position for the same symbol/strategy)
 5. Entry trust gate (F09 checks + regime-policy gate)
-6. Overlay gate (Section 6.2 — applies only when `SPYDER_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true` and baseline cap is full)
+6. Overlay gate (Section 6.2 — applies only when `TRADOV_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true` and baseline cap is full)
 7. Risk gate (`E01.validate_signal`)
 8. Dispatch path (OrderManager mid-walk or LiveEngine fallback)
 
@@ -937,24 +937,24 @@ All `signal_dropped` reasons are recorded in `logs/decisions/YYYY-MM-DD.jsonl` w
 
 ### 10.2) Active Strategies (Current `.env`)
 
-`SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true` is set. The effective strategy count in lean mode is **5**:
+`TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true` is set. The effective strategy count in lean mode is **5**:
 
 | Regime | Strategy |
 |---|---|
-| BULL | SpyderD06_BullPutSpread |
-| BEAR | SpyderD07_BearCallSpread |
-| RANGE (S08 not fired) | SpyderD02_IronCondor |
-| RANGE (S08 `pivot_signal.fired=true`) | SpyderD34_PivotMeanReversion |
-| VOLATILE | SpyderD10_IronButterfly |
+| BULL | TradovD06_BullPutSpread |
+| BEAR | TradovD07_BearCallSpread |
+| RANGE (S08 not fired) | TradovD02_IronCondor |
+| RANGE (S08 `pivot_signal.fired=true`) | TradovD34_PivotMeanReversion |
+| VOLATILE | TradovD10_IronButterfly |
 
-`SPYDER_ENABLE_BULL_CALL_SPREAD` and `SPYDER_ENABLE_BEAR_PUT_SPREAD` remain off.
+`TRADOV_ENABLE_BULL_CALL_SPREAD` and `TRADOV_ENABLE_BEAR_PUT_SPREAD` remain off.
 
 ### 10.3) S08 → D34 → D31 Pipeline
 
 The S08 pivot signal pipeline is fully wired:
 
-- `SpyderS08_PivotMeanReversionSignal._closest_breached_level()` selects the level with the *minimum* ATR distance (the level currently being tested), not the maximum.
-- `SpyderD34_PivotMeanReversion.update_context()` accepts `net_gex: Optional[float] = None` to unlock the GEX scoring bonus (+20).
+- `TradovS08_PivotMeanReversionSignal._closest_breached_level()` selects the level with the *minimum* ATR distance (the level currently being tested), not the maximum.
+- `TradovD34_PivotMeanReversion.update_context()` accepts `net_gex: Optional[float] = None` to unlock the GEX scoring bonus (+20).
 - D34 passes `breadth_tick=None` to `PivotMRInputs`, leaving TICK confirmation to `_tick_confirms()` only, eliminating the contradictory dual-scoring path.
 - D34 `_build_signal()` emits `"strategy_type": "pivot_mean_reversion"` alongside `"strategy_tag": "D34_PivotMR"`.
 - D31 `_normalise_strategy_type_for_entry_gate()` maps `"pivot_mean_reversion"`, `"d34_pivotmr"`, and `"d34"` to the canonical token `"pivot_mean_reversion"`.
@@ -962,7 +962,7 @@ The S08 pivot signal pipeline is fully wired:
 
 ### 10.4) Display Regime Classifier (G109)
 
-`SpyderG109_RegimePillStateHelper._classify_vix_regime()` current thresholds (applies when S07 is offline and `regime_sticky` is not set):
+`TradovG109_RegimePillStateHelper._classify_vix_regime()` current thresholds (applies when S07 is offline and `regime_sticky` is not set):
 
 ```python
 if vix >= 35 or (isinstance(vix9d, (int, float)) and vix9d > vix):
@@ -978,11 +978,11 @@ return "RANGE"
 
 The `BULL` threshold `spx_change_pct >= 0.3 and vix < 24` captures typical slow-bull market conditions. A 3-cycle debounce is applied before this fallback commits to a new regime label.
 
-Test coverage: `SpyderT_Testing/SpyderT380_G109_VixFallbackBull.py` — 12 tests, GREEN.
+Test coverage: `TradovT_Testing/TradovT380_G109_VixFallbackBull.py` — 12 tests, GREEN.
 
 ### 10.5) Execution Regime Classifier (L09)
 
-`SpyderL09_UnifiedRegimeEngine._detect_lean_regime()` uses a split guard for the BULL/BEAR EMA50 check:
+`TradovL09_UnifiedRegimeEngine._detect_lean_regime()` uses a split guard for the BULL/BEAR EMA50 check:
 
 ```python
 spy_directional_ready = (
@@ -1009,11 +1009,11 @@ if spy_directional_ready:
 
 Both 0.75 results exceed D31's `_L09_CONFIDENCE_THRESHOLD = 0.70` and are used instead of falling through to the SIDEWAYS_RANGE check.
 
-Test coverage: `SpyderT_Testing/SpyderT381_L09_ColdVixEma50.py` — 7 tests, GREEN.
+Test coverage: `TradovT_Testing/TradovT381_L09_ColdVixEma50.py` — 7 tests, GREEN.
 
 ### 10.6) D31 Startup Safe Defaults (G110 Gate and Stance)
 
-`SpyderD31_StrategyOrchestrator.get_execution_pill_state()` returns explicit safe defaults when `raw_regime` is empty (startup transient before the first classification cycle):
+`TradovD31_StrategyOrchestrator.get_execution_pill_state()` returns explicit safe defaults when `raw_regime` is empty (startup transient before the first classification cycle):
 
 ```python
 if not raw_regime:
@@ -1022,7 +1022,7 @@ if not raw_regime:
 
 This prevents G110 from deriving GATE and STANCE from the S07 display regime during the startup window, making the transient state deterministic.
 
-Test coverage: `SpyderT_Testing/SpyderT382_G110_GateStartupFallback.py` — 13 tests, GREEN.
+Test coverage: `TradovT_Testing/TradovT382_G110_GateStartupFallback.py` — 13 tests, GREEN.
 
 ### 10.7) Paper Runtime Architecture
 
@@ -1039,7 +1039,7 @@ The current paper execution path is:
 
 ### 10.8) Startup Path (A01 → R12)
 
-- Desktop launcher (`launch_spyder_desktop.sh`) exports `SPYDER_A01_AUTOSTART_SESSION_SUPERVISOR=1`, `SPYDER_A01_ALLOW_GUI_AUTOSTART=1`, `SPYDER_A01_AUTOSTART_MODE=paper` by default.
+- Desktop launcher (`launch_spyder_desktop.sh`) exports `TRADOV_A01_AUTOSTART_SESSION_SUPERVISOR=1`, `TRADOV_A01_ALLOW_GUI_AUTOSTART=1`, `TRADOV_A01_AUTOSTART_MODE=paper` by default.
 - A01 always autostarts paper sessions; live autostart is permanently blocked regardless of env flags.
 - **Paper autostart timing**: If the app launches before `09:00 ET` on a weekday, the session supervisor start is deferred until exactly `09:00 ET`. If it launches at or after `09:00 ET`, the supervisor starts ~250 ms after first GUI paint. `_A01_PAPER_LOAD_START_ET=09:00`, `_A01_PAPER_AUTOSTART_WARMUP_END_ET=09:00`.
 - After deferred A01 autostart completes, A01 notifies G05 to adopt the already-running `SessionSupervisor` into the active UI state (top action pill shows `PAPER ACTIVE`).
@@ -1051,7 +1051,7 @@ The current paper execution path is:
 - E24 `DataFreshnessMonitor` default RTH threshold: `3.0 s`.
 - When the feed is in degraded REST quote fallback mode, R12 widens the RTH threshold to `max(configured_rth_threshold, quote_poll_interval_s * 5 + 1)` (default degraded = `6.0 s` with 1.0 s poll interval).
 - OOH default threshold: `30.0 s`.
-- Explicit env overrides: `SPYDER_DATA_FRESHNESS_RTH_THRESHOLD_S` and `SPYDER_DATA_FRESHNESS_OOH_THRESHOLD_S`.
+- Explicit env overrides: `TRADOV_DATA_FRESHNESS_RTH_THRESHOLD_S` and `TRADOV_DATA_FRESHNESS_OOH_THRESHOLD_S`.
 
 ### 10.10) Live-Only Policy
 
@@ -1061,7 +1061,7 @@ The live-only Tradier policy is enforced by the owning startup and runtime bound
 - `config/config_template.py` and `.env.example` default to `TRADING_MODE=paper` and `TRADIER_ENVIRONMENT=live`.
 - R12, Q02, Q10, B40, and B06 default/normalize to live rather than sandbox and fail closed on policy violations.
 - Legacy A06/Q04 helper branches still include sandbox-default fallback code in non-owning paths; treat them as technical debt, not policy authority.
-- `SpyderQ93_RunPaper` requires `TRADING_MODE=paper`.
+- `TradovQ93_RunPaper` requires `TRADING_MODE=paper`.
 - Legacy `--sandbox` CLI flags on S12/S13 are deprecated no-ops; requests are forced to live with a warning.
 
 ### 10.11) Dashboard Launch Hydration
@@ -1069,7 +1069,7 @@ The live-only Tradier policy is enforced by the owning startup and runtime bound
 G05 schedules an immediate quiet prewarm attempt on deferred startup:
 
 - Starts the quiet G18 market worker and existing startup follow-up fetches immediately.
-- Spyder attempts startup hydration from EOD, account-balance, S07 custom-metric, and Tradier quote/chain/chart sources as soon as the GUI launches, even outside the Tradier session window.
+- Tradov attempts startup hydration from EOD, account-balance, S07 custom-metric, and Tradier quote/chain/chart sources as soon as the GUI launches, even outside the Tradier session window.
 - **From `09:00 ET` the session supervisor is live (`PAPER ACTIVE`), Tradier connects at `09:00 ET`, and live quote/chain hydration begins. Data is fully primed well before the `09:45 ET` entry gate opens.**
 - The `09:45 ET` rule remains an execution gate in the strategy/session policy layer, not in launch-time data hydration.
 
@@ -1083,8 +1083,8 @@ After `metrics_updated` is wired, G05 immediately calls `_hydrate_metrics_orches
 
 All GUI surfaces render the rightmost regime-bar pill as **DISPATCH**:
 
-- `SpyderG20_DashboardBuilder`: seeds the widget as `DISPATCH: —`
-- `SpyderG52_RegimePillBarPresenter`: renders `DISPATCH:` in pill text and dispatch tooltip catalog
-- `SpyderG111_RegimeDispatchAnnouncementHelper`: announces as `D31 DISPATCH -> ...`
+- `TradovG20_DashboardBuilder`: seeds the widget as `DISPATCH: —`
+- `TradovG52_RegimePillBarPresenter`: renders `DISPATCH:` in pill text and dispatch tooltip catalog
+- `TradovG111_RegimeDispatchAnnouncementHelper`: announces as `D31 DISPATCH -> ...`
 
-Test coverage: `SpyderT252_G52_RegimePillBarPresenter.py`, `SpyderT326_G05_RegimeDispatchAnnouncement.py`, `SpyderT327_G111_RegimeDispatchAnnouncementHelper.py` — 5 tests, GREEN.
+Test coverage: `TradovT252_G52_RegimePillBarPresenter.py`, `TradovT326_G05_RegimeDispatchAnnouncement.py`, `TradovT327_G111_RegimeDispatchAnnouncementHelper.py` — 5 tests, GREEN.

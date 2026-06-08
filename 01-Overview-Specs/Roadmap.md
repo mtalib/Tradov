@@ -1,4 +1,4 @@
-# Spyder Trading System — Development Roadmap
+# Tradov Trading System — Development Roadmap
 
 > Last Updated: 2026-02-26
 
@@ -26,31 +26,31 @@
 
 | Series | Package | Status |
 |--------|---------|--------|
-| A | SpyderA_Core | Production |
-| B | SpyderB_Broker (Tradier) | Production |
-| C | SpyderC_MarketData (Databento) | Production |
-| D | SpyderD_Strategies (29 files) | Production |
-| E | SpyderE_Risk | Production |
-| F | SpyderF_Analysis | Production |
-| G | SpyderG_GUI (PySide6) | Production |
-| H | SpyderH_Storage (SQLite) | Production |
-| I | SpyderI_Integration | Production |
-| J | SpyderJ_Alerts | Production |
-| K | SpyderK_Reports | Production |
-| L | SpyderL_ML | Production |
-| M | SpyderM_Monitoring | Production |
-| N | SpyderN_OptionsAnalytics | Production |
-| O | SpyderO_TradingIntelligence | Production |
-| P | SpyderP_PortfolioMgmt | Production |
-| Q | SpyderQ_Scripts | Utility |
-| R | SpyderR_Runtime | Production |
-| S | SpyderS_Signals | Production |
-| T | SpyderT_Testing | Active |
-| U | SpyderU_Utilities | Production |
-| V | SpyderV_QuantModels | Production |
-| X | SpyderX_Agents (on-demand) | Production |
-| Y | SpyderY_AutoAgents (autonomous) | Production |
-| Z | SpyderZ_Communication | Production |
+| A | TradovA_Core | Production |
+| B | TradovB_Broker (Tradier) | Production |
+| C | TradovC_MarketData (Databento) | Production |
+| D | TradovD_Strategies (29 files) | Production |
+| E | TradovE_Risk | Production |
+| F | TradovF_Analysis | Production |
+| G | TradovG_GUI (PySide6) | Production |
+| H | TradovH_Storage (SQLite) | Production |
+| I | TradovI_Integration | Production |
+| J | TradovJ_Alerts | Production |
+| K | TradovK_Reports | Production |
+| L | TradovL_ML | Production |
+| M | TradovM_Monitoring | Production |
+| N | TradovN_OptionsAnalytics | Production |
+| O | TradovO_TradingIntelligence | Production |
+| P | TradovP_PortfolioMgmt | Production |
+| Q | TradovQ_Scripts | Utility |
+| R | TradovR_Runtime | Production |
+| S | TradovS_Signals | Production |
+| T | TradovT_Testing | Active |
+| U | TradovU_Utilities | Production |
+| V | TradovV_QuantModels | Production |
+| X | TradovX_Agents (on-demand) | Production |
+| Y | TradovY_AutoAgents (autonomous) | Production |
+| Z | TradovZ_Communication | Production |
 
 ---
 
@@ -59,7 +59,7 @@
 ### 2025 Q1–Q4 (Completed)
 
 - [x] Core system architecture and module framework
-- [x] IBKR integration (SpyderB01–B05) — *later deprecated*
+- [x] IBKR integration (TradovB01–B05) — *later deprecated*
 - [x] Real-time data pipeline (Polygon.io → Databento migration started)
 - [x] 15+ options strategies (Iron Condor, Credit Spread, Zero-DTE, etc.)
 - [x] Multi-layer risk management framework
@@ -100,7 +100,7 @@
 **Timeline**: March 2026
 
 - [ ] **End-to-end paper trading campaign** (4–8 weeks)
-  - Validate all 29 strategies with SpyderBox paper execution and live Tradier data
+  - Validate all 29 strategies with TradovBox paper execution and live Tradier data
   - Collect real fill data, slippage, and execution metrics
   - Compare against backtest assumptions
 

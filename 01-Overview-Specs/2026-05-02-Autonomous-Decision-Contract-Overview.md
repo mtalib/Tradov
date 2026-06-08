@@ -7,7 +7,7 @@ Status: Current state — all v8 PMR fixes applied
 
 ## What the system does
 
-Spyder is a fully autonomous SPY options trading system. Each bar it classifies the market into one of six regimes and dispatches the single permitted strategy for that regime through a chain of risk and entry gates before placing an order.
+Tradov is a fully autonomous SPY options trading system. Each bar it classifies the market into one of six regimes and dispatches the single permitted strategy for that regime through a chain of risk and entry gates before placing an order.
 
 ---
 
@@ -23,7 +23,7 @@ Spyder is a fully autonomous SPY options trading system. Each bar it classifies 
 | **VOLATILE** | ATR% ≥ 1.5% AND VIX ≥ 80th pctl | D10 IronButterfly |
 | Fallback | No rule matched | RANGE → D02 IronCondor |
 
-¹ When `SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true` and the S08 pivot signal fires, RANGE maps to **D34 PivotMeanReversion** instead.
+¹ When `TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true` and the S08 pivot signal fires, RANGE maps to **D34 PivotMeanReversion** instead.
 
 **Concurrency cap: 1 strategy open at a time.**
 
@@ -56,12 +56,12 @@ Anything rejected at F09 or E01 is logged with a reason; no order is placed.
 
 ## D34 Pivot Mean Reversion (currently active)
 
-- **Signal source**: `SpyderS08_PivotMeanReversionSignal` — scores the nearest tested pivot level (P, R1–R3, S1–S3) and fires when score ≥ 60.
+- **Signal source**: `TradovS08_PivotMeanReversionSignal` — scores the nearest tested pivot level (P, R1–R3, S1–S3) and fires when score ≥ 60.
 - **Trade structure**: single-leg long ITM option, delta ≈ 0.60, 0–1 DTE.
   - At resistance → buy ITM put (fade rejection)
   - At support → buy ITM call (fade bounce)
 - **Risk**: defined by premium paid. Exit at VWAP cross, 12-min time stop, or 0.15% adverse pivot break.
-- **Gate**: only activates in RANGE regime when `SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true`.
+- **Gate**: only activates in RANGE regime when `TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true`.
 
 ---
 
@@ -70,4 +70,4 @@ Anything rejected at F09 or E01 is logged with a reason; no order is placed.
 - CRISIS and EVENT hard-halt all new entries — no exceptions.
 - Missing or stale required data (SPY/VIX series < 50 samples) → DATA_STALE event → entries halted.
 - All regime transitions, strategy selections, and gate decisions are timestamped and logged.
-- System defaults to paper mode with the SpyderBox local ledger; live requires explicit confirmation.
+- System defaults to paper mode with the TradovBox local ledger; live requires explicit confirmation.

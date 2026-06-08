@@ -1,8 +1,8 @@
-# Anthropic Financial-Services Pattern Adoption Plan for Spyder
+# Anthropic Financial-Services Pattern Adoption Plan for Tradov
 
 Last Updated: 2026-05-08
 Status: Implementation Plan (paper-first, live-safe)
-Scope: Adopt high-value agent safety/orchestration patterns from anthropics/financial-services into Spyder without replacing existing guardrails.
+Scope: Adopt high-value agent safety/orchestration patterns from anthropics/financial-services into Tradov without replacing existing guardrails.
 
 ## 1) What We Are Adopting
 
@@ -14,29 +14,29 @@ The target patterns to adopt are:
 4. Dry-run contract linting and startup validation before activation.
 5. Strong audit artifacts for replay, debugging, and post-trade review.
 
-## 2) Existing Spyder Guardrails to Preserve
+## 2) Existing Tradov Guardrails to Preserve
 
-Spyder already has critical controls that we should extend, not replace:
+Tradov already has critical controls that we should extend, not replace:
 
 - D31 pre-risk trust gating and regime policy checks.
-  - Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py (subscribe/entry gates/regime policy)
+  - Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py (subscribe/entry gates/regime policy)
 - F09 event-clock and strategy allowlist policy checks.
-  - Spyder/SpyderF_Analysis/SpyderF09_EntryFilters.py
+  - Tradov/TradovF_Analysis/TradovF09_EntryFilters.py
 - E01 Y03 veto integration with observe-only mode option.
-  - Spyder/SpyderE_Risk/SpyderE01_RiskManager.py
+  - Tradov/TradovE_Risk/TradovE01_RiskManager.py
 - Live-mode environment confirmation gate.
-  - Spyder/SpyderQ_Scripts/SpyderQ02_ValidateEnv.py
+  - Tradov/TradovQ_Scripts/TradovQ02_ValidateEnv.py
 - Live submit fail-closed if no fill reconciler attached.
-  - Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py
+  - Tradov/TradovR_Runtime/TradovR04_LiveEngine.py
 - Regime policy load and validation path.
-  - Spyder/SpyderA_Core/SpyderA03_Configuration.py
+  - Tradov/TradovA_Core/TradovA03_Configuration.py
   - config/regime_policy.json
 
 ## 3) Current Gaps to Close
 
 1. Agent bus API contract drift: BaseAutoAgent publishes a Message object into an async bus API that expects topic/payload/sender args.
-   - Spyder/SpyderY_AutoAgents/SpyderY00_BaseAutoAgent.py
-   - Spyder/SpyderI_Integration/SpyderI06_AgentMessageBus.py
+   - Tradov/TradovY_AutoAgents/TradovY00_BaseAutoAgent.py
+   - Tradov/TradovI_Integration/TradovI06_AgentMessageBus.py
 2. No single canonical handoff schema for agent-to-agent and agent-to-orchestrator decision payloads.
 3. No centralized role/topic permission matrix for agent actions.
 4. Human escalation exists (Y08 Telegram) but no first-class approval token contract at execution boundaries.
@@ -50,11 +50,11 @@ Goal: Ensure agent messaging plumbing is deterministic before adding policy enfo
 
 Primary files:
 
-- Spyder/SpyderI_Integration/SpyderI06_AgentMessageBus.py
-- Spyder/SpyderY_AutoAgents/SpyderY00_BaseAutoAgent.py
-- Spyder/SpyderE_Risk/SpyderE12_PortfolioVaR.py
-- Spyder/SpyderP_PortfolioMgmt/SpyderP05_MultiStrategyAllocator.py
-- Spyder/SpyderP_PortfolioMgmt/SpyderP06_StrategyRotation.py
+- Tradov/TradovI_Integration/TradovI06_AgentMessageBus.py
+- Tradov/TradovY_AutoAgents/TradovY00_BaseAutoAgent.py
+- Tradov/TradovE_Risk/TradovE12_PortfolioVaR.py
+- Tradov/TradovP_PortfolioMgmt/TradovP05_MultiStrategyAllocator.py
+- Tradov/TradovP_PortfolioMgmt/TradovP06_StrategyRotation.py
 
 Changes:
 
@@ -76,11 +76,11 @@ Goal: Introduce strict message shape definitions without yet blocking flow.
 
 Primary files:
 
-- Spyder/SpyderZ_Communication/SpyderZ02_MessageProtocol.py
-- Spyder/SpyderI_Integration/SpyderI06_AgentMessageBus.py
-- Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py
-- Spyder/SpyderY_AutoAgents/SpyderY08_MetaOrchestratorAgent.py
-- Spyder/SpyderX_Agents/SpyderX14_OrchestratorAgent.py
+- Tradov/TradovZ_Communication/TradovZ02_MessageProtocol.py
+- Tradov/TradovI_Integration/TradovI06_AgentMessageBus.py
+- Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py
+- Tradov/TradovY_AutoAgents/TradovY08_MetaOrchestratorAgent.py
+- Tradov/TradovX_Agents/TradovX14_OrchestratorAgent.py
 
 Changes:
 
@@ -103,10 +103,10 @@ Goal: Enforce trust tiers and permissions only in paper mode first.
 
 Primary files:
 
-- Spyder/SpyderA_Core/SpyderA03_Configuration.py
-- Spyder/SpyderI_Integration/SpyderI06_AgentMessageBus.py
-- Spyder/SpyderY_AutoAgents/SpyderY00_BaseAutoAgent.py
-- Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py
+- Tradov/TradovA_Core/TradovA03_Configuration.py
+- Tradov/TradovI_Integration/TradovI06_AgentMessageBus.py
+- Tradov/TradovY_AutoAgents/TradovY00_BaseAutoAgent.py
+- Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py
 - config/agent_handoff_policy.json (new)
 
 Changes:
@@ -127,11 +127,11 @@ Goal: Add explicit sign-off contract before execution-intent handoffs can pass.
 
 Primary files:
 
-- Spyder/SpyderX_Agents/SpyderX14_OrchestratorAgent.py
-- Spyder/SpyderY_AutoAgents/SpyderY08_MetaOrchestratorAgent.py
-- Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py
-- Spyder/SpyderE_Risk/SpyderE01_RiskManager.py
-- Spyder/SpyderQ_Scripts/SpyderQ02_ValidateEnv.py
+- Tradov/TradovX_Agents/TradovX14_OrchestratorAgent.py
+- Tradov/TradovY_AutoAgents/TradovY08_MetaOrchestratorAgent.py
+- Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py
+- Tradov/TradovE_Risk/TradovE01_RiskManager.py
+- Tradov/TradovQ_Scripts/TradovQ02_ValidateEnv.py
 
 Changes:
 
@@ -152,10 +152,10 @@ Goal: Enable contract enforcement in tightly bounded live windows.
 
 Primary files:
 
-- Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py
-- Spyder/SpyderQ_Scripts/SpyderQ02_ValidateEnv.py
-- Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py
-- Spyder/SpyderE_Risk/SpyderE01_RiskManager.py
+- Tradov/TradovR_Runtime/TradovR04_LiveEngine.py
+- Tradov/TradovQ_Scripts/TradovQ02_ValidateEnv.py
+- Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py
+- Tradov/TradovE_Risk/TradovE01_RiskManager.py
 
 Changes:
 
@@ -174,8 +174,8 @@ Goal: Move from canary to full live with automated regression checks.
 
 Primary files:
 
-- Spyder/SpyderQ_Scripts/SpyderQ95_ValidateAgentContracts.py (new)
-- Spyder/SpyderT_Testing/* (new/updated)
+- Tradov/TradovQ_Scripts/TradovQ95_ValidateAgentContracts.py (new)
+- Tradov/TradovT_Testing/* (new/updated)
 
 Changes:
 
@@ -190,18 +190,18 @@ Exit criteria:
 
 ## 5) Exact Modules to Touch First (Priority Order)
 
-1. Spyder/SpyderI_Integration/SpyderI06_AgentMessageBus.py
-2. Spyder/SpyderY_AutoAgents/SpyderY00_BaseAutoAgent.py
-3. Spyder/SpyderZ_Communication/SpyderZ02_MessageProtocol.py
-4. Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py
-5. Spyder/SpyderY_AutoAgents/SpyderY08_MetaOrchestratorAgent.py
-6. Spyder/SpyderX_Agents/SpyderX14_OrchestratorAgent.py
-7. Spyder/SpyderA_Core/SpyderA03_Configuration.py
+1. Tradov/TradovI_Integration/TradovI06_AgentMessageBus.py
+2. Tradov/TradovY_AutoAgents/TradovY00_BaseAutoAgent.py
+3. Tradov/TradovZ_Communication/TradovZ02_MessageProtocol.py
+4. Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py
+5. Tradov/TradovY_AutoAgents/TradovY08_MetaOrchestratorAgent.py
+6. Tradov/TradovX_Agents/TradovX14_OrchestratorAgent.py
+7. Tradov/TradovA_Core/TradovA03_Configuration.py
 8. config/agent_handoff_policy.json (new)
-9. Spyder/SpyderE_Risk/SpyderE01_RiskManager.py
-10. Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py
-11. Spyder/SpyderQ_Scripts/SpyderQ02_ValidateEnv.py
-12. Spyder/SpyderT_Testing/ (new targeted tests)
+9. Tradov/TradovE_Risk/TradovE01_RiskManager.py
+10. Tradov/TradovR_Runtime/TradovR04_LiveEngine.py
+11. Tradov/TradovQ_Scripts/TradovQ02_ValidateEnv.py
+12. Tradov/TradovT_Testing/ (new targeted tests)
 
 ## 6) Testing Strategy
 
@@ -209,12 +209,12 @@ Run targeted tests at each phase boundary, then run broad suite before promotion
 
 Baseline to keep green:
 
-- Spyder/SpyderT_Testing/test_d31_entry_trust_gate.py
-- Spyder/SpyderT_Testing/test_f09_decision_path_controls.py
-- Spyder/SpyderT_Testing/test_f09_event_clock_blackout.py
-- Spyder/SpyderT_Testing/SpyderT193_D31_DispatchResultHardening.py
-- Spyder/SpyderT_Testing/SpyderT194_R12_RiskManagerInjection.py
-- Spyder/SpyderT_Testing/SpyderT195_D31_DispatchStateBadge.py
+- Tradov/TradovT_Testing/test_d31_entry_trust_gate.py
+- Tradov/TradovT_Testing/test_f09_decision_path_controls.py
+- Tradov/TradovT_Testing/test_f09_event_clock_blackout.py
+- Tradov/TradovT_Testing/TradovT193_D31_DispatchResultHardening.py
+- Tradov/TradovT_Testing/TradovT194_R12_RiskManagerInjection.py
+- Tradov/TradovT_Testing/TradovT195_D31_DispatchStateBadge.py
 
 New tests to add:
 

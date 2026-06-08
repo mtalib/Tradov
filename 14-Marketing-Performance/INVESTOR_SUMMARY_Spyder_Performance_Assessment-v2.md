@@ -1,4 +1,4 @@
-# SPYDER TRADING SYSTEM
+# TRADOV TRADING SYSTEM
 ## Performance Assessment & Risk-Adjusted Return Analysis
 
 **Prepared for Institutional Investors**
@@ -10,7 +10,7 @@
 
 ## EXECUTIVE SUMMARY
 
-Spyder is an institutional-grade algorithmic trading system specializing in SPY options strategies, leveraging advanced genetic algorithms, machine learning, and quantitative risk management. Our preliminary performance assessment, based on elite evolved strategy simulations, demonstrates **world-class risk-adjusted returns** that position the system competitively against top-tier hedge funds.
+Tradov is an institutional-grade algorithmic trading system specializing in SPY options strategies, leveraging advanced genetic algorithms, machine learning, and quantitative risk management. Our preliminary performance assessment, based on elite evolved strategy simulations, demonstrates **world-class risk-adjusted returns** that position the system competitively against top-tier hedge funds.
 
 ### Key Performance Indicators
 
@@ -31,7 +31,7 @@ Spyder is an institutional-grade algorithmic trading system specializing in SPY 
 
 ### Sharpe Ratio Comparison
 
-Our validated Sharpe Ratio of **2.55** positions Spyder among elite quantitative trading systems:
+Our validated Sharpe Ratio of **2.55** positions Tradov among elite quantitative trading systems:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -42,7 +42,7 @@ Our validated Sharpe Ratio of **2.55** positions Spyder among elite quantitative
 │ Good Hedge Fund              │ 1.0 - 1.5               │
 │ Elite Hedge Fund             │ 1.5 - 2.5               │
 │                                                         │
-│ ► SPYDER (Validated, Gen 15) │ 2.55   ◄ YOU ARE HERE   │
+│ ► TRADOV (Validated, Gen 15) │ 2.55   ◄ YOU ARE HERE   │
 │                                                         │
 │ Renaissance Medallion        │ 2.0 - 7.0 (Legendary)   │
 │ Two Sigma Compass            │ 1.8 - 3.0               │
@@ -51,7 +51,7 @@ Our validated Sharpe Ratio of **2.55** positions Spyder among elite quantitative
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Analysis:** A Sharpe Ratio of 2.55 places Spyder **above the elite hedge fund range**, in the same tier as Two Sigma Compass. These metrics are validated results from live institutional library testing, not theoretical estimates.
+**Analysis:** A Sharpe Ratio of 2.55 places Tradov **above the elite hedge fund range**, in the same tier as Two Sigma Compass. These metrics are validated results from live institutional library testing, not theoretical estimates.
 
 ---
 
@@ -63,7 +63,7 @@ Our validated Sharpe Ratio of **2.55** positions Spyder among elite quantitative
 **Formula:** (Portfolio Return - Risk-Free Rate) / Portfolio Volatility
 
 **What This Means:**
-- For every unit of risk taken, Spyder generates **2.55 units of excess return**
+- For every unit of risk taken, Tradov generates **2.55 units of excess return**
 - **255%** more return than risk, after accounting for the risk-free rate (2%)
 - Significantly outperforms both market benchmarks and average hedge funds
 - Validated by institutional library testing with QuantLib pricing engine
@@ -100,7 +100,7 @@ Our validated Sharpe Ratio of **2.55** positions Spyder among elite quantitative
 **Validation:** Confirmed via institutional metrics library with QuantLib-priced returns
 - 31.16% annualized return achieved with only -6.35% maximum drawdown
 - Demonstrates the system's credit spread discipline and risk controls working as designed
-- Places Spyder in the top 1% of all systematic options strategies by Calmar ratio
+- Places Tradov in the top 1% of all systematic options strategies by Calmar ratio
 
 ---
 
@@ -250,8 +250,8 @@ Our validated Sharpe Ratio of **2.55** positions Spyder among elite quantitative
 - Modular design (24+ specialized packages across A–Z series, 200+ modules)
 - Fault-tolerant execution with circuit breaker protocols
 - Automatic reconnection logic with exponential backoff
-- Comprehensive error handling with SpyderErrorHandler
-- Full audit trail and logging via SpyderLogger
+- Comprehensive error handling with TradovErrorHandler
+- Full audit trail and logging via TradovLogger
 
 **Monitoring:**
 - Real-time performance dashboards
@@ -420,10 +420,10 @@ The performance metrics presented are based on **validated simulation returns** 
 
 ## COMPETITIVE MOAT & DIFFERENTIATION
 
-### What Sets Spyder Apart
+### What Sets Tradov Apart
 
 #### 1. **AI-Driven Strategy Evolution**
-Unlike static quantitative strategies, Spyder continuously evolves through genetic algorithms, adapting to changing market conditions and discovering novel trading edges.
+Unlike static quantitative strategies, Tradov continuously evolves through genetic algorithms, adapting to changing market conditions and discovering novel trading edges.
 
 **Competitive Advantage:**
 - No strategy decay over time
@@ -432,7 +432,7 @@ Unlike static quantitative strategies, Spyder continuously evolves through genet
 - 67% improvement demonstrated through evolution (fitness 0.477 → 0.799)
 
 #### 2. **Options-Specific Focus**
-While many quant funds trade futures or equities, Spyder specializes in options strategies with defined risk and positive theta characteristics.
+While many quant funds trade futures or equities, Tradov specializes in options strategies with defined risk and positive theta characteristics.
 
 **Market Opportunity:**
 - Options market growth: 40%+ YoY volume increase
@@ -441,7 +441,7 @@ While many quant funds trade futures or equities, Spyder specializes in options 
 - Lower capital requirements enable higher ROI
 
 #### 3. **Institutional-Grade Technology at Individual Scale**
-Spyder employs quantitative techniques typically reserved for multi-billion dollar hedge funds, but operates at a scale that maintains execution efficiency.
+Tradov employs quantitative techniques typically reserved for multi-billion dollar hedge funds, but operates at a scale that maintains execution efficiency.
 
 **Advantages:**
 - No market impact from large orders
@@ -450,7 +450,7 @@ Spyder employs quantitative techniques typically reserved for multi-billion doll
 - Lower operational overhead than large funds
 
 #### 4. **Transparent, Modular Architecture**
-Unlike black-box hedge funds, Spyder's modular design enables:
+Unlike black-box hedge funds, Tradov's modular design enables:
 - Clear understanding of risk attribution
 - Component-level testing and validation
 - Regulatory transparency
@@ -546,16 +546,16 @@ Beyond $50M, deploy multiple uncorrelated strategies:
 | Annual Return | $2,500,000 | -$200,000 | -$460,000 | $1,840,000 |
 | Net Return % | 25.0% | -2.0% | -4.6% | **18.4%** |
 
-**Spyder Advantage:** If deployed as proprietary capital (no external fees), retain full 25% vs. 18.4% net in fund structure.
+**Tradov Advantage:** If deployed as proprietary capital (no external fees), retain full 25% vs. 18.4% net in fund structure.
 
 ---
 
 ## INVESTMENT THESIS
 
-### Why Institutional Investors Should Consider Spyder
+### Why Institutional Investors Should Consider Tradov
 
 #### 1. **Exceptional Risk-Adjusted Returns**
-- Sharpe Ratio of **2.55** places Spyder above the elite hedge fund range — validated March 2026
+- Sharpe Ratio of **2.55** places Tradov above the elite hedge fund range — validated March 2026
 - Outperforms 95%+ of hedge funds on risk-adjusted basis
 - Sortino Ratio of **4.83** and Calmar Ratio of **4.90** indicate extraordinary downside protection
 - Maximum drawdown of **-6.35%** validates the risk management framework
@@ -706,7 +706,7 @@ Beyond $50M, deploy multiple uncorrelated strategies:
 
 ### Investment Opportunity Summary
 
-Spyder represents a **rare convergence** of cutting-edge quantitative technology, robust risk management, and demonstrated world-class risk-adjusted returns. With an estimated Sharpe Ratio of **2.395**, the system achieves performance metrics typically associated with the most successful quantitative hedge funds in the industry.
+Tradov represents a **rare convergence** of cutting-edge quantitative technology, robust risk management, and demonstrated world-class risk-adjusted returns. With an estimated Sharpe Ratio of **2.395**, the system achieves performance metrics typically associated with the most successful quantitative hedge funds in the industry.
 
 **Key Strengths:**
 ✅ **World-class Sharpe Ratio** (2.395) - top decile performance
@@ -758,7 +758,7 @@ Interested parties should contact:
 
 ### Confidentiality Notice
 
-This document contains proprietary and confidential information regarding the Spyder Trading System. By reviewing this material, you agree to:
+This document contains proprietary and confidential information regarding the Tradov Trading System. By reviewing this material, you agree to:
 
 1. Maintain strict confidentiality of all system details
 2. Not disclose information to unauthorized third parties

@@ -1,4 +1,4 @@
-# Spyder Trading Decision - One Page Visual
+# Tradov Trading Decision - One Page Visual
 
 Last Updated: 2026-05-10
 Scope: Current workflow snapshot (v19)
@@ -64,14 +64,14 @@ D31 StrategyOrchestrator decides active strategy set and allocation.
 Regime classification -> regime-to-strategy mapping -> trust gate -> E01 risk validation -> execution route selection.
 
 3. How many strategies can run simultaneously:
-- Hard orchestration cap in D31: MAX_CONCURRENT_STRATEGIES = 2 (override: SPYDER_MAX_CONCURRENT_STRATEGIES).
-- Hard horizon-bucket cap in D31: MAX_ACTIVE_HORIZON_BUCKETS = 2 (override: SPYDER_MAX_ACTIVE_HORIZON_BUCKETS).
+- Hard orchestration cap in D31: MAX_CONCURRENT_STRATEGIES = 2 (override: TRADOV_MAX_CONCURRENT_STRATEGIES).
+- Hard horizon-bucket cap in D31: MAX_ACTIVE_HORIZON_BUCKETS = 2 (override: TRADOV_MAX_ACTIVE_HORIZON_BUCKETS).
 - Engine registration cap in A02 (default): max_strategies = 20.
 - Practical active count is at most 2 at once: one long-term/swing strategy and one intraday/0DTE strategy, still constrained further by regime map, capital, E01 risk gates, and runtime circuit-breakers.
 
 ## Current Branch Data-Provider Reality
 
-- OPRA-vetter toggle exists in B40 via SPYDER_OPRA_REQUIRE_VETTER.
+- OPRA-vetter toggle exists in B40 via TRADOV_OPRA_REQUIRE_VETTER.
 - C29 DataProviderRouter is currently Tradier-only in code.
 - Massive/C27 routing is not active at the expected path in this branch snapshot.
 

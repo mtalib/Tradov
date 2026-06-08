@@ -1,12 +1,12 @@
 # 2026-04-30 TradingAgents Ideas Port Report
 
 Date: 2026-05-01
-Repository: Spyder (branch: fix/audit-v14-all)
+Repository: Tradov (branch: fix/audit-v14-all)
 Target source repository: TauricResearch/TradingAgents
 
 ## 1. Executive Summary
 
-This report documents how selected ideas from the TradingAgents repository were ported into Spyder.
+This report documents how selected ideas from the TradingAgents repository were ported into Tradov.
 
 The port focused on four requested patterns:
 
@@ -24,29 +24,29 @@ A follow-up hardening fix was also added to X14 to prevent bare-context startup 
 ### In Scope
 
 - Porting architectural patterns and implementation ideas.
-- Integrating those ideas into Spyder-native modules.
+- Integrating those ideas into Tradov-native modules.
 - Verifying behavior through targeted runtime checks.
 
 ### Out of Scope
 
 - Importing TradingAgents as a runtime dependency.
 - One-to-one feature parity with all TradingAgents modules.
-- Replacing Spyder architecture with TradingAgents architecture.
+- Replacing Tradov architecture with TradingAgents architecture.
 
-## 3. Source Ideas Mapped to Spyder
+## 3. Source Ideas Mapped to Tradov
 
 ## 3.1 Idea A: Bull/Bear Researcher Debate
 
 TradingAgents idea:
 - Use adversarial bull vs bear arguments before synthesis.
 
-Spyder port:
-- Implemented in SpyderX03 strategy recommendation pipeline.
+Tradov port:
+- Implemented in TradovX03 strategy recommendation pipeline.
 - Added debate constants, debate round data model, and debate execution methods.
 - Injected final bull and bear arguments into synthesis prompt before final JSON recommendation.
 
 Primary implementation:
-- Spyder/SpyderX_Agents/SpyderX03_StrategyDirectorAgent.py
+- Tradov/TradovX_Agents/TradovX03_StrategyDirectorAgent.py
 
 Key additions:
 - DEBATE_ROUNDS, DEBATE_MAX_TOKENS
@@ -63,13 +63,13 @@ Operational effect:
 TradingAgents idea:
 - Use StateGraph-based multi-stage orchestration pipeline.
 
-Spyder port:
-- Implemented in SpyderX14 orchestrator.
+Tradov port:
+- Implemented in TradovX14 orchestrator.
 - Added typed LangGraph state and 4-stage pipeline.
 - Added runtime path to use graph ainvoke when available, with fallback to existing orchestration path.
 
 Primary implementation:
-- Spyder/SpyderX_Agents/SpyderX14_OrchestratorAgent.py
+- Tradov/TradovX_Agents/TradovX14_OrchestratorAgent.py
 
 Key additions:
 - LANGGRAPH_AVAILABLE flag
@@ -90,13 +90,13 @@ Operational effect:
 TradingAgents idea:
 - Strongly-typed structured outputs with validation and predictable schema handling.
 
-Spyder port:
-- Implemented in SpyderX03 parse layer.
+Tradov port:
+- Implemented in TradovX03 parse layer.
 - Added optional Pydantic v2 model for strategy response validation and coercion.
 - Preserved fallback behavior when parsing or validation fails.
 
 Primary implementation:
-- Spyder/SpyderX_Agents/SpyderX03_StrategyDirectorAgent.py
+- Tradov/TradovX_Agents/TradovX03_StrategyDirectorAgent.py
 
 Key additions:
 - _PYDANTIC_AVAILABLE import guard
@@ -119,14 +119,14 @@ Operational effect:
 TradingAgents idea:
 - Persist lessons from prior decisions and feed them back into future prompt context.
 
-Spyder port:
-- Implemented in SpyderY07 trade journal auto-agent.
+Tradov port:
+- Implemented in TradovY07 trade journal auto-agent.
 - Added load/save/context methods for lessons.
 - Injected recent lessons into narrative-generation system prompt.
 - Persisted extracted lessons to a file-backed history.
 
 Primary implementation:
-- Spyder/SpyderY_AutoAgents/SpyderY07_TradeJournalAgent.py
+- Tradov/TradovY_AutoAgents/TradovY07_TradeJournalAgent.py
 
 Key additions:
 - _load_lessons(...)
@@ -149,7 +149,7 @@ Updated dependency files:
   - Added: pydantic>=2.0.0,<3.0.0
 
 Design note:
-- Spyder ports the ideas directly in Spyder modules; TradingAgents is not installed as a direct runtime package.
+- Tradov ports the ideas directly in Tradov modules; TradingAgents is not installed as a direct runtime package.
 
 ## 5. Verification Evidence and Outcomes
 
@@ -228,7 +228,7 @@ After port:
 
 ## 9. Conclusion
 
-The requested TradingAgents ideas were ported into Spyder as Spyder-native implementations, verified functionally, and hardened for CPU-only bare contexts.
+The requested TradingAgents ideas were ported into Tradov as Tradov-native implementations, verified functionally, and hardened for CPU-only bare contexts.
 
 Net outcome:
 - The four targeted patterns are present, wired, and operational.
@@ -237,8 +237,8 @@ Net outcome:
 ## 10. Quick Reference
 
 Ported modules:
-- Spyder/SpyderX_Agents/SpyderX03_StrategyDirectorAgent.py
-- Spyder/SpyderX_Agents/SpyderX14_OrchestratorAgent.py
-- Spyder/SpyderY_AutoAgents/SpyderY07_TradeJournalAgent.py
+- Tradov/TradovX_Agents/TradovX03_StrategyDirectorAgent.py
+- Tradov/TradovX_Agents/TradovX14_OrchestratorAgent.py
+- Tradov/TradovY_AutoAgents/TradovY07_TradeJournalAgent.py
 - requirements-ai.txt
 - requirements-core.txt

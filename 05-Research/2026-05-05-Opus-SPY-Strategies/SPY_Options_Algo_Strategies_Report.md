@@ -2,7 +2,7 @@
 
 **Document Purpose:** Specification reference for implementing autonomous, algorithmic SPY options trading strategies used by professional and institutional traders.
 **Date:** May 2026
-**Target:** Python-based autonomous trading system (Spyder project context)
+**Target:** Python-based autonomous trading system (Tradov project context)
 
 ---
 
@@ -411,9 +411,9 @@ Use this matrix to decide which strategy to implement based on system capabiliti
 
 ---
 
-## 10. Recommended Implementation Order for Spyder
+## 10. Recommended Implementation Order for Tradov
 
-Given the Spyder project context (SPY options credit spreads, Tradier API):
+Given the Tradov project context (SPY options credit spreads, Tradier API):
 
 1. **Phase 1:** VRP signal engine — compute IV Rank, IV Percentile, VRP daily. This is the foundation.
 2. **Phase 2:** Credit spread executor — bull put spreads with regime-adaptive strike selection.

@@ -15,30 +15,30 @@ All P0 (blocker) items from the Pre-Live-Go-Live audit were implemented across 8
 
 ## Phase 1 — Event Infrastructure (P1-8, P1-9, P1-11)
 
-**Files:** `SpyderA_Core/SpyderA05_EventManager.py`, `SpyderU_Utilities/SpyderU01_Logger.py`, `SpyderQ_Scripts/SpyderQ93_RunPaper.py`
+**Files:** `TradovA_Core/TradovA05_EventManager.py`, `TradovU_Utilities/TradovU01_Logger.py`, `TradovQ_Scripts/TradovQ93_RunPaper.py`
 
 | Item | Fix |
 |------|-----|
-| P1-11 | Added `import os` to `SpyderA05_EventManager.py` — `_allow_multiple()` referenced `os.environ` without it (latent `NameError`). |
-| P1-9 | Swapped `FileHandler` → `RotatingFileHandler(maxBytes=50 MB, backupCount=10)` in `SpyderU01_Logger.py` to prevent unbounded log growth. |
-| P1-8 | Added `assert os.environ.get("TRADING_MODE") in ("paper", "sandbox")` guard at the top of `SpyderQ93_RunPaper.py` to hard-fail if accidentally pointed at live mode. |
+| P1-11 | Added `import os` to `TradovA05_EventManager.py` — `_allow_multiple()` referenced `os.environ` without it (latent `NameError`). |
+| P1-9 | Swapped `FileHandler` → `RotatingFileHandler(maxBytes=50 MB, backupCount=10)` in `TradovU01_Logger.py` to prevent unbounded log growth. |
+| P1-8 | Added `assert os.environ.get("TRADING_MODE") in ("paper", "sandbox")` guard at the top of `TradovQ93_RunPaper.py` to hard-fail if accidentally pointed at live mode. |
 
 ---
 
 ## Phase 2 — Market-Hours Timezone Fix (P0-11, P0-12)
 
-**Files:** `SpyderR_Runtime/SpyderR04_LiveEngine.py`, `SpyderA_Core/SpyderA04_Scheduler.py`
+**Files:** `TradovR_Runtime/TradovR04_LiveEngine.py`, `TradovA_Core/TradovA04_Scheduler.py`
 
 | Item | Fix |
 |------|-----|
 | P0-11 | Replaced `datetime.now().time()` (naive, local TZ) with `datetime.now(ET).time()` where `ET = ZoneInfo("America/New_York")` in `_is_market_open()` and all related callsites in both R04 and A04. |
-| P0-12 | `get_market_close()` added to `SpyderU10_TradingCalendar` and called by `_is_market_open()` — returns 13:00 ET on early-close days, 16:00 ET normally. |
+| P0-12 | `get_market_close()` added to `TradovU10_TradingCalendar` and called by `_is_market_open()` — returns 13:00 ET on early-close days, 16:00 ET normally. |
 
 ---
 
 ## Phase 3 — PositionTracker Wiring (P0-5)
 
-**Files:** `SpyderR_Runtime/SpyderR12_SessionSupervisor.py`
+**Files:** `TradovR_Runtime/TradovR12_SessionSupervisor.py`
 
 | Item | Fix |
 |------|-----|
@@ -48,7 +48,7 @@ All P0 (blocker) items from the Pre-Live-Go-Live audit were implemented across 8
 
 ## Phase 4 — `close_position()` Protocol & Implementation (P0-3, P0-4)
 
-**Files:** `SpyderB_Broker/SpyderB21_BrokerProtocol.py`, `SpyderB_Broker/SpyderB40_TradierClient.py`, `SpyderR_Runtime/SpyderR12_SessionSupervisor.py`
+**Files:** `TradovB_Broker/TradovB21_BrokerProtocol.py`, `TradovB_Broker/TradovB40_TradierClient.py`, `TradovR_Runtime/TradovR12_SessionSupervisor.py`
 
 | Item | Fix |
 |------|-----|
@@ -61,7 +61,7 @@ All P0 (blocker) items from the Pre-Live-Go-Live audit were implemented across 8
 
 ## Phase 5 — EMERGENCY Bridge + Strategy Pause (P0-1, P0-2, P1-1)
 
-**Files:** `SpyderR_Runtime/SpyderR04_LiveEngine.py`, `SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`
+**Files:** `TradovR_Runtime/TradovR04_LiveEngine.py`, `TradovD_Strategies/TradovD31_StrategyOrchestrator.py`
 
 | Item | Fix |
 |------|-----|
@@ -73,18 +73,18 @@ All P0 (blocker) items from the Pre-Live-Go-Live audit were implemented across 8
 
 ## Phase 6 — 5xx Error Escalation + Order Idempotency (P0-8, P0-9)
 
-**Files:** `SpyderB_Broker/SpyderB40_TradierClient.py`, `SpyderR_Runtime/SpyderR04_LiveEngine.py`
+**Files:** `TradovB_Broker/TradovB40_TradierClient.py`, `TradovR_Runtime/TradovR04_LiveEngine.py`
 
 | Item | Fix |
 |------|-----|
 | P0-8 | Wrapped `broker.place_order()` in a dedicated `try/except TradierServerError` block inside `_broker_submit()`. On success: `reset_api_error_count()`. On 5xx: `record_api_server_error()` (triggers `EMERGENCY` at `API_PANIC_THRESHOLD = 3` consecutive failures) then re-raises. Non-5xx exceptions fall through to the existing general handler and do **not** increment the counter. |
-| P0-9 | Added `tag: str | None = None` parameter to `TradierClient.place_order()` and appended `payload["tag"] = tag` before the API request. In `_broker_submit()`, generates `_tag = f"spyder-{order_id}"` and passes it through — Tradier deduplicates orders with the same tag for ~24 h, preventing duplicate fills on network-timeout retries. |
+| P0-9 | Added `tag: str | None = None` parameter to `TradierClient.place_order()` and appended `payload["tag"] = tag` before the API request. In `_broker_submit()`, generates `_tag = f"tradov-{order_id}"` and passes it through — Tradier deduplicates orders with the same tag for ~24 h, preventing duplicate fills on network-timeout retries. |
 
 ---
 
 ## Phase 7 — `pending_orders` Cleanup (P0-10)
 
-**Files:** `SpyderR_Runtime/SpyderR04_LiveEngine.py`
+**Files:** `TradovR_Runtime/TradovR04_LiveEngine.py`
 
 | Item | Fix |
 |------|-----|
@@ -97,7 +97,7 @@ All P0 (blocker) items from the Pre-Live-Go-Live audit were implemented across 8
 
 ## Phase 8 — SIGTERM Flatten + Live Gate (P0-6, P0-7)
 
-**Files:** `SpyderQ_Scripts/SpyderQ14_MainLauncher.py`
+**Files:** `TradovQ_Scripts/TradovQ14_MainLauncher.py`
 
 | Item | Fix |
 |------|-----|
@@ -111,14 +111,14 @@ All P0 (blocker) items from the Pre-Live-Go-Live audit were implemented across 8
 
 | File | Phase(s) |
 |------|---------|
-| `SpyderA_Core/SpyderA04_Scheduler.py` | 2 |
-| `SpyderA_Core/SpyderA05_EventManager.py` | 1 |
-| `SpyderB_Broker/SpyderB21_BrokerProtocol.py` | 4 |
-| `SpyderB_Broker/SpyderB40_TradierClient.py` | 4, 6 |
-| `SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py` | 5 |
-| `SpyderQ_Scripts/SpyderQ14_MainLauncher.py` | 8 |
-| `SpyderQ_Scripts/SpyderQ93_RunPaper.py` | 1 |
-| `SpyderR_Runtime/SpyderR04_LiveEngine.py` | 2, 5, 6, 7 |
-| `SpyderR_Runtime/SpyderR12_SessionSupervisor.py` | 3, 4 |
-| `SpyderU_Utilities/SpyderU01_Logger.py` | 1 |
-| `SpyderU_Utilities/SpyderU10_TradingCalendar.py` | 2 |
+| `TradovA_Core/TradovA04_Scheduler.py` | 2 |
+| `TradovA_Core/TradovA05_EventManager.py` | 1 |
+| `TradovB_Broker/TradovB21_BrokerProtocol.py` | 4 |
+| `TradovB_Broker/TradovB40_TradierClient.py` | 4, 6 |
+| `TradovD_Strategies/TradovD31_StrategyOrchestrator.py` | 5 |
+| `TradovQ_Scripts/TradovQ14_MainLauncher.py` | 8 |
+| `TradovQ_Scripts/TradovQ93_RunPaper.py` | 1 |
+| `TradovR_Runtime/TradovR04_LiveEngine.py` | 2, 5, 6, 7 |
+| `TradovR_Runtime/TradovR12_SessionSupervisor.py` | 3, 4 |
+| `TradovU_Utilities/TradovU01_Logger.py` | 1 |
+| `TradovU_Utilities/TradovU10_TradingCalendar.py` | 2 |

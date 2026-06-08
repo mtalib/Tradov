@@ -8,18 +8,18 @@ This document provides examples and patterns for fixing the **15 files** identif
 
 ## Files Requiring Fixes
 
-1. `SpyderB_Broker/SpyderB02_OrderManager.py`
-2. `SpyderC_MarketData/SpyderC02_MarketDataFeed.py`
-3. `SpyderC_MarketData/SpyderC14_UltraLowLatencyFeed.py`
-4. `SpyderC_MarketData/SpyderC23_RealTimeDataOptimizer.py`
-5. `SpyderE_Risk/SpyderE01_RiskManager.py`
-6. `SpyderE_Risk/SpyderE07_RealTimeStressTesting.py`
-7. `SpyderE_Risk/SpyderE10_CorrelationRiskManager.py`
-8. `SpyderE_Risk/SpyderE14_PortfolioOptimizer.py`
-9. `SpyderF_Analysis/SpyderF13_ModelValidation.py`
-10. `SpyderF_Analysis/SpyderF14_MarketMicrostructure.py`
-11. `SpyderL_ML/SpyderL17_FederatedLearning.py`
-12. `SpyderQ_Scripts/SpyderQ91_MonitoringUtilities.py`
+1. `TradovB_Broker/TradovB02_OrderManager.py`
+2. `TradovC_MarketData/TradovC02_MarketDataFeed.py`
+3. `TradovC_MarketData/TradovC14_UltraLowLatencyFeed.py`
+4. `TradovC_MarketData/TradovC23_RealTimeDataOptimizer.py`
+5. `TradovE_Risk/TradovE01_RiskManager.py`
+6. `TradovE_Risk/TradovE07_RealTimeStressTesting.py`
+7. `TradovE_Risk/TradovE10_CorrelationRiskManager.py`
+8. `TradovE_Risk/TradovE14_PortfolioOptimizer.py`
+9. `TradovF_Analysis/TradovF13_ModelValidation.py`
+10. `TradovF_Analysis/TradovF14_MarketMicrostructure.py`
+11. `TradovL_ML/TradovL17_FederatedLearning.py`
+12. `TradovQ_Scripts/TradovQ91_MonitoringUtilities.py`
 13. (Additional files from comprehensive analysis)
 
 ---
@@ -284,8 +284,8 @@ async def initialize(self):
 
 ```bash
 # Search for time.sleep in async functions
-grep -n "async def" SpyderE_Risk/SpyderE01_RiskManager.py
-grep -n "time.sleep" SpyderE_Risk/SpyderE01_RiskManager.py
+grep -n "async def" TradovE_Risk/TradovE01_RiskManager.py
+grep -n "time.sleep" TradovE_Risk/TradovE01_RiskManager.py
 ```
 
 ### Step 2: Verify Context
@@ -324,13 +324,13 @@ If not present, add it at the top of the file.
 ### 1. Syntax Check
 
 ```bash
-python -m py_compile SpyderE_Risk/SpyderE01_RiskManager.py
+python -m py_compile TradovE_Risk/TradovE01_RiskManager.py
 ```
 
 ### 2. Run Module
 
 ```bash
-python SpyderE_Risk/SpyderE01_RiskManager.py
+python TradovE_Risk/TradovE01_RiskManager.py
 ```
 
 ### 3. Check for Warnings
@@ -448,7 +448,7 @@ def fix_file(file_path: Path):
     print(f"✅ Fixed: {file_path}")
 
 # Usage (run with caution!)
-# fix_file(Path('SpyderE_Risk/SpyderE01_RiskManager.py'))
+# fix_file(Path('TradovE_Risk/TradovE01_RiskManager.py'))
 ```
 
 ---
@@ -463,12 +463,12 @@ def fix_file(file_path: Path):
 6. **Repeat for remaining files**
 
 **Recommended order:**
-1. SpyderQ_Scripts/* (utilities first - lower risk)
-2. SpyderL_ML/* (ML modules - isolated)
-3. SpyderF_Analysis/* (analysis modules)
-4. SpyderE_Risk/* (risk modules - test carefully)
-5. SpyderC_MarketData/* (market data - critical)
-6. SpyderB_Broker/* (broker - most critical, test extensively)
+1. TradovQ_Scripts/* (utilities first - lower risk)
+2. TradovL_ML/* (ML modules - isolated)
+3. TradovF_Analysis/* (analysis modules)
+4. TradovE_Risk/* (risk modules - test carefully)
+5. TradovC_MarketData/* (market data - critical)
+6. TradovB_Broker/* (broker - most critical, test extensively)
 
 ---
 

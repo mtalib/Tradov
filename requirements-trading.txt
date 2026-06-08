@@ -20,7 +20,7 @@ pyarrow>=12.0.0,<19.0  # pinned upper bound for stability
 # Network utilities
 urllib3>=1.26.0,<3.0  # pinned upper bound for stability
 
-# ZeroMQ inter-process messaging (SpyderZ_Communication)
+# ZeroMQ inter-process messaging (TradovZ_Communication)
 pyzmq>=25.0.0,<27.0
 
 # Institutional Options Pricing

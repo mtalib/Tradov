@@ -21,7 +21,7 @@ It is not a general-purpose time-series model — it is specifically designed fo
 **GitHub:** https://github.com/shiyu-coder/Kronos  
 **Hugging Face:** https://huggingface.co/NeoQuasar  
 **Live demo:** BTC/USDT 24-hour forecast — https://shiyu-coder.github.io/Kronos-demo/  
-**License:** MIT ✅ (no AGPL conflict with Spyder policy)  
+**License:** MIT ✅ (no AGPL conflict with Tradov policy)  
 **Stars (at time of research):** 19,600+ | Forks: 3,600+
 
 ---
@@ -39,24 +39,24 @@ It is not a general-purpose time-series model — it is specifically designed fo
 
 ---
 
-## Why This Matters for Spyder
+## Why This Matters for Tradov
 
 ### The Gap Kronos Fills
 
-Spyder's current ML layer (`SpyderL_ML`) relies on traditional models:
-- `SpyderL12_RandomForestEnsemble.py` — ensemble classification
-- `SpyderL13_LSTMPricer.py` — deep learning for IV surface prediction
-- `SpyderL15_MomentPredictor.py` — short-term momentum scoring
+Tradov's current ML layer (`TradovL_ML`) relies on traditional models:
+- `TradovL12_RandomForestEnsemble.py` — ensemble classification
+- `TradovL13_LSTMPricer.py` — deep learning for IV surface prediction
+- `TradovL15_MomentPredictor.py` — short-term momentum scoring
 
-None of these are pre-trained on a broad financial data distribution. Each is trained from scratch on Spyder's available data, which means they require substantial historical data to generalise and are sensitive to overfitting on limited SPY history.
+None of these are pre-trained on a broad financial data distribution. Each is trained from scratch on Tradov's available data, which means they require substantial historical data to generalise and are sensitive to overfitting on limited SPY history.
 
 Kronos provides a **foundation model baseline** — a rich prior over price dynamics learned from 45+ exchanges — that can be fine-tuned on SPY-specific data with far less data than training from scratch.
 
 ### What Kronos Outputs
 
-Given a lookback window of OHLCV bars, Kronos returns forecasted bars for a specified prediction horizon. From those forecasts, Spyder can derive:
+Given a lookback window of OHLCV bars, Kronos returns forecasted bars for a specified prediction horizon. From those forecasts, Tradov can derive:
 
-| Derived Signal | Use in Spyder |
+| Derived Signal | Use in Tradov |
 |---|---|
 | Forecasted close Δ% | Directional bias (bull/bear) for strategy gating |
 | Forecasted high − low range | Proxy for expected daily move / synthetic IV |
@@ -68,24 +68,24 @@ Given a lookback window of OHLCV bars, Kronos returns forecasted bars for a spec
 ## Proposed Integration Architecture
 
 ```
-SpyderC08_SPYFeed (live OHLCV bars)
+TradovC08_SPYFeed (live OHLCV bars)
         │
         ▼
-SpyderL20_KronosAdapter (NEW MODULE)
+TradovL20_KronosAdapter (NEW MODULE)
   ├── Loads KronosPredictor from HuggingFace / local checkpoint
   ├── Maintains rolling lookback buffer (400 bars recommended)
   ├── Calls predictor.predict() on each new bar close
   ├── Emits: {direction_bias, implied_move_estimate, confidence}
-  └── Scheduled via SpyderA04_Scheduler (bar-close trigger)
+  └── Scheduled via TradovA04_Scheduler (bar-close trigger)
         │
-        ├──▶ SpyderF09_EntryFilters     — blocks entries against forecast
-        ├──▶ SpyderD30_RegimeGatedSelector — weights strategy by confidence
-        ├──▶ SpyderD25_UnifiedCreditSpreadEngine — informs strike width
-        └──▶ SpyderI02_EventRouter      — publishes KronosSignal event
+        ├──▶ TradovF09_EntryFilters     — blocks entries against forecast
+        ├──▶ TradovD30_RegimeGatedSelector — weights strategy by confidence
+        ├──▶ TradovD25_UnifiedCreditSpreadEngine — informs strike width
+        └──▶ TradovI02_EventRouter      — publishes KronosSignal event
 ```
 
-**New module:** `SpyderL_ML/SpyderL20_KronosAdapter.py`  
-**New test file:** `SpyderT_Testing/SpyderT120_KronosAdapter_Test.py`
+**New module:** `TradovL_ML/TradovL20_KronosAdapter.py`  
+**New test file:** `TradovT_Testing/TradovT120_KronosAdapter_Test.py`
 
 ---
 
@@ -101,34 +101,34 @@ SpyderL20_KronosAdapter (NEW MODULE)
 
 ### Phase 2 — SPY Fine-Tuning (1–2 weeks)
 
-- [ ] Export 2–3 years of SPY 5-minute OHLCV from Massive API historical data via `SpyderC02_HistoricalData`
+- [ ] Export 2–3 years of SPY 5-minute OHLCV from Massive API historical data via `TradovC02_HistoricalData`
 - [ ] Format into Qlib-compatible dataset or direct CSV pipeline for `finetune_csv/`
 - [ ] Fine-tune Kronos-Tokenizer on SPY data: `torchrun finetune/train_tokenizer.py`
 - [ ] Fine-tune Kronos-Predictor on SPY data: `torchrun finetune/train_predictor.py`
 - [ ] Evaluate on held-out SPY test period (2024 data recommended as out-of-sample)
 - [ ] Confirm IC (Information Coefficient) > 0.05 on SPY 1-day and 5-day horizons before proceeding
 
-### Phase 3 — Spyder Adapter Development (1 week)
+### Phase 3 — Tradov Adapter Development (1 week)
 
-- [ ] Implement `SpyderL20_KronosAdapter.py`:
+- [ ] Implement `TradovL20_KronosAdapter.py`:
   - `KronosAdapter` class wrapping `KronosPredictor`
   - Rolling OHLCV buffer management (thread-safe)
   - `get_signal()` → returns `KronosSignal(direction_bias, implied_move, confidence, timestamp)`
-  - `SpyderLogger` throughout; no `print()` statements
-  - Scheduled refresh via `SpyderA04_Scheduler` on 1-min / 5-min bar close
-- [ ] Implement `SpyderT120_KronosAdapter_Test.py` with mock OHLCV data
-- [ ] Wire `KronosSignal` events into `SpyderI02_EventRouter`
+  - `TradovLogger` throughout; no `print()` statements
+  - Scheduled refresh via `TradovA04_Scheduler` on 1-min / 5-min bar close
+- [ ] Implement `TradovT120_KronosAdapter_Test.py` with mock OHLCV data
+- [ ] Wire `KronosSignal` events into `TradovI02_EventRouter`
 
 ### Phase 4 — Strategy Integration (1 week)
 
-- [ ] Add Kronos direction filter to `SpyderF09_EntryFilters` (configurable, off by default)
-- [ ] Add implied-move estimate to `SpyderD25_UnifiedCreditSpreadEngine` strike width logic
-- [ ] Add Kronos confidence score to `SpyderD30_RegimeGatedSelector` weighting
-- [ ] Feature-flagged via `SpyderU11_FeatureFlags` — `ENABLE_KRONOS_SIGNALS = false` default
+- [ ] Add Kronos direction filter to `TradovF09_EntryFilters` (configurable, off by default)
+- [ ] Add implied-move estimate to `TradovD25_UnifiedCreditSpreadEngine` strike width logic
+- [ ] Add Kronos confidence score to `TradovD30_RegimeGatedSelector` weighting
+- [ ] Feature-flagged via `TradovU11_FeatureFlags` — `ENABLE_KRONOS_SIGNALS = false` default
 
 ### Phase 5 — Paper Trading Validation (ongoing)
 
-- [ ] Run with `ENABLE_KRONOS_SIGNALS = true` in paper mode via `SpyderR02_PaperEngine`
+- [ ] Run with `ENABLE_KRONOS_SIGNALS = true` in paper mode via `TradovR02_PaperEngine`
 - [ ] Compare paper P&L and Sharpe with and without Kronos signals over 4-week window
 - [ ] Promote to live only if signal attribution shows statistically significant improvement (p < 0.05)
 
@@ -156,7 +156,7 @@ huggingface_hub>=0.23.0
 ### Data Contract
 
 ```python
-# Input DataFrame contract (from SpyderC08_SPYFeed)
+# Input DataFrame contract (from TradovC08_SPYFeed)
 columns_required = ['open', 'high', 'low', 'close']
 columns_optional = ['volume']  # 'amount' not available from Tradier/Massive; fill with 0
 lookback_bars = 400            # recommended; must not exceed max_context=512 for small/base
@@ -169,9 +169,9 @@ lookback_bars = 400            # recommended; must not exceed max_context=512 fo
 | Risk | Severity | Mitigation |
 |---|---|---|
 | Kronos trained on global equity/crypto data — SPY options-specific dynamics may differ | Medium | Mandatory SPY fine-tuning (Phase 2) before any signal use |
-| Model inference latency causing bar-close timing issues | Medium | Run asynchronously via `SpyderA04_Scheduler`; never block order path |
-| Overfitting during fine-tuning on limited SPY data | Medium | Use walk-forward validation in `SpyderF12_AdvancedBacktestingEngine` |
-| Kronos signals conflict with existing `SpyderL` models | Low | Feature-flagged; Kronos signals are additive, not replacement |
+| Model inference latency causing bar-close timing issues | Medium | Run asynchronously via `TradovA04_Scheduler`; never block order path |
+| Overfitting during fine-tuning on limited SPY data | Medium | Use walk-forward validation in `TradovF12_AdvancedBacktestingEngine` |
+| Kronos signals conflict with existing `TradovL` models | Low | Feature-flagged; Kronos signals are additive, not replacement |
 | HuggingFace model availability / API outage | Low | Cache model weights locally after first download; no runtime HF dependency |
 | Kronos-large (499M) not yet released | Low | Use Kronos-base (102M); revisit when large is available |
 
@@ -181,12 +181,12 @@ lookback_bars = 400            # recommended; must not exceed max_context=512 fo
 
 It is important to scope this correctly. Kronos is an **upstream directional signal** only. It cannot replace:
 
-- `SpyderN_OptionsAnalytics` — options pricing, Greeks, IV surface (requires options chain data, not OHLCV)
-- `SpyderE_Risk` — all risk management, position sizing, circuit breakers
-- `SpyderB_Broker` — order execution
-- `SpyderD_Strategies` — strategy logic, entry/exit rules
+- `TradovN_OptionsAnalytics` — options pricing, Greeks, IV surface (requires options chain data, not OHLCV)
+- `TradovE_Risk` — all risk management, position sizing, circuit breakers
+- `TradovB_Broker` — order execution
+- `TradovD_Strategies` — strategy logic, entry/exit rules
 
-Kronos slots in as one additional signal source among many, gated by `SpyderF09_EntryFilters` and `SpyderU11_FeatureFlags`. No existing module is deprecated or removed.
+Kronos slots in as one additional signal source among many, gated by `TradovF09_EntryFilters` and `TradovU11_FeatureFlags`. No existing module is deprecated or removed.
 
 ---
 
@@ -196,7 +196,7 @@ Similar financial foundation models for comparison if evaluation is needed:
 
 | Model | Focus | Notes |
 |---|---|---|
-| **Kronos** (shiyu-coder) | OHLCV candlestick forecasting | Best fit for Spyder's SPY bar-level signals |
+| **Kronos** (shiyu-coder) | OHLCV candlestick forecasting | Best fit for Tradov's SPY bar-level signals |
 | TimesFM (Google DeepMind) | General time-series | Not finance-specific; no OHLCV tokenizer |
 | Lag-Llama | Probabilistic TS | General univariate; no multi-dimensional OHLCV |
 | FinGPT | Financial NLP | Text/sentiment only; not price prediction |
@@ -229,4 +229,4 @@ If any gate fails, park the integration and re-evaluate when `Kronos-large` (499
 
 ---
 
-*Research compiled: April 20, 2026 — Spyder Project*
+*Research compiled: April 20, 2026 — Tradov Project*

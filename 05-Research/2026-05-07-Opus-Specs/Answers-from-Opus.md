@@ -32,18 +32,18 @@ One thing to verify before making the change: confirm no other call site in the 
 A2 — Yes, split the import block
 You're right — the spec as written produces no actual migration when VWAP is missing from F20. Split it.
 Revised STEP 4 for D34, replace the F20 import additions with:
-pythonfrom Spyder.SpyderF_Analysis.SpyderF20_Indicators import ADX as _f20_adx
+pythonfrom Tradov.TradovF_Analysis.TradovF20_Indicators import ADX as _f20_adx
 
 # Prefer F20 for shared indicators when available. Each indicator is
 # guarded independently so a missing symbol doesn't disable the others.
 try:
-    from Spyder.SpyderF_Analysis.SpyderF20_Indicators import RSI as _f20_rsi  # noqa: F401
+    from Tradov.TradovF_Analysis.TradovF20_Indicators import RSI as _f20_rsi  # noqa: F401
     _F20_RSI_AVAILABLE = True
 except ImportError:
     _F20_RSI_AVAILABLE = False
 
 try:
-    from Spyder.SpyderF_Analysis.SpyderF20_Indicators import ATR as _f20_atr  # noqa: F401
+    from Tradov.TradovF_Analysis.TradovF20_Indicators import ATR as _f20_atr  # noqa: F401
     _F20_ATR_AVAILABLE = True
 except ImportError:
     _F20_ATR_AVAILABLE = False

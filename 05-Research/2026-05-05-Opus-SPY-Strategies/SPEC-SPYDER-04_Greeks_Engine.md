@@ -1,9 +1,9 @@
-# SPEC-SPYDER-04 — Greeks Engine Module
+# SPEC-TRADOV-04 — Greeks Engine Module
 
 | Field | Value |
 |---|---|
-| Spec ID | SPEC-SPYDER-04 |
-| Module | `spyder/quant/greeks/` (package) |
+| Spec ID | SPEC-TRADOV-04 |
+| Module | `tradov/quant/greeks/` (package) |
 | Version | 1.0.0 |
 | Status | Ready for implementation |
 | Depends on | (none — pure computation) |
@@ -358,7 +358,7 @@ If profiling shows hot loops, the next optimizations (in order) are: NumPy vecto
 - [ ] All numerical tests pass to 1e-6 precision
 - [ ] Vectorized form is at least 50× faster than scalar form for 500-strike chains
 - [ ] No SciPy import in the hot path (use the local `_norm_cdf`/`_norm_pdf`)
-- [ ] Tradier greeks validation runs as part of the ACTIVE-state heartbeat in SPEC-SPYDER-01
+- [ ] Tradier greeks validation runs as part of the ACTIVE-state heartbeat in SPEC-TRADOV-01
 - [ ] FRED rate fetcher caches and falls back gracefully on outage
 - [ ] IV Rank cache is populated for the past 252 trading days at first run
 

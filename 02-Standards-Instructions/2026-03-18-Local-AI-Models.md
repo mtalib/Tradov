@@ -1,17 +1,17 @@
-# Spyder — Local AI Model Architecture
+# Tradov — Local AI Model Architecture
 > **Date:** 2026-03-18  
 > **Author:** GitHub Copilot  
 > **Status:** Proposal / Recommended Configuration  
-> **Applies to:** `SpyderX_Agents` (X-Series), `SpyderY_AutoAgents` (Y-Series)
+> **Applies to:** `TradovX_Agents` (X-Series), `TradovY_AutoAgents` (Y-Series)
 
 ---
 
 ## 1. Overview
 
-Spyder uses **Ollama** to run large language models (LLMs) locally on the trading machine. All AI agent reasoning — market analysis, risk review, code generation, trade journaling, news sentiment — is handled entirely on-device with **no data sent to external AI APIs**.
+Tradov uses **Ollama** to run large language models (LLMs) locally on the trading machine. All AI agent reasoning — market analysis, risk review, code generation, trade journaling, news sentiment — is handled entirely on-device with **no data sent to external AI APIs**.
 
 The models are accessed through a unified role system defined in
-`SpyderY_AutoAgents/SpyderY00_BaseAutoAgent.py`. Each agent declares which **role**
+`TradovY_AutoAgents/TradovY00_BaseAutoAgent.py`. Each agent declares which **role**
 it needs for a given task; Ollama resolves the role to the appropriate model.
 
 **Key principles:**
@@ -196,7 +196,7 @@ agents run on minute/multi-minute cycles — not millisecond loops.
 
 ## 5. Code Architecture
 
-### 5.1 OllamaConfig (SpyderY00_BaseAutoAgent.py)
+### 5.1 OllamaConfig (TradovY00_BaseAutoAgent.py)
 
 ```python
 @dataclass

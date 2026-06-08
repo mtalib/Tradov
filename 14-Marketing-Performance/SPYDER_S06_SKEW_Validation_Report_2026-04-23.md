@@ -1,8 +1,8 @@
-# SPYDER TRADING SYSTEM
-## Module Validation Report — SpyderS06_SKEWCalculator
+# TRADOV TRADING SYSTEM
+## Module Validation Report — TradovS06_SKEWCalculator
 
-**Module:** `SpyderS_Signals/SpyderS06_SKEWCalculator.py`  
-**Test File:** `SpyderT_Testing/SpyderT130_S06SKEWCalculator.py`  
+**Module:** `TradovS_Signals/TradovS06_SKEWCalculator.py`  
+**Test File:** `TradovT_Testing/TradovT130_S06SKEWCalculator.py`  
 **Date:** April 23, 2026  
 **Version:** v20 (Post-Audit April 22, 2026)  
 **Series:** S-Series — Custom Signal Generation  
@@ -12,9 +12,9 @@
 
 ## EXECUTIVE SUMMARY
 
-`SpyderS06_SKEWCalculator` is Spyder's real-time replication of the **CBOE SKEW Index** — the institutional market-standard measure of tail risk priced into SPY options. The module sources live options chain data via the Tradier API (`SpyderB40`), constructs a full volatility smile, computes risk-neutral moments via numerical integration, and outputs a SKEW index value in the canonical CBOE range of **100–150**.
+`TradovS06_SKEWCalculator` is Tradov's real-time replication of the **CBOE SKEW Index** — the institutional market-standard measure of tail risk priced into SPY options. The module sources live options chain data via the Tradier API (`TradovB40`), constructs a full volatility smile, computes risk-neutral moments via numerical integration, and outputs a SKEW index value in the canonical CBOE range of **100–150**.
 
-A dedicated offline test suite (`SpyderT130`) comprising **124 tests across 23 test classes** was written and executed on April 23, 2026. All tests pass with zero failures.
+A dedicated offline test suite (`TradovT130`) comprising **124 tests across 23 test classes** was written and executed on April 23, 2026. All tests pass with zero failures.
 
 | Metric | Result | Benchmark | Status |
 |--------|--------|-----------|--------|
@@ -34,9 +34,9 @@ A dedicated offline test suite (`SpyderT130`) comprising **124 tests across 23 t
 
 ## MODULE OVERVIEW
 
-### What SpyderS06 Does
+### What TradovS06 Does
 
-The CBOE SKEW Index measures the price of **left-tail risk** in the S&P 500 options market. When SKEW is elevated (>130), out-of-the-money put options carry a large premium over the Black-Scholes fair value, signalling that market participants are paying for protection against a large downward move. Spyder uses the SKEW reading to:
+The CBOE SKEW Index measures the price of **left-tail risk** in the S&P 500 options market. When SKEW is elevated (>130), out-of-the-money put options carry a large premium over the Black-Scholes fair value, signalling that market participants are paying for protection against a large downward move. Tradov uses the SKEW reading to:
 
 - **Gate strategy entry** — high SKEW suppresses premium-selling strategies until conditions normalise
 - **Scale position sizing** — the E-Series risk layer queries SKEW before approving order sizes
@@ -45,7 +45,7 @@ The CBOE SKEW Index measures the price of **left-tail risk** in the S&P 500 opti
 ### SKEW Index Regime Table
 
 ```
-  SKEW Level   Tail-Risk Interpretation         Spyder Action
+  SKEW Level   Tail-Risk Interpretation         Tradov Action
   ──────────   ─────────────────────────────    ──────────────────────────────
   100 – 115    Low    — normal distribution      Standard position sizes
   115 – 125    Moderate — slight negative skew   Reduce max position by 15%
@@ -60,7 +60,7 @@ The CBOE SKEW Index measures the price of **left-tail risk** in the S&P 500 opti
   Tradier API (B40)           C29 DataProviderRouter
        │                              │
        ▼                              ▼
-  SpyderS06_SKEWCalculator   ◄────────┘
+  TradovS06_SKEWCalculator   ◄────────┘
        │  _fetch_option_chain()
        │  _fetch_spot_price()
        │
@@ -80,7 +80,7 @@ The CBOE SKEW Index measures the price of **left-tail risk** in the S&P 500 opti
               ├── cached (MD5 key, TTL eviction)
               ├── appended to rolling deque history
               ▼
-     SpyderD_Strategies / SpyderE_Risk (consumers)
+     TradovD_Strategies / TradovE_Risk (consumers)
 ```
 
 ### Key Configuration Constants
@@ -102,7 +102,7 @@ The CBOE SKEW Index measures the price of **left-tail risk** in the S&P 500 opti
 
 ---
 
-## TEST SUITE — `SpyderT130_S06SKEWCalculator.py`
+## TEST SUITE — `TradovT130_S06SKEWCalculator.py`
 
 ### Test Class Inventory (23 Classes, 124 Tests)
 
@@ -400,7 +400,7 @@ typically occurs in 4–6 iterations.
 ## NUMERICAL INTEGRATION — MOMENT CALCULATION
 
 The CBOE SKEW methodology derives risk-neutral skewness from the **third standardised moment**
-of the risk-neutral distribution. SpyderS06 approximates this via 100-point rectangular
+of the risk-neutral distribution. TradovS06 approximates this via 100-point rectangular
 quadrature over the moneyness range [0.80, 1.20]:
 
 $$\text{Third Moment} = \int_{K_{\min}}^{K_{\max}} (K - F)^3 \cdot w(K) \, dK \Big/ F^3$$
@@ -448,7 +448,7 @@ scores typically land in the **0.75–0.95** range.
   ┌─────────────────────────────────────────────────────────────────────┐
   │                  SPOT PRICE FETCH (priority order)                  │
   │                                                                     │
-  │  1. SpyderC29_DataProviderRouter  →  Massive API bid/ask mid        │
+  │  1. TradovC29_DataProviderRouter  →  Massive API bid/ask mid        │
   │  2. yfinance SPY 1-minute history →  last Close price               │
   │  3. No data                       →  DataUnavailableError raised     │
   └─────────────────────────────────────────────────────────────────────┘
@@ -456,7 +456,7 @@ scores typically land in the **0.75–0.95** range.
   ┌─────────────────────────────────────────────────────────────────────┐
   │                  OPTION CHAIN FETCH (priority order)                │
   │                                                                     │
-  │  1. SpyderB40_TradierClient       →  live chain with Greeks         │
+  │  1. TradovB40_TradierClient       →  live chain with Greeks         │
   │     • get_option_expirations("SPY")                                 │
   │     • get_option_chain_with_greeks(symbol, expiry)                  │
   │     • Selects expiry closest to 30 DTE                              │
@@ -492,7 +492,7 @@ opportunities for future iterations.
 ```
 ============================= test session info ================================
 platform linux -- Python 3.13.7, pytest-8.4.2
-rootdir: /home/adam/Projects/Spyder
+rootdir: /home/adam/Projects/Tradov
 configfile: pytest.ini
 
 Collected: 124
@@ -642,7 +642,7 @@ Collected: 124
 
 ```
   ╔══════════════════════════════════════════════════════════════════════════╗
-  ║           SpyderS06_SKEWCalculator — Validation Scorecard               ║
+  ║           TradovS06_SKEWCalculator — Validation Scorecard               ║
   ╠══════════════════════════════════════════════╦═════════╦════════════════╣
   ║  Category                                    ║  Score  ║  Status        ║
   ╠══════════════════════════════════════════════╬═════════╬════════════════╣
@@ -669,7 +669,7 @@ Collected: 124
 
 ## CONCLUSION
 
-`SpyderS06_SKEWCalculator` is a **production-quality, institutionally-correct** CBOE SKEW Index
+`TradovS06_SKEWCalculator` is a **production-quality, institutionally-correct** CBOE SKEW Index
 replication engine. The April 23, 2026 validation run confirms:
 
 1. **Mathematical correctness** — BSM pricing satisfies put-call parity, delta identity, and analytical vega to machine precision.
@@ -684,7 +684,7 @@ layer and D-Series strategy selector.
 
 ---
 
-*Report prepared by: GitHub Copilot (Spyder Dev)*  
-*Test module: `Spyder/SpyderT_Testing/SpyderT130_S06SKEWCalculator.py`*  
-*Source module: `Spyder/SpyderS_Signals/SpyderS06_SKEWCalculator.py` (~1,265 lines)*  
+*Report prepared by: GitHub Copilot (Tradov Dev)*  
+*Test module: `Tradov/TradovT_Testing/TradovT130_S06SKEWCalculator.py`*  
+*Source module: `Tradov/TradovS_Signals/TradovS06_SKEWCalculator.py` (~1,265 lines)*  
 *Previous coverage: 5 tests (T109) → New coverage: 124 tests (T130) — **24.8× increase***

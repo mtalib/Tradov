@@ -1,9 +1,9 @@
-# Spyder v9 Audit — Autonomous SPY Options Trading Readiness
+# Tradov v9 Audit — Autonomous SPY Options Trading Readiness
 
 **Date:** 2026-04-19
 **Reviewer:** Claude (Opus 4.7)
 **Scope:** Verify the v9-documented wiring actually executes end-to-end. Flag anomalies, deficiencies, and improvement opportunities ahead of enabling fully autonomous order generation.
-**Input:** `01-Overview-Specs/2026-04-19-Spyder-Overview-v9.md`
+**Input:** `01-Overview-Specs/2026-04-19-Tradov-Overview-v9.md`
 **Implementation session:** 2026-04-19 (Claude Sonnet 4.6 on branch `refactor/g05-widget-extraction`)
 
 ---
@@ -17,7 +17,7 @@
 | P0-3 | ✅ FIXED | ExitMonitor attribute, `_start_exit_monitor()`, sequence step 10, module accessors, D31 hook |
 | P1-1 | ✅ FIXED | Q10 Gate 5 uses `inspect.signature` two-pass check |
 | P1-2 | ✅ FIXED | D31 except block given 10 `None` stubs; `__init__` uses callable guard for `get_event_manager` — `StrategyOrchestrator(event_manager=None)` instantiates cleanlyent_manager` — `StrategyOrchestrator(event_manager=None)` instantiates cleanly |
-| P1-3 | ✅ FIXED | Renamed to `SpyderE24_DataFreshnessMonitor.py` (E14 was taken); E02 kept as backward-compat shim |
+| P1-3 | ✅ FIXED | Renamed to `TradovE24_DataFreshnessMonitor.py` (E14 was taken); E02 kept as backward-compat shim |
 | P1-4 | ✅ FIXED | Rolling `_peak_session_pnl` drawdown calculation in R04 |
 | P1-5 | ✅ FIXED | Both `return "bull_trending"` stubs replaced with `engine.current_regime.value` |
 | P2-1 | ✅ FIXED | Q14 dead `_start_live_engine` method (119 lines) deleted; `launch_system()` remains the canonical pathed; `launch_system()` remains the canonical path |
@@ -43,7 +43,7 @@
 ## P0 — Blockers (system will not trade)
 
 ### ✅ P0-1 — D31 StrategyOrchestrator cannot be instantiated — FIXED
-**File:** [Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py](Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py)
+**File:** [Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py](Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py)
 **Evidence:**
 - `__init__` calls `self._initialize_strategy_registry()` at line 372.
 - `grep "def _initialize_strategy_registry"` in D31 returns **zero matches**.
@@ -58,11 +58,11 @@
 ---
 
 ### ✅ P0-2 — R12 SessionSupervisor never wires FillReconciler to LiveEngine — FIXED
-**File:** [Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py](Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py#L335)
+**File:** [Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py](Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py#L335)
 **Evidence:**
 - `_start_fill_reconciler` (line 308) creates `self.reconciler` successfully.
 - `_start_live_engine` (line 335) calls `create_live_engine(self.broker, self.risk, config, event_manager=self.em)` — no `fill_reconciler=` kwarg.
-- `SpyderR04_LiveEngine.create_live_engine` and `LiveEngine.__init__` accept `fill_reconciler` (R04:209). When absent, `self._reconciler = None`.
+- `TradovR04_LiveEngine.create_live_engine` and `LiveEngine.__init__` accept `fill_reconciler` (R04:209). When absent, `self._reconciler = None`.
 - LiveEngine line 1281: `self._reconciler.track(...)` is guarded by `if self._reconciler is not None` — so orders submitted but **never reconciled**. No `ORDER_FILLED` events are ever emitted in live mode.
 
 **Consequence:** Strategies issue signals, orders reach broker, but PortfolioManager never hears fills → ExitMonitor sees no positions → no closes ever fire → runaway risk.
@@ -73,10 +73,10 @@
 
 ### ✅ P0-3 — R14 ExitMonitor is dead code — FIXED
 **Files:**
-- [Spyder/SpyderR_Runtime/SpyderR14_ExitMonitor.py](Spyder/SpyderR_Runtime/SpyderR14_ExitMonitor.py) — fully implemented, never imported.
-- [Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py](Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py)
+- [Tradov/TradovR_Runtime/TradovR14_ExitMonitor.py](Tradov/TradovR_Runtime/TradovR14_ExitMonitor.py) — fully implemented, never imported.
+- [Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py](Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py)
 
-**Evidence:** Grep for `ExitMonitor|create_exit_monitor` across `SpyderR_Runtime/` returns only R14 itself. SessionSupervisor has no corresponding `_start_exit_monitor()` helper. The v9 spec calls R14 "lifecycle-owned by SessionSupervisor" — that ownership does not exist in code.
+**Evidence:** Grep for `ExitMonitor|create_exit_monitor` across `TradovR_Runtime/` returns only R14 itself. SessionSupervisor has no corresponding `_start_exit_monitor()` helper. The v9 spec calls R14 "lifecycle-owned by SessionSupervisor" — that ownership does not exist in code.
 
 **Consequence:** No automated exits, no orphan-position alerts, no STRATEGY_SIGNAL(action=close) emissions. Positions only close if a strategy happens to generate a close signal on its own or a human intervenes.
 
@@ -92,7 +92,7 @@
 ## P1 — High severity (degraded safety / false-positive CI)
 
 ### ✅ P1-1 — Q10 Gate 5 does not actually verify BrokerProtocol — FIXED
-**File:** [Spyder/SpyderQ_Scripts/SpyderQ10_ProtocolComplianceGate.py:295](Spyder/SpyderQ_Scripts/SpyderQ10_ProtocolComplianceGate.py#L295)
+**File:** [Tradov/TradovQ_Scripts/TradovQ10_ProtocolComplianceGate.py:295](Tradov/TradovQ_Scripts/TradovQ10_ProtocolComplianceGate.py#L295)
 **Evidence:**
 ```python
 missing = [m for m in _REQUIRED_METHODS if not callable(getattr(cls, m, None))]
@@ -110,7 +110,7 @@ This is a name-only check. BrokerProtocol is imported at line 261 and then never
 - `TypeError` when null stub was called unconditionally
 
 **Fix applied:**
-1. 10 `None` stubs added to D31 `except ImportError` block (`SpyderLogger`, `SpyderErrorHandler`, `TradingCalendar`, `PerformanceMetrics`, `BaseStrategy`, `IntegratedConnectivityManager`, `EventManager`, `Event`, `EventType`, `get_event_manager`).
+1. 10 `None` stubs added to D31 `except ImportError` block (`TradovLogger`, `TradovErrorHandler`, `TradingCalendar`, `PerformanceMetrics`, `BaseStrategy`, `IntegratedConnectivityManager`, `EventManager`, `Event`, `EventType`, `get_event_manager`).
 2. `__init__` guards `_gem` with `callable(_gem)` before calling; falls back to direct A05 import.
 3. Verified: `StrategyOrchestrator(event_manager=None)` instantiates cleanly with `available_strategies == {}` and `active_strategies == {}`.
 
@@ -118,17 +118,17 @@ This is a name-only check. BrokerProtocol is imported at line 261 and then never
 
 ### ✅ P1-3 — E02 filename collision — FIXED
 **Files:**
-- `Spyder/SpyderE_Risk/SpyderE02_PositionSizer.py`
-- `Spyder/SpyderE_Risk/SpyderE02_DataFreshnessMonitor.py`
+- `Tradov/TradovE_Risk/TradovE02_PositionSizer.py`
+- `Tradov/TradovE_Risk/TradovE02_DataFreshnessMonitor.py`
 
 **Evidence:** Two modules share the `E02` numeric prefix. Any reference by the v9 docs' naming scheme (e.g. "E02") is ambiguous; any future Q-gate that scans by prefix will either double-count or race on whichever `glob` returns first.
 
-**Fix applied:** Copied to `SpyderE24_DataFreshnessMonitor.py` (E14–E23 were occupied; E24 was the first free slot — note: audit suggested E14). Old E02 file replaced with a backward-compat shim. Active imports in R12 and Q14 updated to E24.
+**Fix applied:** Copied to `TradovE24_DataFreshnessMonitor.py` (E14–E23 were occupied; E24 was the first free slot — note: audit suggested E14). Old E02 file replaced with a backward-compat shim. Active imports in R12 and Q14 updated to E24.
 
 ---
 
 ### ✅ P1-4 — Portfolio drawdown is a hardcoded stub — FIXED
-**File:** [Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py:1152](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py#L1152)
+**File:** [Tradov/TradovR_Runtime/TradovR04_LiveEngine.py:1152](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py#L1152)
 ```python
 def _calculate_portfolio_drawdown(self) -> float:
     return 0.0
@@ -140,7 +140,7 @@ def _calculate_portfolio_drawdown(self) -> float:
 ---
 
 ### ✅ P1-5 — D25 regime detector returns hardcoded labels — FIXED
-**File:** [Spyder/SpyderD_Strategies/SpyderD25_UnifiedCreditSpreadEngine.py](Spyder/SpyderD_Strategies/SpyderD25_UnifiedCreditSpreadEngine.py)
+**File:** [Tradov/TradovD_Strategies/TradovD25_UnifiedCreditSpreadEngine.py](Tradov/TradovD_Strategies/TradovD25_UnifiedCreditSpreadEngine.py)
 - Line 569: `return "bull_trending"  # Example`
 - Line 1313: `return "bull_trending"  # Placeholder`
 
@@ -153,17 +153,17 @@ def _calculate_portfolio_drawdown(self) -> float:
 ## P2 — Medium severity (tech debt / clarity)
 
 ### ✅ P2-1 — Q14 MainLauncher contains dead `_start_live_engine` — FIXED
-**File:** [Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py](Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py)
+**File:** [Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py](Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py)
 
 **Fix applied:** Entire `_start_live_engine` method body (119 lines, formerly lines 354–472) deleted. `launch_system()` via `SessionSupervisor` remains the sole canonical boot path. Syntax verified clean.
 
 ### ✅ P2-2 — R15 PaperBroker `place_order` signature drifts from protocol — FIXED
-**File:** [Spyder/SpyderR_Runtime/SpyderR15_PaperBroker.py](Spyder/SpyderR_Runtime/SpyderR15_PaperBroker.py)
+**File:** [Tradov/TradovR_Runtime/TradovR15_PaperBroker.py](Tradov/TradovR_Runtime/TradovR15_PaperBroker.py)
 
 **Fix applied:** Signature updated to `(self, symbol: str = "", side: Any = None, quantity: int = 1, order_type: Any = None, limit_price: float | None = None, **kwargs: Any)`. Body updated to prefer explicit params with kwargs fallback.
 
 ### ✅ P2-3 — T129 does not test the orchestrator→broker happy path — FIXED
-**File:** [Spyder/SpyderT_Testing/SpyderT129_ProtocolCompliance.py](Spyder/SpyderT_Testing/SpyderT129_ProtocolCompliance.py)
+**File:** [Tradov/TradovT_Testing/TradovT129_ProtocolCompliance.py](Tradov/TradovT_Testing/TradovT129_ProtocolCompliance.py)
 
 **Fix applied:** `EndToEndHappyPathTest(unittest.TestCase)` class appended with 5 tests:
 1. `test_paper_broker_place_order_returns_ack`
@@ -179,7 +179,7 @@ All 12 T129 tests pass (6.01 s).
 **Fix applied:** `_NullBroker.place_order` now emits a `RISK_VIOLATION` event via `get_event_manager()` with `type="NULL_BROKER_ORDER"` and a descriptive message (emit wrapped in bare `except` so it never raises inside a broker call). Returns `{"status": "null_broker"}` — distinguishable from normal responses.
 
 ### ✅ P2-5 — PaperBroker fill pricing lacks slippage model — FIXED
-**File:** [Spyder/SpyderR_Runtime/SpyderR15_PaperBroker.py](Spyder/SpyderR_Runtime/SpyderR15_PaperBroker.py)
+**File:** [Tradov/TradovR_Runtime/TradovR15_PaperBroker.py](Tradov/TradovR_Runtime/TradovR15_PaperBroker.py)
 
 **Fix applied:**
 - `slippage_bps: int = 5` added to `PaperBroker.__init__` and `create_paper_broker`.
@@ -195,17 +195,17 @@ All 12 T129 tests pass (6.01 s).
 **Fix applied:** `check_module_imports()` added to Q10. Iterates `_SMOKE_TEST_MODULES` (8 key modules), calls `importlib.import_module` on each, prints `OK`/`FAIL` per module. Wired into `main()` after Gate 5.
 
 ### ✅ O-2 — Orphan-position drill on every boot — FIXED
-**File:** [Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py](Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py)
+**File:** [Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py](Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py)
 
 **Fix applied:** `_boot_orphan_sweep()` added; called immediately after `self._running = True` in `start()`. Wraps `self.exit_monitor._sweep_once()` in try/except — failures are logged but never re-raise. Surfaces pre-existing broker positions from before a crash on every restart.
 
 ### ✅ O-3 — Runtime invariant: every order-submit must have a reconciler — FIXED
-**File:** [Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py)
+**File:** [Tradov/TradovR_Runtime/TradovR04_LiveEngine.py](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py)
 
 **Fix applied:** `_broker_submit` raises `RuntimeError` when `self._reconciler is None and self.mode == TradingMode.LIVE`. Would have surfaced P0-2 at boot rather than silently orphaning orders.
 
 ### ✅ O-4 — Structured kill-switch event — FIXED
-**Files:** [Spyder/SpyderA_Core/SpyderA05_EventManager.py](Spyder/SpyderA_Core/SpyderA05_EventManager.py), [Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py)
+**Files:** [Tradov/TradovA_Core/TradovA05_EventManager.py](Tradov/TradovA_Core/TradovA05_EventManager.py), [Tradov/TradovR_Runtime/TradovR04_LiveEngine.py](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py)
 
 **Fix applied:**
 - `KILL_SWITCH = "kill_switch"` added to `EventType` enum in A05 under `# System control events`.
@@ -215,7 +215,7 @@ All 12 T129 tests pass (6.01 s).
 - Any module can now emit `EventType.KILL_SWITCH` for a clean, observable halt.
 
 ### ✅ O-5 — Dry-run flag at SessionSupervisor — FIXED
-**File:** [Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py](Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py)
+**File:** [Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py](Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py)
 
 **Fix applied:**
 - `dry_run: bool = False` added to `__init__` and `create_session_supervisor`.
@@ -223,7 +223,7 @@ All 12 T129 tests pass (6.01 s).
 - In paper + dry_run mode, `broker.place_order` is monkey-patched to a no-op returning `{"order": {"id": "DRY-RUN-NOOP"}}` and logging each suppressed call.
 
 ### ✅ O-6 — Prometheus counter on P0/P1 paths — FIXED
-**Files:** [Spyder/SpyderR_Runtime/SpyderR13_FillReconciler.py](Spyder/SpyderR_Runtime/SpyderR13_FillReconciler.py), [Spyder/SpyderR_Runtime/SpyderR14_ExitMonitor.py](Spyder/SpyderR_Runtime/SpyderR14_ExitMonitor.py)
+**Files:** [Tradov/TradovR_Runtime/TradovR13_FillReconciler.py](Tradov/TradovR_Runtime/TradovR13_FillReconciler.py), [Tradov/TradovR_Runtime/TradovR14_ExitMonitor.py](Tradov/TradovR_Runtime/TradovR14_ExitMonitor.py)
 
 **Fix applied (all via the existing `_inc_counter` / soft-import pattern):**
 - `spyder_orders_submitted_total` — R13 `track()`, each order registered
@@ -260,7 +260,7 @@ R14 gains `self._prom` soft-import block and `_inc_counter` helper matching R13'
 
 | Criterion | Status |
 |-----------|--------|
-| `python -m Spyder.SpyderQ_Scripts.SpyderQ10_ProtocolComplianceGate` exits 0 | ⏳ Not yet run end-to-end (all prereqs now met) |
+| `python -m Tradov.TradovQ_Scripts.TradovQ10_ProtocolComplianceGate` exits 0 | ⏳ Not yet run end-to-end (all prereqs now met) |
 | `StrategyOrchestrator(config={}, event_manager=None)` instantiates successfully | ✅ Verified: instantiates cleanly with `available_strategies == {}` |
 | 60 s paper-mode run emits ≥1 `ORDER_FILLED` observed by PortfolioManager | ⏳ Not yet run (all wiring in place) |
 | ≥1 ExitMonitor sweep completes without error | ⏳ Not yet run (boot sweep wired; T129 sweep test passes) |

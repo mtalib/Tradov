@@ -1,7 +1,7 @@
 # 2026-05-03 Hands-Free 24x5 Autonomous Operations Proposal
 
 ## Objective
-Enable Spyder to run hands-free, set-and-forget, 24 hours/day during weekdays, with an enforced active trading window of 09:30 to 16:15 ET for SPY options, automated risk-aware shutdown, ongoing Telegram profit/loss updates during market hours, end-of-day and end-of-week P/L summaries, complete logging artifacts for weekend review, and urgent Telegram escalation.
+Enable Tradov to run hands-free, set-and-forget, 24 hours/day during weekdays, with an enforced active trading window of 09:30 to 16:15 ET for SPY options, automated risk-aware shutdown, ongoing Telegram profit/loss updates during market hours, end-of-day and end-of-week P/L summaries, complete logging artifacts for weekend review, and urgent Telegram escalation.
 
 ## Executive Decision
 Yes, this is feasible with the current codebase, but only with a controlled rollout and explicit operational guardrails.
@@ -19,7 +19,7 @@ Current repo evidence shows the required building blocks already exist:
 - Outside that window: no new entries, controlled stop/flatten policy, artifact generation, health monitoring continues.
 - Weekend: no trading; logs and EOD artifacts available for review.
 
-## Baseline Findings From Current Spyder
+## Baseline Findings From Current Tradov
 
 ### Scheduling and market-time awareness
 - A04 already supports trading day/session logic, holiday/weekend awareness, and ET-aware market checks.
@@ -91,15 +91,15 @@ Current repo evidence shows the required building blocks already exist:
 Use systemd as the source of truth for process lifecycle and recovery.
 
 - Primary service:
-  - spyder-main.service (headless, auto-restart on failure)
+  - tradov-main.service (headless, auto-restart on failure)
 - Window timers:
-  - spyder-session-start.timer -> 09:30 ET weekdays
-  - spyder-session-stop.timer -> 16:15 ET weekdays
-  - spyder-0dte-risk-cutoff.timer -> configurable window before broker cutoff (recommended: 15:45 ET baseline)
+  - tradov-session-start.timer -> 09:30 ET weekdays
+  - tradov-session-stop.timer -> 16:15 ET weekdays
+  - tradov-0dte-risk-cutoff.timer -> configurable window before broker cutoff (recommended: 15:45 ET baseline)
 - Optional:
-  - spyder-preflight.timer -> 08:55 ET weekdays
-  - spyder-weekend-stop.timer -> Friday 16:20 ET
-  - spyder-monday-start.timer -> Monday 08:55 ET
+  - tradov-preflight.timer -> 08:55 ET weekdays
+  - tradov-weekend-stop.timer -> Friday 16:20 ET
+  - tradov-monday-start.timer -> Monday 08:55 ET
 
 ### Layer 2: In-app trading gates
 Keep the app-level safety gate as mandatory, even if systemd starts a process.
@@ -177,7 +177,7 @@ This dual-layer model prevents accidental orders from scheduler bugs or host res
 Use every 30 minutes during active trading window.
 
 ```text
-[INFO][P/L HEARTBEAT] SPYDER
+[INFO][P/L HEARTBEAT] TRADOV
 Time (ET): 2026-05-04 11:30
 Mode/Acct: LIVE / XXXXX1234
 Realized P/L (Day): +$325.40
@@ -193,7 +193,7 @@ Risk State: NORMAL
 Use once after controlled stop completes.
 
 ```text
-[EOD SUMMARY] SPYDER
+[EOD SUMMARY] TRADOV
 Date (ET): 2026-05-04
 Mode/Acct: LIVE / XXXXX1234
 Realized P/L (Day): +$612.75
@@ -211,7 +211,7 @@ Artifact: market_data/eod_reviews/eod_2026-05-04.json
 Use Friday primary dispatch, Saturday fallback dispatch.
 
 ```text
-[EOW SUMMARY] SPYDER
+[EOW SUMMARY] TRADOV
 Week: 2026-W19
 Mode/Acct: LIVE / XXXXX1234
 Weekly Realized P/L: +$2,184.90
@@ -284,7 +284,7 @@ Round USD thresholds to nearest 25 for cleaner operator readability in Telegram.
 
 #### Unscheduled alert template: loss breach
 ```text
-[HIGH][P/L THRESHOLD BREACH] SPYDER
+[HIGH][P/L THRESHOLD BREACH] TRADOV
 Time (ET): 2026-05-04 13:42
 Mode/Acct: LIVE / XXXXX1234
 Trigger: Daily loss threshold exceeded
@@ -298,7 +298,7 @@ Correlation: sess-20260504-01
 
 #### Unscheduled alert template: critical loss breach
 ```text
-[CRITICAL][P/L CIRCUIT ALERT] SPYDER
+[CRITICAL][P/L CIRCUIT ALERT] TRADOV
 Time (ET): 2026-05-04 14:07
 Mode/Acct: LIVE / XXXXX1234
 Trigger: Critical daily loss threshold exceeded
@@ -311,7 +311,7 @@ Correlation: sess-20260504-01
 
 #### Unscheduled alert template: profit milestone
 ```text
-[INFO][P/L MILESTONE] SPYDER
+[INFO][P/L MILESTONE] TRADOV
 Time (ET): 2026-05-04 12:18
 Mode/Acct: LIVE / XXXXX1234
 Trigger: Profit milestone reached
@@ -351,7 +351,7 @@ Each urgent Telegram message should include:
 
 ## Telegram Remote Halt Control (Operator Commands)
 
-Yes, Spyder should support command-based remote halt from Telegram for unattended operations.
+Yes, Tradov should support command-based remote halt from Telegram for unattended operations.
 
 ### Proposed command set (v1)
 - `/status`
@@ -403,7 +403,7 @@ Yes, Spyder should support command-based remote halt from Telegram for unattende
 
 #### HALT accepted
 ```text
-[CRITICAL][OPERATOR HALT EXECUTED] SPYDER
+[CRITICAL][OPERATOR HALT EXECUTED] TRADOV
 Time (ET): 2026-05-04 14:18
 Requested By: user_id=123456789
 Action: HALT
@@ -416,7 +416,7 @@ Correlation: op-20260504-1418
 
 #### RESUME blocked by failed preflight
 ```text
-[HIGH][RESUME BLOCKED] SPYDER
+[HIGH][RESUME BLOCKED] TRADOV
 Time (ET): 2026-05-04 15:02
 Requested By: user_id=123456789
 Action: RESUME
@@ -527,10 +527,10 @@ Retention recommendation:
 
 ### Step 1: Session windows and host timers
 - Target files:
-  - Spyder/SpyderQ_Scripts/SpyderQ74_SpyderMain.service
-  - Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py
-  - Spyder/SpyderQ_Scripts/SpyderQ10_StartAll.sh
-  - Spyder/SpyderQ_Scripts/SpyderQ11_StopAll.sh
+  - Tradov/TradovQ_Scripts/TradovQ74_TradovMain.service
+  - Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py
+  - Tradov/TradovQ_Scripts/TradovQ10_StartAll.sh
+  - Tradov/TradovQ_Scripts/TradovQ11_StopAll.sh
 - Actions:
   - Set weekday timer boundaries to 09:30 start and 16:15 stop.
   - Add explicit 0DTE risk-cutoff timer hook (recommended baseline 15:45 ET).
@@ -540,8 +540,8 @@ Retention recommendation:
 
 ### Step 2: In-app trading gate authority
 - Target files:
-  - Spyder/SpyderA_Core/SpyderA04_Scheduler.py
-  - Spyder/SpyderA_Core/SpyderA06_MasterController.py
+  - Tradov/TradovA_Core/TradovA04_Scheduler.py
+  - Tradov/TradovA_Core/TradovA06_MasterController.py
 - Actions:
   - Make 09:30-16:15 ET the authoritative SPY options entry gate.
   - Block new entries after configured 0DTE no-new-risk cutoff.
@@ -551,8 +551,8 @@ Retention recommendation:
 
 ### Step 3: Controlled stop and pin-risk window
 - Target files:
-  - Spyder/SpyderA_Core/SpyderA06_MasterController.py
-  - Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py
+  - Tradov/TradovA_Core/TradovA06_MasterController.py
+  - Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py
 - Actions:
   - Execute close policy at 16:15 ET (flatten-all in unattended v1 default).
   - Define at-risk short option policy using configurable distance-to-ATM threshold and broker cutoff buffer.
@@ -637,7 +637,7 @@ Retention recommendation:
 
 ### Step 4: Telegram P/L and escalation delivery
 - Target files:
-  - Spyder/SpyderJ_Alerts/SpyderJ05_TelegramBot.py
+  - Tradov/TradovJ_Alerts/TradovJ05_TelegramBot.py
 - Actions:
   - Heartbeat window: 09:30-16:15 ET with configured cadence.
   - EOD summary window: 16:16-16:20 ET.
@@ -648,9 +648,9 @@ Retention recommendation:
 
 ### Step 5: Artifacts, audits, and acceptance evidence
 - Target files:
-  - Spyder/SpyderA_Core/SpyderA04_Scheduler.py
-  - Spyder/SpyderA_Core/SpyderA06_MasterController.py
-  - Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py
+  - Tradov/TradovA_Core/TradovA04_Scheduler.py
+  - Tradov/TradovA_Core/TradovA06_MasterController.py
+  - Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py
 - Actions:
   - Emit daily operational artifacts and weekly summary outputs defined in this proposal.
   - Persist operator command audit log and correlation IDs for every control action.
@@ -700,12 +700,12 @@ Change thresholds only after at least 10 sessions and all conditions below are m
 - No missed EOD/EOW summary deliveries without explicit failure alert
 
 ## Source Files Used For This Proposal
-- Spyder/SpyderA_Core/SpyderA04_Scheduler.py
-- Spyder/SpyderA_Core/SpyderA06_MasterController.py
-- Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py
-- Spyder/SpyderQ_Scripts/SpyderQ10_StartAll.sh
-- Spyder/SpyderQ_Scripts/SpyderQ11_StopAll.sh
-- Spyder/SpyderQ_Scripts/SpyderQ74_SpyderMain.service
-- Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py
-- Spyder/SpyderJ_Alerts/SpyderJ05_TelegramBot.py
+- Tradov/TradovA_Core/TradovA04_Scheduler.py
+- Tradov/TradovA_Core/TradovA06_MasterController.py
+- Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py
+- Tradov/TradovQ_Scripts/TradovQ10_StartAll.sh
+- Tradov/TradovQ_Scripts/TradovQ11_StopAll.sh
+- Tradov/TradovQ_Scripts/TradovQ74_TradovMain.service
+- Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py
+- Tradov/TradovJ_Alerts/TradovJ05_TelegramBot.py
 - 01-Overview-Specs/2026-04-25-Live-Launch-Checklist.md

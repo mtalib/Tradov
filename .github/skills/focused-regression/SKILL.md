@@ -1,12 +1,12 @@
 ---
 name: focused-regression
-description: 'Run a narrow regression or validation loop for Spyder. Use for targeted pytest, --no-cov single-regression checks, touched-path ruff, failing test reruns, or validating one module series without widening scope.'
+description: 'Run a narrow regression or validation loop for Tradov. Use for targeted pytest, --no-cov single-regression checks, touched-path ruff, failing test reruns, or validating one module series without widening scope.'
 argument-hint: 'Module path, test path, failing test name, or changed files to validate'
 ---
 
 # Focused Regression
 
-Use this skill when the goal is to validate a specific Spyder change quickly without jumping to the full suite.
+Use this skill when the goal is to validate a specific Tradov change quickly without jumping to the full suite.
 
 ## When to Use
 
@@ -19,7 +19,7 @@ Use this skill when the goal is to validate a specific Spyder change quickly wit
 
 1. Identify the smallest executable target.
    - Prefer a direct failing test path or test name.
-   - If only a production file changed, map it to the nearest existing test file under `Spyder/SpyderT_Testing`.
+   - If only a production file changed, map it to the nearest existing test file under `Tradov/TradovT_Testing`.
    - If no narrow pytest target exists yet, start with `ruff check` on the touched files.
 
 2. Activate the project environment before running Python tooling.

@@ -1,4 +1,4 @@
-# SPYDER - Docker Compose
+# TRADOV - Docker Compose
 # Broker: Tradier (REST API — no local gateway required)
 # Market Data: Databento (cloud streaming) / Tradier (testing)
 #

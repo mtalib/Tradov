@@ -1,9 +1,9 @@
-# SPEC-SPYDER-03 — Tradier Broker Integration Module
+# SPEC-TRADOV-03 — Tradier Broker Integration Module
 
 | Field | Value |
 |---|---|
-| Spec ID | SPEC-SPYDER-03 |
-| Module | `spyder/broker/tradier/` (package) |
+| Spec ID | SPEC-TRADOV-03 |
+| Module | `tradov/broker/tradier/` (package) |
 | Version | 1.0.0 |
 | Status | Ready for implementation |
 | Depends on | (none — this is the lowest layer) |
@@ -13,10 +13,10 @@
 
 ## 1. Purpose
 
-A reliable, well-tested Tradier client used by every Spyder strategy. The module:
+A reliable, well-tested Tradier client used by every Tradov strategy. The module:
 1. Provides a typed Python interface over Tradier's REST and streaming endpoints.
 2. Handles authentication, rate limiting, retries, and error classification.
-3. Implements a `BrokerProtocol` matching the one used by the backtest simulator (SPEC-SPYDER-02), so live and backtest are interchangeable behind the strategy layer.
+3. Implements a `BrokerProtocol` matching the one used by the backtest simulator (SPEC-TRADOV-02), so live and backtest are interchangeable behind the strategy layer.
 4. Persists every raw API response for audit and debugging.
 
 ---
@@ -87,7 +87,7 @@ class TradierConfig:
     retry_backoff_base: float = 0.5    # exponential
 ```
 
-The token is loaded from `~/.spyder/secrets.toml` (`chmod 600`), never from environment variables in production (env vars leak into child processes and crash dumps).
+The token is loaded from `~/.tradov/secrets.toml` (`chmod 600`), never from environment variables in production (env vars leak into child processes and crash dumps).
 
 ---
 
@@ -286,7 +286,7 @@ For credit spreads and iron condors, **always use `type=credit`** for opening an
 
 ## 8. The `BrokerProtocol`
 
-Live `TradierClient` and `SimulatedBroker` (SPEC-SPYDER-02) both implement:
+Live `TradierClient` and `SimulatedBroker` (SPEC-TRADOV-02) both implement:
 
 ```python
 from typing import Protocol
@@ -421,16 +421,16 @@ A startup hook calls reconcile and refuses to start trading if any discrepancy e
 
 Three guard rails to prevent the catastrophic "I thought I was on sandbox" mistake:
 
-1. **At config load:** if `env=PRODUCTION` and the file path is under `~/.spyder/dev/`, refuse to load.
-2. **At startup:** print a 5-line banner with the environment in red and require a `SPYDER_PROD_CONFIRMED=1` env var.
+1. **At config load:** if `env=PRODUCTION` and the file path is under `~/.tradov/dev/`, refuse to load.
+2. **At startup:** print a 5-line banner with the environment in red and require a `TRADOV_PROD_CONFIRMED=1` env var.
 3. **At order submission:** if `env=PRODUCTION` and `quantity > config.production_max_qty`, refuse and log.
 
 ```python
 def assert_production_safe(cfg: TradierConfig) -> None:
     if cfg.env == TradierEnv.PRODUCTION:
-        if os.environ.get("SPYDER_PROD_CONFIRMED") != "1":
+        if os.environ.get("TRADOV_PROD_CONFIRMED") != "1":
             raise RuntimeError(
-                "Production trading requires SPYDER_PROD_CONFIRMED=1 in environment. "
+                "Production trading requires TRADOV_PROD_CONFIRMED=1 in environment. "
                 "Set it deliberately and never in shell rc files."
             )
 ```
@@ -477,7 +477,7 @@ def assert_production_safe(cfg: TradierConfig) -> None:
 
 ## 16. Out of Scope
 
-- IB / TWS support — separate spec if needed (`SPEC-SPYDER-03B_IB_Integration.md`)
+- IB / TWS support — separate spec if needed (`SPEC-TRADOV-03B_IB_Integration.md`)
 - Equities trading — strategies are options-only for now
 - FIX protocol — REST + WS is sufficient for SPY 0DTE volume
 - OAuth flow — Tradier API uses long-lived bearer tokens; no rotation logic needed

@@ -1,12 +1,12 @@
-# SPEC-SPYDER-01 — 0DTE Iron Condor Strategy Module
+# SPEC-TRADOV-01 — 0DTE Iron Condor Strategy Module
 
 | Field | Value |
 |---|---|
-| Spec ID | SPEC-SPYDER-01 |
-| Module | `spyder/strategies/condor_0dte.py` |
+| Spec ID | SPEC-TRADOV-01 |
+| Module | `tradov/strategies/condor_0dte.py` |
 | Version | 1.0.0 |
 | Status | Ready for implementation |
-| Depends on | SPEC-SPYDER-03 (Tradier), SPEC-SPYDER-04 (Greeks) |
+| Depends on | SPEC-TRADOV-03 (Tradier), SPEC-TRADOV-04 (Greeks) |
 | Target | Autonomous SPY 0DTE iron condor execution |
 
 ---
@@ -20,7 +20,7 @@ Implement a fully autonomous 0DTE iron condor strategy on SPY that:
 4. Manages the position with profit target, stop loss, and a hard time-based close.
 5. Logs every state transition for auditability and post-trade analysis.
 
-This is the highest-frequency, highest-priority strategy in the Spyder suite.
+This is the highest-frequency, highest-priority strategy in the Tradov suite.
 
 ---
 
@@ -338,7 +338,7 @@ async def manage_position(
 
 ## 9. Tradier Order Construction
 
-The four-leg multileg order payload. See SPEC-SPYDER-03 for full broker module.
+The four-leg multileg order payload. See SPEC-TRADOV-03 for full broker module.
 
 ```python
 def build_open_payload(
@@ -462,7 +462,7 @@ Every state transition must emit a structured JSON log line:
 }
 ```
 
-Log destinations: stdout (for systemd journal), rotating file at `~/.spyder/logs/condor_0dte.jsonl`, optional shipping to monitoring backend.
+Log destinations: stdout (for systemd journal), rotating file at `~/.tradov/logs/condor_0dte.jsonl`, optional shipping to monitoring backend.
 
 ---
 
@@ -491,7 +491,7 @@ Log destinations: stdout (for systemd journal), rotating file at `~/.spyder/logs
 - `test_recovery_after_simulated_network_drop`
 
 ### 13.3 Backtest Validation
-See SPEC-SPYDER-02. Strategy must show positive expectancy over 500+ historical trading days with realistic slippage and commission models before live deployment.
+See SPEC-TRADOV-02. Strategy must show positive expectancy over 500+ historical trading days with realistic slippage and commission models before live deployment.
 
 ---
 
@@ -502,7 +502,7 @@ See SPEC-SPYDER-02. Strategy must show positive expectancy over 500+ historical 
 - [ ] Backtest over the most recent 2 years shows: positive expectancy, max drawdown < 20% of NAV, Sharpe > 1.0
 - [ ] All state transitions emit structured logs
 - [ ] All trades persisted to SQLite with full snapshot
-- [ ] Manual kill-switch (e.g., `~/.spyder/HALT` sentinel file) halts new entries within one tick
+- [ ] Manual kill-switch (e.g., `~/.tradov/HALT` sentinel file) halts new entries within one tick
 - [ ] FOMC, CPI, NFP calendar correctly identified for next 30 days at startup
 
 ---
@@ -512,7 +512,7 @@ See SPEC-SPYDER-02. Strategy must show positive expectancy over 500+ historical 
 - Iron butterfly variant (different strike structure — separate spec).
 - Directional bias mode (legging in one side at a time — separate spec).
 - Multi-DTE iron condor management — focus is strictly same-day.
-- GUI for live monitoring — the GUI module (G-series per Spyder convention) is a consumer of this module's logs and DB, not part of this spec.
+- GUI for live monitoring — the GUI module (G-series per Tradov convention) is a consumer of this module's logs and DB, not part of this spec.
 
 ---
 

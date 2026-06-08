@@ -1,12 +1,12 @@
-# Spyder — New Features Added 2026-05-22
+# Tradov — New Features Added 2026-05-22
 
 Inspired by analysis of the open-source [FinceptTerminal](https://github.com/Swayam2004/FinceptTerminal) project (AGPL-3.0).  All implementations were written independently from scratch — no source code was copied or adapted from that repository.
 
 ---
 
-## 1  SpyderS17 — Kalshi Prediction Markets Signal
+## 1  TradovS17 — Kalshi Prediction Markets Signal
 
-**Module:** `Spyder/SpyderS_Signals/SpyderS17_PredictionMarkets.py`
+**Module:** `Tradov/TradovS_Signals/TradovS17_PredictionMarkets.py`
 
 ### What it does
 Fetches live prediction-market probabilities from [Kalshi](https://kalshi.com) and exposes them as S07 metrics so strategies and the dashboard can factor macro-market sentiment into trading decisions.
@@ -32,15 +32,15 @@ KALSHI_API_KEY=<your Kalshi REST API key>   # leave blank to disable
 ```
 
 ### Integration
-- S07 (`SpyderS07_CustomMetricsOrchestrator`) calls `_update_prediction_markets_metrics()` each cycle and exposes formatted entries in `_format_metrics()`.
+- S07 (`TradovS07_CustomMetricsOrchestrator`) calls `_update_prediction_markets_metrics()` each cycle and exposes formatted entries in `_format_metrics()`.
 - Quality tracking slot: `PREDICTION_MARKETS`.
 - Success counted in the cycle summary (`/15 sources`).
 
 ---
 
-## 2  SpyderS18 — Economic Calendar Stand-Down Gate
+## 2  TradovS18 — Economic Calendar Stand-Down Gate
 
-**Module:** `Spyder/SpyderS_Signals/SpyderS18_EconomicCalendar.py`
+**Module:** `Tradov/TradovS_Signals/TradovS18_EconomicCalendar.py`
 
 ### What it does
 Tracks tier-1 macroeconomic events and suppresses new position entries during configurable windows before and after each event.  The gate is enforced in D31's `_evaluate_pre_risk_signal_gates()` so it sits upstream of the risk manager — no signal reaches execution while a stand-down is active.
@@ -76,14 +76,14 @@ Tracks tier-1 macroeconomic events and suppresses new position entries during co
 
 ### Configuration
 ```
-SPYDER_ECO_STAND_DOWN_BEFORE_MIN=30    # minutes before event to begin stand-down (default 30)
-SPYDER_ECO_STAND_DOWN_AFTER_MIN=30     # minutes after event to end stand-down   (default 30)
-SPYDER_ECO_CALENDAR_GATE_ENABLED=1     # set to 0 to disable the gate entirely
+TRADOV_ECO_STAND_DOWN_BEFORE_MIN=30    # minutes before event to begin stand-down (default 30)
+TRADOV_ECO_STAND_DOWN_AFTER_MIN=30     # minutes after event to end stand-down   (default 30)
+TRADOV_ECO_CALENDAR_GATE_ENABLED=1     # set to 0 to disable the gate entirely
 ```
 
 ### Integration
 - **S07** calls `_update_eco_calendar_metrics()` each cycle and formats the three metric keys.
-- **D31** (`SpyderD31_StrategyOrchestrator`) resolves the singleton lazily via `_get_eco_calendar()` and calls `_passes_eco_calendar_gate(signal)` inside `_evaluate_pre_risk_signal_gates()`.  A blocked signal returns stage `"pre_risk"`, reason `"eco_calendar_gate"`, with the event name and timing in the detail field.
+- **D31** (`TradovD31_StrategyOrchestrator`) resolves the singleton lazily via `_get_eco_calendar()` and calls `_passes_eco_calendar_gate(signal)` inside `_evaluate_pre_risk_signal_gates()`.  A blocked signal returns stage `"pre_risk"`, reason `"eco_calendar_gate"`, with the event name and timing in the detail field.
 - Quality tracking slot: `ECO_CALENDAR`.
 - Success counted in the cycle summary (`/15 sources`).
 
@@ -91,7 +91,7 @@ SPYDER_ECO_CALENDAR_GATE_ENABLED=1     # set to 0 to disable the gate entirely
 
 ## 3  S07 Orchestrator Additions
 
-**Module:** `Spyder/SpyderS_Signals/SpyderS07_CustomMetricsOrchestrator.py`
+**Module:** `Tradov/TradovS_Signals/TradovS07_CustomMetricsOrchestrator.py`
 
 Changes made to wire S17 and S18:
 
@@ -108,12 +108,12 @@ Changes made to wire S17 and S18:
 
 ## 4  D31 Gate Addition
 
-**Module:** `Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`
+**Module:** `Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py`
 
 Changes made:
 
 - `self._eco_calendar: Any | None = None` and `self._eco_calendar_resolved: bool = False` added to `__init__`.
-- `_get_eco_calendar()` — lazy resolver that imports `get_economic_calendar` from S18 using the same dual-import pattern (`Spyder.SpyderS_Signals.…` with `SpyderS_Signals.…` fallback) used by other optional module resolvers.
+- `_get_eco_calendar()` — lazy resolver that imports `get_economic_calendar` from S18 using the same dual-import pattern (`Tradov.TradovS_Signals.…` with `TradovS_Signals.…` fallback) used by other optional module resolvers.
 - `_passes_eco_calendar_gate(signal)` — returns `(True, "")` for closing trades unconditionally; otherwise calls `is_stand_down_active()` and returns the reason string on block.
 - `_evaluate_pre_risk_signal_gates()` — eco calendar gate inserted **after** the `paper_startup_regime_wait` check and **before** the `entry_trust_gate` check, so the event window is enforced regardless of market-condition scores.
 
@@ -144,8 +144,8 @@ The complete `_evaluate_pre_risk_signal_gates` sequence after today's changes:
 
 | File | Change |
 |---|---|
-| `Spyder/SpyderS_Signals/SpyderS17_PredictionMarkets.py` | **Created** |
-| `Spyder/SpyderS_Signals/SpyderS18_EconomicCalendar.py` | **Created** |
-| `Spyder/SpyderS_Signals/SpyderS07_CustomMetricsOrchestrator.py` | Modified — S17/S18 wiring |
-| `Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py` | Modified — eco calendar gate |
+| `Tradov/TradovS_Signals/TradovS17_PredictionMarkets.py` | **Created** |
+| `Tradov/TradovS_Signals/TradovS18_EconomicCalendar.py` | **Created** |
+| `Tradov/TradovS_Signals/TradovS07_CustomMetricsOrchestrator.py` | Modified — S17/S18 wiring |
+| `Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py` | Modified — eco calendar gate |
 | `.env.example` | Modified — S17/S18 env vars documented |

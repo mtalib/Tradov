@@ -1,13 +1,13 @@
-# Spyder Strategy Remediation — Open Questions
+# Tradov Strategy Remediation — Open Questions
 
 **Date:** 2026-05-07
-**Relates to:** `Spyder_Strategy_Audit_Master_Plan.md` and three accompanying specs
+**Relates to:** `Tradov_Strategy_Audit_Master_Plan.md` and three accompanying specs
 
 ---
 
 ## Q1 — Decision 2: Async/sync bridge — where is the event loop? (D02 + D10)
 
-**Spec reference:** `Spyder_D02_D10_MultiLeg_Spec.md` §2.2 STEP 2, Master Plan Decision 2 Option A
+**Spec reference:** `Tradov_D02_D10_MultiLeg_Spec.md` §2.2 STEP 2, Master Plan Decision 2 Option A
 
 The spec proposes making `generate_signals()` a thin sync wrapper that calls
 `asyncio.run_coroutine_threadsafe()` against a running loop. D31 drives
@@ -30,9 +30,9 @@ which is not an async context.
 
 ## Q2 — PMR-04: Should the F20 import block be split? (D34)
 
-**Spec reference:** `Spyder_D34_PivotMR_Spec.md` §2.4 STEP 4
+**Spec reference:** `Tradov_D34_PivotMR_Spec.md` §2.4 STEP 4
 
-`SpyderF20_Indicators` exports `RSI` and `ATR` but **not** `VWAP` or
+`TradovF20_Indicators` exports `RSI` and `ATR` but **not** `VWAP` or
 `VWAPSlope`. The spec imports all four symbols in a single try/except block,
 so when `VWAP` is missing the entire import fails and
 `_F20_INDICATORS_AVAILABLE = False` — meaning `RSI` and `ATR` never route
@@ -50,7 +50,7 @@ separate spec?
 
 ## Q3 — IC-01: Division by zero when only one strike candidate exists (D02)
 
-**Spec reference:** `Spyder_D02_D10_MultiLeg_Spec.md` §2.4 STEP 4
+**Spec reference:** `Tradov_D02_D10_MultiLeg_Spec.md` §2.4 STEP 4
 
 The replacement scoring formula uses min-max normalisation:
 
@@ -77,7 +77,7 @@ three normalised columns become `NaN` (divide-by-zero), making `score` NaN and
 
 ## Q4 — PMR-05: Is the 90-minute reaper horizon too loose? (D34)
 
-**Spec reference:** `Spyder_D34_PivotMR_Spec.md` §2.5 STEP 5
+**Spec reference:** `Tradov_D34_PivotMR_Spec.md` §2.5 STEP 5
 
 The proposed constant is:
 

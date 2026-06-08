@@ -1,11 +1,11 @@
 11. Standards/Python/Patterns.md
 
 ```markdown
-# Python Design Patterns for Spyder Trading System
+# Python Design Patterns for Tradov Trading System
 
 ## Overview
 
-This document defines the design patterns and architectural patterns used throughout the Spyder trading system. Consistent application of these patterns ensures maintainable, testable, and reliable code for financial trading operations.
+This document defines the design patterns and architectural patterns used throughout the Tradov trading system. Consistent application of these patterns ensures maintainable, testable, and reliable code for financial trading operations.
 
 ## Creational Patterns
 
@@ -15,13 +15,13 @@ This document defines the design patterns and architectural patterns used throug
 import threading
 from typing import Optional, Dict, Any
 
-class SpyderLogger:
+class TradovLogger:
     """Singleton logger instance for system-wide logging."""
     
-    _instance: Optional['SpyderLogger'] = None
+    _instance: Optional['TradovLogger'] = None
     _lock: threading.Lock = threading.Lock()
     
-    def __new__(cls) -> 'SpyderLogger':
+    def __new__(cls) -> 'TradovLogger':
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -51,7 +51,7 @@ class SpyderLogger:
 # Usage across the system
 class TradingStrategy:
     def __init__(self):
-        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
+        self.logger = TradovLogger.get_logger(self.__class__.__name__)
 ```
 
 ### Factory Pattern for Strategy Creation

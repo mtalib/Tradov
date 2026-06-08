@@ -1,4 +1,4 @@
-# Spyder — Approved Strategy Reference Chart
+# Tradov — Approved Strategy Reference Chart
 **Last Updated:** 2026-05-01
 
 ---
@@ -51,9 +51,9 @@ All strategies must pass every gate before any order is submitted:
 2. Kill switch is OFF
 3. No active `DATA_STALE` event on the SPY feed
 4. Strategy state is `STRATEGY_ACTIVE` (D31 calls `start()` after `orchestration_active = True`)
-5. Risk manager approval — `SpyderE01_RiskManager.validate_order()`
-6. Daily drawdown limit not breached — `SpyderE04_DrawdownControl`
-7. Portfolio Greek limits not exceeded — `SpyderE15_GreekLimitsManager`
+5. Risk manager approval — `TradovE01_RiskManager.validate_order()`
+6. Daily drawdown limit not breached — `TradovE04_DrawdownControl`
+7. Portfolio Greek limits not exceeded — `TradovE15_GreekLimitsManager`
 8. Daily trade limit not exceeded — `BaseStrategy._can_trade()`
 9. Total exposure within `risk_profile.max_portfolio_risk`
 

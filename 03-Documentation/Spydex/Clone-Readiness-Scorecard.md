@@ -1,10 +1,10 @@
 # Spydex Clone Readiness Scorecard
 
-This document defines the stability gate Spyder must clear before it is cloned into Spydex. The goal is to avoid carrying recent instability into a second codebase and to keep the fork clean, isolated, and safe.
+This document defines the stability gate Tradov must clear before it is cloned into Spydex. The goal is to avoid carrying recent instability into a second codebase and to keep the fork clean, isolated, and safe.
 
 ## Purpose
 
-Spydex should not be created until Spyder has been stable long enough to serve as a reliable baseline. The fork should be a controlled copy of a known-good release, then customized for SPX on a separate machine with a separate Tradier account.
+Spydex should not be created until Tradov has been stable long enough to serve as a reliable baseline. The fork should be a controlled copy of a known-good release, then customized for SPX on a separate machine with a separate Tradier account.
 
 ## Hard Gates
 
@@ -65,7 +65,7 @@ Use the following decision logic:
 
 When the scorecard reaches Go, confirm the following before cloning:
 
-1. Tag a golden Spyder commit.
+1. Tag a golden Tradov commit.
 2. Freeze risky feature work around the fork window.
 3. Prepare the second machine.
 4. Provision the second Tradier account.
@@ -87,4 +87,4 @@ Use this section every week during the stability gate:
 
 ## Notes
 
-This scorecard is intentionally conservative. The fork should happen only after Spyder looks boring, not merely functional. That keeps Spydex from inheriting avoidable instability.
+This scorecard is intentionally conservative. The fork should happen only after Tradov looks boring, not merely functional. That keeps Spydex from inheriting avoidable instability.

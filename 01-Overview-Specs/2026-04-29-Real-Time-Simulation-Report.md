@@ -2,11 +2,11 @@
 
 ## Purpose
 
-This report summarizes how Spyder currently performs real-time paper simulation using live market data, simulated execution, internal trade recording, and optional deferred sandbox replay.
+This report summarizes how Tradov currently performs real-time paper simulation using live market data, simulated execution, internal trade recording, and optional deferred sandbox replay.
 
 ## High-Level Model
 
-Spyder uses a split-plane paper architecture:
+Tradov uses a split-plane paper architecture:
 
 1. Data plane is real-time Tradier market data (quotes and option chains).
 2. Execution plane is simulated locally (no immediate broker order placement).
@@ -27,7 +27,7 @@ This gives realistic signal timing and option pricing behavior while keeping liv
   - strategy tick loop.
 
 Primary module:
-- Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py
+- Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py
 
 ### 2) Market Data Source (Real-Time)
 
@@ -36,7 +36,7 @@ Primary module:
 - In paper mode, this is used for decisioning and simulated fill pricing.
 
 Primary module:
-- Spyder/SpyderR_Runtime/SpyderR11_PaperStrategyRunner.py
+- Tradov/TradovR_Runtime/TradovR11_PaperStrategyRunner.py
 
 ### 3) Simulated Order/Fill Engine
 
@@ -45,7 +45,7 @@ Primary module:
 - No Tradier place_order path is used for immediate execution in this flow.
 
 Primary module:
-- Spyder/SpyderR_Runtime/SpyderR11_PaperStrategyRunner.py
+- Tradov/TradovR_Runtime/TradovR11_PaperStrategyRunner.py
 
 ### 4) Paper Trade Recording
 
@@ -53,8 +53,8 @@ Primary module:
 - Session-level snapshots and alerts are persisted in paper-trading storage.
 
 Primary modules:
-- Spyder/SpyderR_Runtime/SpyderR06_PaperTradingHarness.py
-- Spyder/SpyderH_Storage/SpyderH05_TradingSessionDB.py
+- Tradov/TradovR_Runtime/TradovR06_PaperTradingHarness.py
+- Tradov/TradovH_Storage/TradovH05_TradingSessionDB.py
 
 ## Deferred Sandbox Replay (New)
 
@@ -66,11 +66,11 @@ A deferred replay path is now implemented so simulated trades can be mirrored to
 4. Replay results are written to a reconciliation report (sent/failed/pending counts).
 
 Primary module:
-- Spyder/SpyderR_Runtime/SpyderR16_PaperSandboxReplay.py
+- Tradov/TradovR_Runtime/TradovR16_PaperSandboxReplay.py
 
 Wiring points:
-- Enqueue on close: Spyder/SpyderR_Runtime/SpyderR11_PaperStrategyRunner.py
-- End-of-session flush/report log: Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py
+- Enqueue on close: Tradov/TradovR_Runtime/TradovR11_PaperStrategyRunner.py
+- End-of-session flush/report log: Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py
 
 ## Safety and Controls
 
@@ -80,7 +80,7 @@ Wiring points:
 - Replay is feature-flagged and disabled by default.
 
 Replay enable flag:
-- SPYDER_DEFERRED_SANDBOX_REPLAY_ENABLED=true
+- TRADOV_DEFERRED_SANDBOX_REPLAY_ENABLED=true
 
 ## Current Outcome
 

@@ -1,4 +1,4 @@
-# SPYDER Codebase Audit v11 — Pre-Live-Go-Live Gap Report
+# TRADOV Codebase Audit v11 — Pre-Live-Go-Live Gap Report
 
 **Date:** 2026-04-18
 **Author:** Audit pass following v10 Signal-Path-Fixes (2026-04-18).
@@ -40,7 +40,7 @@ Each fix is small; the *set* is large. Estimated effort: **2–3 focused days** 
 | **P1-6** | High | Broker | `TradierClient.build_option_symbol` does not validate strike tick size. Typos reach Tradier and are rejected with cryptic errors. |
 | **P1-7** | High | Broker | `PaperBroker.place_order` accepts any symbol/side/qty — masks OCC validation bugs that will surface in live. |
 | **P1-8** | High | Config | `Q93_RunPaper` does not assert `TRADING_MODE in {"paper","sandbox"}` — misconfigured env can route paper run to live endpoint. |
-| **P1-9** | High | Config | `SpyderU01_Logger` uses bare `FileHandler` (no rotation) — an autonomous bot will fill the disk. |
+| **P1-9** | High | Config | `TradovU01_Logger` uses bare `FileHandler` (no rotation) — an autonomous bot will fill the disk. |
 | **P1-10** | High | Config | No PID/lock file — two launchers against the same Tradier account silently double-trade. |
 | **P1-11** | High | Events | `A05_EventManager._allow_multiple()` uses `os.environ` but `os` is never imported — latent `NameError` on any code path that constructs a second instance. |
 | **P1-12** | High | Events | Handler exceptions in `A05` are swallowed; there is no dead-letter queue and no per-handler circuit breaker. A crashing risk-alert handler becomes invisible. |
@@ -57,9 +57,9 @@ Each fix is small; the *set* is large. Estimated effort: **2–3 focused days** 
 
 ### P0-1 / P0-2 — Kill switch is wired but un-triggerable; `EMERGENCY` has no subscriber
 
-[Spyder/SpyderA_Core/SpyderA05_EventManager.py](Spyder/SpyderA_Core/SpyderA05_EventManager.py) defines `EventType.KILL_SWITCH` (line ~148); [Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py:233](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py#L233) subscribes `_on_kill_switch`. **No module emits it** (`rg "emit.*KILL_SWITCH"` returns zero hits).
+[Tradov/TradovA_Core/TradovA05_EventManager.py](Tradov/TradovA_Core/TradovA05_EventManager.py) defines `EventType.KILL_SWITCH` (line ~148); [Tradov/TradovR_Runtime/TradovR04_LiveEngine.py:233](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py#L233) subscribes `_on_kill_switch`. **No module emits it** (`rg "emit.*KILL_SWITCH"` returns zero hits).
 
-Meanwhile [Spyder/SpyderE_Risk/SpyderE11_MaxLossProtection.py:605](Spyder/SpyderE_Risk/SpyderE11_MaxLossProtection.py#L605) emits `EventType.EMERGENCY` on catastrophic loss breach. **No module subscribes to `EMERGENCY`** (`rg "subscribe.*EMERGENCY"` returns zero hits). So the risk-engine's strongest signal is consumed by nothing.
+Meanwhile [Tradov/TradovE_Risk/TradovE11_MaxLossProtection.py:605](Tradov/TradovE_Risk/TradovE11_MaxLossProtection.py#L605) emits `EventType.EMERGENCY` on catastrophic loss breach. **No module subscribes to `EMERGENCY`** (`rg "subscribe.*EMERGENCY"` returns zero hits). So the risk-engine's strongest signal is consumed by nothing.
 
 **Fix (one of):**
 1. Have `E11` and `E13` emit `KILL_SWITCH` directly (not `EMERGENCY`); payload includes `reason`, `severity`, `initiator`.
@@ -71,9 +71,9 @@ Meanwhile [Spyder/SpyderE_Risk/SpyderE11_MaxLossProtection.py:605](Spyder/Spyder
 
 ### P0-3 / P0-4 — Emergency close and flatten are no-ops
 
-[Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py:1573](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py#L1573) calls `self.broker.close_position(...)` inside `_emergency_close_all_positions`. Grep: `TradierClient` exposes `place_order` and `place_order_async` only — **no `close_position` method exists**. The call raises `AttributeError`, which the `except Exception` swallows.
+[Tradov/TradovR_Runtime/TradovR04_LiveEngine.py:1573](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py#L1573) calls `self.broker.close_position(...)` inside `_emergency_close_all_positions`. Grep: `TradierClient` exposes `place_order` and `place_order_async` only — **no `close_position` method exists**. The call raises `AttributeError`, which the `except Exception` swallows.
 
-[Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py:450–466](Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py#L450-L466) `_flatten_positions` logs a warning and returns — the comment literally reads *"full flatten not yet implemented — manual intervention may be required"*.
+[Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py:450–466](Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py#L450-L466) `_flatten_positions` logs a warning and returns — the comment literally reads *"full flatten not yet implemented — manual intervention may be required"*.
 
 **Fix:**
 1. Implement `TradierClient.close_position(symbol, urgency="IMMEDIATE", reason: str) -> dict` that:
@@ -86,15 +86,15 @@ Meanwhile [Spyder/SpyderE_Risk/SpyderE11_MaxLossProtection.py:605](Spyder/Spyder
 
 ### P0-5 — `SessionSupervisor` never creates a `PositionTracker`
 
-[Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py:360](Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py#L360) passes `position_tracker=getattr(self, "position_tracker", None)` — the attribute is never assigned. `LiveEngine` receives `None`. Consequences:
-- [R04:1266–1270](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py#L1266-L1270) skips `record_fill` → strategy-level position state never updates from fills.
-- [R04:1421–1429](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py#L1421-L1429) close-direction resolver reads `_qty = 0.0` from the missing tracker → long-position close falls through to `OrderSide.BUY` which **re-opens** the long instead of closing it. This triggers only for legacy close-signals that do not carry an explicit `"side"` key; R14's fix in v10 sets `"side"`, but any other emitter (manual CLI, Telegram, GUI close button) falls into this hole.
+[Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py:360](Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py#L360) passes `position_tracker=getattr(self, "position_tracker", None)` — the attribute is never assigned. `LiveEngine` receives `None`. Consequences:
+- [R04:1266–1270](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py#L1266-L1270) skips `record_fill` → strategy-level position state never updates from fills.
+- [R04:1421–1429](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py#L1421-L1429) close-direction resolver reads `_qty = 0.0` from the missing tracker → long-position close falls through to `OrderSide.BUY` which **re-opens** the long instead of closing it. This triggers only for legacy close-signals that do not carry an explicit `"side"` key; R14's fix in v10 sets `"side"`, but any other emitter (manual CLI, Telegram, GUI close button) falls into this hole.
 
 **Fix:** Add `_start_position_tracker()` to R12, called **before** `_start_live_engine`:
 
 ```python
 def _start_position_tracker(self) -> None:
-    from Spyder.SpyderB_Broker.SpyderB03_PositionTracker import create_position_tracker
+    from Tradov.TradovB_Broker.TradovB03_PositionTracker import create_position_tracker
     self.position_tracker = create_position_tracker(
         broker=self.broker, event_manager=self.em,
     )
@@ -111,7 +111,7 @@ Also change `_start_live_engine` to pass `position_tracker=self.position_tracker
 
 ### P0-6 — `Q14` exits without flattening
 
-[Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py:370,392](Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py#L370) call `supervisor.stop()` (default `flatten=False`). On SIGTERM the process exits with positions open — the bot cannot safely survive a host reboot or deploy.
+[Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py:370,392](Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py#L370) call `supervisor.stop()` (default `flatten=False`). On SIGTERM the process exits with positions open — the bot cannot safely survive a host reboot or deploy.
 
 **Fix:** `supervisor.stop(flatten=(self._mode == "live"))`. Paper mode should NOT flatten (keeps state for dev inspection); live mode must.
 
@@ -119,9 +119,9 @@ Also change `_start_live_engine` to pass `position_tracker=self.position_tracker
 
 ### P0-7 — Launcher has no live-mode gate, no credentials check, no PID lock
 
-[Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py](Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py):
+[Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py](Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py):
 - `--mode live` is accepted with no secondary confirmation.
-- `SpyderA03_Configuration.validate_startup_config()` exists and is thorough, but **Q14 never calls it**. Missing `TRADIER_API_KEY` / `TRADIER_ACCOUNT_ID` doesn't hard-fail.
+- `TradovA03_Configuration.validate_startup_config()` exists and is thorough, but **Q14 never calls it**. Missing `TRADIER_API_KEY` / `TRADIER_ACCOUNT_ID` doesn't hard-fail.
 - No PID file. Two launchers against the same account silently double-trade.
 - No pre-trade broker health check (Tradier reachable, buying_power > 0, market state).
 
@@ -132,7 +132,7 @@ if args.mode == "live" and os.environ.get("LIVE_TRADING_CONFIRMED") != "true":
     sys.exit("❌ Live trading requires LIVE_TRADING_CONFIRMED=true in the env.")
 
 # 2. Credential + config validation
-from Spyder.SpyderA_Core.SpyderA03_Configuration import validate_startup_config
+from Tradov.TradovA_Core.TradovA03_Configuration import validate_startup_config
 ok, errors = validate_startup_config(mode=args.mode)
 if not ok:
     sys.exit(f"❌ Config validation failed: {errors}")
@@ -143,7 +143,7 @@ _lock = open("/tmp/spyder_trading.lock", "w")
 try:
     fcntl.flock(_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except OSError:
-    sys.exit("❌ Another Spyder launcher is already running.")
+    sys.exit("❌ Another Tradov launcher is already running.")
 
 # 4. After start(), preflight broker
 acct = supervisor.broker.get_account()
@@ -153,7 +153,7 @@ if not acct or float(acct.get("buying_power", 0)) <= 0:
 
 ### P0-8 — 5xx from Tradier does not escalate to API panic mode
 
-[Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py:1402–1470](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py#L1402-L1470) `_broker_submit` catches exceptions but does not call `self.record_api_server_error()`. The `API_PANIC_THRESHOLD` logic (L633) is effectively dead.
+[Tradov/TradovR_Runtime/TradovR04_LiveEngine.py:1402–1470](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py#L1402-L1470) `_broker_submit` catches exceptions but does not call `self.record_api_server_error()`. The `API_PANIC_THRESHOLD` logic (L633) is effectively dead.
 
 **Fix:** wrap `broker.place_order(...)` in a try block:
 ```python
@@ -169,23 +169,23 @@ except _TradierServerError:
 
 `TradierClient.place_order` does not send a client-side `tag`. Tradier supports `tag` as an idempotency key for ~24 h. On a retry after network timeout, the same order can be submitted twice, producing a duplicate fill.
 
-**Fix:** generate `tag = f"spyder-{order_id}"` (order_id is already unique per engine call) and pass through to Tradier. Broker protocol already accepts `**kwargs`, so the hop is straightforward.
+**Fix:** generate `tag = f"tradov-{order_id}"` (order_id is already unique per engine call) and pass through to Tradier. Broker protocol already accepts `**kwargs`, so the hop is straightforward.
 
 ### P0-10 — `pending_orders` never cleaned
 
-[R04:506](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py#L506) adds the entry; only `_on_reconciler_fill` reads from it. There is no handler for `ORDER_CANCELLED`, `ORDER_EXPIRED`, `ORDER_REJECTED`, or submission-timeout that removes the entry. Stuck state compounds over days; memory leaks; metrics report inflated "successful_executions" over time.
+[R04:506](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py#L506) adds the entry; only `_on_reconciler_fill` reads from it. There is no handler for `ORDER_CANCELLED`, `ORDER_EXPIRED`, `ORDER_REJECTED`, or submission-timeout that removes the entry. Stuck state compounds over days; memory leaks; metrics report inflated "successful_executions" over time.
 
 **Fix:** subscribe `EventType.ORDER_CANCELLED` / `ORDER_EXPIRED` / `ORDER_REJECTED` → `del self.pending_orders[order_id]`. Add a nightly GC that evicts entries older than `max_age = timedelta(hours=24)`.
 
 ### P0-11 / P0-12 — Market-hours logic is timezone-naive and ignores the calendar
 
-[R04:1144–1147](Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py#L1144-L1147):
+[R04:1144–1147](Tradov/TradovR_Runtime/TradovR04_LiveEngine.py#L1144-L1147):
 ```python
 def _is_market_open(self) -> bool:
     now = datetime.now().time()       # naive, local tz
     return MARKET_OPEN <= now <= MARKET_CLOSE
 ```
-On a UTC server this opens at 05:30 UTC and closes at 12:00 UTC — wrong. Same pattern appears in `SpyderA04_Scheduler.py` (lines 206, 714). `TradingCalendar` is correctly tz-aware in `SpyderU10_TradingCalendar.py` but the runtime consumers don't use it.
+On a UTC server this opens at 05:30 UTC and closes at 12:00 UTC — wrong. Same pattern appears in `TradovA04_Scheduler.py` (lines 206, 714). `TradingCalendar` is correctly tz-aware in `TradovU10_TradingCalendar.py` but the runtime consumers don't use it.
 
 **Fix:**
 1. `from zoneinfo import ZoneInfo; ET = ZoneInfo("America/New_York")`. Replace all `datetime.now()` used for market-hours with `datetime.now(ET)`.
@@ -198,17 +198,17 @@ On a UTC server this opens at 05:30 UTC and closes at 12:00 UTC — wrong. Same 
 
 ## 3. P1 Items — Short Descriptions
 
-- **P1-1** — [D31:_on_market_data_event](Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py): subscribe `KILL_SWITCH` and `DATA_STALE`; set `self._paused = True`; return early from signal handlers while paused.
-- **P1-2** — [E01:validate_signal](Spyder/SpyderE_Risk/SpyderE01_RiskManager.py): when `self._positions` is empty AND `AccountManager` state is not yet synced, **reject** the signal with `rejection_reason="risk_state_cold"` rather than silently approving.
-- **P1-3** — [R12:_boot_orphan_sweep](Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py#L416-L429): guard with `if not self.orchestrator.active_strategies: log.warning(...); return`. Add `--skip-orphan-sweep` flag for warm restarts.
-- **P1-4** — [B03_PositionTracker](Spyder/SpyderB_Broker/SpyderB03_PositionTracker.py): add `save_state()` to JSON on each fill; `load_state()` on start; **reconcile on start via `broker.get_positions()` and warn on divergence** rather than trust either side alone.
-- **P1-5** — [R13_FillReconciler](Spyder/SpyderR_Runtime/SpyderR13_FillReconciler.py): drop poll cadence to 1.0 s for options. Add a dead-letter log for orders that exceed `MAX_CONSECUTIVE_ERRORS`.
+- **P1-1** — [D31:_on_market_data_event](Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py): subscribe `KILL_SWITCH` and `DATA_STALE`; set `self._paused = True`; return early from signal handlers while paused.
+- **P1-2** — [E01:validate_signal](Tradov/TradovE_Risk/TradovE01_RiskManager.py): when `self._positions` is empty AND `AccountManager` state is not yet synced, **reject** the signal with `rejection_reason="risk_state_cold"` rather than silently approving.
+- **P1-3** — [R12:_boot_orphan_sweep](Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py#L416-L429): guard with `if not self.orchestrator.active_strategies: log.warning(...); return`. Add `--skip-orphan-sweep` flag for warm restarts.
+- **P1-4** — [B03_PositionTracker](Tradov/TradovB_Broker/TradovB03_PositionTracker.py): add `save_state()` to JSON on each fill; `load_state()` on start; **reconcile on start via `broker.get_positions()` and warn on divergence** rather than trust either side alone.
+- **P1-5** — [R13_FillReconciler](Tradov/TradovR_Runtime/TradovR13_FillReconciler.py): drop poll cadence to 1.0 s for options. Add a dead-letter log for orders that exceed `MAX_CONSECUTIVE_ERRORS`.
 - **P1-6 / P1-7** — Add OCC strike-tick validation (`strike % 0.05 == 0`) in `TradierClient.build_option_symbol` **and** in `PaperBroker.place_order` so paper-mode catches the same mistakes.
-- **P1-8** — [Q93_RunPaper](Spyder/SpyderQ_Scripts/SpyderQ93_RunPaper.py): assert `os.environ.get("TRADING_MODE") in ("paper","sandbox")` before `create_paper_trading_harness_from_env()`.
-- **P1-9** — [SpyderU01_Logger](Spyder/SpyderU_Utilities/SpyderU01_Logger.py): swap `FileHandler` → `RotatingFileHandler(maxBytes=50*1024*1024, backupCount=10)`.
+- **P1-8** — [Q93_RunPaper](Tradov/TradovQ_Scripts/TradovQ93_RunPaper.py): assert `os.environ.get("TRADING_MODE") in ("paper","sandbox")` before `create_paper_trading_harness_from_env()`.
+- **P1-9** — [TradovU01_Logger](Tradov/TradovU_Utilities/TradovU01_Logger.py): swap `FileHandler` → `RotatingFileHandler(maxBytes=50*1024*1024, backupCount=10)`.
 - **P1-10** — already covered in P0-7 fix recipe (PID lock).
-- **P1-11** — [A05_EventManager.py:24](Spyder/SpyderA_Core/SpyderA05_EventManager.py#L24): add `import os` to the stdlib-imports block. `_allow_multiple()` at line 389 references `os.environ` without it — latent `NameError`.
-- **P1-12** — [A05:_dispatch](Spyder/SpyderA_Core/SpyderA05_EventManager.py): on handler exception, emit `EventType.SYSTEM_ERROR` with `handler_name` + `event_type` + traceback; keep an in-memory ring of last-100 handler crashes reachable via `get_handler_errors()`.
+- **P1-11** — [A05_EventManager.py:24](Tradov/TradovA_Core/TradovA05_EventManager.py#L24): add `import os` to the stdlib-imports block. `_allow_multiple()` at line 389 references `os.environ` without it — latent `NameError`.
+- **P1-12** — [A05:_dispatch](Tradov/TradovA_Core/TradovA05_EventManager.py): on handler exception, emit `EventType.SYSTEM_ERROR` with `handler_name` + `event_type` + traceback; keep an in-memory ring of last-100 handler crashes reachable via `get_handler_errors()`.
 - **P1-13** — `R12.start()` after boot-orphan-sweep: emit a synthetic `STRATEGY_SIGNAL` with `dry_run=True`; assert an `ORDER_FILLED` equivalent or `ORDER_REJECTED (reason=dry_run)` arrives within 3 s. Fail start if not.
 
 ---
@@ -244,7 +244,7 @@ Before flipping `--mode live` with `LIVE_TRADING_CONFIRMED=true`, **all** of the
 - [ ] P0-6 — `Q14` calls `supervisor.stop(flatten=True)` in live mode; SIGTERM test leaves zero positions.
 - [ ] P0-7 — `LIVE_TRADING_CONFIRMED` gate, `validate_startup_config` call, PID lock, and preflight broker check all present in the launcher.
 - [ ] P0-8 — `_broker_submit` catches `TradierServerError` → `record_api_server_error()`. API panic mode triggers at threshold.
-- [ ] P0-9 — every order includes `tag=f"spyder-{order_id}"`.
+- [ ] P0-9 — every order includes `tag=f"tradov-{order_id}"`.
 - [ ] P0-10 — `pending_orders` cleanup on CANCELLED/EXPIRED/REJECTED plus 24-h GC.
 - [ ] P0-11 / P0-12 — all market-hours checks use ET; scheduler consults `TradingCalendar` for actual close.
 - [ ] P1-11 — `import os` added to `A05_EventManager`.

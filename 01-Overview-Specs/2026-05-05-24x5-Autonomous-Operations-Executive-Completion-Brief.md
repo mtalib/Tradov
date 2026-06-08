@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-Spyder's 24x5 autonomous operations program has been completed end-to-end.
+Tradov's 24x5 autonomous operations program has been completed end-to-end.
 
 The platform now runs on a full unattended weekday operating model with:
 

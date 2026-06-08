@@ -1,11 +1,11 @@
 12. Standards/Trading/Risk-Management.md
 
 ```markdown
-# Risk Management Standards for Spyder Trading System
+# Risk Management Standards for Tradov Trading System
 
 ## Overview
 
-Risk management is the cornerstone of the Spyder trading system. This document defines comprehensive risk management standards covering position limits, drawdown controls, correlation monitoring, and emergency procedures to protect capital in all market conditions.
+Risk management is the cornerstone of the Tradov trading system. This document defines comprehensive risk management standards covering position limits, drawdown controls, correlation monitoring, and emergency procedures to protect capital in all market conditions.
 
 ## Core Risk Principles
 
@@ -626,7 +626,7 @@ class RiskDashboard:
 
 ---
 
-These risk management standards ensure the Spyder trading system maintains strict capital preservation protocols while enabling profitable trading operations. Regular review and updating of these standards is essential as market conditions and system capabilities evolve.
+These risk management standards ensure the Tradov trading system maintains strict capital preservation protocols while enabling profitable trading operations. Regular review and updating of these standards is essential as market conditions and system capabilities evolve.
 
   return current_count < limit_config['limit']
     

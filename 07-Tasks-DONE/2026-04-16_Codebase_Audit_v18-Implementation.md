@@ -85,7 +85,7 @@ Implemented after those merges (G05 integrity + audit rebaseline):
 
 10. G05 integrity cleanup (not a separate top-row in v18 table, but directly aligned with fake/deceptive UI concerns)
 - Status: Implemented on fix/g05-fake-content-cleanup.
-- Scope in SpyderG05_TradingDashboard.py:
+- Scope in TradovG05_TradingDashboard.py:
   - Removed deceptive fallback messaging for HMM/SKEW dialogs.
   - Replaced misleading automation/status log language with truthful wording.
   - Removed obsolete legacy client-manager stub block.
@@ -114,7 +114,7 @@ Current runtime note:
 ## 5) Files touched in latest two implementation commits
 
 - 8b903aa:
-  - Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py
+  - Tradov/TradovG_GUI/TradovG05_TradingDashboard.py
 
 - b7db3ea:
   - 06-Tasks-TODO/2026-04-15-G05_Dashboard_SeparationOfConcerns_Audit.md
@@ -126,8 +126,8 @@ The following are not fully closed in this implementation batch and should be tr
 - Regime-source full canonical enforcement across all modules (E21/M06/P04 ecosystem hardening beyond phase changes).
 - Full datetime.now naive-timestamp elimination across all production modules (beyond targeted Phase 3 set).
 - Full cleanup/refactor of mega-modules:
-  - SpyderG05_TradingDashboard.py decomposition.
-  - SpyderB40_TradierClient.py decomposition.
+  - TradovG05_TradingDashboard.py decomposition.
+  - TradovB40_TradierClient.py decomposition.
 - Legacy/orphan cleanup not yet fully normalized across entire dirty worktree state.
 - Provider-health router and enhancement opportunities listed in section 5 of audit v18 remain feature backlog (not part of hotfix phases).
 

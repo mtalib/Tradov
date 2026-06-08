@@ -1,7 +1,7 @@
 # Board Memo — 24x5 Autonomous Operations Completion
 
 Date: 2026-05-05  
-Program: Spyder 24x5 Autonomous Operations  
+Program: Tradov 24x5 Autonomous Operations  
 Branch: fix/audit-v14-all  
 Status: Implementation complete
 

@@ -1,17 +1,17 @@
 7. Standards/Python/Module-Numbering.md
 
 ```markdown
-# Spyder Module Numbering System
+# Tradov Module Numbering System
 
 ## Overview
 
-The Spyder trading system uses a systematic alphanumeric numbering convention for organizing Python modules. This system provides clear structure, logical grouping, and easy navigation across the entire codebase.
+The Tradov trading system uses a systematic alphanumeric numbering convention for organizing Python modules. This system provides clear structure, logical grouping, and easy navigation across the entire codebase.
 
 ## Numbering Convention
 
 ### Format Structure
 ```
-SpyderX##_FunctionName.py
+TradovX##_FunctionName.py
 ```
 
 Where:
@@ -23,46 +23,46 @@ Where:
 
 #### A-Series: Core System Modules
 **Purpose**: Main system orchestration and core functionality
-- `SpyderA01_Main.py` - System entry point and initialization
-- `SpyderA02_TradingEngine.py` - Core trading engine
-- `SpyderA03_Configuration.py` - System configuration management
-- `SpyderA04_Scheduler.py` - Task scheduling and timing
-- `SpyderA05_EventManager.py` - Event handling and coordination
-- `SpyderA06_MasterController.py` - Master system controller
-- `SpyderA08_FSeriesOrchestrator.py` - F-series coordination
+- `TradovA01_Main.py` - System entry point and initialization
+- `TradovA02_TradingEngine.py` - Core trading engine
+- `TradovA03_Configuration.py` - System configuration management
+- `TradovA04_Scheduler.py` - Task scheduling and timing
+- `TradovA05_EventManager.py` - Event handling and coordination
+- `TradovA06_MasterController.py` - Master system controller
+- `TradovA08_FSeriesOrchestrator.py` - F-series coordination
 
 #### S-Series: Scripts and Short Programs
 **Purpose**: Utility scripts, service files, and short automation programs
 - File types: `.sh`, `.service`, short `.py` scripts
 - Examples:
-  - `SpyderS01_SystemStart.sh`
-  - `SpyderS02_BackupData.py`
-  - `SpyderS03_HealthCheck.service`
+  - `TradovS01_SystemStart.sh`
+  - `TradovS02_BackupData.py`
+  - `TradovS03_HealthCheck.service`
 
 #### T-Series: Testing Modules
 **Purpose**: Unit tests, integration tests, and validation modules
-- `SpyderT01_UnitTestFramework.py` - Core testing framework
-- `SpyderT02_BrokerTestSuite.py` - Broker integration tests
-- `SpyderT03_BlackSwanValidator.py` - Edge case testing
-- `SpyderT05_LiveIBConnectionTest.py` - Live connection testing
+- `TradovT01_UnitTestFramework.py` - Core testing framework
+- `TradovT02_BrokerTestSuite.py` - Broker integration tests
+- `TradovT03_BlackSwanValidator.py` - Edge case testing
+- `TradovT05_LiveIBConnectionTest.py` - Live connection testing
 
 #### U-Series: Utility Modules
 **Purpose**: Shared utilities, common functions, and helper modules
-- `SpyderU01_Logger.py` - Centralized logging system
-- `SpyderU02_ErrorHandler.py` - Error handling utilities
-- `SpyderU03_DateTimeUtils.py` - Date and time utilities
-- `SpyderU07_Constants.py` - System-wide constants
+- `TradovU01_Logger.py` - Centralized logging system
+- `TradovU02_ErrorHandler.py` - Error handling utilities
+- `TradovU03_DateTimeUtils.py` - Date and time utilities
+- `TradovU07_Constants.py` - System-wide constants
 
 #### X-Series: AI Agent Modules
 **Purpose**: Autonomous AI agents and intelligent automation
-- `SpyderX01_GreeksAgent.py` - Options Greeks monitoring agent
-- `SpyderX02_FlowAgent.py` - Market flow analysis agent
-- `SpyderX03_StrategyDirectorAgent.py` - Strategy coordination agent
-- `SpyderX04_RiskGuardianAgent.py` - Risk monitoring agent
+- `TradovX01_GreeksAgent.py` - Options Greeks monitoring agent
+- `TradovX02_FlowAgent.py` - Market flow analysis agent
+- `TradovX03_StrategyDirectorAgent.py` - Strategy coordination agent
+- `TradovX04_RiskGuardianAgent.py` - Risk monitoring agent
 
 ## Complete Module Series Reference
 
-### SpyderA_Core (System Core)
+### TradovA_Core (System Core)
 **Range**: A01-A99  
 **Purpose**: Core system functionality and orchestration
 
@@ -75,12 +75,12 @@ Current Modules:
 - A06: Master controller
 - A08: F-series orchestrator
 
-### SpyderB_Broker (Broker Integration)
+### TradovB_Broker (Broker Integration)
 **Range**: B01-B99  
 **Purpose**: Interactive Brokers API integration and order management
 
 Key Modules:
-- B01: SpyderClient (main client interface)
+- B01: TradovClient (main client interface)
 - B02: Order Manager
 - B03: Position Tracker
 - B04: Account Manager
@@ -91,7 +91,7 @@ Key Modules:
 - B20: Integrated Connectivity Manager
 - B30: SPY Options Chain Manager
 
-### SpyderC_MarketData (Market Data Processing)
+### TradovC_MarketData (Market Data Processing)
 **Range**: C01-C99  
 **Purpose**: Real-time and historical market data handling
 
@@ -104,7 +104,7 @@ Key Modules:
 - C14: Ultra Low Latency Feed
 - C20: Market Data Hub (enhanced)
 
-### SpyderD_Strategies (Trading Strategies)
+### TradovD_Strategies (Trading Strategies)
 **Range**: D01-D99  
 **Purpose**: Trading strategy implementations and backtesting
 
@@ -118,7 +118,7 @@ Strategy Types:
 - D25: Unified Credit Spread Engine
 - D26: Gamma Scalper
 
-### SpyderE_Risk (Risk Management)
+### TradovE_Risk (Risk Management)
 **Range**: E01-E99  
 **Purpose**: Risk management, position sizing, and portfolio protection
 
@@ -131,7 +131,7 @@ Risk Components:
 - E16: Circuit Breaker Protocol
 - E19: Unified Risk Coordinator
 
-### SpyderF_Analysis (Technical Analysis)
+### TradovF_Analysis (Technical Analysis)
 **Range**: F01-F99  
 **Purpose**: Technical indicators, price action, and market analysis
 
@@ -144,7 +144,7 @@ Analysis Tools:
 - F10: Market Regime Detector
 - F17: Unified Performance Engine
 
-### SpyderG_GUI (Graphical User Interface)
+### TradovG_GUI (Graphical User Interface)
 **Range**: G01-G99  
 **Purpose**: PyQt6/PySide6 user interface components
 
@@ -157,7 +157,7 @@ GUI Components:
 - G06: Client Monitor Panel
 - G11: Skew Monitor Dialog
 
-### SpyderH_Storage (Data Storage)
+### TradovH_Storage (Data Storage)
 **Range**: H01-H99  
 **Purpose**: Database management and data persistence
 
@@ -167,7 +167,7 @@ Storage Components:
 - H03: Market Data Cache
 - H07: Performance Analytics
 
-### SpyderI_Integration (System Integration)
+### TradovI_Integration (System Integration)
 **Range**: I01-I99  
 **Purpose**: Third-party integrations and system interfaces
 
@@ -179,7 +179,7 @@ Integration Modules:
 - I06: Agent Message Bus
 - I14: IB Connection Manager
 
-### SpyderJ_Alerts (Alerts & Notifications)
+### TradovJ_Alerts (Alerts & Notifications)
 **Range**: J01-J99  
 **Purpose**: Alert systems and notification management
 
@@ -189,7 +189,7 @@ Alert Systems:
 - J04: Desktop Notifier
 - J05: Telegram Bot
 
-### SpyderK_Reports (Reporting & Analytics)
+### TradovK_Reports (Reporting & Analytics)
 **Range**: K01-K99  
 **Purpose**: Performance reporting and analytics dashboards
 
@@ -201,7 +201,7 @@ Reporting Tools:
 - K05: Risk Report
 - K10: Real-Time Performance Analytics
 
-### SpyderL_ML (Machine Learning)
+### TradovL_ML (Machine Learning)
 **Range**: L01-L99  
 **Purpose**: Machine learning models and predictive analytics
 
@@ -214,7 +214,7 @@ ML Components:
 - L16: Options Adjustment RL
 - L18: Enhanced ML Integration
 
-### SpyderM_Monitoring (System Monitoring)
+### TradovM_Monitoring (System Monitoring)
 **Range**: M01-M99  
 **Purpose**: System health monitoring and performance tracking
 
@@ -225,7 +225,7 @@ Monitoring Tools:
 - M05: Transaction Cost Analysis
 - M06: HMM Regime Detector
 
-### SpyderN_OptionsAnalytics (Options Analysis)
+### TradovN_OptionsAnalytics (Options Analysis)
 **Range**: N01-N99  
 **Purpose**: Options-specific calculations and analytics
 
@@ -238,7 +238,7 @@ Options Tools:
 - N09: Gamma Exposure
 - N13: Market Impact Model
 
-### SpyderO_TradingIntelligence (Trading Intelligence)
+### TradovO_TradingIntelligence (Trading Intelligence)
 **Range**: O01-O99  
 **Purpose**: Advanced trading intelligence and analytics
 
@@ -247,7 +247,7 @@ Intelligence Modules:
 - O02: Trading Opportunity Scanner
 - O03: Strategy Optimizers
 
-### SpyderP_PortfolioMgmt (Portfolio Management)
+### TradovP_PortfolioMgmt (Portfolio Management)
 **Range**: P01-P99  
 **Purpose**: Portfolio optimization and management
 
@@ -259,7 +259,7 @@ Portfolio Tools:
 - P05: Multi-Strategy Allocator
 - P06: Strategy Rotation
 
-### SpyderQ_Scripts (Scripts & Utilities)
+### TradovQ_Scripts (Scripts & Utilities)
 **Range**: Q01-Q99  
 **Purpose**: Utility scripts, automation tools, and system management
 
@@ -279,7 +279,7 @@ Current Scripts:
 - Q20: Status.sh
 - Q70: Watchdog.service
 
-### SpyderR_Runtime (Runtime Management)
+### TradovR_Runtime (Runtime Management)
 **Range**: R01-R99  
 **Purpose**: Runtime configuration and deployment management
 
@@ -291,7 +291,7 @@ Runtime Components:
 - R06: IB Data Bridge
 - R09: Production Deployment Manager
 
-### SpyderS_Signals (Signal Generation)
+### TradovS_Signals (Signal Generation)
 **Range**: S01-S99  
 **Purpose**: Custom signal generation and market indicators
 
@@ -302,7 +302,7 @@ Signal Modules:
 - S06: SKEW Calculator
 - S07: Custom Metrics Orchestrator
 
-### SpyderT_Testing (Testing Framework)
+### TradovT_Testing (Testing Framework)
 **Range**: T01-T99  
 **Purpose**: Testing utilities, unit tests, and validation
 
@@ -312,7 +312,7 @@ Testing Categories:
 - T20-T29: Demo and validation scripts
 - T90-T99: System diagnostics
 
-### SpyderU_Utilities (Shared Utilities)
+### TradovU_Utilities (Shared Utilities)
 **Range**: U01-U99  
 **Purpose**: Common utilities and helper functions
 
@@ -329,7 +329,7 @@ Current Utilities:
 - U20: Institutional Libraries
 - U27: System Optimizer
 
-### SpyderV_QuantModels (Quantitative Models)
+### TradovV_QuantModels (Quantitative Models)
 **Range**: V01-V99  
 **Purpose**: Mathematical models and statistical analysis
 
@@ -340,7 +340,7 @@ Quant Components:
 - V06: Volatility Engine
 - V08: AI Models
 
-### SpyderX_Agents (AI Agents)
+### TradovX_Agents (AI Agents)
 **Range**: X01-X99  
 **Purpose**: Autonomous AI agents and intelligent automation
 
@@ -357,7 +357,7 @@ Current Agents:
 - X14: Orchestrator Agent
 - X16: Meta Coordinator
 
-### SpyderZ_Communication (Inter-Module Communication)
+### TradovZ_Communication (Inter-Module Communication)
 **Range**: Z01-Z99  
 **Purpose**: Message passing and inter-module communication
 
@@ -415,13 +415,13 @@ X90-X99: Utilities and misc
 ### Import Guidelines
 ```python
 # Correct dependency patterns
-from SpyderU_Utilities.SpyderU01_Logger import SpyderLogger  # Always OK
-from SpyderB_Broker.SpyderB05_ConnectionManager import ConnectionManager  # OK if B01 imports B05
-from SpyderA_Core.SpyderA03_Configuration import SystemConfig  # Core can be imported by others
+from TradovU_Utilities.TradovU01_Logger import TradovLogger  # Always OK
+from TradovB_Broker.TradovB05_ConnectionManager import ConnectionManager  # OK if B01 imports B05
+from TradovA_Core.TradovA03_Configuration import SystemConfig  # Core can be imported by others
 
 # Avoid these patterns
-# from SpyderD_Strategies import SpyderB_Broker  # Strategy shouldn't control broker
-# from SpyderU01_Logger import SpyderA01_Main  # Utility shouldn't import core
+# from TradovD_Strategies import TradovB_Broker  # Strategy shouldn't control broker
+# from TradovU01_Logger import TradovA01_Main  # Utility shouldn't import core
 ```
 
 ## Future Expansion
@@ -454,4 +454,4 @@ Currently unused letters available for new module categories:
 
 ---
 
-This numbering system provides structure and predictability to the Spyder codebase while allowing for organic growth and evolution. Following these conventions ensures that the system remains organized and maintainable as it scales.
+This numbering system provides structure and predictability to the Tradov codebase while allowing for organic growth and evolution. Following these conventions ensures that the system remains organized and maintainable as it scales.

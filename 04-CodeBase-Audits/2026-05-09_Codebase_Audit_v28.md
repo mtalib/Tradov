@@ -1,4 +1,4 @@
-# Spyder Codebase Audit v28
+# Tradov Codebase Audit v28
 **Date:** 2026-05-09
 **Auditor:** GitHub Copilot (GPT-5.4)
 **Branch:** `master`
@@ -12,10 +12,10 @@ This v28 audit focused on the post-v27 trading-path changes that are currently i
 
 The good news is that the main v27 wiring fixes are still present and the focused regression suites are green when run without the repository-wide coverage gate:
 
-- `SpyderT188_R12_OrderManagerWiring.py`
-- `SpyderT193_D31_DispatchResultHardening.py`
-- `SpyderT196_R12_LiveOnlyTradierPolicy.py`
-- `SpyderT197_C29_LiveOnlyPolicy.py`
+- `TradovT188_R12_OrderManagerWiring.py`
+- `TradovT193_D31_DispatchResultHardening.py`
+- `TradovT196_R12_LiveOnlyTradierPolicy.py`
+- `TradovT197_C29_LiveOnlyPolicy.py`
 
 Focused validation result:
 - `21 passed in 12.66s` with `pytest -q --no-cov ...`
@@ -35,9 +35,9 @@ The two top blockers identified in this report were remediated immediately after
    - Missing gate object, missing market conditions, and gate evaluation exceptions now reject the signal in live mode instead of passing it through.
 
 Post-fix validation:
-- `pytest -q --no-cov Spyder/SpyderT_Testing/SpyderT196_R12_LiveOnlyTradierPolicy.py` → `10 passed`
-- `pytest -q --no-cov Spyder/SpyderT_Testing/SpyderT141_D31_EntryTrustGate.py` → `12 passed`
-- `pytest -q --no-cov Spyder/SpyderT_Testing/SpyderT40_TradierClient_Test.py Spyder/SpyderT_Testing/SpyderT141_D31_EntryTrustGate.py Spyder/SpyderT_Testing/SpyderT188_R12_OrderManagerWiring.py Spyder/SpyderT_Testing/SpyderT193_D31_DispatchResultHardening.py Spyder/SpyderT_Testing/SpyderT196_R12_LiveOnlyTradierPolicy.py Spyder/SpyderT_Testing/SpyderT197_C29_LiveOnlyPolicy.py` → `63 passed`
+- `pytest -q --no-cov Tradov/TradovT_Testing/TradovT196_R12_LiveOnlyTradierPolicy.py` → `10 passed`
+- `pytest -q --no-cov Tradov/TradovT_Testing/TradovT141_D31_EntryTrustGate.py` → `12 passed`
+- `pytest -q --no-cov Tradov/TradovT_Testing/TradovT40_TradierClient_Test.py Tradov/TradovT_Testing/TradovT141_D31_EntryTrustGate.py Tradov/TradovT_Testing/TradovT188_R12_OrderManagerWiring.py Tradov/TradovT_Testing/TradovT193_D31_DispatchResultHardening.py Tradov/TradovT_Testing/TradovT196_R12_LiveOnlyTradierPolicy.py Tradov/TradovT_Testing/TradovT197_C29_LiveOnlyPolicy.py` → `63 passed`
 
 Updated launch view after remediation:
 - The original `CR-1` and `H-1` items in this report are now closed in the current workspace state.
@@ -58,7 +58,7 @@ Updated launch view after remediation:
 
 ### Executable checks run
 
-1. `pytest -q --no-cov Spyder/SpyderT_Testing/SpyderT188_R12_OrderManagerWiring.py Spyder/SpyderT_Testing/SpyderT193_D31_DispatchResultHardening.py Spyder/SpyderT_Testing/SpyderT196_R12_LiveOnlyTradierPolicy.py Spyder/SpyderT_Testing/SpyderT197_C29_LiveOnlyPolicy.py`
+1. `pytest -q --no-cov Tradov/TradovT_Testing/TradovT188_R12_OrderManagerWiring.py Tradov/TradovT_Testing/TradovT193_D31_DispatchResultHardening.py Tradov/TradovT_Testing/TradovT196_R12_LiveOnlyTradierPolicy.py Tradov/TradovT_Testing/TradovT197_C29_LiveOnlyPolicy.py`
    - Result: `21 passed in 12.66s`
 2. Direct runtime proof for policy drift:
    - `SessionSupervisor._validate_live_only_tradier_policy()` returned `(True, '')` with `TRADIER_ENVIRONMENT=typo`
@@ -75,8 +75,8 @@ Note:
 
 ### CR-1 — R12 live-only policy can be bypassed by invalid broker env values, and B40 then falls back to sandbox
 **Files:**
-- `Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py:392-395, 824-840`
-- `Spyder/SpyderB_Broker/SpyderB40_TradierClient.py:3610-3655`
+- `Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py:392-395, 824-840`
+- `Tradov/TradovB_Broker/TradovB40_TradierClient.py:3610-3655`
 
 **Evidence:**
 - `R12._start_live_broker()` still builds the broker through `create_tradier_client_from_env()`.
@@ -111,7 +111,7 @@ Live-launch blocker.
 
 ### H-1 — D31 entry-trust gate still fails open when market conditions are missing or the gate raises
 **File:**
-- `Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py:4593-4658`
+- `Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py:4593-4658`
 
 **Evidence:**
 - Non-dict or absent gate object returns `True`.
@@ -142,9 +142,9 @@ Live-launch blocker. This is a true safety-boundary issue, not just an observabi
 
 ### H-2 — B02 still stages orders before broker acknowledgement, and single-leg paths do not preserve the effective idempotency tag locally
 **Files:**
-- `Spyder/SpyderB_Broker/SpyderB02_OrderManager.py:414, 787, 879, 976`
-- `Spyder/SpyderB_Broker/SpyderB02_OrderManager.py:1555-1586`
-- `Spyder/SpyderB_Broker/SpyderB40_TradierClient.py:1129-1135`
+- `Tradov/TradovB_Broker/TradovB02_OrderManager.py:414, 787, 879, 976`
+- `Tradov/TradovB_Broker/TradovB02_OrderManager.py:1555-1586`
+- `Tradov/TradovB_Broker/TradovB40_TradierClient.py:1129-1135`
 
 **Evidence:**
 - Orders are still inserted into `self._orders` before broker confirmation at four submit paths.
@@ -175,7 +175,7 @@ Not the top live blocker anymore, but still a real correctness gap.
 
 ### M-1 — S07 still fabricates plausible market-condition defaults instead of surfacing data-unavailable state
 **File:**
-- `Spyder/SpyderS_Signals/SpyderS07_CustomMetricsOrchestrator.py:2497-2509`
+- `Tradov/TradovS_Signals/TradovS07_CustomMetricsOrchestrator.py:2497-2509`
 
 **Evidence:**
 `get_current_market_conditions()` returns hardcoded defaults such as:
@@ -200,13 +200,13 @@ Not an immediate execution blocker, but a poor failure mode for autonomous tradi
 
 ### M-2 — Runtime mode is coordinated through mutable process-wide env vars
 **Files:**
-- `Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py:104`
-- `Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py:3445`
-- `Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py:3868-3878, 4795-4809`
+- `Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py:104`
+- `Tradov/TradovG_GUI/TradovG05_TradingDashboard.py:3445`
+- `Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py:3868-3878, 4795-4809`
 
 **Evidence:**
-- R12 sets `os.environ["SPYDER_TRADING_MODE"] = str(mode)` in `__init__`.
-- G05 also rewrites `SPYDER_TRADING_MODE` as the UI arms/disarms trading.
+- R12 sets `os.environ["TRADOV_TRADING_MODE"] = str(mode)` in `__init__`.
+- G05 also rewrites `TRADOV_TRADING_MODE` as the UI arms/disarms trading.
 - D31 uses that env var as part of its live/paper policy resolution.
 
 **Impact:**
@@ -227,7 +227,7 @@ Medium risk. Mostly a consistency / test-isolation / multi-entry-path problem to
 
 ### L-1 — G05 truncates entry-block reason and also uses the truncated value for the tooltip
 **File:**
-- `Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py:7171-7174, 7191`
+- `Tradov/TradovG_GUI/TradovG05_TradingDashboard.py:7171-7174, 7191`
 
 **Evidence:**
 - The label text is truncated to 64 chars.
@@ -312,15 +312,15 @@ That would close the observability gap around the remaining B02 ghost-order prob
 ```bash
 source .venv/bin/activate
 pytest -q --no-cov \
-  Spyder/SpyderT_Testing/SpyderT188_R12_OrderManagerWiring.py \
-  Spyder/SpyderT_Testing/SpyderT193_D31_DispatchResultHardening.py \
-  Spyder/SpyderT_Testing/SpyderT196_R12_LiveOnlyTradierPolicy.py \
-  Spyder/SpyderT_Testing/SpyderT197_C29_LiveOnlyPolicy.py
+  Tradov/TradovT_Testing/TradovT188_R12_OrderManagerWiring.py \
+  Tradov/TradovT_Testing/TradovT193_D31_DispatchResultHardening.py \
+  Tradov/TradovT_Testing/TradovT196_R12_LiveOnlyTradierPolicy.py \
+  Tradov/TradovT_Testing/TradovT197_C29_LiveOnlyPolicy.py
 
 source .venv/bin/activate
 python - <<'PY'
 import os
-from Spyder.SpyderR_Runtime.SpyderR12_SessionSupervisor import SessionSupervisor
+from Tradov.TradovR_Runtime.TradovR12_SessionSupervisor import SessionSupervisor
 cases = ["live", "production", "", "typo", "sandbox", "paper"]
 for value in cases:
     os.environ["TRADIER_ENVIRONMENT"] = value

@@ -1,17 +1,17 @@
 # SPY Options Trading Strategies & Tools: Research Report
 
 **Date:** December 27, 2025
-**Purpose:** Identify gaps and improvement opportunities for the Spyder trading system
+**Purpose:** Identify gaps and improvement opportunities for the Tradov trading system
 
 ---
 
 ## Executive Summary
 
-After comprehensive research on current SPY options trading trends, tools, and strategies, this report identifies **10 major areas** where Spyder could be enhanced. While the current system has strong foundations with 21+ strategies and comprehensive Greeks management, several emerging capabilities in the industry could significantly improve trading performance.
+After comprehensive research on current SPY options trading trends, tools, and strategies, this report identifies **10 major areas** where Tradov could be enhanced. While the current system has strong foundations with 21+ strategies and comprehensive Greeks management, several emerging capabilities in the industry could significantly improve trading performance.
 
 ---
 
-## Current Spyder Capabilities (Summary)
+## Current Tradov Capabilities (Summary)
 
 ### What We Have ✅
 - **21+ Multi-leg Options Strategies**: Iron Condors, Credit Spreads, Straddles, Calendar Spreads, Diagonals, Jade Lizard, 0DTE, etc.
@@ -45,7 +45,7 @@ After comprehensive research on current SPY options trading trends, tools, and s
 
 **Implementation Recommendation:**
 ```python
-# New module: SpyderC_MarketData/SpyderC30_OrderFlowAnalyzer.py
+# New module: TradovC_MarketData/TradovC30_OrderFlowAnalyzer.py
 class OrderFlowAnalyzer:
     def get_gamma_exposure(self, symbol: str) -> GammaExposure
     def detect_unusual_options_activity(self, threshold: float) -> List[Alert]
@@ -78,7 +78,7 @@ class OrderFlowAnalyzer:
 
 **Implementation Recommendation:**
 ```python
-# New module: SpyderF_Analysis/SpyderF20_MLPrediction.py
+# New module: TradovF_Analysis/TradovF20_MLPrediction.py
 class MLPredictionEngine:
     def predict_direction(self, features: pd.DataFrame) -> PredictionResult
     def classify_volatility_regime(self, data: pd.DataFrame) -> VolatilityRegime
@@ -102,7 +102,7 @@ NLP sentiment strategies have achieved **62.4% accuracy** using news + social me
 
 **Recommended Implementation:**
 ```python
-# New module: SpyderC_MarketData/SpyderC35_SentimentAnalyzer.py
+# New module: TradovC_MarketData/TradovC35_SentimentAnalyzer.py
 class SentimentAnalyzer:
     def analyze_news(self, ticker: str) -> SentimentScore  # Using FinBERT
     def monitor_social_media(self, tickers: List[str]) -> Dict[str, float]
@@ -134,7 +134,7 @@ A 25-year study (1996-2021) found the theory generates consistent **0.4% weekly 
 
 **Implementation:**
 ```python
-# New module: SpyderF_Analysis/SpyderF18_MaxPainCalculator.py
+# New module: TradovF_Analysis/TradovF18_MaxPainCalculator.py
 class MaxPainCalculator:
     def calculate_max_pain(self, option_chain: OptionChain) -> float
     def get_pain_levels(self, symbol: str, expiry: date) -> PainAnalysis
@@ -162,7 +162,7 @@ IV crush occurs when implied volatility drops sharply after news (the "unknown b
 
 **Implementation:**
 ```python
-# New module: SpyderD_Strategies/SpyderD27_EarningsStrategy.py
+# New module: TradovD_Strategies/TradovD27_EarningsStrategy.py
 class EarningsStrategy(BaseStrategy):
     def calculate_expected_move(self, chain: OptionChain) -> float
     def detect_iv_rush_opportunity(self, ticker: str) -> bool
@@ -193,7 +193,7 @@ class EarningsStrategy(BaseStrategy):
 
 **Implementation:**
 ```python
-# Enhance: SpyderF_Analysis/SpyderF01_Indicators.py
+# Enhance: TradovF_Analysis/TradovF01_Indicators.py
 def anchored_vwap(self, anchor_date: datetime, data: pd.DataFrame) -> pd.Series
 def vwap_bands(self, data: pd.DataFrame, std_dev: float) -> VWAPBands
 def vwap_momentum_signal(self, data: pd.DataFrame) -> Signal
@@ -219,7 +219,7 @@ December 18, 2024 "hawkish cut" caused VIX to surge **74% in a single day** - VI
 
 **Implementation:**
 ```python
-# New module: SpyderD_Strategies/SpyderD28_VIXHedging.py
+# New module: TradovD_Strategies/TradovD28_VIXHedging.py
 class VIXHedgingStrategy(BaseStrategy):
     def calculate_hedge_ratio(self, portfolio_delta: float) -> float
     def analyze_term_structure(self) -> TermStructureState
@@ -248,7 +248,7 @@ Option Alpha's "0DTE Oracle" addresses the problem that standard probability cal
 
 **Implementation:**
 ```python
-# Enhance: SpyderD_Strategies/SpyderD04_ZeroDTE.py
+# Enhance: TradovD_Strategies/TradovD04_ZeroDTE.py
 def get_historical_probability(self, setup: TradeSetup) -> float  # Backtest-based
 def calculate_gamma_risk(self, position: Position) -> GammaRisk
 def recommend_spy_vs_spx(self, trade_type: str) -> str
@@ -272,7 +272,7 @@ def recommend_spy_vs_spx(self, trade_type: str) -> str
 
 **Implementation:**
 ```python
-# Enhance: SpyderB_Broker/SpyderB40_TradierClient.py
+# Enhance: TradovB_Broker/TradovB40_TradierClient.py
 def execute_smart_spread(self, spread: Spread, urgency: str) -> ExecutionResult
 def calculate_optimal_limit_price(self, order: Order) -> float
 def manage_bracket_order(self, entry: Order, stop: float, target: float)
@@ -296,18 +296,18 @@ def manage_bracket_order(self, entry: Order, stop: float, target: float)
 ## Priority Implementation Roadmap
 
 ### Phase 1: Quick Wins (1-2 weeks)
-- [ ] Max Pain Calculator (SpyderF18)
+- [ ] Max Pain Calculator (TradovF18)
 - [ ] Anchored VWAP enhancement
 - [ ] Enhanced Put/Call Ratio tracking
 
 ### Phase 2: Medium Effort (2-4 weeks)
-- [ ] Earnings Event Handler (SpyderD27)
-- [ ] Sentiment Analysis Engine (SpyderC35)
-- [ ] VIX Hedging Strategy (SpyderD28)
+- [ ] Earnings Event Handler (TradovD27)
+- [ ] Sentiment Analysis Engine (TradovC35)
+- [ ] VIX Hedging Strategy (TradovD28)
 
 ### Phase 3: Major Initiatives (1-3 months)
-- [ ] Order Flow Analyzer (SpyderC30) - requires data subscription
-- [ ] ML Prediction Engine (SpyderF20) - requires training infrastructure
+- [ ] Order Flow Analyzer (TradovC30) - requires data subscription
+- [ ] ML Prediction Engine (TradovF20) - requires training infrastructure
 - [ ] 0DTE Oracle enhancements - requires extensive backtesting
 
 ---
@@ -361,7 +361,7 @@ def manage_bracket_order(self, entry: Order, stop: float, target: float)
 
 ## Conclusion
 
-The Spyder system has a solid foundation with comprehensive options strategies and risk management. The highest-impact improvements would be:
+The Tradov system has a solid foundation with comprehensive options strategies and risk management. The highest-impact improvements would be:
 
 1. **Order Flow Analysis** - Industry-proven edge for detecting institutional activity
 2. **Machine Learning** - End-to-end deep learning has shown exceptional results

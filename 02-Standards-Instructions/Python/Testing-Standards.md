@@ -1,20 +1,20 @@
 Standards/Python/Testing-Standards.md
 
 ```markdown
-# Python Testing Standards for Spyder Trading System
+# Python Testing Standards for Tradov Trading System
 
 ## Overview
 
-Testing is critical in the Spyder trading system because bugs can result in financial losses. This document defines comprehensive testing standards covering unit tests, integration tests, paper trading validation, and live system testing protocols.
+Testing is critical in the Tradov trading system because bugs can result in financial losses. This document defines comprehensive testing standards covering unit tests, integration tests, paper trading validation, and live system testing protocols.
 
 ## Testing Framework Structure
 
 ### Core Testing Architecture
 
 ```python
-# SpyderT_Testing/SpyderT01_UnitTestFramework.py
+# TradovT_Testing/TradovT01_UnitTestFramework.py
 """
-Core testing framework for the Spyder trading system.
+Core testing framework for the Tradov trading system.
 
 Provides base classes, fixtures, and utilities for all testing
 throughout the system.
@@ -27,9 +27,9 @@ from datetime import datetime, timedelta
 from unittest.mock import Mock, MagicMock, patch
 from typing import Dict, List, Any, Optional
 
-class SpyderTestBase:
+class TradovTestBase:
     """
-    Base class for all Spyder tests.
+    Base class for all Tradov tests.
     
     Provides common setup, teardown, and utility methods that
     all test classes should inherit from.
@@ -67,15 +67,15 @@ class MockDataProvider:
 ### Test Organization
 
 ```python
-# Test file naming: test_SpyderX##_ModuleName.py
-# Example: SpyderT_Testing/test_SpyderD02_IronCondor.py
+# Test file naming: test_TradovX##_ModuleName.py
+# Example: TradovT_Testing/test_TradovD02_IronCondor.py
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from SpyderD_Strategies.SpyderD02_IronCondor import IronCondorStrategy
-from SpyderT_Testing.SpyderT01_UnitTestFramework import SpyderTestBase
+from TradovD_Strategies.TradovD02_IronCondor import IronCondorStrategy
+from TradovT_Testing.TradovT01_UnitTestFramework import TradovTestBase
 
-class TestIronCondorStrategy(SpyderTestBase):
+class TestIronCondorStrategy(TradovTestBase):
     """
     Unit tests for Iron Condor strategy implementation.
     
@@ -130,7 +130,7 @@ class TestIronCondorStrategy(SpyderTestBase):
             strategy = IronCondorStrategy("test", invalid_config)
             strategy.initialize()
             
-    @patch('SpyderC_MarketData.SpyderC03_OptionChain.get_option_chain')
+    @patch('TradovC_MarketData.TradovC03_OptionChain.get_option_chain')
     def test_signal_generation_with_valid_data(self, mock_option_chain):
         """Test signal generation with valid option chain data."""
         # Arrange
@@ -245,7 +245,7 @@ def test_network_error_handling(self):
 ```python
 def test_market_close_behavior(self):
     """Test behavior when market is closed."""
-    with patch('SpyderU_Utilities.SpyderU10_TradingCalendar.is_market_open') as mock_open:
+    with patch('TradovU_Utilities.TradovU10_TradingCalendar.is_market_open') as mock_open:
         mock_open.return_value = False
         
         result = submit_order({'symbol': 'SPY', 'quantity': 100})
@@ -301,7 +301,7 @@ def test_concurrent_strategy_execution(self):
 
 ### Broker Integration Tests
 ```python
-class TestBrokerIntegration(SpyderTestBase):
+class TestBrokerIntegration(TradovTestBase):
     """
     Integration tests for broker connectivity and order execution.
     
@@ -390,7 +390,7 @@ class TestBrokerIntegration(SpyderTestBase):
 
 ### Database Integration Tests
 ```python
-class TestDatabaseIntegration(SpyderTestBase):
+class TestDatabaseIntegration(TradovTestBase):
     """Integration tests for database operations."""
     
     @pytest.fixture
@@ -458,7 +458,7 @@ class TestDatabaseIntegration(SpyderTestBase):
 
 ### Paper Trading Test Framework
 ```python
-class PaperTradingValidator(SpyderTestBase):
+class PaperTradingValidator(TradovTestBase):
     """
     Comprehensive paper trading validation framework.
     
@@ -791,19 +791,19 @@ class TestEnvironment:
 ### Test Suite Organization
 ```bash
 # Run different test categories
-pytest SpyderT_Testing/ -m unit                    # Unit tests only
-pytest SpyderT_Testing/ -m integration             # Integration tests
-pytest SpyderT_Testing/ -m paper_trading           # Paper trading tests
-pytest SpyderT_Testing/ -m "not slow"              # Fast tests only
+pytest TradovT_Testing/ -m unit                    # Unit tests only
+pytest TradovT_Testing/ -m integration             # Integration tests
+pytest TradovT_Testing/ -m paper_trading           # Paper trading tests
+pytest TradovT_Testing/ -m "not slow"              # Fast tests only
 
 # Generate coverage report
-pytest SpyderT_Testing/ --cov=Spyder --cov-report=html
+pytest TradovT_Testing/ --cov=Tradov --cov-report=html
 
 # Run performance tests
-pytest SpyderT_Testing/ -m performance --benchmark-only
+pytest TradovT_Testing/ -m performance --benchmark-only
 
 # Parallel test execution
-pytest SpyderT_Testing/ -n auto                    # Auto-detect CPU cores
+pytest TradovT_Testing/ -n auto                    # Auto-detect CPU cores
 ```
 
 ### Automated Test Reports
@@ -863,7 +863,7 @@ class PreCommitValidator:
         
         # 1. Run fast unit tests
         unit_result = subprocess.run([
-            'pytest', 'SpyderT_Testing/', '-m', 'unit', '--maxfail=1'
+            'pytest', 'TradovT_Testing/', '-m', 'unit', '--maxfail=1'
         ], capture_output=True)
         
         if unit_result.returncode != 0:
@@ -872,7 +872,7 @@ class PreCommitValidator:
             
         # 2. Check code coverage
         coverage_result = subprocess.run([
-            'pytest', '--cov=Spyder', '--cov-fail-under=80'
+            'pytest', '--cov=Tradov', '--cov-fail-under=80'
         ], capture_output=True)
         
         if coverage_result.returncode != 0:
@@ -880,7 +880,7 @@ class PreCommitValidator:
             return False
             
         # 3. Run linting
-        lint_result = subprocess.run(['flake8', 'Spyder/'], capture_output=True)
+        lint_result = subprocess.run(['flake8', 'Tradov/'], capture_output=True)
         if lint_result.returncode != 0:
             print("❌ Linting errors found")
             return False
@@ -952,17 +952,17 @@ class TestPipeline:
 
 ---
 
-Following these testing standards ensures the Spyder trading system maintains the highest levels of reliability and safety, protecting against financial losses due to software defects while enabling confident deployment of new features and strategies.
+Following these testing standards ensures the Tradov trading system maintains the highest levels of reliability and safety, protecting against financial losses due to software defects while enabling confident deployment of new features and strategies.
 ```
 
 ## 10. Standards/Python/Type-Hints.md
 
 ```markdown
-# Type Hints Standards for Spyder Trading System
+# Type Hints Standards for Tradov Trading System
 
 ## Overview
 
-Type hints are mandatory throughout the Spyder trading system to ensure code reliability, enable better IDE support, and catch potential errors before they can cause financial losses. This document defines comprehensive type annotation standards for all Python code.
+Type hints are mandatory throughout the Tradov trading system to ensure code reliability, enable better IDE support, and catch potential errors before they can cause financial losses. This document defines comprehensive type annotation standards for all Python code.
 
 ## Basic Type Annotations
 

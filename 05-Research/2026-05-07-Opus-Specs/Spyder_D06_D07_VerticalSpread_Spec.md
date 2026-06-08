@@ -1,12 +1,12 @@
 # Spec: D06 BullPutSpread + D07 BearCallSpread — Vertical Credit Spread Remediation
 
 **Files:**
-- `Spyder/SpyderD_Strategies/SpyderD06_BullPutSpread.py`
-- `Spyder/SpyderD_Strategies/SpyderD07_BearCallSpread.py`
+- `Tradov/TradovD_Strategies/TradovD06_BullPutSpread.py`
+- `Tradov/TradovD_Strategies/TradovD07_BearCallSpread.py`
 
 **Status:** Both modules grade B− — small but real bugs and a misleading docstring claim. They are mirror images of each other; every fix in D06 has a symmetric counterpart in D07.
 
-**Read first:** `Spyder_Strategy_Audit_Master_Plan.md`.
+**Read first:** `Tradov_Strategy_Audit_Master_Plan.md`.
 
 ---
 
@@ -394,6 +394,6 @@ After implementation, **all** of the following must hold for both D06 and D07:
 
 ## 5. Out of scope for this spec
 
-- Changes to `SpyderD03_CreditSpread` (the parent). If the parent does not honour `short_put_delta_range` / `short_call_delta_range`, that is a separate D03 spec.
+- Changes to `TradovD03_CreditSpread` (the parent). If the parent does not honour `short_put_delta_range` / `short_call_delta_range`, that is a separate D03 spec.
 - Persistence of overrides to a config file.
 - Backtesting validation of the new momentum thresholds.

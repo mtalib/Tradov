@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Options Trading System v1.0
 
-Series: SpyderX_Template
-Module: SpyderX01_ModuleTemplate.py
+Series: TradovX_Template
+Module: TradovX01_ModuleTemplate.py
 Purpose: Template module demonstrating standard formatting conventions
 
 Author: Mohamed Talib
@@ -12,7 +12,7 @@ Year Created: 2025
 Last Updated: YYYY-MM-DD Time: 12:00:00  (Current date and time)
 
 Module Description:
-    This template serves as a standard format for all Spyder modules. It demonstrates
+    This template serves as a standard format for all Tradov modules. It demonstrates
     the required documentation structure, import organization, constant definitions,
     class structure, and overall code organization patterns that should be maintained
     across the entire codebase for consistency and maintainability.
@@ -58,12 +58,12 @@ from threading import Lock, Event as ThreadEvent, RLock
 # ==============================================================================
 # LOCAL IMPORTS
 # ==============================================================================
-from Spyder.SpyderU_Utilities.SpyderU01_Logger import SpyderLogger
-from Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler import SpyderErrorHandler
+from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
+from Tradov.TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler
 
 # Safe imports with fallbacks
 try:
-    from Spyder.SpyderU_Utilities.SpyderU07_Constants import BaseConstants
+    from Tradov.TradovU_Utilities.TradovU07_Constants import BaseConstants
 except ImportError:
     BaseConstants = None
 
@@ -129,7 +129,7 @@ class StandardModule:
     Template class demonstrating standard module structure.
     
     This class serves as a blueprint for creating consistent, well-documented
-    modules throughout the Spyder system. It includes proper initialization,
+    modules throughout the Tradov system. It includes proper initialization,
     lifecycle management, error handling, and cleanup patterns.
     
     Attributes:
@@ -149,8 +149,8 @@ class StandardModule:
             config: Module configuration object
         """
         # Core components
-        self.logger = SpyderLogger.get_logger(self.__class__.__name__)
-        self.error_handler = SpyderErrorHandler()
+        self.logger = TradovLogger.get_logger(self.__class__.__name__)
+        self.error_handler = TradovErrorHandler()
         
         # Configuration
         self.config = config or ModuleConfig(name=self.__class__.__name__)
@@ -487,7 +487,7 @@ def get_module_instance(config: Optional[ModuleConfig] = None) -> StandardModule
 if __name__ == "__main__":
     # Module testing code
     print("="*80)
-    print("SPYDER Module Template Test")
+    print("TRADOV Module Template Test")
     print("="*80)
     
     # Create test configuration

@@ -1,4 +1,4 @@
-# SPYDER TRADING SYSTEM
+# TRADOV TRADING SYSTEM
 ## Investment Brief — Autonomous Algorithmic Options Trading
 
 **Prepared for:** Investors & Venture Capital Firms  
@@ -12,7 +12,7 @@
 
 ## EXECUTIVE SUMMARY
 
-**Spyder** is a fully autonomous, AI-driven algorithmic trading system purpose-built for SPY options. Over 15 generations of autonomous genetic evolution, Spyder has produced a credit-spread strategy that **simultaneously meets all four elite institutional performance benchmarks** — with zero human parameter tuning.
+**Tradov** is a fully autonomous, AI-driven algorithmic trading system purpose-built for SPY options. Over 15 generations of autonomous genetic evolution, Tradov has produced a credit-spread strategy that **simultaneously meets all four elite institutional performance benchmarks** — with zero human parameter tuning.
 
 Live validation on April 22, 2026 against the full production stack confirms:
 
@@ -25,7 +25,7 @@ Live validation on April 22, 2026 against the full production stack confirms:
 | **Calmar Ratio** | **5.25** | >1.2 | 🏆 Extraordinary |
 | **Institutional Score** | **1.00 / 1.00** | ≥0.80 | 🏆 INSTITUTIONAL GRADE |
 
-Spyder is not a trading signal provider or a strategy template. It is a **full-stack, production-grade autonomous trading infrastructure** with 200+ modules across 24 series, a live broker integration (Tradier), real-time options data (Massive API), and an institutional analytics engine (QuantLib + Ray).
+Tradov is not a trading signal provider or a strategy template. It is a **full-stack, production-grade autonomous trading infrastructure** with 200+ modules across 24 series, a live broker integration (Tradier), real-time options data (Massive API), and an institutional analytics engine (QuantLib + Ray).
 
 ---
 
@@ -35,27 +35,27 @@ Spyder is not a trading signal provider or a strategy template. It is a **full-s
 
 US equity options markets transact over **$500 billion in notional daily**. SPY — the S&P 500 ETF — is the single most liquid options product in the world, with millions of contracts changing hands each session. This liquidity creates a robust, persistent environment for systematic premium-collection strategies.
 
-Three structural inefficiencies create the edge Spyder exploits:
+Three structural inefficiencies create the edge Tradov exploits:
 
 1. **VIX systematically overestimates realised volatility** approximately 85% of the time — premium sellers are consistently overpaid for risk they absorb.
-2. **Short-DTE and 0-DTE options** experience accelerated, non-linear theta decay in the final days before expiry — a window Spyder is specifically engineered to harvest.
+2. **Short-DTE and 0-DTE options** experience accelerated, non-linear theta decay in the final days before expiry — a window Tradov is specifically engineered to harvest.
 3. **Market-maker hedging flows** create predictable order-flow patterns that a real-time analytics system can detect and trade against.
 
 ### The Gap
 
-Systematic options strategies that operate at institutional quality exist almost exclusively inside large hedge funds (Renaissance, Two Sigma, Citadel) with assets under management in the billions and strict access requirements. Retail and small-institutional investors have no comparable technology available to them. Spyder fills this gap.
+Systematic options strategies that operate at institutional quality exist almost exclusively inside large hedge funds (Renaissance, Two Sigma, Citadel) with assets under management in the billions and strict access requirements. Retail and small-institutional investors have no comparable technology available to them. Tradov fills this gap.
 
 ---
 
-## PRODUCT — WHAT SPYDER IS
+## PRODUCT — WHAT TRADOV IS
 
 ### Full-Stack Autonomous Trading Infrastructure
 
-Spyder is not a single algorithm. It is a **complete, production-ready trading operating system** with:
+Tradov is not a single algorithm. It is a **complete, production-ready trading operating system** with:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│                          SPYDER v20 STACK                             │
+│                          TRADOV v20 STACK                             │
 ├───────────────────────────────────────────────────────────────────────┤
 │  AI / ML Layer          │ Genetic evolution · HMM regime · RL agents  │
 │  Strategy Layer         │ 29 strategy modules · D25 unified engine    │
@@ -77,7 +77,7 @@ Spyder is not a single algorithm. It is a **complete, production-ready trading o
 
 ## PERFORMANCE — APRIL 22, 2026 LIVE VALIDATION
 
-All results below are direct output from the `SpyderT06_EvolvedStrategyTest` institutional validation harness, run against the v20 production stack on April 22, 2026.
+All results below are direct output from the `TradovT06_EvolvedStrategyTest` institutional validation harness, run against the v20 production stack on April 22, 2026.
 
 ### Performance at a Glance
 
@@ -124,7 +124,7 @@ All results below are direct output from the `SpyderT06_EvolvedStrategyTest` ins
 
 ```
 ╔═══════════════════════════════════════════════════════════════════╗
-║          SHARPE RATIO LANDSCAPE — WHERE SPYDER SITS              ║
+║          SHARPE RATIO LANDSCAPE — WHERE TRADOV SITS              ║
 ╠═══════════════════════════════════════════════════════════════════╣
 ║                                                                   ║
 ║  S&P 500 Index (passive)    ████░░░░░░░░░░░░░░░░░░░░  0.40       ║
@@ -133,13 +133,13 @@ All results below are direct output from the `SpyderT06_EvolvedStrategyTest` ins
 ║  Elite Hedge Fund           █████████████░░░░░░░░░░░  1.80       ║
 ║  Two Sigma / Citadel range  ████████████████░░░░░░░░  2.20       ║
 ║                                                                   ║
-║  ► SPYDER (Apr 22, 2026)    █████████████████████░░░  2.66  ◄    ║
+║  ► TRADOV (Apr 22, 2026)    █████████████████████░░░  2.66  ◄    ║
 ║                                                                   ║
 ║  Renaissance Medallion      ██████████████████████████████ 4.00+ ║
 ╚═══════════════════════════════════════════════════════════════════╝
 ```
 
-A Sharpe of **2.66** places Spyder **above the elite hedge fund range** and in the same tier as Two Sigma Compass and Citadel Wellington — funds that collectively manage hundreds of billions of dollars and charge 2-and-20 fees.
+A Sharpe of **2.66** places Tradov **above the elite hedge fund range** and in the same tier as Two Sigma Compass and Citadel Wellington — funds that collectively manage hundreds of billions of dollars and charge 2-and-20 fees.
 
 ```
 MAX DRAWDOWN COMPARISON
@@ -149,18 +149,18 @@ Average Options Seller        ████████████████�
 Well-Managed Hedge Fund       ████████████░░░░░░░░░░  −12.0%
 DE Shaw / AQR range           ████████░░░░░░░░░░░░░░   −8.0%
 
-► SPYDER (Apr 22, 2026)       ████░░░░░░░░░░░░░░░░░░   −5.9%  ◄
+► TRADOV (Apr 22, 2026)       ████░░░░░░░░░░░░░░░░░░   −5.9%  ◄
 ```
 
 ### Calmar Ratio: $5.25 Earned Per $1.00 of Drawdown
 
-The Calmar Ratio measures how much annualised return is delivered per unit of maximum drawdown. At **5.25**, Spyder generates **$5.25 of annual return for every $1.00 of peak-to-trough capital loss** — a hallmark of disciplined asymmetric risk management.
+The Calmar Ratio measures how much annualised return is delivered per unit of maximum drawdown. At **5.25**, Tradov generates **$5.25 of annual return for every $1.00 of peak-to-trough capital loss** — a hallmark of disciplined asymmetric risk management.
 
 ---
 
 ## THE ENGINE — AUTONOMOUS GENETIC EVOLUTION
 
-At the core of Spyder's performance advantage is a **self-improving genetic algorithm** that has run for 15 generations, delivering a **67% improvement in fitness score** from baseline with no human intervention.
+At the core of Tradov's performance advantage is a **self-improving genetic algorithm** that has run for 15 generations, delivering a **67% improvement in fitness score** from baseline with no human intervention.
 
 ```
 FITNESS SCORE PROGRESSION (NO HUMAN TUNING)
@@ -189,7 +189,7 @@ At every generation, the system autonomously:
 
 ### What Has Been Built
 
-The Spyder codebase represents a multi-year engineering effort to build the infrastructure that quantitative hedge funds use, but as a modular, deployable product:
+The Tradov codebase represents a multi-year engineering effort to build the infrastructure that quantitative hedge funds use, but as a modular, deployable product:
 
 | Series | Capability | Modules |
 |--------|-----------|---------|
@@ -227,7 +227,7 @@ L09 UnifiedRegimeEngine combines Hidden Markov Models (HMM), clustering, and ens
 R10 DistributedBacktester parallelises walk-forward runs across CPU cores via Ray. F12 AdvancedBacktestingEngine provides realistic fills, commission schedules, and margin simulation. R08 PaperTradingQtWorker adds RSI-confirmed signals for paper validation.
 
 **5. Full Audit Trail**  
-Every decision, trade, risk check, signal, agent action, and configuration change is logged via SpyderLogger (U01) with rotating file handlers, structured fields, and GUI console forwarding. Nothing is `print()`-ed in production.
+Every decision, trade, risk check, signal, agent action, and configuration change is logged via TradovLogger (U01) with rotating file handlers, structured fields, and GUI console forwarding. Nothing is `print()`-ed in production.
 
 ---
 
@@ -238,7 +238,7 @@ Every decision, trade, risk check, signal, agent action, and configuration chang
 | Stream | Model | Target |
 |--------|-------|--------|
 | **Proprietary Trading** | Deploy firm capital; retain 100% of P&L | Phase 5 (next 6 months) |
-| **Managed Accounts** | Operate Spyder on behalf of accredited investors; charge AUM fee + performance | Phase 6 (12–18 months) |
+| **Managed Accounts** | Operate Tradov on behalf of accredited investors; charge AUM fee + performance | Phase 6 (12–18 months) |
 | **White-Label SaaS** | License the infrastructure stack to smaller systematic funds | Phase 7 (18–24 months) |
 | **Strategy Licensing** | License evolved strategy parameters (with ongoing evolution updates) | Phase 6+ |
 
@@ -309,16 +309,16 @@ Investors should carefully consider the following risks before proceeding:
 
 ## PEER COMPARISON
 
-| Institution | What They Built | Spyder Equivalent |
+| Institution | What They Built | Tradov Equivalent |
 |-------------|----------------|-------------------|
-| **Renaissance Technologies** | Statistical & genetic strategy evolution | SpyderL/D18 genetic algorithm (15+ generations) |
-| **Two Sigma** | AI-driven strategy discovery, NLP signal generation | SpyderX/Y 25-agent AI architecture (Ollama LLM) |
-| **Citadel** | Systematic options market making & flow exploitation | SpyderN/C options analytics + flow tracker (C30/N07) |
-| **D.E. Shaw** | Systematic risk management, multi-strategy | SpyderE 23-module risk framework + D31 orchestrator |
-| **AQR Capital** | Factor analytics, drawdown discipline | SpyderU20 QuantLib + SpyderK institutional analytics |
-| **Goldman Sachs Strats** | Institutional-grade pricing models | SpyderN01 BSM + QuantLib V09 IV engine |
+| **Renaissance Technologies** | Statistical & genetic strategy evolution | TradovL/D18 genetic algorithm (15+ generations) |
+| **Two Sigma** | AI-driven strategy discovery, NLP signal generation | TradovX/Y 25-agent AI architecture (Ollama LLM) |
+| **Citadel** | Systematic options market making & flow exploitation | TradovN/C options analytics + flow tracker (C30/N07) |
+| **D.E. Shaw** | Systematic risk management, multi-strategy | TradovE 23-module risk framework + D31 orchestrator |
+| **AQR Capital** | Factor analytics, drawdown discipline | TradovU20 QuantLib + TradovK institutional analytics |
+| **Goldman Sachs Strats** | Institutional-grade pricing models | TradovN01 BSM + QuantLib V09 IV engine |
 
-The key distinction: Spyder delivers **equivalent infrastructure at a fraction of the cost** — built to be deployable, scalable, and continuously self-improving without a team of 500 PhDs.
+The key distinction: Tradov delivers **equivalent infrastructure at a fraction of the cost** — built to be deployable, scalable, and continuously self-improving without a team of 500 PhDs.
 
 ---
 
@@ -340,7 +340,7 @@ The key distinction: Spyder delivers **equivalent infrastructure at a fraction o
 
 ---
 
-## SUMMARY — WHY SPYDER, WHY NOW
+## SUMMARY — WHY TRADOV, WHY NOW
 
 **1. The edge is real and validated.**  
 A Sharpe Ratio of 2.66 with a max drawdown of −5.94%, produced by a deterministic, auditable, institutional validation harness — not a backtest cherry-picked from thousands of parameter combinations.
@@ -364,11 +364,11 @@ The system has completed 20 audit cycles, wired all production components (A06 m
 To proceed with due diligence, request the full technical documentation package, or arrange a live demonstration of the production stack:
 
 - Review the technical audit: `04-CodeBase-Audits/2026-04-22_Codebase_Audit_v20.md`
-- Run the institutional harness: `python Spyder/SpyderT_Testing/SpyderT06_EvolvedStrategyTest.py`
-- Review the live test suite: `pytest Spyder/SpyderT_Testing/ -v` (45 passed, 3 skipped, 0 failed)
+- Run the institutional harness: `python Tradov/TradovT_Testing/TradovT06_EvolvedStrategyTest.py`
+- Review the live test suite: `pytest Tradov/TradovT_Testing/ -v` (45 passed, 3 skipped, 0 failed)
 
 ---
 
-*Document generated by Spyder Autonomous Trading System — April 22, 2026*  
-*Spyder v20 · SpyderT06 Institutional Harness Verified · QuantLib + Ray Confirmed Active*  
+*Document generated by Tradov Autonomous Trading System — April 22, 2026*  
+*Tradov v20 · TradovT06 Institutional Harness Verified · QuantLib + Ray Confirmed Active*  
 *Branch: fix/audit-v14-all · Audit v20 · All SPEC-4 through SPEC-8 complete*

@@ -1,4 +1,4 @@
-# SPYDER TRADING SYSTEM
+# TRADOV TRADING SYSTEM
 ## Investment Brief — Autonomous Algorithmic Options Trading
 
 **Prepared for:** Investors & Venture Capital Firms
@@ -12,7 +12,7 @@
 
 ## EXECUTIVE SUMMARY
 
-**Spyder** is a full-stack, autonomous algorithmic options trading infrastructure purpose-built for SPY. The platform combines real-time market data, institutional options analytics, multi-layer risk controls, and AI-orchestrated strategy governance.
+**Tradov** is a full-stack, autonomous algorithmic options trading infrastructure purpose-built for SPY. The platform combines real-time market data, institutional options analytics, multi-layer risk controls, and AI-orchestrated strategy governance.
 
 As of May 3, 2026, the system has completed a **v27 audit + remediation sprint** that closed 17 of 18 identified specs (the remaining SPEC-7 is downgraded MEDIUM — observability, not money-loss). All money-safety blockers identified pre-audit are now closed.
 
@@ -27,7 +27,7 @@ As of May 3, 2026, the system has completed a **v27 audit + remediation sprint**
 | A06 veto wiring references | **Detected in source validation** | ✅ Verified |
 | SPEC-15 AsyncBridge regression guard (Y01–Y06) | **5/5 agents using safe helper** | ✅ Verified |
 
-Spyder is not a strategy script or signal bot. It is a **production-grade autonomous trading operating system** spanning strategy generation, risk gating, execution, analytics, AI agents, and monitoring.
+Tradov is not a strategy script or signal bot. It is a **production-grade autonomous trading operating system** spanning strategy generation, risk gating, execution, analytics, AI agents, and monitoring.
 
 ---
 
@@ -37,7 +37,7 @@ Spyder is not a strategy script or signal bot. It is a **production-grade autono
 
 US listed equity options continue to represent one of the largest and most liquid systematic trading venues globally, with SPY at the center of daily index-hedging and premium-selling activity.
 
-Spyder is designed to harvest persistent structural edges:
+Tradov is designed to harvest persistent structural edges:
 
 1. Implied volatility tends to price a premium over realized volatility across regimes.
 2. Short-DTE theta decay creates time-compression opportunities for structured premium-selling.
@@ -45,17 +45,17 @@ Spyder is designed to harvest persistent structural edges:
 
 ### The Gap
 
-Institutional-quality options infrastructure is typically internal to large quantitative firms. Spyder packages equivalent architectural components into a modular, deployable system designed for disciplined autonomous operation.
+Institutional-quality options infrastructure is typically internal to large quantitative firms. Tradov packages equivalent architectural components into a modular, deployable system designed for disciplined autonomous operation.
 
 ---
 
-## PRODUCT — WHAT SPYDER IS
+## PRODUCT — WHAT TRADOV IS
 
 ### Full-Stack Autonomous Trading Infrastructure
 
 ```
 ═══════════════════════════════════════════════════════════════════════
-                          SPYDER v27 STACK
+                          TRADOV v27 STACK
 ═══════════════════════════════════════════════════════════════════════
   AI / ML Layer          │ Genetic evolution · HMM regime · RL agents
   Strategy Layer         │ 29+ strategy modules · D25 unified engine
@@ -122,9 +122,9 @@ Institutional-quality options infrastructure is typically internal to large quan
 
 The GUI exposes an **Advanced Controls veto enable/disable toggle** with a single-line descriptor for:
 
-- SpyderX16 Veto
-- SpyderY03 Trade Veto
-- SpyderY05 Consumption Veto
+- TradovX16 Veto
+- TradovY03 Trade Veto
+- TradovY05 Consumption Veto
 
 This provides a clearer operator control plane for autonomous-decision gating and rapid governance state changes.
 
@@ -146,7 +146,7 @@ The institutional benchmark profile, re-validated in the v27 T06 standalone run 
 | Net delta (sample spread) | **−0.119** |
 | Net theta (sample spread) | **−0.054 / day** |
 
-These metrics place Spyder in the high-performance systematic tier while preserving strict drawdown discipline. Returns are 252-day-simulated against the live institutional pricing library (U20) and the current evolved-strategy parameter set (Gen 15 / fitness 0.799).
+These metrics place Tradov in the high-performance systematic tier while preserving strict drawdown discipline. Returns are 252-day-simulated against the live institutional pricing library (U20) and the current evolved-strategy parameter set (Gen 15 / fitness 0.799).
 
 ---
 
@@ -225,7 +225,7 @@ The v27 audit recommendation is to flip `TRADING_MODE=live` after:
 
 ---
 
-## INVESTMENT HIGHLIGHTS — WHY SPYDER NOW
+## INVESTMENT HIGHLIGHTS — WHY TRADOV NOW
 
 1. **Validated engineering velocity:** v27 sprint closed 17 of 18 audit specs in a single session with zero test regressions and **+40 net green tests** vs v26 baseline.
 2. **All money-safety blockers cleared:** every catastrophic-outcome defect identified by the v27 audit (duplicate fills, fail-open risk gates, masked broker rejections, dead mid-price walk) is closed and regression-guarded by tests T186–T191.
@@ -247,5 +247,5 @@ For diligence package access, architecture walkthroughs, and validation artifact
 
 ---
 
-*Document generated by Spyder Autonomous Trading System — May 3, 2026*
-*Spyder v27 · T06 SPEC-15-Aligned Validation Complete · Branch: fix/audit-v14-all*
+*Document generated by Tradov Autonomous Trading System — May 3, 2026*
+*Tradov v27 · T06 SPEC-15-Aligned Validation Complete · Branch: fix/audit-v14-all*

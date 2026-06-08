@@ -1,4 +1,4 @@
-# Spyder Agent Instructions
+# Tradov Agent Instructions
 
 ## Safety-Critical Defaults
 
@@ -17,18 +17,18 @@
 
 ## Architecture Anchors
 
-- Entry point: `Spyder/SpyderA_Core/SpyderA01_Main.py`
-- Broker execution: `Spyder/SpyderB_Broker/SpyderB40_TradierClient.py`
-- Market data: `Spyder/SpyderC_MarketData/SpyderC27_MassiveClient.py` and `Spyder/SpyderC_MarketData/SpyderC29_DataProviderRouter.py`
-- Strategy and risk path: `Spyder/SpyderD_Strategies` -> `Spyder/SpyderE_Risk` -> `Spyder/SpyderR_Runtime`
-- GUI anchor: `Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py`
-- Tests and fixtures: `Spyder/SpyderT_Testing` and `conftest.py`
+- Entry point: `Tradov/TradovA_Core/TradovA01_Main.py`
+- Broker execution: `Tradov/TradovB_Broker/TradovB40_TradierClient.py`
+- Market data: `Tradov/TradovC_MarketData/TradovC27_MassiveClient.py` and `Tradov/TradovC_MarketData/TradovC29_DataProviderRouter.py`
+- Strategy and risk path: `Tradov/TradovD_Strategies` -> `Tradov/TradovE_Risk` -> `Tradov/TradovR_Runtime`
+- GUI anchor: `Tradov/TradovG_GUI/TradovG05_TradingDashboard.py`
+- Tests and fixtures: `Tradov/TradovT_Testing` and `conftest.py`
 
 ## Conventions
 
-- Use `SpyderLogger`; do not add `print()` to production modules.
+- Use `TradovLogger`; do not add `print()` to production modules.
 - Add type hints for new or changed APIs. Use Google-style docstrings for new public classes and functions.
-- Preserve the naming pattern `SpyderXNN_Name.py` and the responsibility boundaries of each series.
+- Preserve the naming pattern `TradovXNN_Name.py` and the responsibility boundaries of each series.
 - Reuse existing retry, rate-limiter, circuit-breaker, and validation utilities instead of adding parallel ad hoc implementations.
 - When docs conflict, trust the current code path and current workflow or policy docs. Some older overview material still references IBKR or previous broker and data integrations.
 
@@ -36,7 +36,7 @@
 
 - Setup: `source .venv/bin/activate && pip install -e .`
 - Dependencies: `pip install -r requirements.txt` plus optional `requirements-gui.txt`, `requirements-ai.txt`, or other extras only when the touched area needs them.
-- Targeted tests: `pytest Spyder/SpyderT_Testing/<target>`
+- Targeted tests: `pytest Tradov/TradovT_Testing/<target>`
 - Full test suite: `pytest`
 - Lint touched paths: `ruff check <paths>`
 - Local single-regression check without the coverage gate: `pytest <target> --no-cov`
@@ -49,4 +49,4 @@
 - [Trading Decision Workflow v34](../01-Overview-Specs/2026-05-18-TRADING_DECISION_WORKFLOW-FULL-v34.md)
 - [Rate Limiting and Circuit Breakers](../02-Standards-Instructions/RATE_LIMITING_CIRCUIT_BREAKER_GUIDE.md)
 - [Threading Guide](../02-Standards-Instructions/THREADING_GUIDE.md)
-- [Architecture](../01-Overview-Specs/Architecture.md) and [Developer Manual](../01-Overview-Specs/Spyder-Developer-Manual.md) for inventory and history; verify current broker and mode behavior against code when those docs conflict with runtime policy.
+- [Architecture](../01-Overview-Specs/Architecture.md) and [Developer Manual](../01-Overview-Specs/Tradov-Developer-Manual.md) for inventory and history; verify current broker and mode behavior against code when those docs conflict with runtime policy.

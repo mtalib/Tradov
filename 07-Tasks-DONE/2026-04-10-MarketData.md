@@ -7,16 +7,16 @@
 
 ## 1. Dashboard Symbol Cleanup
 
-The Market Overview panel (left sidebar, `SpyderG06_DashboardData.py`) currently shows symbols that either have no data source or provide redundant/irrelevant information. The following changes were agreed upon.
+The Market Overview panel (left sidebar, `TradovG06_DashboardData.py`) currently shows symbols that either have no data source or provide redundant/irrelevant information. The following changes were agreed upon.
 
 ### 1.1 Symbols to REMOVE
 
-File to edit: `Spyder/SpyderG_GUI/SpyderG06_DashboardData.py`
+File to edit: `Tradov/TradovG_GUI/TradovG06_DashboardData.py`
 Dictionary to edit: `MARKET_SYMBOLS` and `SYMBOL_DESCRIPTIONS`
 
 | Symbol | Category | Reason for Removal |
 |--------|----------|--------------------|
-| `/ES` | S&P CORE | Tradier does not carry futures. Massive has them in beta only. `SpyderC11_FuturesBasis` is a dead stub — no live data flows. Remove from dashboard until Massive futures exit beta. |
+| `/ES` | S&P CORE | Tradier does not carry futures. Massive has them in beta only. `TradovC11_FuturesBasis` is a dead stub — no live data flows. Remove from dashboard until Massive futures exit beta. |
 | `VXMT` | VOLATILITY | 6-month VIX. Currently returns "---". Overlaps with `VXV` (3-month). Marginal value; yfinance fallback unreliable. Remove until CBOE indices verified via Massive `I:VXMT`. |
 | `UVXY` | VOLATILITY | A 2× leveraged VIX ETF — a trading *product*, not a signal. VIX already captures the same information. Not fetched in the code despite being in the symbol list. |
 | `PCALL` | MARKET INTERNALS | Total put/call ratio. Currently always "---". Tradier does not expose this directly. No publisher wired to the event bus. Remove until a data source is confirmed. |
@@ -51,7 +51,7 @@ These are called out explicitly in `.env.template` and fill real gaps in the dat
 #### FRED API ← **Most Important**
 - **URL:** https://fred.stlouisfed.org/docs/api/api_key.html
 - **Cost:** Free
-- **What it provides:** Macro economic factors consumed by `SpyderC22_FactorDataProvider`:
+- **What it provides:** Macro economic factors consumed by `TradovC22_FactorDataProvider`:
   - Credit spread (`BAA10Y` — Baa–Treasury yield spread)
   - Term spread (`T10Y3M` — 10-year minus 3-month yield)
   - Real rate (`DFII10` — 10-year TIPS)
@@ -70,7 +70,7 @@ These are called out explicitly in `.env.template` and fill real gaps in the dat
 
 ### 2.3 Optional — Sentiment Module (C35 degrades gracefully without these)
 
-`SpyderC35_SentimentAnalyzer` returns neutral sentiment silently if any key is absent. Add only if you want active sentiment signals.
+`TradovC35_SentimentAnalyzer` returns neutral sentiment silently if any key is absent. Add only if you want active sentiment signals.
 
 | Service | Env Var | What it provides | Cost |
 |---------|---------|-----------------|------|
@@ -147,7 +147,7 @@ These have fallback code — the system won't crash, but the data is unofficial:
 
 1. **Phase 1 — Tradier only:** Run paper trading and initial live trading with Tradier. The core execution loop (signal → size → execute → manage) works fully.
 2. **Phase 2 — Add Massive if needed:** If yfinance fallbacks prove unreliable in practice (Yahoo rate-limiting, symbol changes), or if order flow analysis is needed to improve edge, add Massive at that point.
-3. **Databento:** Not needed. Confirmed removed from codebase (`SpyderC26_DatabentoClient.py` deleted). All Databento use cases are covered by Massive.
+3. **Databento:** Not needed. Confirmed removed from codebase (`TradovC26_DatabentoClient.py` deleted). All Databento use cases are covered by Massive.
 
 ---
 
@@ -194,4 +194,4 @@ REDDIT_CLIENT_SECRET=      # Same app registration as above
 
 ---
 
-*Report generated from planning session on 2026-04-10. Cross-reference: `05-Research/2026-04-08-MarketData-Research.md`, `05-Research/Market-Data-Reference.md`, `Spyder/SpyderG_GUI/SpyderG06_DashboardData.py`.*
+*Report generated from planning session on 2026-04-10. Cross-reference: `05-Research/2026-04-08-MarketData-Research.md`, `05-Research/Market-Data-Reference.md`, `Tradov/TradovG_GUI/TradovG06_DashboardData.py`.*

@@ -1,4 +1,4 @@
-# Spyder Codebase Audit v29
+# Tradov Codebase Audit v29
 **Date:** 2026-05-30
 **Auditor:** GitHub Copilot (GPT-5.3-Codex)
 **Branch Audited:** `master`
@@ -45,7 +45,7 @@ Updated launch posture after v29 remediation work:
 
 ### C. Additional consistency checks
 
-1. Runtime mode propagation channels (`SPYDER_TRADING_MODE`) between R12/G05/D31.
+1. Runtime mode propagation channels (`TRADOV_TRADING_MODE`) between R12/G05/D31.
 2. S07 market-condition fallback/default values used by downstream trust/risk consumers.
 3. B02 submission and local order-state persistence behavior.
 
@@ -58,12 +58,12 @@ Updated launch posture after v29 remediation work:
 ```bash
 source .venv/bin/activate
 pytest -q --no-cov \
-  Spyder/SpyderT_Testing/SpyderT188_R12_OrderManagerWiring.py \
-  Spyder/SpyderT_Testing/SpyderT193_D31_DispatchResultHardening.py \
-  Spyder/SpyderT_Testing/SpyderT196_R12_LiveOnlyTradierPolicy.py \
-  Spyder/SpyderT_Testing/SpyderT197_C29_LiveOnlyPolicy.py \
-  Spyder/SpyderT_Testing/SpyderT141_D31_EntryTrustGate.py \
-  Spyder/SpyderT_Testing/SpyderT40_TradierClient_Test.py
+  Tradov/TradovT_Testing/TradovT188_R12_OrderManagerWiring.py \
+  Tradov/TradovT_Testing/TradovT193_D31_DispatchResultHardening.py \
+  Tradov/TradovT_Testing/TradovT196_R12_LiveOnlyTradierPolicy.py \
+  Tradov/TradovT_Testing/TradovT197_C29_LiveOnlyPolicy.py \
+  Tradov/TradovT_Testing/TradovT141_D31_EntryTrustGate.py \
+  Tradov/TradovT_Testing/TradovT40_TradierClient_Test.py
 ```
 
 Result:
@@ -74,13 +74,13 @@ Result:
 ```bash
 source .venv/bin/activate
 pytest -q --no-cov \
-  Spyder/SpyderT_Testing/SpyderT391_D31_PaperBrokenWingButterflyRouting.py \
-  Spyder/SpyderT_Testing/SpyderT393_D31_PaperButterflyRouting.py \
-  Spyder/SpyderT_Testing/SpyderT389_D31_PaperCalendarSpreadRouting.py \
-  Spyder/SpyderT_Testing/SpyderT401_D31_PaperJadeLizardZeroRouting.py \
-  Spyder/SpyderT_Testing/SpyderT404_D31_PaperPutCreditSpread7Routing.py \
-  Spyder/SpyderT_Testing/SpyderT399_R08_AfterHoursSpreadMtm.py \
-  Spyder/SpyderT_Testing/SpyderT400_D31_PinRiskWindowCoverage.py
+  Tradov/TradovT_Testing/TradovT391_D31_PaperBrokenWingButterflyRouting.py \
+  Tradov/TradovT_Testing/TradovT393_D31_PaperButterflyRouting.py \
+  Tradov/TradovT_Testing/TradovT389_D31_PaperCalendarSpreadRouting.py \
+  Tradov/TradovT_Testing/TradovT401_D31_PaperJadeLizardZeroRouting.py \
+  Tradov/TradovT_Testing/TradovT404_D31_PaperPutCreditSpread7Routing.py \
+  Tradov/TradovT_Testing/TradovT399_R08_AfterHoursSpreadMtm.py \
+  Tradov/TradovT_Testing/TradovT400_D31_PinRiskWindowCoverage.py
 ```
 
 Result (initial):
@@ -94,8 +94,8 @@ Result (after deterministic test fix):
 ```bash
 source .venv/bin/activate
 pytest -q --no-cov \
-  Spyder/SpyderT_Testing/SpyderT40_TradierClient_Test.py \
-  Spyder/SpyderT_Testing/SpyderT196_R12_LiveOnlyTradierPolicy.py
+  Tradov/TradovT_Testing/TradovT40_TradierClient_Test.py \
+  Tradov/TradovT_Testing/TradovT196_R12_LiveOnlyTradierPolicy.py
 ```
 
 Result:
@@ -109,8 +109,8 @@ Result:
 
 ### CR-1 — B40 live-only default regression reopened (unset env -> sandbox), policy bypass path
 **Files:**
-- `Spyder/SpyderB_Broker/SpyderB40_TradierClient.py`
-- `Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py`
+- `Tradov/TradovB_Broker/TradovB40_TradierClient.py`
+- `Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py`
 
 **What I observed:**
 - `R12._validate_live_only_tradier_policy()` defaulted broker env check to `live` when env unset.
@@ -138,7 +138,7 @@ Result:
 
 ### H-1 — B02 still stages local orders before acknowledgement and single-leg tag propagation remains incomplete
 **File:**
-- `Spyder/SpyderB_Broker/SpyderB02_OrderManager.py`
+- `Tradov/TradovB_Broker/TradovB02_OrderManager.py`
 
 **Evidence:**
 - Local state write occurs before broker acknowledgement in multiple submit paths (`self._orders[order.order_id] = order` prior to route/ack).
@@ -163,7 +163,7 @@ Result:
 
 ### M-1 — S07 still emits plausible synthetic defaults in `get_current_market_conditions`
 **File:**
-- `Spyder/SpyderS_Signals/SpyderS07_CustomMetricsOrchestrator.py`
+- `Tradov/TradovS_Signals/TradovS07_CustomMetricsOrchestrator.py`
 
 **Evidence:**
 - Defaults remain hard-coded to realistic values (examples: `DIX=42.5`, `GEX=-2.5`, `SKEW=125.5`, `OGL=585.5`) when absent.
@@ -180,12 +180,12 @@ Result:
 
 ### M-2 — Runtime mode still coordinated via mutable process environment
 **Files:**
-- `Spyder/SpyderR_Runtime/SpyderR12_SessionSupervisor.py`
-- `Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py`
-- `Spyder/SpyderD_Strategies/SpyderD31_StrategyOrchestrator.py`
+- `Tradov/TradovR_Runtime/TradovR12_SessionSupervisor.py`
+- `Tradov/TradovG_GUI/TradovG05_TradingDashboard.py`
+- `Tradov/TradovD_Strategies/TradovD31_StrategyOrchestrator.py`
 
 **Evidence:**
-- R12 and G05 continue to write `os.environ["SPYDER_TRADING_MODE"]` at runtime.
+- R12 and G05 continue to write `os.environ["TRADOV_TRADING_MODE"]` at runtime.
 - D31 and broker safety surfaces consume this mutable channel.
 
 **Impact:**
@@ -202,8 +202,8 @@ Result:
 
 ### L-1 — Two extension routing tests were date-sensitive and non-deterministic on weekends/holidays
 **Files:**
-- `Spyder/SpyderT_Testing/SpyderT391_D31_PaperBrokenWingButterflyRouting.py`
-- `Spyder/SpyderT_Testing/SpyderT393_D31_PaperButterflyRouting.py`
+- `Tradov/TradovT_Testing/TradovT391_D31_PaperBrokenWingButterflyRouting.py`
+- `Tradov/TradovT_Testing/TradovT393_D31_PaperButterflyRouting.py`
 
 **Issue:**
 - Tests assumed OCC symbols always use `today` YYMMDD, but runtime legitimately normalizes to nearest listed expiration.

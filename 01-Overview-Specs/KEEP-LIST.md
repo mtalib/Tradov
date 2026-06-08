@@ -21,9 +21,9 @@ Use two document classes:
 - `Architecture.md`
 - `Glossary.md`
 - `Roadmap.md`
-- `Spyder-Developer-Manual.md`
+- `Tradov-Developer-Manual.md`
 - `Trading-Decision-One-Page.md`
-- `Spyder-Architecture.json`
+- `Tradov-Architecture.json`
 
 ### Active Dated Specs and Reports
 

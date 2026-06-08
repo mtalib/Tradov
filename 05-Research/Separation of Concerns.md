@@ -54,8 +54,8 @@ def handle_click(self):
     self.label.setText(f"Tax: {result}")   
 
 
-3. Spyder G05 Application of SoC
-In this repository, the main SoC target has been SpyderG05_TradingDashboard.py. The working rule has been consistent: G05 keeps PySide6 side effects, while small G-series helpers own pure decision, presentation, selection, or ordered-step planning.
+3. Tradov G05 Application of SoC
+In this repository, the main SoC target has been TradovG05_TradingDashboard.py. The working rule has been consistent: G05 keeps PySide6 side effects, while small G-series helpers own pure decision, presentation, selection, or ordered-step planning.
 
 Recent startup-readiness extractions followed that rule directly:
 
@@ -147,7 +147,7 @@ G102 follow-up reuse: first-live-metrics announcement in _on_custom_metrics_upda
 
 The same pattern was already applied to the dashboard shutdown tail, where G82 through G90 reduced closeEvent() to thin orchestration plus local error handling.
 
-4. Practical Boundary Rule Used in Spyder
+4. Practical Boundary Rule Used in Tradov
 Keep these responsibilities in G05:
 
 PySide6 widget mutation, add_system_log() calls, event.accept(), timer start/stop, thread stop/quit/terminate, QMetaObject.invokeMethod(), logger calls, config-manager access, and exception-tolerance behavior.
@@ -161,7 +161,7 @@ Each extraction is kept small and is validated immediately in two stages:
 
 Focused validation first: one local wrapper test in G05 plus one helper-only test file.
 
-Bounded regression second: SpyderT153_G05_GoNoGoCheck.py plus SpyderT2*_G*.py, excluding SpyderT212_G05_PaperPositionFallback.py.
+Bounded regression second: TradovT153_G05_GoNoGoCheck.py plus TradovT2*_G*.py, excluding TradovT212_G05_PaperPositionFallback.py.
 
 Recent dashboard helper checkpoints:
 

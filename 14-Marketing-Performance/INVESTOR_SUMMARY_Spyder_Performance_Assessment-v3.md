@@ -1,4 +1,4 @@
-# SPYDER TRADING SYSTEM
+# TRADOV TRADING SYSTEM
 ## Performance Assessment & Risk-Adjusted Return Analysis — v3
 
 **Prepared for Institutional Investors**
@@ -11,9 +11,9 @@
 
 ## EXECUTIVE SUMMARY
 
-Spyder is an institutional-grade, fully autonomous algorithmic trading system specialising in SPY options. The v17 production stack combines a unified credit-spread execution engine (D25), genetically evolved parameter routing (D18), a new pivot mean-reversion directional override (S08 → D25), unified ML regime classification (L09), institutional-grade pricing (V09 + N04 Greeks + U20 QuantLib), and a hard pre-submit risk gate (E01).
+Tradov is an institutional-grade, fully autonomous algorithmic trading system specialising in SPY options. The v17 production stack combines a unified credit-spread execution engine (D25), genetically evolved parameter routing (D18), a new pivot mean-reversion directional override (S08 → D25), unified ML regime classification (L09), institutional-grade pricing (V09 + N04 Greeks + U20 QuantLib), and a hard pre-submit risk gate (E01).
 
-Our latest validation cycle — executed on the current production stack via the institutional test harness (`SpyderT06_EvolvedStrategyTest`) — demonstrates **world-class risk-adjusted returns** that position the system competitively against top-tier systematic hedge funds.
+Our latest validation cycle — executed on the current production stack via the institutional test harness (`TradovT06_EvolvedStrategyTest`) — demonstrates **world-class risk-adjusted returns** that position the system competitively against top-tier systematic hedge funds.
 
 ### Key Performance Indicators (April 2026 Validation)
 
@@ -29,7 +29,7 @@ Our latest validation cycle — executed on the current production stack via the
 | **Risk Factor (AI-optimised)** | **0.160** | n/a | **Tightened** |
 | **Institutional Grade** | **4 / 4 criteria, 1.00 / 1.00** | n/a | **🏆 INSTITUTIONAL** |
 
-> All metrics above are direct output from the `SpyderT06_EvolvedStrategyTest` institutional validation harness running against the v17 production modules (D25 / D18 / S08 / L09 / V09 / E01 / U20). They reflect the latest evolved parameter set (Gen 22, fitness 0.834) — a measurable improvement over the previous Gen 15 / fitness 0.799 baseline reported in v2.
+> All metrics above are direct output from the `TradovT06_EvolvedStrategyTest` institutional validation harness running against the v17 production modules (D25 / D18 / S08 / L09 / V09 / E01 / U20). They reflect the latest evolved parameter set (Gen 22, fitness 0.834) — a measurable improvement over the previous Gen 15 / fitness 0.799 baseline reported in v2.
 
 ### Generation-over-Generation Improvement
 
@@ -47,7 +47,7 @@ The genetic evolution loop continues to deliver **monotonic improvement in risk-
 
 ### Sharpe Ratio Comparison
 
-Our validated Sharpe Ratio of **2.64** places Spyder firmly inside the elite quantitative tier:
+Our validated Sharpe Ratio of **2.64** places Tradov firmly inside the elite quantitative tier:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -58,7 +58,7 @@ Our validated Sharpe Ratio of **2.64** places Spyder firmly inside the elite qua
 │ Good Hedge Fund              │ 1.0 – 1.5               │
 │ Elite Hedge Fund             │ 1.5 – 2.5               │
 │                                                         │
-│ ► SPYDER (Validated, Gen 22) │ 2.64   ◄ YOU ARE HERE   │
+│ ► TRADOV (Validated, Gen 22) │ 2.64   ◄ YOU ARE HERE   │
 │                                                         │
 │ Renaissance Medallion        │ 2.0 – 7.0 (Legendary)   │
 │ Two Sigma Compass            │ 1.8 – 3.0               │
@@ -67,7 +67,7 @@ Our validated Sharpe Ratio of **2.64** places Spyder firmly inside the elite qua
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Analysis:** A Sharpe Ratio of 2.64 places Spyder **above the elite hedge-fund range** and in the same tier as Two Sigma Compass. These metrics are validated against the v17 production stack, not theoretical estimates.
+**Analysis:** A Sharpe Ratio of 2.64 places Tradov **above the elite hedge-fund range** and in the same tier as Two Sigma Compass. These metrics are validated against the v17 production stack, not theoretical estimates.
 
 ---
 
@@ -85,7 +85,7 @@ Our validated Sharpe Ratio of **2.64** places Spyder firmly inside the elite qua
 
 ### 3. Calmar Ratio: 5.10 (Extraordinary)
 - 32.74% annualised return achieved with only −6.42% maximum drawdown.
-- Places Spyder in the **top 1% of systematic options strategies** by Calmar.
+- Places Tradov in the **top 1% of systematic options strategies** by Calmar.
 - Validates the hard pre-submit risk gate (E01) and credit-spread defined-risk discipline.
 
 ### 4. Maximum Drawdown: −6.42%
@@ -119,7 +119,7 @@ The v17 production stack is the concrete realisation of every advantage outlined
 - **S08 PivotMeanReversionSignal** is a new ATR-aware mean-reversion detector that fires when SPY tags a daily/weekly pivot (S/R level) with sufficient confluence (regime + RSI + GEX-pinning).
 - When fired with sufficient score, S08 can **flip D25's directional choice** between BULL_PUT and BEAR_CALL ahead of the legacy regime bias.
 - The fired signal is stamped onto the spread metadata and **persisted on the closed-trade audit row** — feeding the next ML evolution cycle.
-- Operator-controlled via the `SPYDER_PIVOT_MR_ENABLED` runtime flag, with full transparency through the dashboard's PMR display widget (`DIS / N/A / ARMED / ▼score / ▲score`) and click-through detail dialog.
+- Operator-controlled via the `TRADOV_PIVOT_MR_ENABLED` runtime flag, with full transparency through the dashboard's PMR display widget (`DIS / N/A / ARMED / ▼score / ▲score`) and click-through detail dialog.
 
 ### 3. Institutional-Grade Options Pricing
 - QuantLib-backed Black-Scholes-Merton via U20.
@@ -205,7 +205,7 @@ The v17 production stack is the concrete realisation of every advantage outlined
 ### System Reliability
 - **Circuit breakers** (E16, U41) on every external dependency.
 - **Rate limiting** (U40) with exponential backoff retries.
-- **Comprehensive audit trail** via SpyderLogger (U01) — never `print()` in production.
+- **Comprehensive audit trail** via TradovLogger (U01) — never `print()` in production.
 - **80+ test modules** in the T-series with continuous-integration protocol-compliance gates (T129).
 
 ---
@@ -236,7 +236,7 @@ The v17 production stack is the concrete realisation of every advantage outlined
 ## RISK DISCLOSURES & LIMITATIONS
 
 ### Important Context
-The performance metrics presented are **validated simulation returns** generated by the `SpyderT06_EvolvedStrategyTest` harness against the v17 production modules using realistic credit-spread return distributions, QuantLib-priced options, and the AI-optimised Gen-22 parameter set. These are **not actual live trading results** and should not be construed as such.
+The performance metrics presented are **validated simulation returns** generated by the `TradovT06_EvolvedStrategyTest` harness against the v17 production modules using realistic credit-spread return distributions, QuantLib-priced options, and the AI-optimised Gen-22 parameter set. These are **not actual live trading results** and should not be construed as such.
 
 ### Specific Limitations
 
@@ -266,7 +266,7 @@ The performance metrics presented are **validated simulation returns** generated
 
 ## COMPETITIVE MOAT & DIFFERENTIATION
 
-### What Sets Spyder Apart
+### What Sets Tradov Apart
 
 1. **AI-Driven Strategy Evolution** — 22 generations, 75% fitness improvement, monotonic gains across Sharpe / Sortino / Calmar / drawdown.
 2. **Pivot Mean-Reversion Override (NEW)** — institutional pivot logic with full ML feedback loop; transparent operator controls and audit-row persistence.
@@ -322,7 +322,7 @@ The performance metrics presented are **validated simulation returns** generated
 
 ## INVESTMENT THESIS
 
-### Why Institutional Investors Should Consider Spyder (April 2026)
+### Why Institutional Investors Should Consider Tradov (April 2026)
 
 1. **Validated, Improving, Risk-Adjusted Returns** — Sharpe 2.64, Sortino 5.00, Calmar 5.10 against the v17 production stack; **measurable improvement over the prior Gen-15 baseline**.
 2. **Defined-Risk Profile** — credit spreads cap loss at entry; portfolio-level guardrails are hard-wired in E01.
@@ -363,8 +363,8 @@ The performance metrics presented are **validated simulation returns** generated
 - ✅ 4/4 institutional criteria met, score 1.00 / 1.00
 
 ### Open Engagement
-For further information, due diligence, or live demonstrations of the v17 stack and the PMR override pipeline, please contact the Spyder team.
+For further information, due diligence, or live demonstrations of the v17 stack and the PMR override pipeline, please contact the Tradov team.
 
 ---
 
-*This document is confidential and intended solely for the named recipient. Past simulated performance is not a reliable indicator of future live-trading results. All performance metrics herein were generated by the `SpyderT06_EvolvedStrategyTest` institutional validation harness against the v17 codebase on April 17, 2026, using QuantLib-priced credit-spread return distributions and the Gen-22 evolved parameter set (fitness 0.834, risk factor 0.160).*
+*This document is confidential and intended solely for the named recipient. Past simulated performance is not a reliable indicator of future live-trading results. All performance metrics herein were generated by the `TradovT06_EvolvedStrategyTest` institutional validation harness against the v17 codebase on April 17, 2026, using QuantLib-priced credit-spread return distributions and the Gen-22 evolved parameter set (fitness 0.834, risk factor 0.160).*

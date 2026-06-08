@@ -1,9 +1,9 @@
-# Spyder Codebase Audit v8 — Autonomous SPY-Options Trading Readiness
+# Tradov Codebase Audit v8 — Autonomous SPY-Options Trading Readiness
 
 **Date:** 2026-04-18
 **Scope:** Full wiring audit against the v8 Overview document
 **Auditor:** Claude (Opus 4.7)
-**Target reader:** Spyder coding agent
+**Target reader:** Tradov coding agent
 
 ---
 
@@ -27,9 +27,9 @@ Each finding carries an implementation spec (S-NN) at the end.
 ## 1. CRITICAL Findings (block autonomous live trading)
 
 ### C-01 — GUI path bypasses live-engine startup
-**File:** `Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py:449-468`
+**File:** `Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py:449-468`
 
-`SpyderLauncher.launch()` routes as follows:
+`TradovLauncher.launch()` routes as follows:
 
 ```python
 if self.args.gui and not self.args.headless:    # args.gui defaults to True
@@ -42,18 +42,18 @@ return self.launch_system()                     # never reached unless --headles
 `launch_gui()` only renders the dashboard. It never calls `_start_live_engine()`,
 never starts C01 DataFeed, never starts D31 Orchestrator. **Live trading only
 starts in `--headless` mode.** The documented invocation
-`python SpyderQ14_MainLauncher.py --mode live --gui` does not trade.
+`python TradovQ14_MainLauncher.py --mode live --gui` does not trade.
 
 **Spec:** see S-01.
 
 ---
 
-### C-02 — Q14 never starts SpyderC01_DataFeed
-**File:** `Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py:366-447`
+### C-02 — Q14 never starts TradovC01_DataFeed
+**File:** `Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py:366-447`
 
 `_start_live_engine()` constructs `TradierClient`, `RiskManager`,
 `LiveEngine`, and `StrategyOrchestrator`, but **never imports or starts
-`SpyderC01_DataFeed`**. Grep for `DataFeed|create_data_feed|start_feed|MARKET_DATA`
+`TradovC01_DataFeed`**. Grep for `DataFeed|create_data_feed|start_feed|MARKET_DATA`
 in Q14 returns zero matches.
 
 Consequence: no `EventType.MARKET_DATA` is ever published. D31's
@@ -65,7 +65,7 @@ are ever generated. The pipeline is disconnected at the very first stage.
 ---
 
 ### C-03 — Q14 creates three independent EventManager instances
-**File:** `Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py:390, 427`
+**File:** `Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py:390, 427`
 
 Two explicit `EventManager()` constructions:
 
@@ -75,7 +75,7 @@ Two explicit `EventManager()` constructions:
 A third instance will be created by any default-constructed consumer
 (C01, D31, D01) that didn't receive an injected one. A05 does expose a
 singleton accessor — `get_event_manager(persist_events=True)` at
-`SpyderA05_EventManager.py:1066` — **but Q14 does not use it.**
+`TradovA05_EventManager.py:1066` — **but Q14 does not use it.**
 
 Each EventManager has its own subscriber table and its own worker thread.
 A publish on one is never observed by consumers attached to another. This is
@@ -96,7 +96,7 @@ publish into queues that nothing drains.
 ---
 
 ### C-05 — R04 `_broker_submit` reports acceptance as "filled"
-**File:** `Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py:1317-1330`
+**File:** `Tradov/TradovR_Runtime/TradovR04_LiveEngine.py:1317-1330`
 
 ```python
 response = broker.place_order(...)
@@ -117,7 +117,7 @@ never trigger. Marking them as "filled" means:
 - Downstream P&L / position-size math is based on fictional fills
 - A05 `ORDER_FILLED` consumers (if any) receive lies
 
-B40 exposes `get_order(order_id)` at `SpyderB40_TradierClient.py:929` —
+B40 exposes `get_order(order_id)` at `TradovB40_TradierClient.py:929` —
 **it is never polled.**
 
 **Spec:** see S-05.
@@ -125,7 +125,7 @@ B40 exposes `get_order(order_id)` at `SpyderB40_TradierClient.py:929` —
 ---
 
 ### C-06 — R04 never updates position state
-**File:** `Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py` (entire file)
+**File:** `Tradov/TradovR_Runtime/TradovR04_LiveEngine.py` (entire file)
 
 Grep for `PositionTracker|position_tracker` in R04 returns zero matches.
 After R04 believes an order filled:
@@ -144,7 +144,7 @@ through.
 ---
 
 ### C-07 — Paper mode has no execution engine wired
-**File:** `Spyder/SpyderQ_Scripts/SpyderQ14_MainLauncher.py:356-357`
+**File:** `Tradov/TradovQ_Scripts/TradovQ14_MainLauncher.py:356-357`
 
 ```python
 elif self.args.mode == "paper":
@@ -153,7 +153,7 @@ elif self.args.mode == "paper":
 
 That is the entire paper implementation. There is no R02 PaperEngine, no
 R08 paper Qt worker, no simulated execution attached to D31. Per the v8
-Overview the codebase contains `SpyderR11_PaperStrategyRunner.py` (untracked
+Overview the codebase contains `TradovR11_PaperStrategyRunner.py` (untracked
 in git status) — it is never referenced by the launcher.
 
 **Spec:** see S-07.
@@ -161,7 +161,7 @@ in git status) — it is never referenced by the launcher.
 ---
 
 ### C-08 — R04 has no event_manager; cannot publish fills
-**File:** `Spyder/SpyderR_Runtime/SpyderR04_LiveEngine.py` (entire file)
+**File:** `Tradov/TradovR_Runtime/TradovR04_LiveEngine.py` (entire file)
 
 Grep for `event_manager` in R04 returns zero matches. Even once C-05 is
 fixed and we know a true fill occurred, R04 cannot publish
@@ -173,7 +173,7 @@ fixed and we know a true fill occurred, R04 cannot publish
 ---
 
 ### C-09 — D01 BaseStrategy defines shadow Event/EventType/EventManager classes
-**File:** `Spyder/SpyderD_Strategies/SpyderD01_BaseStrategy.py:307-342`
+**File:** `Tradov/TradovD_Strategies/TradovD01_BaseStrategy.py:307-342`
 
 D01 declares local `EventType`, `Event`, and `EventManager` classes that
 collide with A05's. The dual-emit at `_process_signal` (lines 792-828)
@@ -191,7 +191,7 @@ The shadow classes are also a subtle correctness trap: a `hasattr(em,
 ---
 
 ### C-10 — E01 `validate_signal` accepts `Any`, silently drops malformed requests
-**File:** `Spyder/SpyderE_Risk/SpyderE01_RiskManager.py:599`
+**File:** `Tradov/TradovE_Risk/TradovE01_RiskManager.py:599`
 
 ```python
 def validate_signal(self, request: Any) -> Any:
@@ -234,7 +234,7 @@ and possible double-init in happy paths.
 
 ### H-02 — R04 `_broker_submit` happy path missing for B02
 Path 1 at R04 `_broker_submit` uses `result.success` to set "filled". B02
-(`SpyderB02_BrokerClient`) may also represent acceptance, not fill. Needs
+(`TradovB02_BrokerClient`) may also represent acceptance, not fill. Needs
 audit parity with C-05 / S-05.
 
 ### H-03 — No stop-loss / exit-path monitor
@@ -273,7 +273,7 @@ same symptom as C-03 — a "yes" from the user cannot unblock a held order.
 
 - **M-01** R04 uses two broker-submission paths (`submit_order` on B02,
   `place_order` on B40) but no adapter. New brokers mean editing `_broker_submit`.
-- **M-02** `SpyderQ10_ProtocolComplianceGate.py` exists but is not invoked
+- **M-02** `TradovQ10_ProtocolComplianceGate.py` exists but is not invoked
   by any launcher path or pre-commit hook per the v8 Overview. It's
   documentation, not enforcement.
 - **M-03** Duplicate launcher logic: `launch_system` and `_start_live_engine`
@@ -292,7 +292,7 @@ same symptom as C-03 — a "yes" from the user cannot unblock a held order.
 
 ## 4. Opportunities / New Modules
 
-### O-01 — `SpyderR12_SessionSupervisor`
+### O-01 — `TradovR12_SessionSupervisor`
 A tiny lifecycle owner that:
 1. Owns the single A05 EventManager (via `get_event_manager`)
 2. Starts/stops C01, D31, R04, Telegram in the correct order
@@ -302,19 +302,19 @@ A tiny lifecycle owner that:
 Replaces the current `_start_live_engine` soup in Q14. Q14 becomes
 argument-parsing + `SessionSupervisor.start(mode)`.
 
-### O-02 — `SpyderR13_FillReconciler`
+### O-02 — `TradovR13_FillReconciler`
 Background task that polls `broker.get_orders()` every N seconds (configurable;
 suggested 2s for market, 5s for limit) and publishes `ORDER_FILLED`,
 `ORDER_PARTIALLY_FILLED`, `ORDER_CANCELLED`, `ORDER_EXPIRED` events with
 ground-truth data. Short-circuits on websocket delivery if Tradier streaming
 is enabled.
 
-### O-03 — `SpyderE02_DataFreshnessMonitor`
+### O-03 — `TradovE02_DataFreshnessMonitor`
 A C01 subscriber that watches tick timestamps and flips
 `RiskManager._data_stale` when the last tick is older than threshold
 (suggested 3s during RTH). Fixes H-05.
 
-### O-04 — `SpyderR14_ExitMonitor`
+### O-04 — `TradovR14_ExitMonitor`
 Periodic scanner over P01 `PortfolioManager` positions. For each position:
 - Check strategy-declared SL/TP/time-stop
 - Emit CLOSE signal if breached
@@ -322,11 +322,11 @@ Periodic scanner over P01 `PortfolioManager` positions. For each position:
 
 Fixes H-03.
 
-### O-05 — `SpyderB21_BrokerRouter` (interface narrowing)
+### O-05 — `TradovB21_BrokerRouter` (interface narrowing)
 Single `BrokerProtocol` with `submit_order`, `get_order`, `cancel_order`,
 `get_positions`, `get_account`. R04 depends only on the protocol. B02, B40,
 and any future broker implement it. Fixes M-01, makes paper mode trivial
-(`SpyderR02_PaperBroker` implements the protocol).
+(`TradovR02_PaperBroker` implements the protocol).
 
 ### O-06 — Dashboard parity
 G05 already subscribes to `MARKET_DATA` and `CUSTOM_METRIC_UPDATE`. Extend
@@ -345,7 +345,7 @@ so that earlier ones unblock later ones. Assume a new feature branch
 ---
 
 ### S-01 — Fix Q14 launch routing so live mode always starts the engine
-**Touches:** `SpyderQ14_MainLauncher.py`
+**Touches:** `TradovQ14_MainLauncher.py`
 
 Change `launch()` to decouple GUI presence from headlessness of the trading
 loop:
@@ -371,7 +371,7 @@ def launch(self):
 ```
 
 **Acceptance:**
-- `python SpyderQ14_MainLauncher.py --mode live` (no flags) starts C01, D31, R04.
+- `python TradovQ14_MainLauncher.py --mode live` (no flags) starts C01, D31, R04.
 - `--gui` attaches the dashboard to the *already-running* backend.
 - `--headless` does the same without the Qt app.
 - Integration test: mocked broker, run `--mode paper --headless`, assert one
@@ -380,14 +380,14 @@ def launch(self):
 ---
 
 ### S-02 — Start C01 DataFeed inside the backend bootstrap
-**Touches:** `SpyderQ14_MainLauncher.py` (new `_start_backend`),
-`SpyderC01_DataFeed.py` (verify `start()` is idempotent).
+**Touches:** `TradovQ14_MainLauncher.py` (new `_start_backend`),
+`TradovC01_DataFeed.py` (verify `start()` is idempotent).
 
 Inside `_start_backend(mode)`:
 
 ```python
-from Spyder.SpyderA_Core.SpyderA05_EventManager import get_event_manager
-from Spyder.SpyderC_MarketData.SpyderC01_DataFeed import create_data_feed
+from Tradov.TradovA_Core.TradovA05_EventManager import get_event_manager
+from Tradov.TradovC_MarketData.TradovC01_DataFeed import create_data_feed
 
 em = get_event_manager(persist_events=True)
 em.start()
@@ -406,7 +406,7 @@ if not feed.start():
 ---
 
 ### S-03 — Enforce a single EventManager via `get_event_manager()`
-**Touches:** `SpyderQ14_MainLauncher.py`, `SpyderJ05_TelegramBot.py` (callsite
+**Touches:** `TradovQ14_MainLauncher.py`, `TradovJ05_TelegramBot.py` (callsite
 only), any place that defaults to `EventManager()`.
 
 **Rule:** outside unit tests, A05 `EventManager` must be instantiated **only**
@@ -415,9 +415,9 @@ injection.
 
 Grep-and-audit list (all must be changed to accept the shared instance):
 
-- `SpyderC01_DataFeed.py:529` (`self.event_manager = event_manager or EventManager()`)
-- `SpyderD31_StrategyOrchestrator.py:305`
-- `SpyderD01_BaseStrategy.py:342` area (delete shadow class — see S-09)
+- `TradovC01_DataFeed.py:529` (`self.event_manager = event_manager or EventManager()`)
+- `TradovD31_StrategyOrchestrator.py:305`
+- `TradovD01_BaseStrategy.py:342` area (delete shadow class — see S-09)
 - Q14:390, Q14:427 (remove both fresh instantiations)
 
 For runtime safety, add a module-level assertion in A05:
@@ -436,7 +436,7 @@ class EventManager:
             warnings.warn(_EM_SINGLETON_LOCK_MSG, RuntimeWarning, stacklevel=2)
 ```
 
-`_allow_multiple()` reads `SPYDER_ALLOW_MULTIPLE_EM=1` so tests can opt in.
+`_allow_multiple()` reads `TRADOV_ALLOW_MULTIPLE_EM=1` so tests can opt in.
 
 **Acceptance:**
 - Unit test: `get_event_manager() is get_event_manager()`.
@@ -447,8 +447,8 @@ class EventManager:
 ---
 
 ### S-05 — Replace instant-"filled" with real fill polling / streaming
-**Touches:** `SpyderR04_LiveEngine.py` around line 1317; new
-`SpyderR13_FillReconciler.py` per O-02.
+**Touches:** `TradovR04_LiveEngine.py` around line 1317; new
+`TradovR13_FillReconciler.py` per O-02.
 
 Replace the block at R04:1317-1330 with:
 
@@ -465,7 +465,7 @@ return {
 }
 ```
 
-Then introduce `SpyderR13_FillReconciler`:
+Then introduce `TradovR13_FillReconciler`:
 
 - Poll `broker.get_order(tradier_order_id)` on a `ThreadPoolExecutor`.
 - Status mapping: `filled` → publish `ORDER_FILLED` with actual fill price,
@@ -488,7 +488,7 @@ R04 only increments `daily_trades` / `successful_executions` on a true
 ---
 
 ### S-06 — Wire PositionTracker into R04's fill path
-**Touches:** `SpyderR04_LiveEngine.py`, `SpyderB03_PositionTracker.py`.
+**Touches:** `TradovR04_LiveEngine.py`, `TradovB03_PositionTracker.py`.
 
 R04 subscribes to its own `ORDER_FILLED` (or receives a direct callback
 from S-11 reconciler) and calls `position_tracker.record_fill(fill)`.
@@ -507,7 +507,7 @@ E01 `RiskManager` subscribes to `POSITION_UPDATED` and updates
 ---
 
 ### S-07 — Wire a real paper execution engine
-**Touches:** `SpyderQ14_MainLauncher.py`, existing `SpyderR11_PaperStrategyRunner.py`.
+**Touches:** `TradovQ14_MainLauncher.py`, existing `TradovR11_PaperStrategyRunner.py`.
 
 Paper mode must instantiate a paper broker that implements the broker
 protocol from O-05 and plug it into R04 in place of B40. Simulated fills
@@ -521,7 +521,7 @@ events once S-05/S-11 land.
 ---
 
 ### S-08 — Give R04 an EventManager and publish order lifecycle events
-**Touches:** `SpyderR04_LiveEngine.py`, `create_live_engine(...)`.
+**Touches:** `TradovR04_LiveEngine.py`, `create_live_engine(...)`.
 
 Add `event_manager` kwarg to `create_live_engine` and store on the engine.
 Emit:
@@ -539,7 +539,7 @@ Fixes C-08 and H-07 together.
 ---
 
 ### S-09 — Delete D01 shadow EventManager / EventType / Event classes
-**Touches:** `SpyderD01_BaseStrategy.py:307-342` and `_process_signal`.
+**Touches:** `TradovD01_BaseStrategy.py:307-342` and `_process_signal`.
 
 1. Delete the three local classes.
 2. Remove the dual-emit at `_process_signal`. Replace with unconditional
@@ -549,15 +549,15 @@ Fixes C-08 and H-07 together.
 
 **Acceptance:**
 - Full test suite passes.
-- `grep -n "class EventManager" Spyder/SpyderD_Strategies/` returns nothing.
+- `grep -n "class EventManager" Tradov/TradovD_Strategies/` returns nothing.
 
 ---
 
 ### S-10 — Tighten E01 `validate_signal` typing and input validation
-**Touches:** `SpyderE01_RiskManager.py:599`.
+**Touches:** `TradovE01_RiskManager.py:599`.
 
 ```python
-from Spyder.SpyderE_Risk.SpyderE00_RiskProtocol import (
+from Tradov.TradovE_Risk.TradovE00_RiskProtocol import (
     RiskValidationRequest, RiskValidationResult,
 )
 
@@ -580,7 +580,7 @@ longer masks type mismatches.
 ---
 
 ### S-11 — Fill reconciliation background worker
-**Touches:** New `SpyderR_Runtime/SpyderR13_FillReconciler.py`, R04 init.
+**Touches:** New `TradovR_Runtime/TradovR13_FillReconciler.py`, R04 init.
 
 Spec:
 - Singleton service owned by `SessionSupervisor` (O-01).
@@ -589,7 +589,7 @@ Spec:
 - Poll cadence: 2s for MARKET/STOP, 5s for LIMIT.
 - Publishes lifecycle events on the shared EventManager.
 - Drops the registration once a terminal state is reached.
-- Instruments itself to `SpyderB15_PrometheusMetrics`:
+- Instruments itself to `TradovB15_PrometheusMetrics`:
   `fill_detection_latency_ms`, `reconciler_poll_total`,
   `reconciler_fill_miss_total`.
 
@@ -601,7 +601,7 @@ Spec:
 ---
 
 ### S-12 — (Covers O-01) SessionSupervisor
-New `SpyderR_Runtime/SpyderR12_SessionSupervisor.py`. Owns lifecycle:
+New `TradovR_Runtime/TradovR12_SessionSupervisor.py`. Owns lifecycle:
 
 ```python
 class SessionSupervisor:
@@ -667,7 +667,7 @@ the position has no owning strategy, emit `RISK_ALERT("ORPHAN_POSITION", ...)`.
 ---
 
 ### S-15 — BrokerProtocol + router (O-05)
-Single `Spyder/SpyderB_Broker/SpyderB00_BrokerProtocol.py` (may already
+Single `Tradov/TradovB_Broker/TradovB00_BrokerProtocol.py` (may already
 exist — verify) with:
 
 ```python
@@ -679,7 +679,7 @@ class BrokerProtocol(Protocol):
     def get_account(self) -> AccountSnapshot: ...
 ```
 
-B02, B40, and a new `SpyderR02_PaperBroker` all implement it. R04 accepts
+B02, B40, and a new `TradovR02_PaperBroker` all implement it. R04 accepts
 `broker: BrokerProtocol` and deletes the two-path `_broker_submit` branch.
 
 **Acceptance:**
@@ -690,7 +690,7 @@ B02, B40, and a new `SpyderR02_PaperBroker` all implement it. R04 accepts
 ---
 
 ### S-16 — Q10 protocol-compliance gate wired to pre-commit + CI
-`SpyderQ10_ProtocolComplianceGate.py` should run on every commit and PR.
+`TradovQ10_ProtocolComplianceGate.py` should run on every commit and PR.
 Add `.pre-commit-config.yaml` hook and a GitHub Actions step (or
 equivalent) that fails if any `D_Strategies`, `E_Risk`, `R_Runtime`, or
 `B_Broker` module violates its protocol.
@@ -732,7 +732,7 @@ weeks** by a single focused agent.
   POSITION_UPDATED → dashboard-observed chain completes within 5s and
   state is consistent.
 - **Sandbox:** `tests/live/test_tradier_sandbox_loop.py` (gated on
-  `SPYDER_RUN_SANDBOX=1`) — runs the real Tradier sandbox loop for 60s,
+  `TRADOV_RUN_SANDBOX=1`) — runs the real Tradier sandbox loop for 60s,
   places and cancels 5 orders, asserts no "filled" metric increments on
   canceled orders.
 - **Soak:** run the paper loop for 4 hours, assert no EventManager queue

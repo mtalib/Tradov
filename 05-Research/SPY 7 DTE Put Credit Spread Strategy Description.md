@@ -7,7 +7,7 @@
 
 The SPY 7 DTE Put Credit Spread is an income-generating options strategy designed to collect premium by selling out-of-the-money (OTM) put spreads on the SPDR S&P 500 ETF (SPY) with approximately seven days to expiration (DTE). This strategy capitalizes on time decay (theta) and the tendency of equity markets to drift higher or remain stable over short periods. By using a credit spread rather than a naked put, the strategy strictly defines the maximum risk per trade.
 
-This Spyder implementation adapts the original SPX case-study template to SPY so the live option chain, strike spacing, and position-sizing defaults match the product we intend to trade.
+This Tradov implementation adapts the original SPX case-study template to SPY so the live option chain, strike spacing, and position-sizing defaults match the product we intend to trade.
 
 This document outlines the specific rules, entry criteria, management techniques, and performance expectations based on the analysis of the provided case study [1].
 
@@ -77,4 +77,4 @@ The choice of spread width depends on the trader's individual risk tolerance and
 
 ## References
 
-[1] Income Academy. "Amazing 7 DTE SPX Put Credit Spread Case Study!" YouTube, https://youtu.be/Fip0OY11NGg?si=K5AwQF49QCsUk7v9. Spyder adapts the structure to SPY options for live use.
+[1] Income Academy. "Amazing 7 DTE SPX Put Credit Spread Case Study!" YouTube, https://youtu.be/Fip0OY11NGg?si=K5AwQF49QCsUk7v9. Tradov adapts the structure to SPY options for live use.

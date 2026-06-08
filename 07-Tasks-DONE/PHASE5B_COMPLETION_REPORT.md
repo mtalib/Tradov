@@ -37,7 +37,7 @@ Phase 5-B P0-1 (Options Liquidity Quality Gate) has been successfully implemente
 - Full test coverage for all threshold types
 
 **3. Comprehensive Test Suite**
-- **Test File**: `Spyder/SpyderT_Testing/test_f09_liquidity_gate.py`
+- **Test File**: `Tradov/TradovT_Testing/test_f09_liquidity_gate.py`
 - **Coverage**: 16 core tests + 2 edge-case tests (skip)
 - **Test Categories**:
   - Threshold validation: spread_pct, spread_abs, quote_age_ms, top_of_book, OI, volume, OI change
@@ -65,7 +65,7 @@ Phase 5-B P0-1 (Options Liquidity Quality Gate) has been successfully implemente
 
 **Step 4: B02 Pre-Submit Check** (DEFERRED - Optional)
 - Final liquidity sanity check before order submit
-- Module: SpyderB02_OrderManager
+- Module: TradovB02_OrderManager
 - Second-layer enforcement; can be added after F09 validation complete
 
 ---
@@ -114,14 +114,14 @@ autonomous_readiness:
 ### Environment Variables (Alternative)
 
 ```bash
-SPYDER_LIQUIDITY_ENABLED=true
-SPYDER_LIQUIDITY_MAX_SPREAD_PCT=0.12
-SPYDER_LIQUIDITY_MAX_SPREAD_ABS=0.20
-SPYDER_LIQUIDITY_MAX_QUOTE_AGE_MS=1500
-SPYDER_LIQUIDITY_MIN_TOP_OF_BOOK_SIZE=10
-SPYDER_LIQUIDITY_MIN_OPEN_INTEREST=500
-SPYDER_LIQUIDITY_MIN_VOLUME=50
-SPYDER_LIQUIDITY_MIN_OI_CHANGE_PCT=-0.20
+TRADOV_LIQUIDITY_ENABLED=true
+TRADOV_LIQUIDITY_MAX_SPREAD_PCT=0.12
+TRADOV_LIQUIDITY_MAX_SPREAD_ABS=0.20
+TRADOV_LIQUIDITY_MAX_QUOTE_AGE_MS=1500
+TRADOV_LIQUIDITY_MIN_TOP_OF_BOOK_SIZE=10
+TRADOV_LIQUIDITY_MIN_OPEN_INTEREST=500
+TRADOV_LIQUIDITY_MIN_VOLUME=50
+TRADOV_LIQUIDITY_MIN_OI_CHANGE_PCT=-0.20
 ```
 
 ---
@@ -131,7 +131,7 @@ SPYDER_LIQUIDITY_MIN_OI_CHANGE_PCT=-0.20
 ### 1. Basic Gating (Hard Gate Mode)
 
 ```python
-from Spyder.SpyderF_Analysis.SpyderF09_EntryFilters import EntryFilters
+from Tradov.TradovF_Analysis.TradovF09_EntryFilters import EntryFilters
 
 ef = EntryFilters(config_manager)
 

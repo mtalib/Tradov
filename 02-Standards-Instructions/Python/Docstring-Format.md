@@ -1,15 +1,15 @@
 8. Standards/Python/Docstring-Format.md
 
 ```markdown
-# Python Docstring Standards for Spyder Trading System
+# Python Docstring Standards for Tradov Trading System
 
 ## Overview
 
-This document defines the docstring format and documentation standards used throughout the Spyder trading system. Consistent documentation is critical for maintaining a complex financial trading system where clarity and precision are essential.
+This document defines the docstring format and documentation standards used throughout the Tradov trading system. Consistent documentation is critical for maintaining a complex financial trading system where clarity and precision are essential.
 
 ## Google Style Docstrings
 
-Spyder uses Google-style docstrings for all Python modules, classes, and functions. This format is clean, readable, and well-supported by documentation tools.
+Tradov uses Google-style docstrings for all Python modules, classes, and functions. This format is clean, readable, and well-supported by documentation tools.
 
 ### Basic Function Docstring
 
@@ -107,7 +107,7 @@ def analyze_trading_performance(
 ```python
 class TradingStrategy:
     """
-    Base class for all trading strategies in the Spyder system.
+    Base class for all trading strategies in the Tradov system.
     
     This abstract class defines the interface that all trading strategies
     must implement. It provides common functionality for position management,
@@ -195,10 +195,10 @@ class TradingStrategy:
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SPYDER - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Options Trading System v1.0
 
-Series: SpyderD_Strategies
-Module: SpyderD02_IronCondor.py
+Series: TradovD_Strategies
+Module: TradovD02_IronCondor.py
 Purpose: Iron Condor options strategy implementation
 
 Author: Trading Team
@@ -207,7 +207,7 @@ Last Updated: 2025-01-24 Time: 12:00:00
 
 Module Description:
     This module implements the Iron Condor options trading strategy for the
-    Spyder system. An Iron Condor is a neutral strategy that profits from
+    Tradov system. An Iron Condor is a neutral strategy that profits from
     low volatility by selling both a put spread and a call spread.
     
     The strategy combines:
@@ -237,10 +237,10 @@ Risk Controls:
     - Integration with system-wide risk management
     
 Dependencies:
-    - SpyderB_Broker: For order execution and position management
-    - SpyderC_MarketData: For real-time options data
-    - SpyderE_Risk: For risk validation and position sizing
-    - SpyderN_OptionsAnalytics: For Greeks calculation and analysis
+    - TradovB_Broker: For order execution and position management
+    - TradovC_MarketData: For real-time options data
+    - TradovE_Risk: For risk validation and position sizing
+    - TradovN_OptionsAnalytics: For Greeks calculation and analysis
     
 Performance Metrics:
     - Expected annual return: 12-18% based on backtesting
@@ -646,6 +646,6 @@ def validate_docstrings():
 
 ---
 
-Following these docstring standards ensures that the Spyder codebase maintains high-quality, consistent documentation that serves both current developers and future maintainers of this critical financial system.
+Following these docstring standards ensures that the Tradov codebase maintains high-quality, consistent documentation that serves both current developers and future maintainers of this critical financial system.
 ```
 

@@ -1,8 +1,8 @@
-# Spyder Strategy Modules — Master Plan
+# Tradov Strategy Modules — Master Plan
 
-**Scope:** Audit and remediation of five strategy modules in the `SpyderD_Strategies` series.
+**Scope:** Audit and remediation of five strategy modules in the `TradovD_Strategies` series.
 **Date:** 2026-05-07
-**Owner:** Adam (Spyder)
+**Owner:** Adam (Tradov)
 **Implementation agent:** Claude Opus 4.6 in VS Code
 
 ---
@@ -11,11 +11,11 @@
 
 | Module | Strategy | Audit grade | Severity |
 |---|---|---|---|
-| `SpyderD02_IronCondor.py` | Iron Condor | C | High (architectural + correctness) |
-| `SpyderD10_IronButterfly.py` | Iron Butterfly | C | High (architectural + correctness) |
-| `SpyderD06_BullPutSpread.py` | Bull Put Spread | B− | Medium (small bugs, doc drift) |
-| `SpyderD07_BearCallSpread.py` | Bear Call Spread | B− | Medium (small bugs, doc drift) |
-| `SpyderD34_PivotMeanReversion.py` | Intraday Pivot MR | B+ | Low–Medium (perf + edge cases) |
+| `TradovD02_IronCondor.py` | Iron Condor | C | High (architectural + correctness) |
+| `TradovD10_IronButterfly.py` | Iron Butterfly | C | High (architectural + correctness) |
+| `TradovD06_BullPutSpread.py` | Bull Put Spread | B− | Medium (small bugs, doc drift) |
+| `TradovD07_BearCallSpread.py` | Bear Call Spread | B− | Medium (small bugs, doc drift) |
+| `TradovD34_PivotMeanReversion.py` | Intraday Pivot MR | B+ | Low–Medium (perf + edge cases) |
 
 ---
 
@@ -23,9 +23,9 @@
 
 Three implementation specs accompany this master plan:
 
-1. **`Spyder_D02_D10_MultiLeg_Spec.md`** — Iron Condor + Iron Butterfly (paired; they share the same architectural defects).
-2. **`Spyder_D06_D07_VerticalSpread_Spec.md`** — Bull Put + Bear Call (paired; they are mirror images).
-3. **`Spyder_D34_PivotMR_Spec.md`** — Pivot Mean Reversion (standalone).
+1. **`Tradov_D02_D10_MultiLeg_Spec.md`** — Iron Condor + Iron Butterfly (paired; they share the same architectural defects).
+2. **`Tradov_D06_D07_VerticalSpread_Spec.md`** — Bull Put + Bear Call (paired; they are mirror images).
+3. **`Tradov_D34_PivotMR_Spec.md`** — Pivot Mean Reversion (standalone).
 
 Each spec is self-contained: it lists every change, gives exact find/replace patterns or new code blocks, and ends with an acceptance checklist.
 
@@ -42,7 +42,7 @@ Execute in this order to minimise rework risk:
    No cross-module impact. Performance fix (RSI O(n²) → O(1)), VWAP NaN guard, indicator consolidation onto F20.
 
 3. **D06 + D07 together** (small, mirror changes).
-   Lowest risk; do last to confirm the credit-spread parent (`SpyderD03_CreditSpread`) is stable after any D02/D10 touch.
+   Lowest risk; do last to confirm the credit-spread parent (`TradovD03_CreditSpread`) is stable after any D02/D10 touch.
 
 ---
 
@@ -52,10 +52,10 @@ The implementation agent must confirm these answers with the user **before** sta
 
 ### Decision 1 — Coordinator module name
 
-The header docstrings of D02 and D10 say `D26_MultiLegStrategyCoordinator`, but the `import` statements reference `SpyderD32_MultiLegStrategyCoordinator`. Pick one:
+The header docstrings of D02 and D10 say `D26_MultiLegStrategyCoordinator`, but the `import` statements reference `TradovD32_MultiLegStrategyCoordinator`. Pick one:
 
-- **Option A (assumed correct):** The actual file is `SpyderD32_MultiLegStrategyCoordinator.py`. Update docstrings everywhere to say `D32`.
-- **Option B:** The intended file is `SpyderD26_MultiLegStrategyCoordinator.py` and the imports are wrong.
+- **Option A (assumed correct):** The actual file is `TradovD32_MultiLegStrategyCoordinator.py`. Update docstrings everywhere to say `D32`.
+- **Option B:** The intended file is `TradovD26_MultiLegStrategyCoordinator.py` and the imports are wrong.
 
 The specs default to **Option A** and assume `D32` is the canonical name. If Option B is correct, swap `D32 → D26` in all references.
 
@@ -86,7 +86,7 @@ After each module is implemented:
 2. `ruff check <module>.py` must report no new errors.
 3. `mypy <module>.py --ignore-missing-imports` must pass for the changed surface.
 4. The module's `if __name__ == "__main__":` block must execute without exception.
-5. Any unit tests under `Spyder/SpyderT_Testing/` that target the module must pass.
+5. Any unit tests under `Tradov/TradovT_Testing/` that target the module must pass.
 
 ---
 
@@ -96,6 +96,6 @@ These items are surfaced by the audit but deferred:
 
 - Full type-unification work (`MarketRegime` etc.) — handled by separate plan.
 - Exception handler audit (~3000 bare `except`) — handled by separate plan.
-- `SpyderD03_CreditSpread` modifications — D06/D07 spec only touches the children. If parent changes are needed for delta-tightening, that becomes a separate D03 spec.
-- `SpyderS08_PivotMeanReversionSignal` modifications — D34 spec assumes S08 is correct as-is.
+- `TradovD03_CreditSpread` modifications — D06/D07 spec only touches the children. If parent changes are needed for delta-tightening, that becomes a separate D03 spec.
+- `TradovS08_PivotMeanReversionSignal` modifications — D34 spec assumes S08 is correct as-is.
 - New strategy backtesting — orthogonal to remediation.

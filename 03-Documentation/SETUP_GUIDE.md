@@ -1,7 +1,7 @@
-# SPYDER OAuth Launcher - Complete Setup Guide
+# TRADOV OAuth Launcher - Complete Setup Guide
 
 > ⛔ **DEPRECATED:** This guide describes IBKR OAuth setup which is no longer used.  
-> Spyder migrated to **Tradier API** (February 2026). See:
+> Tradov migrated to **Tradier API** (February 2026). See:
 > - [ACCOUNT_SETUP_GUIDE.md](./ACCOUNT_SETUP_GUIDE.md) - Current Tradier setup
 > - [IBKR_TO_TRADIER_MIGRATION_GUIDE.md](../09-Implementation-History/IBKR_TO_TRADIER_MIGRATION_GUIDE.md) - Migration guide
 
@@ -29,21 +29,21 @@ python3 -m venv ~/spyder_venv
 source ~/spyder_venv/bin/activate
 
 # Install dependencies
-cd /home/adam/Projects/Spyder/SpyderG_GUI
+cd /home/adam/Projects/Tradov/TradovG_GUI
 ./install_oauth_launcher.sh
 
 # Run launcher (with venv activated)
-python SpyderG08_IBKRLoginLauncher_OAuth.py
+python TradovG08_IBKRLoginLauncher_OAuth.py
 ```
 
 To use this permanently:
 ```bash
 # Add to ~/.bashrc
-echo 'alias spyder-venv="source ~/spyder_venv/bin/activate"' >> ~/.bashrc
+echo 'alias tradov-venv="source ~/spyder_venv/bin/activate"' >> ~/.bashrc
 source ~/.bashrc
 
 # Then just run:
-spyder-venv
+tradov-venv
 ```
 
 #### Option B: Install System-Wide (NOT RECOMMENDED)
@@ -85,7 +85,7 @@ openssl genpkey -algorithm RSA -out private_key.pem -pkeyopt rsa_keygen_bits:204
 source ~/spyder_venv/bin/activate
 
 # Install GUI requirements
-pip install -r /home/adam/Projects/Spyder/requirements-gui.txt
+pip install -r /home/adam/Projects/Tradov/requirements-gui.txt
 ```
 
 ### Issue 4: Tkinter Callback Error
@@ -104,19 +104,19 @@ pip install -r /home/adam/Projects/Spyder/requirements-gui.txt
 
 ```bash
 # Navigate to project directory
-cd /home/adam/Projects/Spyder/
+cd /home/adam/Projects/Tradov/
 
 # Activate the existing .venv
 source .venv/bin/activate
 
 # Verify activation
-which python  # Should show: /home/adam/Projects/Spyder/.venv/bin/python
+which python  # Should show: /home/adam/Projects/Tradov/.venv/bin/python
 ```
 
 ### Step 2: Install All Dependencies
 
 ```bash
-cd /home/adam/Projects/Spyder
+cd /home/adam/Projects/Tradov
 
 # Install core dependencies
 pip install -r requirements-core.txt
@@ -131,15 +131,15 @@ pip install PyJWT>=2.8.0 cryptography>=41.0.0 requests>=2.31.0
 ### Step 3: Generate RSA Key Pair
 
 ```bash
-cd /home/adam/Projects/Spyder/SpyderG_GUI
+cd /home/adam/Projects/Tradov/TradovG_GUI
 
 # Run the fixed key generation script
 ./generate_oauth_keys.sh
 ```
 
 This will create:
-- Private key: `~/.spyder/keys/private_key.pem` (keep secure!)
-- Public key: `~/.spyder/keys/public_key.pem` (upload to IBKR)
+- Private key: `~/.tradov/keys/private_key.pem` (keep secure!)
+- Public key: `~/.tradov/keys/public_key.pem` (upload to IBKR)
 
 ### Step 4: Register with IBKR
 
@@ -147,9 +147,9 @@ This will create:
 2. Navigate to **Settings** → **API Settings**
 3. Click **Create Application** for OAuth
 4. Fill in details:
-   - Application Name: "SPYDER Trading System"
+   - Application Name: "TRADOV Trading System"
    - Application Type: "Desktop/Mobile"
-5. Upload your public key: `~/.spyder/keys/public_key.pem`
+5. Upload your public key: `~/.tradov/keys/public_key.pem`
 6. **Note your Client ID** (starts with 'l', e.g., `l123456789`)
 7. **Note your Account ID** (format: `DU1234567`)
 
@@ -160,8 +160,8 @@ This will create:
 source ~/spyder_venv/bin/activate
 
 # Run the launcher
-cd /home/adam/Projects/Spyder/SpyderG_GUI
-python SpyderG08_IBKRLoginLauncher_OAuth.py
+cd /home/adam/Projects/Tradov/TradovG_GUI
+python TradovG08_IBKRLoginLauncher_OAuth.py
 ```
 
 ---
@@ -170,21 +170,21 @@ python SpyderG08_IBKRLoginLauncher_OAuth.py
 
 ```bash
 # Activate existing venv
-cd /home/adam/Projects/Spyder/
+cd /home/adam/Projects/Tradov/
 source .venv/bin/activate
 
 # Install dependencies (one-time)
 pip install -r requirements-gui.txt
 
 # Generate keys (one-time)
-cd SpyderG_GUI
+cd TradovG_GUI
 ./generate_oauth_keys.sh
 
 # Daily usage
-cd /home/adam/Projects/Spyder/
+cd /home/adam/Projects/Tradov/
 source .venv/bin/activate
-cd SpyderG_GUI
-python SpyderG08_IBKRLoginLauncher_OAuth.py
+cd TradovG_GUI
+python TradovG08_IBKRLoginLauncher_OAuth.py
 ```
 
 ---
@@ -243,7 +243,7 @@ If you still see this error:
 # Edit requirements-gui.txt and remove the qtwebengine line
 # Then reinstall
 source ~/spyder_venv/bin/activate
-pip install -r ~/Projects/Spyder/requirements-gui.txt
+pip install -r ~/Projects/Tradov/requirements-gui.txt
 ```
 
 ### Problem: Import errors for jwt/cryptography
@@ -262,14 +262,14 @@ pip install PyJWT cryptography requests
 
 Add to `~/.bashrc`:
 ```bash
-# SPYDER Virtual Environment
-alias spyder='cd /home/adam/Projects/Spyder && source .venv/bin/activate'
-alias spyder-launch='cd /home/adam/Projects/Spyder && source .venv/bin/activate && python SpyderG_GUI/SpyderG08_IBKRLoginLauncher_OAuth.py'
+# TRADOV Virtual Environment
+alias tradov='cd /home/adam/Projects/Tradov && source .venv/bin/activate'
+alias tradov-launch='cd /home/adam/Projects/Tradov && source .venv/bin/activate && python TradovG_GUI/TradovG08_IBKRLoginLauncher_OAuth.py'
 ```
 
 Then simply run:
 ```bash
-spyder-launch
+tradov-launch
 ```
 
 ### Deactivation

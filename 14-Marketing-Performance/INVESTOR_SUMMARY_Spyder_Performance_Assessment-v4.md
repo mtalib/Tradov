@@ -1,4 +1,4 @@
-# SPYDER TRADING SYSTEM
+# TRADOV TRADING SYSTEM
 ## Performance Assessment & Current Validation Snapshot - v4
 
 **Prepared for Institutional Review**
@@ -11,11 +11,11 @@
 
 ## EXECUTIVE SUMMARY
 
-This v4 report aligns the performance narrative with the current checked-in production surface and the updated `SpyderT06_EvolvedStrategyTest` harness.
+This v4 report aligns the performance narrative with the current checked-in production surface and the updated `TradovT06_EvolvedStrategyTest` harness.
 
 The current harness now validates two things together:
 
-1. **Performance math and pricing** through `SpyderU20_InstitutionalLibraries` using the checked-in D18 evolved baseline.
+1. **Performance math and pricing** through `TradovU20_InstitutionalLibraries` using the checked-in D18 evolved baseline.
 2. **Current PMR routing and risk controls** across `D30 RegimeGatedSelector`, `D31 StrategyOrchestrator`, `D34 PivotMeanReversion`, `S08 PivotMeanReversionSignal`, and `E01 RiskManager.validate_overlay_slot()`.
 
 On the current checked-in D18 parameter set, the deterministic 252-day synthetic return stream used by T06 produces the following institutional metrics:
@@ -43,8 +43,8 @@ This version replaces the stale D25-centric PMR narrative with the current routi
 
 - **PMR strategy routing now reflects the D30/D31/D34 path.**
 - **E01 overlay-slot validation is now part of the documented control surface.**
-- **R08 still uses the legacy producer gate `SPYDER_PIVOT_MR_ENABLED=1` for paper-mode PMR signal production.**
-- **D30 strategy selection uses `SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true` to swap RANGE/SIDEWAYS selections to `pivot_mean_reversion` when S08 fires.**
+- **R08 still uses the legacy producer gate `TRADOV_PIVOT_MR_ENABLED=1` for paper-mode PMR signal production.**
+- **D30 strategy selection uses `TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true` to swap RANGE/SIDEWAYS selections to `pivot_mean_reversion` when S08 fires.**
 - **D31 normalizes PMR aliases and builds overlay metadata for `E01.validate_overlay_slot()`.**
 
 The updated T06 regression passed on this workspace snapshot with:
@@ -58,7 +58,7 @@ The updated T06 regression passed on this workspace snapshot with:
 
 ### 1. Evolved baseline used by the harness
 
-The current T06 harness pulls its baseline from `SpyderD18_EvolvedCreditSpread`:
+The current T06 harness pulls its baseline from `TradovD18_EvolvedCreditSpread`:
 
 | Field | Current Value |
 |-------|---------------|
@@ -82,7 +82,7 @@ This means the performance numbers in this document are **parameterized syntheti
 
 ### 3. Institutional metric engine
 
-T06 uses `SpyderU20_InstitutionalLibraries` to calculate:
+T06 uses `TradovU20_InstitutionalLibraries` to calculate:
 
 - Annualized return
 - Volatility
@@ -114,8 +114,8 @@ On the current environment snapshot, the institutional library bundle reported *
 
 | Layer | Current Behavior |
 |-------|------------------|
-| R08 paper producer | PMR production remains gated by `SPYDER_PIVOT_MR_ENABLED=1` |
-| D30 selector | `SPYDER_ENABLE_PIVOT_MEAN_REVERSION=true` allows RANGE/SIDEWAYS to select `pivot_mean_reversion` when S08 fires |
+| R08 paper producer | PMR production remains gated by `TRADOV_PIVOT_MR_ENABLED=1` |
+| D30 selector | `TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true` allows RANGE/SIDEWAYS to select `pivot_mean_reversion` when S08 fires |
 | D31 orchestrator | Normalizes aliases like `PivotMeanReversion`, `pivot_mr`, and `D34_PivotMR` to `pivot_mean_reversion` |
 | E01 risk | `validate_overlay_slot()` evaluates narrow PMR overlay admission when the optional overlay path is requested |
 
@@ -206,10 +206,10 @@ The v4 numbers above are the values that can be reproduced directly from the cur
 
 ## CONCLUSION
 
-The current checked-in Spyder stack continues to show strong modeled risk-adjusted metrics in the T06 institutional harness while now reflecting the actual D30/D31/D34 PMR routing contract and the E01 overlay-slot risk boundary.
+The current checked-in Tradov stack continues to show strong modeled risk-adjusted metrics in the T06 institutional harness while now reflecting the actual D30/D31/D34 PMR routing contract and the E01 overlay-slot risk boundary.
 
 The most important v4 change is not a marketing claim; it is **alignment**. This document now matches the current code, current T06 test surface, and current checked-in D18 baseline.
 
 ---
 
-*Confidential. Generated from the current workspace state on May 27, 2026 using the updated `SpyderT06_EvolvedStrategyTest` harness, the checked-in `SpyderD18_EvolvedCreditSpread` constants, and `SpyderU20_InstitutionalLibraries` pricing/metric calculations.*
+*Confidential. Generated from the current workspace state on May 27, 2026 using the updated `TradovT06_EvolvedStrategyTest` harness, the checked-in `TradovD18_EvolvedCreditSpread` constants, and `TradovU20_InstitutionalLibraries` pricing/metric calculations.*

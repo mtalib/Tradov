@@ -8,13 +8,13 @@ sqlalchemy>=2.0.0,<3.0.0
 aiofiles>=0.8.0,<1.0.0
 python-dotenv>=0.19.0,<2.0.0
 pyyaml>=6.0,<7.0
-toml>=0.10.2  # TOML config read/write (SpyderA03, SpyderC17, SpyderI03)
-apscheduler>=3.10.0,<4.0.0  # job scheduler (SpyderA_Core)
+toml>=0.10.2  # TOML config read/write (TradovA03, TradovC17, TradovI03)
+apscheduler>=3.10.0,<4.0.0  # job scheduler (TradovA_Core)
 psutil>=5.9.0,<7.0.0  # process/system utilities (MasterController, FSeriesOrchestrator)
-jsonschema>=4.0.0,<5.0.0  # config/schema validation (SpyderA_Core Configuration)
-pandas_market_calendars>=1.6.0  # market calendar for scheduler (SpyderA_Core Scheduler)
-watchdog>=3.0.0  # config file watching (SpyderA_Core Configuration)
-holidays>=0.13  # market holiday calendar (SpyderA_Core Scheduler)
+jsonschema>=4.0.0,<5.0.0  # config/schema validation (TradovA_Core Configuration)
+pandas_market_calendars>=1.6.0  # market calendar for scheduler (TradovA_Core Scheduler)
+watchdog>=3.0.0  # config file watching (TradovA_Core Configuration)
+holidays>=0.13  # market holiday calendar (TradovA_Core Scheduler)
 argon2-cffi>=21.3.0,<23.0  # pinned upper bound for stability
 
 # Structured output validation (Pydantic v2)

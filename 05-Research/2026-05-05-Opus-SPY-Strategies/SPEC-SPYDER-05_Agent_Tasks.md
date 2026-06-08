@@ -1,11 +1,11 @@
-# SPEC-SPYDER-05 — Coding Agent Task Tickets
+# SPEC-TRADOV-05 — Coding Agent Task Tickets
 
 | Field | Value |
 |---|---|
-| Spec ID | SPEC-SPYDER-05 |
-| Purpose | Atomic, agent-executable tickets to implement SPEC-SPYDER-01 through 04 |
+| Spec ID | SPEC-TRADOV-05 |
+| Purpose | Atomic, agent-executable tickets to implement SPEC-TRADOV-01 through 04 |
 | Format | Each ticket is self-contained: branch name, files, acceptance test, time estimate |
-| Convention | Ticket IDs use Spyder lettered series: D=Data, B=Broker, Q=Quant, S=Strategy, T=Tests |
+| Convention | Ticket IDs use Tradov lettered series: D=Data, B=Broker, Q=Quant, S=Strategy, T=Tests |
 
 ---
 
@@ -26,7 +26,7 @@ Tickets marked **GATE** must be human-approved before subsequent tickets begin.
 
 ## Phase 0 — Repo Setup (1 ticket)
 
-### TICKET S00 — Initialize Spyder Repo Structure
+### TICKET S00 — Initialize Tradov Repo Structure
 
 | Field | Value |
 |---|---|
@@ -37,23 +37,23 @@ Tickets marked **GATE** must be human-approved before subsequent tickets begin.
 **Files to create:**
 
 ```
-spyder/
+tradov/
 ├── pyproject.toml
 ├── README.md
 ├── .gitignore
 ├── .env.example
 ├── ruff.toml
 ├── pytest.ini
-├── src/spyder/__init__.py
-├── src/spyder/types/__init__.py
-├── src/spyder/quant/__init__.py
-├── src/spyder/quant/greeks/__init__.py
-├── src/spyder/broker/__init__.py
-├── src/spyder/broker/tradier/__init__.py
-├── src/spyder/strategies/__init__.py
-├── src/spyder/backtest/__init__.py
-├── src/spyder/live/__init__.py
-├── src/spyder/cli/__init__.py
+├── src/tradov/__init__.py
+├── src/tradov/types/__init__.py
+├── src/tradov/quant/__init__.py
+├── src/tradov/quant/greeks/__init__.py
+├── src/tradov/broker/__init__.py
+├── src/tradov/broker/tradier/__init__.py
+├── src/tradov/strategies/__init__.py
+├── src/tradov/backtest/__init__.py
+├── src/tradov/live/__init__.py
+├── src/tradov/cli/__init__.py
 ├── tests/__init__.py
 ├── tests/quant/
 ├── tests/broker/
@@ -66,7 +66,7 @@ spyder/
 
 ```toml
 [project]
-name = "spyder"
+name = "tradov"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -90,7 +90,7 @@ dev = ["pytest>=7.4", "pytest-asyncio>=0.23", "pytest-cov>=4.1", "ruff>=0.3", "m
 
 **PR description template:**
 ```
-Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
+Initial repo skeleton per SPEC-TRADOV-05 ticket S00.
 - Layout follows lettered-module convention (Q=Quant, B=Broker, S=Strategy)
 - Python 3.11+ minimum
 - No code yet — only structure and tooling config
@@ -107,11 +107,11 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `quant/q01-bs-scalar` |
 | Time estimate | 60 min |
 | Depends on | S00 |
-| Spec section | SPEC-SPYDER-04 §2, §3, §4 |
+| Spec section | SPEC-TRADOV-04 §2, §3, §4 |
 
 **Files:**
-- `src/spyder/quant/greeks/black_scholes.py`
-- `src/spyder/quant/greeks/types.py`  (the `Greeks` dataclass and `OptionType`)
+- `src/tradov/quant/greeks/black_scholes.py`
+- `src/tradov/quant/greeks/types.py`  (the `Greeks` dataclass and `OptionType`)
 - `tests/quant/test_black_scholes.py`
 
 **Implement:**
@@ -136,10 +136,10 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `quant/q02-bs-vectorized` |
 | Time estimate | 45 min |
 | Depends on | Q01 |
-| Spec section | SPEC-SPYDER-04 §3 (vectorized API), §9 (perf budget) |
+| Spec section | SPEC-TRADOV-04 §3 (vectorized API), §9 (perf budget) |
 
 **Files:**
-- `src/spyder/quant/greeks/black_scholes_vec.py`
+- `src/tradov/quant/greeks/black_scholes_vec.py`
 - `tests/quant/test_black_scholes_vec.py`
 - `tests/quant/test_perf_budget.py`
 
@@ -160,11 +160,11 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `quant/q03-iv-rank` |
 | Time estimate | 45 min |
 | Depends on | Q01 |
-| Spec section | SPEC-SPYDER-04 §5 |
+| Spec section | SPEC-TRADOV-04 §5 |
 
 **Files:**
-- `src/spyder/quant/greeks/iv_metrics.py`
-- `src/spyder/quant/greeks/iv_cache.py`  (SQLite cache per §5.3)
+- `src/tradov/quant/greeks/iv_metrics.py`
+- `src/tradov/quant/greeks/iv_cache.py`  (SQLite cache per §5.3)
 - `tests/quant/test_iv_metrics.py`
 
 **Implement:**
@@ -187,10 +187,10 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `quant/q04-portfolio-greeks` |
 | Time estimate | 45 min |
 | Depends on | Q02 |
-| Spec section | SPEC-SPYDER-04 §6, §7 |
+| Spec section | SPEC-TRADOV-04 §6, §7 |
 
 **Files:**
-- `src/spyder/quant/greeks/portfolio.py`
+- `src/tradov/quant/greeks/portfolio.py`
 - `tests/quant/test_portfolio_greeks.py`
 
 **Implement:**
@@ -214,22 +214,22 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `broker/b01-config-occ` |
 | Time estimate | 45 min |
 | Depends on | S00 |
-| Spec section | SPEC-SPYDER-03 §3, §5 |
+| Spec section | SPEC-TRADOV-03 §3, §5 |
 
 **Files:**
-- `src/spyder/broker/tradier/config.py`
-- `src/spyder/broker/tradier/occ.py`
+- `src/tradov/broker/tradier/config.py`
+- `src/tradov/broker/tradier/occ.py`
 - `tests/broker/test_config.py`
 - `tests/broker/test_occ.py`
 
 **Implement:**
-- `TradierEnv`, `TradierConfig`, secrets loader from `~/.spyder/secrets.toml`
+- `TradierEnv`, `TradierConfig`, secrets loader from `~/.tradov/secrets.toml`
 - `OccSymbol` with `parse` and `encode`
 - Production-safe guards (env var check, file path check)
 
 **Acceptance:**
 - 1000-iteration round-trip: `OccSymbol.parse(s.encode()) == s`
-- Production config without `SPYDER_PROD_CONFIRMED=1` raises
+- Production config without `TRADOV_PROD_CONFIRMED=1` raises
 - Token never appears in `repr(config)`
 
 ---
@@ -241,12 +241,12 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `broker/b02-rest-foundation` |
 | Time estimate | 60 min |
 | Depends on | B01 |
-| Spec section | SPEC-SPYDER-03 §4, §9, §10 |
+| Spec section | SPEC-TRADOV-03 §4, §9, §10 |
 
 **Files:**
-- `src/spyder/broker/tradier/rest.py`           (httpx-based client)
-- `src/spyder/broker/tradier/rate_limiter.py`
-- `src/spyder/broker/tradier/errors.py`
+- `src/tradov/broker/tradier/rest.py`           (httpx-based client)
+- `src/tradov/broker/tradier/rate_limiter.py`
+- `src/tradov/broker/tradier/errors.py`
 - `tests/broker/test_rate_limiter.py`
 - `tests/broker/test_retry.py`
 
@@ -269,11 +269,11 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `broker/b03-market-data` |
 | Time estimate | 60 min |
 | Depends on | B02, Q01 |
-| Spec section | SPEC-SPYDER-03 §6 |
+| Spec section | SPEC-TRADOV-03 §6 |
 
 **Files:**
-- `src/spyder/broker/tradier/market_data.py`
-- `src/spyder/broker/tradier/models.py`        (Pydantic models for chain, quote, etc.)
+- `src/tradov/broker/tradier/market_data.py`
+- `src/tradov/broker/tradier/models.py`        (Pydantic models for chain, quote, etc.)
 - `tests/broker/test_market_data_sandbox.py`   (network test, marked `@pytest.mark.sandbox`)
 
 **Implement:**
@@ -297,11 +297,11 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `broker/b04-trading-multileg` |
 | Time estimate | 90 min |
 | Depends on | B03 |
-| Spec section | SPEC-SPYDER-03 §7 |
+| Spec section | SPEC-TRADOV-03 §7 |
 
 **Files:**
-- `src/spyder/broker/tradier/trading.py`
-- `src/spyder/broker/tradier/protocol.py`     (the `BrokerProtocol`)
+- `src/tradov/broker/tradier/trading.py`
+- `src/tradov/broker/tradier/protocol.py`     (the `BrokerProtocol`)
 - `tests/broker/test_multileg_payload.py`
 - `tests/broker/test_trading_sandbox.py`
 
@@ -326,12 +326,12 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `broker/b05-streaming-audit` |
 | Time estimate | 75 min |
 | Depends on | B04 |
-| Spec section | SPEC-SPYDER-03 §6.3, §11, §12 |
+| Spec section | SPEC-TRADOV-03 §6.3, §11, §12 |
 
 **Files:**
-- `src/spyder/broker/tradier/streaming.py`
-- `src/spyder/broker/tradier/audit.py`
-- `src/spyder/broker/tradier/reconcile.py`
+- `src/tradov/broker/tradier/streaming.py`
+- `src/tradov/broker/tradier/audit.py`
+- `src/tradov/broker/tradier/reconcile.py`
 - `tests/broker/test_streaming_sandbox.py`
 - `tests/broker/test_audit.py`
 - `tests/broker/test_reconcile.py`
@@ -361,12 +361,12 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `data/d01-loaders` |
 | Time estimate | 75 min |
 | Depends on | S00 |
-| Spec section | SPEC-SPYDER-02 §5 |
+| Spec section | SPEC-TRADOV-02 §5 |
 
 **Files:**
-- `src/spyder/backtest/data/chain_loader.py`
-- `src/spyder/backtest/data/vix_loader.py`
-- `src/spyder/backtest/data/calendar.py`
+- `src/tradov/backtest/data/chain_loader.py`
+- `src/tradov/backtest/data/vix_loader.py`
+- `src/tradov/backtest/data/calendar.py`
 - `tests/backtest/test_loaders.py`
 
 **Implement:**
@@ -388,14 +388,14 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `backtest/d02-sim-context` |
 | Time estimate | 90 min |
 | Depends on | D01, B04 |
-| Spec section | SPEC-SPYDER-02 §4 |
+| Spec section | SPEC-TRADOV-02 §4 |
 
 **Files:**
-- `src/spyder/backtest/clock.py`
-- `src/spyder/backtest/sim_context.py`
-- `src/spyder/backtest/broker_sim.py`
-- `src/spyder/backtest/slippage.py`
-- `src/spyder/backtest/commissions.py`
+- `src/tradov/backtest/clock.py`
+- `src/tradov/backtest/sim_context.py`
+- `src/tradov/backtest/broker_sim.py`
+- `src/tradov/backtest/slippage.py`
+- `src/tradov/backtest/commissions.py`
 - `tests/backtest/test_broker_sim.py`
 
 **Implement:**
@@ -419,14 +419,14 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `backtest/d03-engine` |
 | Time estimate | 90 min |
 | Depends on | D02 |
-| Spec section | SPEC-SPYDER-02 §4, §8, §11 |
+| Spec section | SPEC-TRADOV-02 §4, §8, §11 |
 
 **Files:**
-- `src/spyder/backtest/engine.py`
-- `src/spyder/backtest/result.py`
-- `src/spyder/backtest/analyzers/equity_curve.py`
-- `src/spyder/backtest/analyzers/drawdown.py`
-- `src/spyder/backtest/analyzers/trade_log.py`
+- `src/tradov/backtest/engine.py`
+- `src/tradov/backtest/result.py`
+- `src/tradov/backtest/analyzers/equity_curve.py`
+- `src/tradov/backtest/analyzers/drawdown.py`
+- `src/tradov/backtest/analyzers/trade_log.py`
 - `tests/backtest/test_engine.py`
 - `tests/backtest/test_metrics.py`
 
@@ -449,16 +449,16 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `backtest/d04-reports` |
 | Time estimate | 75 min |
 | Depends on | D03 |
-| Spec section | SPEC-SPYDER-02 §9 |
+| Spec section | SPEC-TRADOV-02 §9 |
 
 **Files:**
-- `src/spyder/backtest/reports/html_report.py`
-- `src/spyder/backtest/reports/pdf_report.py`
+- `src/tradov/backtest/reports/html_report.py`
+- `src/tradov/backtest/reports/pdf_report.py`
 - `tests/backtest/test_reports.py`
 
 **Implement:**
 - HTML report with embedded Plotly equity curve, monthly heatmap, drawdown chart
-- PDF report using ReportLab (matches the Spyder investor PDF toolkit)
+- PDF report using ReportLab (matches the Tradov investor PDF toolkit)
 
 **Acceptance:**
 - Both reports generate from a fixture `BacktestResult` without error
@@ -477,11 +477,11 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `strategy/s01-config-strikes` |
 | Time estimate | 60 min |
 | Depends on | Q04, B04, D03 |
-| Spec section | SPEC-SPYDER-01 §3, §6 |
+| Spec section | SPEC-TRADOV-01 §3, §6 |
 
 **Files:**
-- `src/spyder/strategies/condor_0dte/config.py`
-- `src/spyder/strategies/condor_0dte/strikes.py`
+- `src/tradov/strategies/condor_0dte/config.py`
+- `src/tradov/strategies/condor_0dte/strikes.py`
 - `tests/strategies/test_strike_selection.py`
 
 **Acceptance:** all unit tests in SPEC-01 §13.1 for strike selection pass.
@@ -495,11 +495,11 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `strategy/s02-gates-sizing` |
 | Time estimate | 60 min |
 | Depends on | S01 |
-| Spec section | SPEC-SPYDER-01 §5, §7 |
+| Spec section | SPEC-TRADOV-01 §5, §7 |
 
 **Files:**
-- `src/spyder/strategies/condor_0dte/gates.py`
-- `src/spyder/strategies/condor_0dte/sizing.py`
+- `src/tradov/strategies/condor_0dte/gates.py`
+- `src/tradov/strategies/condor_0dte/sizing.py`
 - `tests/strategies/test_gates.py`
 - `tests/strategies/test_sizing.py`
 
@@ -514,12 +514,12 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `strategy/s03-state-machine` |
 | Time estimate | 90 min |
 | Depends on | S02 |
-| Spec section | SPEC-SPYDER-01 §4, §8, §11 |
+| Spec section | SPEC-TRADOV-01 §4, §8, §11 |
 
 **Files:**
-- `src/spyder/strategies/condor_0dte/states.py`
-- `src/spyder/strategies/condor_0dte/strategy.py`     (the `CondorStrategy` orchestrator)
-- `src/spyder/strategies/condor_0dte/persistence.py`  (SQLite per SPEC-01 §10)
+- `src/tradov/strategies/condor_0dte/states.py`
+- `src/tradov/strategies/condor_0dte/strategy.py`     (the `CondorStrategy` orchestrator)
+- `src/tradov/strategies/condor_0dte/persistence.py`  (SQLite per SPEC-01 §10)
 - `tests/strategies/test_state_machine.py`
 - `tests/strategies/test_full_lifecycle.py`
 
@@ -537,7 +537,7 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `strategy/s04-backtest-validation` |
 | Time estimate | 60 min (compute time variable) |
 | Depends on | S03, D04 |
-| Spec section | SPEC-SPYDER-01 §14, SPEC-SPYDER-02 §10 |
+| Spec section | SPEC-TRADOV-01 §14, SPEC-TRADOV-02 §10 |
 
 **Files:**
 - `scripts/run_condor_validation.py`
@@ -568,11 +568,11 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `live/l01-live-context` |
 | Time estimate | 60 min |
 | Depends on | B05 |
-| Spec section | SPEC-SPYDER-02 §4.1 (Context protocol) |
+| Spec section | SPEC-TRADOV-02 §4.1 (Context protocol) |
 
 **Files:**
-- `src/spyder/live/context.py`
-- `src/spyder/live/economic_calendar.py`  (FRED + ICS feeds)
+- `src/tradov/live/context.py`
+- `src/tradov/live/economic_calendar.py`  (FRED + ICS feeds)
 - `tests/live/test_live_context.py`
 
 **Acceptance:** `LiveContext` is interchangeable with `SimContext` behind the `Context` protocol; mypy in strict mode passes.
@@ -586,21 +586,21 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `live/l02-cli-runner` |
 | Time estimate | 75 min |
 | Depends on | L01, S03 |
-| Spec section | SPEC-SPYDER-01 §14 (kill switch) |
+| Spec section | SPEC-TRADOV-01 §14 (kill switch) |
 
 **Files:**
-- `src/spyder/cli/run_condor.py`
-- `src/spyder/live/kill_switch.py`
-- `systemd/spyder-condor.service`             (unit file for Ubuntu)
+- `src/tradov/cli/run_condor.py`
+- `src/tradov/live/kill_switch.py`
+- `systemd/tradov-condor.service`             (unit file for Ubuntu)
 - `tests/live/test_kill_switch.py`
 
 **Implement:**
-- `python -m spyder.cli.run_condor --env=sandbox --config=path/to.toml`
-- Kill switch via `~/.spyder/HALT` sentinel file (checked every tick)
+- `python -m tradov.cli.run_condor --env=sandbox --config=path/to.toml`
+- Kill switch via `~/.tradov/HALT` sentinel file (checked every tick)
 - Graceful shutdown on SIGINT/SIGTERM that closes positions before exit
 
 **Acceptance:**
-- Touching `~/.spyder/HALT` halts new entries within one tick
+- Touching `~/.tradov/HALT` halts new entries within one tick
 - SIGTERM during ACTIVE state triggers controlled close, not abrupt exit
 
 ---
@@ -612,10 +612,10 @@ Initial repo skeleton per SPEC-SPYDER-05 ticket S00.
 | Branch | `live/l03-soak-test` |
 | Time estimate | 5 trading days elapsed |
 | Depends on | L02 |
-| Spec section | SPEC-SPYDER-01 §14 |
+| Spec section | SPEC-TRADOV-01 §14 |
 
 **Run:**
-- `spyder-condor.service` running against Tradier sandbox for 5 consecutive trading days
+- `tradov-condor.service` running against Tradier sandbox for 5 consecutive trading days
 - Monitor logs, audit DB, reconciliation reports daily
 
 **Acceptance gate:**

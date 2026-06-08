@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SPYDER - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Options Trading System v1.0
 
 Module: conftest.py
 Purpose: Shared pytest fixtures and configuration
@@ -38,21 +38,21 @@ def _is_workspace_module(module_obj) -> bool:
         return False
 
 
-def _cleanup_polluted_spyder_modules() -> None:
+def _cleanup_polluted_tradov_modules() -> None:
     """Remove in-memory stub modules that can poison later test collection."""
     watched_prefixes = (
-        "SpyderU_Utilities",
-        "Spyder.SpyderU_Utilities",
-        "SpyderA_Core",
-        "Spyder.SpyderA_Core",
-        "SpyderG_GUI",
-        "Spyder.SpyderG_GUI",
-        "SpyderI_Integration",
-        "Spyder.SpyderI_Integration",
-        "SpyderD_Strategies",
-        "Spyder.SpyderD_Strategies",
-        "SpyderE_Risk",
-        "Spyder.SpyderE_Risk",
+        "TradovU_Utilities",
+        "Tradov.TradovU_Utilities",
+        "TradovA_Core",
+        "Tradov.TradovA_Core",
+        "TradovG_GUI",
+        "Tradov.TradovG_GUI",
+        "TradovI_Integration",
+        "Tradov.TradovI_Integration",
+        "TradovD_Strategies",
+        "Tradov.TradovD_Strategies",
+        "TradovE_Risk",
+        "Tradov.TradovE_Risk",
     )
 
     for mod_name, mod_obj in list(sys.modules.items()):
@@ -66,12 +66,12 @@ def _cleanup_polluted_spyder_modules() -> None:
 def _evict_d31_strategy_modules() -> None:
     """Evict D31/D33/D34 modules so D31 wiring tests import fresh registry state."""
     for mod_name in (
-        "Spyder.SpyderD_Strategies.SpyderD31_StrategyOrchestrator",
-        "Spyder.SpyderD_Strategies.SpyderD33_RenaissanceMeanReversion",
-        "Spyder.SpyderD_Strategies.SpyderD34_PivotMeanReversion",
-        "SpyderD_Strategies.SpyderD31_StrategyOrchestrator",
-        "SpyderD_Strategies.SpyderD33_RenaissanceMeanReversion",
-        "SpyderD_Strategies.SpyderD34_PivotMeanReversion",
+        "Tradov.TradovD_Strategies.TradovD31_StrategyOrchestrator",
+        "Tradov.TradovD_Strategies.TradovD33_RenaissanceMeanReversion",
+        "Tradov.TradovD_Strategies.TradovD34_PivotMeanReversion",
+        "TradovD_Strategies.TradovD31_StrategyOrchestrator",
+        "TradovD_Strategies.TradovD33_RenaissanceMeanReversion",
+        "TradovD_Strategies.TradovD34_PivotMeanReversion",
     ):
         sys.modules.pop(mod_name, None)
 
@@ -87,14 +87,14 @@ def pytest_configure(config):
     logs_dir.mkdir(exist_ok=True)
 
     # Set environment variables for testing
-    os.environ['SPYDER_TEST_MODE'] = 'true'
-    os.environ['SPYDER_ENV'] = 'test'
+    os.environ['TRADOV_TEST_MODE'] = 'true'
+    os.environ['TRADOV_ENV'] = 'test'
 
     # Prime canonical packages so test bootstraps don't replace them with stubs.
     for module_name in (
-        "Spyder",
-        "Spyder.SpyderU_Utilities",
-        "Spyder.SpyderA_Core",
+        "Tradov",
+        "Tradov.TradovU_Utilities",
+        "Tradov.TradovA_Core",
     ):
         try:
             importlib.import_module(module_name)
@@ -104,27 +104,27 @@ def pytest_configure(config):
 
 def pytest_collectstart(collector):
     """Keep collection isolated by removing polluted module stubs between files."""
-    _cleanup_polluted_spyder_modules()
+    _cleanup_polluted_tradov_modules()
 
     collector_ref = f"{getattr(collector, 'nodeid', '')} {getattr(collector, 'fspath', '')}"
     if (
-        "SpyderT141_D31_" in collector_ref
-        or "SpyderT142_D31_" in collector_ref
+        "TradovT141_D31_" in collector_ref
+        or "TradovT142_D31_" in collector_ref
     ):
         _evict_d31_strategy_modules()
 
     # Re-prime canonical utility modules commonly clobbered by test bootstraps.
     for module_name in (
-        "Spyder",
-        "Spyder.SpyderU_Utilities",
-        "Spyder.SpyderU_Utilities.SpyderU01_Logger",
-        "Spyder.SpyderU_Utilities.SpyderU02_ErrorHandler",
-        "Spyder.SpyderU_Utilities.SpyderU03_DateTimeUtils",
-        "Spyder.SpyderA_Core",
-        "Spyder.SpyderA_Core.SpyderA05_EventManager",
-        "Spyder.SpyderG_GUI",
-        "Spyder.SpyderI_Integration",
-        "Spyder.SpyderI_Integration.SpyderI06_AgentMessageBus",
+        "Tradov",
+        "Tradov.TradovU_Utilities",
+        "Tradov.TradovU_Utilities.TradovU01_Logger",
+        "Tradov.TradovU_Utilities.TradovU02_ErrorHandler",
+        "Tradov.TradovU_Utilities.TradovU03_DateTimeUtils",
+        "Tradov.TradovA_Core",
+        "Tradov.TradovA_Core.TradovA05_EventManager",
+        "Tradov.TradovG_GUI",
+        "Tradov.TradovI_Integration",
+        "Tradov.TradovI_Integration.TradovI06_AgentMessageBus",
     ):
         try:
             importlib.import_module(module_name)
@@ -142,13 +142,13 @@ def pytest_collection_modifyitems(config, items):
     import re
 
     def _file_sort_key(item):
-        """Sort SpyderT*.py files numerically so SpyderT93 < SpyderT100."""
+        """Sort TradovT*.py files numerically so TradovT93 < TradovT100."""
         fname = os.path.basename(str(item.fspath))
-        m = re.match(r'SpyderT(\d+)', fname)
+        m = re.match(r'TradovT(\d+)', fname)
         return int(m.group(1)) if m else 0
 
-    # Sort items numerically by SpyderT number so SpyderT1xx always runs
-    # after SpyderT09x, SpyderT08x, etc. (lexicographic order breaks this).
+    # Sort items numerically by TradovT number so TradovT1xx always runs
+    # after TradovT09x, TradovT08x, etc. (lexicographic order breaks this).
     items.sort(key=_file_sort_key)
 
     # Auto-mark tests based on their location/name
@@ -209,7 +209,7 @@ RATE_LIMIT_REQUESTS_PER_SECOND=50
 
 @pytest.fixture
 def mock_logger():
-    """Mock SpyderLogger for testing"""
+    """Mock TradovLogger for testing"""
     logger = Mock()
     logger.info = Mock()
     logger.warning = Mock()
@@ -221,7 +221,7 @@ def mock_logger():
 
 @pytest.fixture
 def mock_error_handler():
-    """Mock SpyderErrorHandler for testing"""
+    """Mock TradovErrorHandler for testing"""
     handler = Mock()
     handler.log_error = Mock()
     handler.handle_exception = Mock()

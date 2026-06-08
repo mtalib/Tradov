@@ -1,4 +1,4 @@
-# SPYDER
+# TRADOV
 ## Investor One-Pager — Performance Highlights
 
 **Date:** April 30, 2026  
@@ -9,7 +9,7 @@
 
 ## The Headline
 
-Spyder has delivered a rare performance profile: high return, high risk-adjusted efficiency, and controlled drawdown.
+Tradov has delivered a rare performance profile: high return, high risk-adjusted efficiency, and controlled drawdown.
 
 ---
 
@@ -49,7 +49,7 @@ Spyder has delivered a rare performance profile: high return, high risk-adjusted
 
 ## Investment Message
 
-Spyder combines:
+Tradov combines:
 
 - Return profile associated with top systematic managers
 - Drawdown profile significantly tighter than many alternatives

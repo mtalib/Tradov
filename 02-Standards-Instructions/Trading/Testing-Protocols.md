@@ -1,11 +1,11 @@
 15. Standards/Trading/Testing-Protocols.md
 
 ```markdown
-# Trading Testing Protocols for Spyder Trading System
+# Trading Testing Protocols for Tradov Trading System
 
 ## Overview
 
-This document establishes comprehensive testing protocols for all trading-related functionality in the Spyder system. Given the financial nature of the system, rigorous testing is essential to prevent monetary losses and ensure reliable operation in live markets.
+This document establishes comprehensive testing protocols for all trading-related functionality in the Tradov system. Given the financial nature of the system, rigorous testing is essential to prevent monetary losses and ensure reliable operation in live markets.
 
 ## Testing Hierarchy
 
@@ -374,7 +374,7 @@ class PaperTradingValidator:
             'required_market_conditions': ['normal', 'volatile', 'trending']
         }
         
-        self.logger = SpyderLogger.get_logger("PaperValidator")
+        self.logger = TradovLogger.get_logger("PaperValidator")
     
     @pytest.mark.paper_trading
     @pytest.mark.slow
@@ -602,7 +602,7 @@ class LiveTradingValidator:
     def __init__(self):
         self.current_stage = None
         self.validation_results = {}
-        self.logger = SpyderLogger.get_logger("LiveValidator")
+        self.logger = TradovLogger.get_logger("LiveValidator")
     
     def validate_for_live_deployment(self, strategy_name: str) -> Dict[str, Any]:
         """Complete validation process for live trading deployment."""
@@ -737,7 +737,7 @@ class LiveTradingValidator:
         try:
             # Run unit tests for specific strategy
             result = pytest.main([
-                f'SpyderT_Testing/test_{strategy_name}.py',
+                f'TradovT_Testing/test_{strategy_name}.py',
                 '--tb=short',
                 '-v'
             ])

@@ -1,11 +1,11 @@
-# Ruff linter configuration for the Spyder Trading System
+# Ruff linter configuration for the Tradov Trading System
 # Docs: https://docs.astral.sh/ruff/
 
 # Match the project's Python version
 target-version = "py313"
 
 # Project source layout
-src = ["Spyder"]
+src = ["Tradov"]
 
 # Files to exclude from linting
 exclude = [
@@ -19,7 +19,7 @@ exclude = [
     "13-Archive",
     "12-Archive",
     "11-TestScripts",
-    "Spyder/SpyderF_Analysis/mock_talib.py",   # known mock file, to be moved
+    "Tradov/TradovF_Analysis/mock_talib.py",   # known mock file, to be moved
 ]
 
 line-length = 100
@@ -59,9 +59,9 @@ ignore = [
 
 [lint.per-file-ignores]
 # Test files: allow print, assert statements, etc.
-"Spyder/SpyderT_Testing/**" = ["T20", "B", "S", "F401"]
+"Tradov/TradovT_Testing/**" = ["T20", "B", "S", "F401"]
 # Utility scripts: allow print
-"Spyder/SpyderQ_Scripts/**" = ["T20"]
+"Tradov/TradovQ_Scripts/**" = ["T20"]
 # __init__.py files: imports are intentional re-exports for the package API
 "**/__init__.py" = ["F401"]
 # Legacy demo/standalone scripts embedded in modules:
@@ -69,7 +69,7 @@ ignore = [
 # Use noqa: T201 in those blocks if needed.
 
 # G05 Trading Dashboard — large GUI module with specific patterns
-"Spyder/SpyderG_GUI/SpyderG05_TradingDashboard.py" = [
+"Tradov/TradovG_GUI/TradovG05_TradingDashboard.py" = [
     # Docstring style — not enforced in GUI modules
     "D",
     # Boolean positional args — ubiquitous in Qt API calls (setVisible, setEnabled, etc.)

@@ -1,4 +1,4 @@
-# Spyder — SPY Options Algorithmic Trading Specification Package
+# Tradov — SPY Options Algorithmic Trading Specification Package
 
 A coherent five-document specification for building an autonomous SPY 0DTE iron condor trading system on Python 3.11+ / Ubuntu / Tradier.
 
@@ -10,11 +10,11 @@ The original strategy reference (`SPY_Options_Algo_Strategies_Report.md`) is the
 
 | Spec | Title | Purpose | Read order |
 |---|---|---|---|
-| [SPEC-SPYDER-01](./SPEC-SPYDER-01_0DTE_IronCondor.md) | 0DTE Iron Condor Strategy Module | The strategy itself: state machine, entry gates, strike selection, position management | 4th |
-| [SPEC-SPYDER-02](./SPEC-SPYDER-02_Backtesting_Framework.md) | Backtesting Framework | Reproducible event-driven backtester that gates live deployment | 3rd |
-| [SPEC-SPYDER-03](./SPEC-SPYDER-03_Tradier_Integration.md) | Tradier Broker Integration | REST + WebSocket client; multileg orders; audit; reconciliation | 2nd |
-| [SPEC-SPYDER-04](./SPEC-SPYDER-04_Greeks_Engine.md) | Greeks Engine | Black-Scholes pricing/greeks/IV, IV Rank, portfolio greeks | 1st (foundation) |
-| [SPEC-SPYDER-05](./SPEC-SPYDER-05_Agent_Tasks.md) | Coding Agent Task Tickets | Atomic, sized tickets to implement specs 01–04 in dependency order | 5th — execution |
+| [SPEC-TRADOV-01](./SPEC-TRADOV-01_0DTE_IronCondor.md) | 0DTE Iron Condor Strategy Module | The strategy itself: state machine, entry gates, strike selection, position management | 4th |
+| [SPEC-TRADOV-02](./SPEC-TRADOV-02_Backtesting_Framework.md) | Backtesting Framework | Reproducible event-driven backtester that gates live deployment | 3rd |
+| [SPEC-TRADOV-03](./SPEC-TRADOV-03_Tradier_Integration.md) | Tradier Broker Integration | REST + WebSocket client; multileg orders; audit; reconciliation | 2nd |
+| [SPEC-TRADOV-04](./SPEC-TRADOV-04_Greeks_Engine.md) | Greeks Engine | Black-Scholes pricing/greeks/IV, IV Rank, portfolio greeks | 1st (foundation) |
+| [SPEC-TRADOV-05](./SPEC-TRADOV-05_Agent_Tasks.md) | Coding Agent Task Tickets | Atomic, sized tickets to implement specs 01–04 in dependency order | 5th — execution |
 
 Read in order 04 → 03 → 02 → 01 → 05 to mirror the dependency graph.
 
@@ -49,8 +49,8 @@ Five gates require human review before downstream work proceeds. Each gate exist
 
 ## What This Specification Doesn't Cover
 
-- **Other strategies** (Wheel, gamma scalping, calendar spreads, VRP) — the strategy catalog has the parameters; building those is a separate sub-package per strategy. The framework here is designed to host them; each new strategy gets its own SPEC-SPYDER-NN file mirroring the structure of SPEC-01.
-- **GUI** — Spyder's lettered convention reserves G for GUI. A PySide6 monitoring dashboard is a *consumer* of the persistence layer, not part of the trading system. It can be added later without touching strategies.
+- **Other strategies** (Wheel, gamma scalping, calendar spreads, VRP) — the strategy catalog has the parameters; building those is a separate sub-package per strategy. The framework here is designed to host them; each new strategy gets its own SPEC-TRADOV-NN file mirroring the structure of SPEC-01.
+- **GUI** — Tradov's lettered convention reserves G for GUI. A PySide6 monitoring dashboard is a *consumer* of the persistence layer, not part of the trading system. It can be added later without touching strategies.
 - **Capital allocation across strategies** — Once multiple strategies coexist, a portfolio manager layer sits above them. Out of scope for the first build.
 - **Tax accounting** — A reporting layer reads the persistence DB and produces 1099-friendly outputs. Not a trading concern.
 - **Regulatory compliance review** — A human responsibility before going live. No software substitutes for it.
