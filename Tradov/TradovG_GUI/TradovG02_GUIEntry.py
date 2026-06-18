@@ -51,10 +51,13 @@ def main():
             raise ImportError("Dashboard modules not found")  # noqa: B904
 
         app = QApplication(sys.argv)
-        app.setApplicationName("Tradov Trading System")
+        app.setApplicationName("AUTONOMOUS ARBITRAGE TRADER")
 
-        # CRITICAL: Desktop Integration for GNOME/Wayland
-        desktop_file_name = os.environ.get("TRADOV_DESKTOP_FILE_NAME", "tradov-trading")
+        # CRITICAL: Desktop Integration for GNOME/Wayland.
+        # Must match the basename of tradov.desktop (no path, no extension)
+        # and the StartupWMClass in that .desktop file so GNOME groups the
+        # running window under the dock launcher instead of spawning a new icon.
+        desktop_file_name = os.environ.get("TRADOV_DESKTOP_FILE_NAME", "tradov")
         app.setDesktopFileName(desktop_file_name)
         logging.info("✅ Desktop integration: %s", desktop_file_name)
 
@@ -85,7 +88,7 @@ def main():
 
             # Create basic window
             window = QMainWindow()
-            window.setWindowTitle("Tradov Trading System")
+            window.setWindowTitle("AUTONOMOUS ARBITRAGE TRADER")
             window.setGeometry(100, 100, 800, 600)
 
             # Central widget

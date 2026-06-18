@@ -14,65 +14,67 @@ from dataclasses import dataclass
 from Tradov.TradovG_GUI.TradovG41_RegimeLiquidityPresenter import build_pill_stylesheet
 
 
+# Regime is classified by the S07 composite stress model (SWAN/DIX/SKEW/GEX);
+# when S07 is stale a VIX/term-structure fallback is used (committed after a few
+# cycles, sticky otherwise). Strategy selection is operator-curated via the
+# STRATEGIES selector and is independent of the regime — the regime sets the
+# execution posture (Gate / Stance) and the halt policy, not the strategy.
 _REGIME_TIPS: dict[str, str] = {
     "BULL": (
         "<b>BULL REGIME</b><br><br>"
-        "<b>Trigger (all):</b><br>"
-        "&bull; TRAD &gt; TRAD EMA50<br>"
-        "&bull; VIX &lt; VIX EMA50<br>"
-        "&bull; Not EVENT and not CRISIS<br><br>"
+        "<b>Trigger (S07 composite):</b><br>"
+        "&bull; DIX &ge; 46, GEX &ge; 0, SWAN &lt; 1.9<br>"
+        "&bull; or DIX &ge; 43 and SWAN &lt; 1.92<br>"
+        "&bull; VIX fallback: SPX day change &ge; +0.3% and VIX &lt; 24<br><br>"
         "<b>Action:</b><br>"
-        "&bull; Regime = BULL<br>"
-        "&bull; Strategy = TradovD06_BullPutSpread"
+        "&bull; Gate = BULL TREND, Stance = BULLISH<br>"
+        "&bull; New entries permitted; strategies operator-curated"
     ),
     "BEAR": (
         "<b>BEAR REGIME</b><br><br>"
-        "<b>Trigger (all):</b><br>"
-        "&bull; TRAD &lt; TRAD EMA50<br>"
-        "&bull; VIX &gt; VIX EMA50<br>"
-        "&bull; Not EVENT and not CRISIS<br><br>"
+        "<b>Trigger (S07 composite):</b><br>"
+        "&bull; DIX &le; 40 and SWAN &ge; 1.85<br>"
+        "&bull; VIX fallback: SPX day change &le; &minus;1.5%<br><br>"
         "<b>Action:</b><br>"
-        "&bull; Regime = BEAR<br>"
-        "&bull; Strategy = TradovD07_BearCallSpread"
+        "&bull; Gate = BEAR TREND, Stance = CHOPPY<br>"
+        "&bull; New entries permitted; strategies operator-curated"
     ),
     "RANGE": (
         "<b>RANGE REGIME</b><br><br>"
-        "<b>Trigger (all):</b><br>"
-        "&bull; TRAD within 1.0 ATR of EMA50<br>"
-        "&bull; Term structure not stressed (VIX9D &le; VIX or VIX &le; VXV)<br>"
-        "&bull; Not EVENT and not CRISIS<br><br>"
+        "<b>Trigger (S07 composite):</b><br>"
+        "&bull; SKEW &ge; 140 and DIX &lt; 42<br>"
+        "&bull; or no stronger directional / stress signal (default)<br>"
+        "&bull; VIX fallback: not BULL/BEAR/VOLATILE/CRISIS<br><br>"
         "<b>Action:</b><br>"
-        "&bull; Regime = RANGE<br>"
-        "&bull; Strategy = TradovD02_IronCondor"
+        "&bull; Gate = RANGE CALM, Stance = CHOPPY<br>"
+        "&bull; New entries permitted; strategies operator-curated"
     ),
     "VOLATILE": (
         "<b>VOLATILE REGIME</b><br><br>"
-        "<b>Trigger (all):</b><br>"
-        "&bull; TRAD ATR% &ge; 1.5%<br>"
-        "&bull; VIX Percentile &ge; 80th OR VIX &ge; 25<br>"
-        "&bull; Not EVENT and not CRISIS<br><br>"
+        "<b>Trigger (S07 composite):</b><br>"
+        "&bull; SWAN &ge; 1.95 or SKEW &ge; 150<br>"
+        "&bull; VIX fallback: VIX &ge; 25<br><br>"
         "<b>Action:</b><br>"
-        "&bull; Regime = VOLATILE<br>"
-        "&bull; Strategy = TradovD10_IronButterfly"
+        "&bull; Gate = HIGH VOL, Stance = CHOPPY<br>"
+        "&bull; Entries permitted under elevated stress; strategies operator-curated"
     ),
     "CRISIS": (
         "<b>CRISIS REGIME &mdash; HARD HALT</b><br><br>"
         "<b>Trigger (any one):</b><br>"
-        "&bull; VIX9D &gt; VIX (front-vol inversion)<br>"
-        "&bull; VIX &ge; 35<br>"
-        "&bull; TRAD drop &le; &minus;1.25% AND VIX change &ge; +4 pts<br><br>"
+        "&bull; SWAN &ge; 2.0 (S07 composite)<br>"
+        "&bull; VIX fallback: VIX9D &gt; VIX (front-vol inversion) or VIX &ge; 35<br><br>"
         "<b>Action:</b><br>"
-        "&bull; Regime = CRISIS<br>"
-        "&bull; Hard halt / kill-switch &mdash; no new entries"
+        "&bull; Gate = CRISIS, Stance = CRISIS<br>"
+        "&bull; Hard halt / kill-switch &mdash; no new entries (DISPATCH = HALT)"
     ),
     "EVENT": (
         "<b>EVENT REGIME &mdash; NO TRADE</b><br><br>"
         "<b>Trigger:</b><br>"
         "&bull; Event clock state in {pre, live, post}<br>"
-        "&bull; OR &le; 30 min to high-impact macro event<br><br>"
+        "&bull; or &le; 30 min to high-impact macro event<br><br>"
         "<b>Action:</b><br>"
-        "&bull; Regime = EVENT<br>"
-        "&bull; Hard halt &mdash; no new strategy entries"
+        "&bull; Gate = EVENT<br>"
+        "&bull; Hard halt &mdash; no new entries (DISPATCH = HALT)"
     ),
 }
 
@@ -155,48 +157,43 @@ _STRESS_TIPS: dict[str, str] = {
     ),
 }
 
+# The GATE is the D31 execution-policy bucket derived from the regime. It sets
+# the entry posture (permit vs halt); the specific strategies are operator-
+# curated via the STRATEGIES selector, not fixed per gate.
 _GATE_TIPS: dict[str, str] = {
     "BULL TREND": (
         "<b>BULL TREND GATE</b><br><br>"
-        "<b>Trigger (all):</b><br>"
-        "&bull; TRAD &gt; TRAD EMA50<br>"
-        "&bull; VIX &lt; VIX EMA50<br><br>"
-        "<b>Active strategy:</b> TradovD06_BullPutSpread<br>"
-        "Max 2 concurrent strategies"
+        "Derived from a BULL regime (DIX/GEX strong, SWAN low).<br><br>"
+        "<b>Posture:</b> new entries permitted; strategies operator-curated.<br>"
+        "Max 3 concurrent strategy slots."
     ),
     "BEAR TREND": (
         "<b>BEAR TREND GATE</b><br><br>"
-        "<b>Trigger (all):</b><br>"
-        "&bull; TRAD &lt; TRAD EMA50<br>"
-        "&bull; VIX &gt; VIX EMA50<br><br>"
-        "<b>Active strategy:</b> TradovD07_BearCallSpread<br>"
-        "Max 2 concurrent strategies"
+        "Derived from a BEAR regime (DIX weak, SWAN elevated).<br><br>"
+        "<b>Posture:</b> new entries permitted; strategies operator-curated.<br>"
+        "Max 3 concurrent strategy slots."
     ),
     "RANGE CALM": (
         "<b>RANGE CALM GATE</b><br><br>"
-        "<b>Trigger (all):</b><br>"
-        "&bull; TRAD within 1.0 ATR of EMA50<br>"
-        "&bull; Term structure not stressed (VIX9D &le; VIX)<br><br>"
-        "<b>Active strategy:</b> TradovD02_IronCondor<br>"
-        "Max 2 concurrent strategies"
+        "Derived from a RANGE regime (no strong directional / stress signal).<br><br>"
+        "<b>Posture:</b> new entries permitted; strategies operator-curated.<br>"
+        "Max 3 concurrent strategy slots."
     ),
     "HIGH VOL": (
         "<b>HIGH VOLATILITY GATE</b><br><br>"
-        "<b>Trigger (all):</b><br>"
-        "&bull; TRAD ATR% &ge; 1.5%<br>"
-        "&bull; VIX Percentile &ge; 80th OR VIX &ge; 25<br><br>"
-        "<b>Active strategy:</b> TradovD10_IronButterfly<br>"
-        "Max 2 concurrent strategies"
+        "Derived from a VOLATILE regime (SWAN &ge; 1.95 or SKEW &ge; 150; VIX &ge; 25).<br><br>"
+        "<b>Posture:</b> entries permitted under elevated stress; strategies operator-curated.<br>"
+        "Max 3 concurrent strategy slots."
     ),
     "CRISIS": (
         "<b>CRISIS GATE &mdash; HARD HALT</b><br><br>"
-        "VIX9D &gt; VIX or VIX &ge; 35 or joint price-vol shock<br><br>"
-        "<i>All entry strategies deactivated &mdash; kill-switch posture</i>"
+        "SWAN &ge; 2.0, or VIX9D &gt; VIX inversion, or VIX &ge; 35.<br><br>"
+        "<i>All entries deactivated &mdash; kill-switch posture (DISPATCH = HALT)</i>"
     ),
     "EVENT": (
         "<b>EVENT GATE &mdash; NO TRADE</b><br><br>"
-        "Calendar proximity to high-impact macro event (&le; 30 min window)<br><br>"
-        "<i>All entry strategies deactivated &mdash; no new entries</i>"
+        "Calendar proximity to a high-impact macro event (&le; 30 min window).<br><br>"
+        "<i>All entries deactivated &mdash; no new entries (DISPATCH = HALT)</i>"
     ),
 }
 
@@ -243,57 +240,22 @@ def _build_strategy_list(
     pivot_enabled: bool,
     overlay_enabled: bool,
 ) -> str:
-    bull_strategy = (
-        "TradovD15_BullCallSpread"
-        if bull_call_enabled else
-        "TradovD06_BullPutSpread"
-    )
-    bear_strategy = (
-        "TradovD16_BearPutSpread"
-        if bear_put_enabled else
-        "TradovD07_BearCallSpread"
-    )
-    range_strategy = "TradovD02_IronCondor"
-    if pivot_enabled and butterfly_enabled:
-        range_strategy = (
-            "TradovD02_IronCondor "
-            "(or TradovD34_PivotMeanReversion when "
-            "TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true and S08 pivot_signal.fired=true; "
-            "otherwise TradovD24_Butterfly when TRADOV_ENABLE_BUTTERFLY=true)"
-        )
-    elif pivot_enabled:
-        range_strategy = (
-            "TradovD02_IronCondor "
-            "(or TradovD34_PivotMeanReversion when "
-            "TRADOV_ENABLE_PIVOT_MEAN_REVERSION=true and S08 pivot_signal.fired=true)"
-        )
-    elif butterfly_enabled:
-        range_strategy = (
-            "TradovD02_IronCondor "
-            "(or TradovD24_Butterfly when TRADOV_ENABLE_BUTTERFLY=true)"
-        )
-    volatile_strategy = (
-        "TradovD10_IronButterfly "
-        "(or TradovD23_BrokenWingButterfly for recovery / bullish-pivot entries)"
-    )
+    # Permitted strategies are operator-curated via the STRATEGIES selector on
+    # the regime bar (not auto-mapped per regime). These are this system's
+    # stat-arb stock/ETF strategies. The legacy options-strategy / regime-map
+    # listing belonged to a different app. The boolean flags are retained for
+    # caller compatibility but no longer affect this list.
+    del bull_call_enabled, bear_put_enabled, butterfly_enabled, pivot_enabled, overlay_enabled
     return (
-        "<b>Permitted strategies:</b><br>"
-        f"&bull; <b>BULL:</b> {bull_strategy}<br>"
-        f"&bull; <b>BEAR:</b> {bear_strategy}<br>"
-        f"&bull; <b>RANGE:</b> {range_strategy}<br>"
-        f"&bull; <b>VOLATILE:</b> {volatile_strategy}"
+        "<b>Permitted strategies:</b> operator-curated via the STRATEGIES "
+        "selector (right of DISPATCH).<br>"
+        "&bull; <b>PairTrading</b> (D42) &mdash; cointegration / Kalman z-score<br>"
+        "&bull; <b>DistanceApproach</b> (D43) &mdash; SSD normalized-price pairs<br>"
+        "&bull; <b>PCAStatArb</b> (D44) &mdash; eigenportfolio residual s-score"
         + "<br><br>"
-        "<b>Concurrency limit:</b> D31 allows up to 3 strategy slots total. "
-        "Baseline admission still uses two horizon buckets "
-        "(one short/swing + one ultra_short)."
-        + "<br><b>Duplicate handling:</b> Same symbol/strategy duplicates are skipped silently "
-        "and do not flip DISPATCH to BLOCKED."
-        + (
-            "<br><b>Overlay path:</b> "
-            "TRADOV_ENABLE_ODTE_PIVOT_OVERLAY_SLOT=true enables only the narrow "
-            "third-slot ultra_short PivotMeanReversion overlay admission path."
-            if overlay_enabled else ""
-        )
+        "<b>Concurrency limit:</b> D31 admits up to 3 strategy slots total."
+        + "<br><b>Duplicate handling:</b> Same symbol/strategy duplicates are skipped "
+        "silently and do not flip DISPATCH to BLOCKED."
     )
 
 

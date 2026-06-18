@@ -118,14 +118,9 @@ CACHE_EXPIRY_SECONDS = 300
 @dataclass
 class MetricSnapshot:
     """Snapshot of all current metrics"""
-    gex: float = 0.0
-    dex: float = 0.0
-    ogl: float = 0.0
     dix: float = 0.0
     swan: float = 1.0
     skew: float = 100.0
-    vex: float = 0.0
-    chex: float = 0.0
     yield_10y: float = float("nan")
     yield_slope: float = float("nan")
     aaii_bullish: float = float("nan")
@@ -136,24 +131,6 @@ class MetricSnapshot:
     trin: float = float("nan")
     nymo: float = float("nan")
     breadth_regime: str = "neutral"
-    ivr: float = float("nan")
-    atm_iv: float = float("nan")
-    vrp: float = float("nan")
-    atm_iv_0dte: float = float("nan")
-    atm_iv_1dte: float = float("nan")
-    atm_iv_7dte: float = float("nan")
-    atm_iv_30dte: float = float("nan")
-    term_slope_0_7: float = float("nan")
-    term_slope_7_30: float = float("nan")
-    rr_25d: float = float("nan")
-    fly_25d: float = float("nan")
-    surface_confidence: float = float("nan")
-    surface_age_ms: float = float("nan")
-    zero_gamma: float = float("nan")
-    wall_confidence: float = float("nan")
-    vanna_pressure: float = float("nan")
-    charm_pressure: float = float("nan")
-    flow_imbalance: float = float("nan")
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     update_frequency: int = UPDATE_INTERVAL
 
@@ -243,16 +220,11 @@ class CustomMetricsOrchestrator(QObject):
         # Current metrics storage with thread-safe access
         self._metrics_lock = threading.RLock()
         self.current_metrics = {
-            "GEX": 0.0,
-            "DEX": 0.0,
-            "OGL": 0.0,
             "DIX": 0.0,
             "SWAN": 1.0,
             "SKEW": 100.0,
             "PCA-PROXY": 0.0,
             "PCA-IV": 0.0,
-            "VEX": 0.0,
-            "CHEX": 0.0,
             "YIELD_10Y": float("nan"),
             "YIELD_SLOPE": float("nan"),
             "YIELD_INVERTED": False,
@@ -272,31 +244,11 @@ class CustomMetricsOrchestrator(QObject):
             "SECTOR_MOMENTUM_DISPERSION": float("nan"),
             "PARTICIPATION_SCORE": float("nan"),
             "SECTOR_BREADTH": {},
-            "IVR": float("nan"),
-            "ATM_IV": float("nan"),
-            "VRP": float("nan"),
-            "ATM_IV_0DTE": float("nan"),
-            "ATM_IV_1DTE": float("nan"),
-            "ATM_IV_7DTE": float("nan"),
-            "ATM_IV_30DTE": float("nan"),
-            "TERM_SLOPE_0_7": float("nan"),
-            "TERM_SLOPE_7_30": float("nan"),
-            "RR_25D": float("nan"),
-            "FLY_25D": float("nan"),
-            "SURFACE_CONFIDENCE": float("nan"),
-            "SURFACE_AGE_MS": float("nan"),
-            "ZERO_GAMMA": float("nan"),
-            "WALL_CONFIDENCE": float("nan"),
-            "VANNA_PRESSURE": float("nan"),
-            "CHARM_PRESSURE": float("nan"),
-            "FLOW_IMBALANCE": float("nan"),
-            "DEALER_FLOW": {},
             "TRAD_CHANGE_PCT": float("nan"),
             "QQQ_CHANGE_PCT": float("nan"),
             "IWM_CHANGE_PCT": float("nan"),
             "XLK_CHANGE_PCT": float("nan"),
             "XLF_CHANGE_PCT": float("nan"),
-            "LIQUIDITY_DIAGNOSTICS": {},
             "DATA_QUALITY_FEED": {},
             "PCA-PROXY_DETAILS": {},
             "PCA-IV_DETAILS": {},
@@ -313,12 +265,6 @@ class CustomMetricsOrchestrator(QObject):
             "ECO_NEXT_EVENT_MINUTES": float("nan"),
         }
 
-        self._options_tradier_client = None
-        self._options_tradier_env = None
-        self._options_chain_manager = None
-        self._vol_surface_builder = None
-        self._n09_gex_analyzer = None
-        self._n11_flow_analyzer = None
         # HV20 daily cache — historical volatility changes at most once per
         # trading day, so we skip the expensive /v1/markets/history call on
         # every 60-second cycle and only refetch when the calendar date changes.
@@ -873,18 +819,6 @@ class CustomMetricsOrchestrator(QObject):
                 if self._shutdown_in_progress():
                     return
 
-                # Options analytics metrics (ATM IV, IV rank, volatility risk premium)
-                options_success = self._update_options_analytics_metrics(updated_metrics, update_errors)  # noqa: E501
-
-                # Volatility surface term-structure metrics
-                vol_surface_success = self._update_vol_surface_metrics(updated_metrics, update_errors)  # noqa: E501
-
-                # Dealer-flow structure: N09 gamma walls + N11 vanna/charm pressure
-                dealer_flow_success = self._update_dealer_flow_metrics(updated_metrics, update_errors)  # noqa: E501
-
-                # Observe-only liquidity diagnostics for candidate contracts
-                liquidity_success = self._update_liquidity_diagnostics_metrics(updated_metrics, update_errors)  # noqa: E501
-
                 # S16 - LLM market snapshot text (throttled via internal TTL cache)
                 self._update_market_snapshot_text(updated_metrics)
 
@@ -903,14 +837,9 @@ class CustomMetricsOrchestrator(QObject):
 
                 # Create metrics snapshot for history
                 snapshot = MetricSnapshot(
-                    gex=updated_metrics.get('GEX', 0.0),
-                    dex=updated_metrics.get('DEX', 0.0),
-                    ogl=updated_metrics.get('OGL', 0.0),
                     dix=updated_metrics.get('DIX', 0.0),
                     swan=updated_metrics.get('SWAN', 1.0),
                     skew=updated_metrics.get('SKEW', 100.0),
-                    vex=updated_metrics.get('VEX', 0.0),
-                    chex=updated_metrics.get('CHEX', 0.0),
                     yield_10y=updated_metrics.get('YIELD_10Y', float('nan')),
                     yield_slope=updated_metrics.get('YIELD_SLOPE', float('nan')),
                     aaii_bullish=updated_metrics.get('AAII_BULLISH', float('nan')),
@@ -921,24 +850,6 @@ class CustomMetricsOrchestrator(QObject):
                     trin=updated_metrics.get('TRIN', float('nan')),
                     nymo=updated_metrics.get('NYMO', float('nan')),
                     breadth_regime=updated_metrics.get('BREADTH_REGIME', 'neutral'),
-                    ivr=updated_metrics.get('IVR', float('nan')),
-                    atm_iv=updated_metrics.get('ATM_IV', float('nan')),
-                    vrp=updated_metrics.get('VRP', float('nan')),
-                    atm_iv_0dte=updated_metrics.get('ATM_IV_0DTE', float('nan')),
-                    atm_iv_1dte=updated_metrics.get('ATM_IV_1DTE', float('nan')),
-                    atm_iv_7dte=updated_metrics.get('ATM_IV_7DTE', float('nan')),
-                    atm_iv_30dte=updated_metrics.get('ATM_IV_30DTE', float('nan')),
-                    term_slope_0_7=updated_metrics.get('TERM_SLOPE_0_7', float('nan')),
-                    term_slope_7_30=updated_metrics.get('TERM_SLOPE_7_30', float('nan')),
-                    rr_25d=updated_metrics.get('RR_25D', float('nan')),
-                    fly_25d=updated_metrics.get('FLY_25D', float('nan')),
-                    surface_confidence=updated_metrics.get('SURFACE_CONFIDENCE', float('nan')),
-                    surface_age_ms=updated_metrics.get('SURFACE_AGE_MS', float('nan')),
-                    zero_gamma=updated_metrics.get('ZERO_GAMMA', float('nan')),
-                    wall_confidence=updated_metrics.get('WALL_CONFIDENCE', float('nan')),
-                    vanna_pressure=updated_metrics.get('VANNA_PRESSURE', float('nan')),
-                    charm_pressure=updated_metrics.get('CHARM_PRESSURE', float('nan')),
-                    flow_imbalance=updated_metrics.get('FLOW_IMBALANCE', float('nan')),
                     update_frequency=self.current_update_interval
                 )
 
@@ -957,10 +868,7 @@ class CustomMetricsOrchestrator(QObject):
                 success_count = sum([
                     gex_success, dix_success, swan_success, skew_success,
                     pca_success,
-                    fred_success, sentiment_success, breadth_success, options_success,
-                    vol_surface_success,
-                    dealer_flow_success,
-                    liquidity_success,
+                    fred_success, sentiment_success, breadth_success,
                     market_intel_success,
                     eco_calendar_success,
                 ])
@@ -968,7 +876,7 @@ class CustomMetricsOrchestrator(QObject):
                 # Keep custom-metrics cycle summaries in DEBUG so NORMAL logs
                 # remain focused on lifecycle, warnings, and errors.
                 _summary = (
-                    f"{success_count}/14 | "
+                    f"{success_count}/10 | "
                     f"GEX={updated_metrics.get('GEX', 0):.1f}B "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}% "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f} "
@@ -984,7 +892,7 @@ class CustomMetricsOrchestrator(QObject):
                     >= self._metrics_info_heartbeat_seconds
                 )
                 self.logger.debug(
-                    f"📊 Metrics updated: {success_count}/15 sources successful "
+                    f"📊 Metrics updated: {success_count}/10 sources successful "
                     f"(GEX={updated_metrics.get('GEX', 0):.1f}B, "
                     f"DIX={updated_metrics.get('DIX', 0):.1f}%, "
                     f"SWAN={updated_metrics.get('SWAN', 1):.2f}, "
@@ -1059,28 +967,11 @@ class CustomMetricsOrchestrator(QObject):
             message=(
                 "S07 update-cycle issues: "
                 f"{len(update_errors)} issue(s), "
-                f"{success_count}/15 sources successful, keys=[{summary}]"
+                f"{success_count}/10 sources successful, keys=[{summary}]"
             ),
             level="debug" if only_benign else "warning",
             emit_error=not only_benign,
         )
-
-    @staticmethod
-    def _is_transient_options_unavailable(message: str) -> bool:
-        """Return True when options/surface data is temporarily unavailable by design."""
-        text = str(message or "").strip().lower()
-        transient_markers = (
-            "spot unavailable",
-            "no spy option expirations",
-            "atm iv unavailable",
-            "insufficient",
-            "unavailable",
-            "not available",
-            "no option",
-            "empty",
-            "not ready",
-        )
-        return any(marker in text for marker in transient_markers)
 
     def _update_gex_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update GEX, DEX, OGL metrics"""
@@ -1693,968 +1584,6 @@ class CustomMetricsOrchestrator(QObject):
                 "update_keys": sorted(updated_metrics.keys()),
             },
         }
-
-    def _get_spy_spot(self) -> float | None:
-        """Return the best available TRAD spot estimate."""
-        def _to_valid_price(value: Any) -> float | None:
-            """Convert candidate values to a finite positive float."""
-            try:
-                price = float(value)
-            except (TypeError, ValueError):
-                return None
-            if not math.isfinite(price) or price <= 0:
-                return None
-            return price
-
-        for key in ("OGL", "TRAD_LAST", "TRAD_PRICE", "TRAD", "UNDERLYING_PRICE"):
-            spot = _to_valid_price(self.current_metrics.get(key))
-            if spot is not None:
-                return spot
-
-        # Reuse the most recent snapshot price before issuing an API request.
-        if self.metrics_history:
-            history_spot = _to_valid_price(getattr(self.metrics_history[-1], "ogl", None))
-            if history_spot is not None:
-                return history_spot
-
-        client = self._get_options_tradier_client()
-        if client is not None:
-            try:
-                quote_response = client.get_quotes(["TRAD"])
-                quote = quote_response.get("quotes", {}).get("quote", {})
-                if isinstance(quote, list):
-                    quote = next(
-                        (item for item in quote if str(item.get("symbol", "")).upper() == "TRAD"),
-                        quote[0] if quote else {},
-                    )
-
-                for price_field in ("last", "close", "bid", "ask"):
-                    quote_spot = _to_valid_price(quote.get(price_field))
-                    if quote_spot is not None:
-                        return quote_spot
-            except Exception as exc:
-                self.logger.debug("TRAD quote fallback unavailable: %s", exc)
-
-        return None
-
-    def _get_liquidity_thresholds(self) -> dict[str, float]:
-        """Return the configured liquidity gate thresholds."""
-        liquidity_cfg = self.config.get("autonomous_readiness", {}).get("liquidity", {})
-        return {
-            "max_spread_pct": float(liquidity_cfg.get("max_spread_pct", 0.12)),
-            "max_spread_abs": float(liquidity_cfg.get("max_spread_abs", 0.20)),
-            "max_quote_age_ms": int(liquidity_cfg.get("max_quote_age_ms", 1500)),
-            "min_top_of_book_size": int(liquidity_cfg.get("min_top_of_book_size", 10)),
-            "min_open_interest": int(liquidity_cfg.get("min_open_interest", 500)),
-            "min_volume": int(liquidity_cfg.get("min_volume", 50)),
-            "min_oi_change_pct": float(liquidity_cfg.get("min_oi_change_pct", -0.20)),
-        }
-
-    def _evaluate_liquidity_snapshot(self, snapshot: dict[str, Any], thresholds: dict[str, float]) -> list[str]:  # noqa: E501
-        """Evaluate a liquidity snapshot using the same contract as F09/B02."""
-        reasons: list[str] = []
-
-        spread_pct = snapshot.get("spread_pct")
-        if isinstance(spread_pct, (int, float)) and float(spread_pct) > thresholds["max_spread_pct"]:  # noqa: E501
-            reasons.append(
-                f"spread_pct {float(spread_pct):.4f} > max_spread_pct {thresholds['max_spread_pct']:.4f}"  # noqa: E501
-            )
-
-        spread_abs = snapshot.get("spread_abs")
-        if isinstance(spread_abs, (int, float)) and float(spread_abs) > thresholds["max_spread_abs"]:  # noqa: E501
-            reasons.append(
-                f"spread_abs {float(spread_abs):.4f} > max_spread_abs {thresholds['max_spread_abs']:.4f}"  # noqa: E501
-            )
-
-        quote_age_ms = snapshot.get("quote_age_ms")
-        if isinstance(quote_age_ms, (int, float)) and float(quote_age_ms) > thresholds["max_quote_age_ms"]:  # noqa: E501
-            reasons.append(
-                f"quote_age_ms {float(quote_age_ms):.0f} > max_quote_age_ms {thresholds['max_quote_age_ms']:.0f}"  # noqa: E501
-            )
-
-        top_of_book_size = snapshot.get("top_of_book_size")
-        if isinstance(top_of_book_size, (int, float)) and float(top_of_book_size) < thresholds["min_top_of_book_size"]:  # noqa: E501
-            reasons.append(
-                f"top_of_book_size {float(top_of_book_size):.0f} < min_top_of_book_size {thresholds['min_top_of_book_size']:.0f}"  # noqa: E501
-            )
-
-        open_interest = snapshot.get("open_interest")
-        if isinstance(open_interest, (int, float)) and float(open_interest) < thresholds["min_open_interest"]:  # noqa: E501
-            reasons.append(
-                f"open_interest {float(open_interest):.0f} < min_open_interest {thresholds['min_open_interest']:.0f}"  # noqa: E501
-            )
-
-        volume = snapshot.get("volume")
-        if isinstance(volume, (int, float)) and float(volume) < thresholds["min_volume"]:
-            reasons.append(f"volume {float(volume):.0f} < min_volume {thresholds['min_volume']:.0f}")  # noqa: E501
-
-        oi_change_pct = snapshot.get("oi_change_pct")
-        if isinstance(oi_change_pct, (int, float)) and float(oi_change_pct) < thresholds["min_oi_change_pct"]:  # noqa: E501
-            reasons.append(
-                f"oi_change_pct {float(oi_change_pct):.4f} < min_oi_change_pct {thresholds['min_oi_change_pct']:.4f}"  # noqa: E501
-            )
-
-        return reasons
-
-    def _load_options_chain_dataframe(self):
-        """Load the live TRAD options chain from N03, falling back to Tradier when needed."""
-        chain_data = None
-        try:
-            chain_manager = self._get_options_chain_manager()
-            chain_data = chain_manager.get_chain("TRAD")
-            if chain_data is not None:
-                if hasattr(chain_data, "empty") and not bool(chain_data.empty):
-                    return chain_data
-                if isinstance(chain_data, list) and len(chain_data) > 0:
-                    return chain_data
-        except Exception:
-            pass
-
-        client = self._get_options_tradier_client()
-        if client is None:
-            return chain_data
-
-        try:
-            expirations_response = client.get_option_expirations("TRAD")
-            expirations = expirations_response.get("expirations", {}).get("date", [])
-            if not expirations:
-                return chain_data
-
-            contracts = client.get_option_chain_with_greeks("TRAD", expirations[0])
-            if not contracts:
-                return chain_data
-
-            now = datetime.now(UTC)
-            rows: list[dict[str, Any]] = []
-            for contract in contracts:
-                bid = float(getattr(contract, "bid", 0.0) or 0.0)
-                ask = float(getattr(contract, "ask", 0.0) or 0.0)
-                mid_price = float(getattr(contract, "mid", 0.0) or 0.0)
-                if mid_price <= 0 and bid > 0 and ask > 0:
-                    mid_price = (bid + ask) / 2.0
-
-                expiration = getattr(contract, "expiration", None)
-                expiry_dt = None
-                if isinstance(expiration, datetime):
-                    expiry_dt = expiration
-                elif isinstance(expiration, str):
-                    try:
-                        expiry_dt = datetime.fromisoformat(expiration)
-                    except ValueError:
-                        expiry_dt = expiration
-
-                rows.append(
-                    {
-                        "symbol": getattr(contract, "symbol", "TRAD"),
-                        "strike": float(getattr(contract, "strike", 0.0) or 0.0),
-                        "expiry": expiry_dt if expiry_dt is not None else expiration,
-                        "option_type": str(getattr(contract, "option_type", "")).lower(),
-                        "bid": bid,
-                        "ask": ask,
-                        "mid_price": mid_price,
-                        "spread": max(0.0, ask - bid),
-                        "volume": int(getattr(contract, "volume", 0) or 0),
-                        "open_interest": int(getattr(contract, "open_interest", 0) or 0),
-                        "timestamp": now,
-                    }
-                )
-
-            return rows if rows else chain_data
-        except Exception:
-            return chain_data
-
-    def _get_options_chain_manager(self):
-        """Return a cached N03 options chain manager."""
-        if self._options_chain_manager is not None:
-            return self._options_chain_manager
-
-        try:
-            chain_module = importlib.import_module("Tradov.TradovN_OptionsAnalytics.TradovN03_OptionsChainManager")  # noqa: E501
-        except ImportError:
-            chain_module = importlib.import_module("TradovN_OptionsAnalytics.TradovN03_OptionsChainManager")  # noqa: E501
-
-        self._options_chain_manager = chain_module.OptionsChainManager()
-        return self._options_chain_manager
-
-    @staticmethod
-    def _normalize_chain_rows(chain_source: Any) -> list[dict[str, Any]]:
-        """Normalize option-chain payloads (DataFrame/list) into row dicts."""
-        if chain_source is None:
-            return []
-        if isinstance(chain_source, list):
-            return [row for row in chain_source if isinstance(row, dict)]
-        to_dict = getattr(chain_source, "to_dict", None)
-        if callable(to_dict):
-            try:
-                records = chain_source.to_dict("records")
-                return [row for row in records if isinstance(row, dict)]
-            except Exception:
-                return []
-        return []
-
-    def _build_liquidity_candidate(self, row: Any, now: datetime, thresholds: dict[str, float]) -> dict[str, Any]:  # noqa: E501
-        """Convert one option-chain row into an observe-mode liquidity payload."""
-        bid = float(row.get("bid") or 0.0)
-        ask = float(row.get("ask") or 0.0)
-        mid_price = float(row.get("mid_price") or 0.0)
-        if mid_price <= 0 and bid > 0 and ask > 0:
-            mid_price = (bid + ask) / 2.0
-        spread_abs = float(row.get("spread") or max(0.0, ask - bid))
-        spread_pct = (spread_abs / mid_price) if mid_price > 0 else None
-
-        quote_ts = row.get("timestamp")
-        if hasattr(quote_ts, "to_pydatetime"):
-            quote_ts = quote_ts.to_pydatetime()
-        if not isinstance(quote_ts, datetime):
-            quote_ts = now
-
-        if quote_ts.tzinfo is None:
-            now_for_age = now.replace(tzinfo=None) if now.tzinfo is not None else now
-            quote_age_ms = max(0, int((now_for_age - quote_ts).total_seconds() * 1000))
-        else:
-            now_for_age = now.astimezone(UTC) if now.tzinfo is not None else now.replace(tzinfo=UTC)  # noqa: E501
-            quote_age_ms = max(0, int((now_for_age - quote_ts.astimezone(UTC)).total_seconds() * 1000))  # noqa: E501
-
-        bid_size = row.get("bid_size")
-        ask_size = row.get("ask_size")
-        if bid_size is not None and ask_size is not None:
-            try:
-                top_of_book_size = min(int(bid_size), int(ask_size))
-            except (TypeError, ValueError):
-                top_of_book_size = None
-        else:
-            top_of_book_size = None
-
-        snapshot = {
-            "spread_abs": spread_abs,
-            "spread_pct": spread_pct,
-            "quote_age_ms": quote_age_ms,
-            "bid_size": int(bid_size) if isinstance(bid_size, (int, float)) else None,
-            "ask_size": int(ask_size) if isinstance(ask_size, (int, float)) else None,
-            "top_of_book_size": top_of_book_size,
-            "open_interest": int(row.get("open_interest") or 0),
-            "volume": int(row.get("volume") or 0),
-            "oi_change_pct": row.get("oi_change_pct"),
-            "snapshot_ts": quote_ts.isoformat(),
-        }
-        reasons = self._evaluate_liquidity_snapshot(snapshot, thresholds)
-
-        return {
-            "symbol": row.get("symbol", "TRAD"),
-            "strike": float(row.get("strike") or 0.0),
-            "expiry": row.get("expiry").isoformat() if isinstance(row.get("expiry"), datetime) else str(row.get("expiry")),  # noqa: E501
-            "option_type": str(row.get("option_type", "")).lower(),
-            "snapshot": snapshot,
-            "gate_passed": len(reasons) == 0,
-            "reasons": reasons,
-        }
-
-    def _update_liquidity_diagnostics_metrics(self, updated_metrics: dict, errors: list) -> bool:
-        """Publish observe-mode liquidity diagnostics for nearby TRAD option candidates."""
-        updated_metrics.setdefault("LIQUIDITY_DIAGNOSTICS", self.current_metrics.get("LIQUIDITY_DIAGNOSTICS", {}))  # noqa: E501
-
-        try:
-            chain_source = self._load_options_chain_dataframe()
-            rows = self._normalize_chain_rows(chain_source)
-            if not rows:
-                raise ValueError("TRAD options chain unavailable")
-
-            anchor = self.current_metrics.get("OGL")
-            if not isinstance(anchor, (int, float)) or anchor <= 0:
-                spot = self._get_spy_spot()
-                if spot is not None:
-                    anchor = spot
-                else:
-                    strikes = [
-                        float(row.get("strike"))
-                        for row in rows
-                        if isinstance(row.get("strike"), (int, float))
-                    ]
-                    if not strikes:
-                        raise ValueError("TRAD options chain unavailable")
-                    anchor = float(np.median(np.asarray(strikes, dtype=float)))
-
-            now = datetime.now(UTC)
-            candidate_rows = sorted(
-                rows,
-                key=lambda row: (
-                    abs(float(row.get("strike") or 0.0) - float(anchor)),
-                    str(row.get("expiry") or ""),
-                    str(row.get("option_type") or ""),
-                ),
-            )[:6]
-
-            thresholds = self._get_liquidity_thresholds()
-            candidates = [
-                self._build_liquidity_candidate(row, now, thresholds)
-                for row in candidate_rows
-            ]
-
-            source_name = (
-                "TradovN03_OptionsChainManager"
-                if not isinstance(chain_source, list)
-                else "TradovB40_TradierClient"
-            )
-
-            updated_metrics["LIQUIDITY_DIAGNOSTICS"] = {
-                "feed": "liquidity_diagnostics",
-                "version": "1.0",
-                "mode": "observe",
-                "session_id": f"s07-{self.client_id}",
-                "published_ts": now.isoformat(),
-                "data": {
-                    "symbol": "TRAD",
-                    "source": source_name,
-                    "anchor_strike": float(anchor),
-                    "candidate_count": len(candidates),
-                    "candidates": candidates,
-                },
-            }
-            if "LIQUIDITY" in self.metric_quality:
-                q = self.metric_quality["LIQUIDITY"]
-                q.last_successful_update = datetime.now(UTC)
-                q.data_points += 1
-                q.quality_score = min(1.0, q.quality_score + 0.01)
-            return True
-        except Exception as e:
-            errors.append(f"liquidity diagnostics update failed: {e}")
-            # Observe-mode diagnostics are optional; keep startup/runtime logs low-noise.
-            _now = datetime.now(UTC)
-            _msg = str(e)
-            _msg_changed = _msg != self._last_liquidity_diag_message
-            _heartbeat_due = (
-                self._last_liquidity_diag_log_ts is None
-                or (_now - self._last_liquidity_diag_log_ts).total_seconds()
-                >= self._liquidity_diag_heartbeat_seconds
-            )
-            _log = self.logger.info if (_msg_changed or _heartbeat_due) else self.logger.debug
-            _log("Liquidity diagnostics unavailable: %s", e)
-            if _msg_changed or _heartbeat_due:
-                self._last_liquidity_diag_log_ts = _now
-                self._last_liquidity_diag_message = _msg
-            updated_metrics["LIQUIDITY_DIAGNOSTICS"] = {}
-            return False
-
-    def _compute_atm_iv(self, contracts: list, spot: float) -> float | None:
-        """Compute ATM implied volatility as a percent using the nearest strikes."""
-        if not contracts or spot <= 0:
-            return None
-
-        candidates: list[tuple[float, float]] = []
-        for contract in contracts:
-            strike = getattr(contract, "strike", None)
-            iv = getattr(contract, "iv", None)
-            if strike is None or iv is None or iv <= 0:
-                continue
-            candidates.append((abs(float(strike) - spot), float(iv)))
-
-        if not candidates:
-            return None
-
-        nearest_ivs = [iv for _distance, iv in sorted(candidates, key=lambda item: item[0])[:6]]
-        if not nearest_ivs:
-            return None
-
-        return float(np.mean(nearest_ivs) * 100.0)
-
-    def _compute_ivr(self, current_iv: float) -> float:
-        """Compute IV rank from the persisted TRAD IV history."""
-        cache_path = pathlib.Path("data/cache/spy_iv_history.json")
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-
-        history: list[dict[str, Any]] = []
-        if cache_path.exists():
-            try:
-                history = json.loads(cache_path.read_text())
-            except Exception:
-                history = []
-
-        history.append({
-            "date": datetime.now(UTC).date().isoformat(),
-            "iv": float(current_iv),
-        })
-
-        # Deduplicate: keep only the latest IV snapshot per calendar date so
-        # that intraday calls don't corrupt the 252-entry rolling window with
-        # multiple samples from the same day.  Later entries overwrite earlier
-        # ones for the same date because we iterate in append order.
-        seen: dict[str, float] = {}
-        for entry in history:
-            d = entry.get("date")
-            if d:
-                seen[d] = float(entry["iv"])
-        history = [{"date": d, "iv": iv} for d, iv in sorted(seen.items())]
-        history = history[-252:]
-        cache_path.write_text(json.dumps(history))
-
-        iv_values = [float(entry["iv"]) for entry in history if entry.get("iv") is not None]
-        # Seed with one year of VIX closing prices when live history is thin.
-        # VIX level ≈ 30-day ATM IV (both expressed in percent), making it a
-        # suitable proxy until enough real ATM_IV samples accumulate daily.
-        if len(iv_values) < 5:
-            try:
-                import yfinance as yf
-                vix_df = yf.Ticker("^VIX").history(period="1y")["Close"]
-                if not vix_df.empty:
-                    seed = [
-                        {"date": str(idx.date()), "iv": float(v)}
-                        for idx, v in zip(vix_df.index, vix_df.values, strict=False)
-                    ]
-                    # Prepend seed; real observations at the tail take priority.
-                    history = (seed + history)[-252:]
-                    cache_path.write_text(json.dumps(history))
-                    iv_values = [
-                        float(e["iv"]) for e in history if e.get("iv") is not None
-                    ]
-            except Exception:
-                pass
-        if len(iv_values) < 5:
-            return float("nan")
-
-        low_iv = min(iv_values)
-        high_iv = max(iv_values)
-        if math.isclose(high_iv, low_iv):
-            return 100.0 if math.isclose(current_iv, high_iv) else float("nan")
-
-        return max(0.0, min(100.0, ((current_iv - low_iv) / (high_iv - low_iv)) * 100.0))
-
-    def _compute_hv20(self, tradier_client: Any) -> float | None:
-        """Compute 20-day historical volatility as an annualized percent.
-
-        Result is cached for the remainder of the calendar day to avoid
-        repeated /v1/markets/history calls on every 60-second update cycle.
-        """
-        today_str = datetime.now(UTC).date().isoformat()
-        if self._hv20_cache_date == today_str and self._hv20_cache is not None:
-            return self._hv20_cache
-
-        try:
-            end_date = datetime.now(UTC).date()
-            start_date = end_date - timedelta(days=40)
-            response = tradier_client.get_historical_quotes(
-                "TRAD",
-                interval="daily",
-                start=start_date.isoformat(),
-                end=end_date.isoformat(),
-            )
-        except Exception:
-            return self._hv20_cache  # return last known value on transient failure
-
-        days = response.get("history", {}).get("day", [])
-        closes = []
-        for day in days:
-            close = day.get("close")
-            if close is None or close <= 0:
-                continue
-            closes.append(float(close))
-
-        if len(closes) < 20:
-            return None
-
-        log_returns = np.diff(np.log(np.asarray(closes, dtype=float)))
-        if log_returns.size == 0:
-            return None
-
-        result = float(np.std(log_returns, ddof=0) * np.sqrt(252) * 100.0)
-        self._hv20_cache = result
-        self._hv20_cache_date = today_str
-        return result
-
-    def _get_options_tradier_client(self):
-        """Return a cached Tradier client for options analytics calls."""
-        allow_sandbox = str(
-            os.getenv("TRADOV_ALLOW_SANDBOX_MARKET_DATA", "false")
-        ).strip().lower() in {"1", "true", "yes", "on"}
-        if allow_sandbox:
-            self.logger.error(
-                "S07 options client disabled: TRADOV_ALLOW_SANDBOX_MARKET_DATA=true "
-                "is not permitted by live-only policy"
-            )
-            return None
-
-        environment_name = (
-            os.getenv("TRADIER_MARKET_DATA_ENVIRONMENT")
-            or os.getenv("TRADIER_ENVIRONMENT")
-            or "live"
-        ).strip().lower() or "live"
-
-        if environment_name not in {"live", "production"}:
-            self.logger.error(
-                "S07 options client disabled: TRADIER_MARKET_DATA_ENVIRONMENT=%s "
-                "violates live-only policy",
-                environment_name,
-            )
-            return None
-
-        api_key = (
-            os.getenv("TRADIER_LIVE_API_KEY", "").strip()
-            or os.getenv("TRADIER_API_KEY", "").strip()
-        )
-        account_id = (
-            os.getenv("TRADIER_LIVE_ACCOUNT_ID", "").strip()
-            or os.getenv("TRADIER_ACCOUNT_ID", "").strip()
-        )
-        environment_name = "live"
-
-        if not api_key or not account_id:
-            return None
-
-        if self._options_tradier_client is not None:
-            if self._options_tradier_env is None:
-                self._options_tradier_env = environment_name
-                return self._options_tradier_client
-            if self._options_tradier_env == environment_name:
-                return self._options_tradier_client
-
-        try:
-            tradier_module = importlib.import_module("Tradov.TradovB_Broker.TradovB40_TradierClient")  # noqa: E501
-        except ImportError:
-            tradier_module = importlib.import_module("TradovB_Broker.TradovB40_TradierClient")
-
-        environment_enum = getattr(tradier_module.TradingEnvironment, environment_name.upper(), None)  # noqa: E501
-        if environment_enum is None:
-            environment_enum = tradier_module.TradingEnvironment.LIVE
-
-        self._options_tradier_client = tradier_module.TradierClient(
-            api_key=api_key,
-            account_id=account_id,
-            environment=environment_enum,
-        )
-        self._options_tradier_env = environment_name
-        return self._options_tradier_client
-
-    def _get_vol_surface_builder(self):
-        """Return a cached volatility surface builder."""
-        if self._vol_surface_builder is not None:
-            return self._vol_surface_builder
-
-        try:
-            vol_module = importlib.import_module("Tradov.TradovN_OptionsAnalytics.TradovN06_VolatilitySurfaceBuilder")  # noqa: E501
-        except ImportError:
-            vol_module = importlib.import_module("TradovN_OptionsAnalytics.TradovN06_VolatilitySurfaceBuilder")  # noqa: E501
-
-        self._vol_surface_builder = vol_module.VolatilitySurfaceBuilder(config={"smoothing": 0.0})
-        return self._vol_surface_builder
-
-    def _get_n09_gex_analyzer(self):
-        """Return a cached N09 GammaExposureCalculator instance."""
-        if self._n09_gex_analyzer is not None:
-            return self._n09_gex_analyzer
-        try:
-            mod = importlib.import_module("Tradov.TradovN_OptionsAnalytics.TradovN09_GammaExposure")
-        except ImportError:
-            mod = importlib.import_module("TradovN_OptionsAnalytics.TradovN09_GammaExposure")
-        self._n09_gex_analyzer = mod.GammaExposureCalculator()
-        return self._n09_gex_analyzer
-
-    def _get_n11_flow_analyzer(self):
-        """Return a cached N11 OptionsGreeksFlowAnalyzer instance."""
-        if self._n11_flow_analyzer is not None:
-            return self._n11_flow_analyzer
-        try:
-            mod = importlib.import_module("Tradov.TradovN_OptionsAnalytics.TradovN11_OptionsGreeksFlow")  # noqa: E501
-        except ImportError:
-            mod = importlib.import_module("TradovN_OptionsAnalytics.TradovN11_OptionsGreeksFlow")
-        self._n11_flow_analyzer = mod.OptionsGreeksFlowAnalyzer()
-        return self._n11_flow_analyzer
-
-    def _update_dealer_flow_metrics(self, updated_metrics: dict, errors: list) -> bool:
-        """Update dealer-flow structure metrics from N09 (gamma walls) and N11 (vanna/charm)."""
-        # Seed keys with existing cached values as defaults
-        scalar_defaults = {
-            "ZERO_GAMMA": self.current_metrics.get("ZERO_GAMMA", float("nan")),
-            "WALL_CONFIDENCE": self.current_metrics.get("WALL_CONFIDENCE", float("nan")),
-            "VANNA_PRESSURE": self.current_metrics.get("VANNA_PRESSURE", float("nan")),
-            "CHARM_PRESSURE": self.current_metrics.get("CHARM_PRESSURE", float("nan")),
-            "FLOW_IMBALANCE": self.current_metrics.get("FLOW_IMBALANCE", float("nan")),
-        }
-        for key, val in scalar_defaults.items():
-            updated_metrics.setdefault(key, val)
-        updated_metrics.setdefault("DEALER_FLOW", self.current_metrics.get("DEALER_FLOW", {}))
-
-        ok_n09 = False
-        ok_n11 = False
-
-        # --- N09: gamma walls + zero-gamma level ---
-        try:
-            gex = self._get_n09_gex_analyzer()
-            walls = gex.get_dealer_walls_snapshot()
-            updated_metrics["ZERO_GAMMA"] = float(walls.get("zero_gamma_level", float("nan")))
-            updated_metrics["WALL_CONFIDENCE"] = float(walls.get("wall_confidence", float("nan")))
-            updated_metrics.setdefault("DEALER_FLOW", {})
-            updated_metrics["DEALER_FLOW"].update({
-                "zero_gamma_level": walls.get("zero_gamma_level"),
-                "spot_to_zero_gamma_pct": walls.get("spot_to_zero_gamma_pct"),
-                "call_wall_levels": walls.get("call_wall_levels", []),
-                "put_wall_levels": walls.get("put_wall_levels", []),
-                "wall_confidence": walls.get("wall_confidence"),
-                "net_gex": walls.get("net_gex"),
-                "regime": walls.get("regime"),
-                "walls_snapshot_ts": walls.get("snapshot_ts"),
-            })
-            ok_n09 = True
-        except Exception as e:
-            errors.append(f"dealer walls update failed: {e}")
-
-        # --- N11: vanna/charm pressure ---
-        try:
-            flow = self._get_n11_flow_analyzer()
-            vc = flow.get_vanna_charm_snapshot()
-            updated_metrics["VANNA_PRESSURE"] = float(vc.get("vanna_pressure", float("nan")))
-            updated_metrics["CHARM_PRESSURE"] = float(vc.get("charm_pressure", float("nan")))
-            updated_metrics["FLOW_IMBALANCE"] = float(vc.get("flow_imbalance_score", float("nan")))
-            updated_metrics.setdefault("DEALER_FLOW", {})
-            updated_metrics["DEALER_FLOW"].update({
-                "vanna_pressure": vc.get("vanna_pressure"),
-                "charm_pressure": vc.get("charm_pressure"),
-                "flow_imbalance_score": vc.get("flow_imbalance_score"),
-                "dealer_position": vc.get("dealer_position"),
-                "flow_snapshot_ts": vc.get("snapshot_ts"),
-            })
-            ok_n11 = True
-        except Exception as e:
-            errors.append(f"vanna charm update failed: {e}")
-
-        # Update quality bucket
-        if ok_n09 or ok_n11:
-            if "DEALER_FLOW" in self.metric_quality:
-                q = self.metric_quality["DEALER_FLOW"]
-                q.last_successful_update = datetime.now(UTC)
-                q.data_points += 1
-                q.quality_score = min(1.0, q.quality_score + 0.01)
-
-        return ok_n09 and ok_n11
-
-    def _update_options_analytics_metrics(self, updated_metrics: dict, errors: list) -> bool:
-        """Update ATM IV, IV rank, and volatility risk premium metrics."""
-        updated_metrics.setdefault("IVR", self.current_metrics.get("IVR", float("nan")))
-        updated_metrics.setdefault("ATM_IV", self.current_metrics.get("ATM_IV", float("nan")))
-        updated_metrics.setdefault("VRP", self.current_metrics.get("VRP", float("nan")))
-
-        client = self._get_options_tradier_client()
-        if client is None:
-            return False
-
-        try:
-            spot = self._get_spy_spot()
-            if spot is None or spot <= 0:
-                raise ValueError("TRAD spot unavailable for options analytics")
-
-            expirations_response = client.get_option_expirations("TRAD")
-            expirations = expirations_response.get("expirations", {}).get("date", [])
-            if not expirations:
-                raise ValueError("No TRAD option expirations available")
-
-            # Target the expiry closest to 30 DTE so that ATM_IV is comparable
-            # with VIX (which measures 30-day implied vol).  Using the nearest
-            # expiry (often 0-2 DTE) produces a materially lower IV value.
-            _today = datetime.now(UTC).date()
-
-            def _dte(exp_str: str) -> int:
-                try:
-                    from datetime import date as _date
-                    return (_date.fromisoformat(exp_str) - _today).days
-                except Exception:
-                    return 9999
-
-            _target_dte = 30
-            _valid_exps = [e for e in expirations if _dte(e) >= 1]
-            nearest_exp = (
-                min(_valid_exps, key=lambda e: abs(_dte(e) - _target_dte))
-                if _valid_exps
-                else expirations[0]
-            )
-            contracts = client.get_option_chain_with_greeks("TRAD", nearest_exp)
-            atm_iv = self._compute_atm_iv(contracts, spot)
-            if atm_iv is None:
-                raise ValueError("ATM IV unavailable from option chain")
-
-            hv20 = self._compute_hv20(client)
-            updated_metrics["ATM_IV"] = atm_iv
-            updated_metrics["IVR"] = self._compute_ivr(atm_iv)
-            updated_metrics["VRP"] = atm_iv - hv20 if hv20 is not None else float("nan")
-            if "OPTIONS" in self.metric_quality:
-                q = self.metric_quality["OPTIONS"]
-                q.last_successful_update = datetime.now(UTC)
-                q.data_points += 1
-                q.quality_score = min(1.0, q.quality_score + 0.01)
-            return True
-        except Exception as e:
-            if self._is_transient_options_unavailable(str(e)):
-                self._log_deduped_issue(
-                    channel="options_analytics_deferred",
-                    message=f"Options analytics deferred: {e}",
-                    level="info",
-                )
-                return False
-            errors.append(f"options analytics update failed: {e}")
-            return False
-
-    @staticmethod
-    def _coerce_vol_surface_expiry(expiry: Any) -> datetime | None:
-        """Normalize supported expiry payloads into timezone-aware datetimes."""
-        if hasattr(expiry, "to_pydatetime"):
-            expiry = expiry.to_pydatetime()
-
-        if isinstance(expiry, datetime):
-            dt_value = expiry
-        elif isinstance(expiry, str):
-            try:
-                dt_value = datetime.fromisoformat(expiry)
-            except ValueError:
-                return None
-        else:
-            return None
-
-        if dt_value.tzinfo is None:
-            return dt_value.replace(tzinfo=UTC)
-        return dt_value.astimezone(UTC)
-
-    @staticmethod
-    def _has_sufficient_vol_surface_rows(rows: list[dict[str, Any]]) -> bool:
-        """Return True when rows can support a basic term-structure surface."""
-        expiries = {
-            row["expiry"].date()
-            for row in rows
-            if isinstance(row.get("expiry"), datetime)
-        }
-        strikes = {
-            float(row["strike"])
-            for row in rows
-            if isinstance(row.get("strike"), (int, float))
-        }
-        return len(rows) >= 15 and len(expiries) >= 3 and len(strikes) >= 5
-
-    def _normalize_vol_surface_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Convert generic chain rows into N06 surface-builder input rows."""
-        normalized: dict[tuple[datetime, float, str], dict[str, Any]] = {}
-
-        for row in rows:
-            try:
-                strike = float(row.get("strike") or 0.0)
-            except (TypeError, ValueError):
-                continue
-            if not math.isfinite(strike) or strike <= 0:
-                continue
-
-            expiry = self._coerce_vol_surface_expiry(
-                row.get("expiry") or row.get("expiration") or row.get("expiration_date")
-            )
-            if expiry is None:
-                continue
-
-            raw_iv = row.get("implied_volatility")
-            if raw_iv is None:
-                raw_iv = row.get("iv")
-            if raw_iv is None:
-                raw_iv = row.get("smv_vol")
-
-            try:
-                implied_volatility = float(raw_iv)
-            except (TypeError, ValueError):
-                continue
-            if not math.isfinite(implied_volatility) or implied_volatility <= 0:
-                continue
-
-            option_type = str(row.get("option_type") or "").upper()
-            normalized[(expiry, strike, option_type)] = {
-                "strike": strike,
-                "expiry": expiry,
-                "option_type": option_type,
-                "implied_volatility": implied_volatility,
-                "volume": int(row.get("volume") or 0),
-                "open_interest": int(row.get("open_interest") or 0),
-            }
-
-        return list(normalized.values())
-
-    def _select_vol_surface_expirations(self, expirations: list[str]) -> list[str]:
-        """Pick expirations that best cover front, week, and 30-DTE nodes."""
-        from datetime import date as _date
-
-        today = datetime.now(UTC).date()
-
-        def _dte(expiration: str) -> int:
-            try:
-                return (_date.fromisoformat(expiration) - today).days
-            except Exception:
-                return 9999
-
-        valid = [expiration for expiration in expirations if _dte(expiration) >= 0]
-        if not valid:
-            return []
-
-        selected: list[str] = []
-        for target_dte in (0, 1, 7, 30):
-            nearest = min(valid, key=lambda expiration: abs(_dte(expiration) - target_dte))
-            if nearest not in selected:
-                selected.append(nearest)
-
-        for expiration in valid:
-            if expiration not in selected:
-                selected.append(expiration)
-            if len(selected) >= 6:
-                break
-
-        return selected
-
-    def _load_vol_surface_chain_dataframe(self):
-        """Load enough live TRAD option rows to seed the volatility surface builder."""
-        import pandas as pd
-
-        base_rows = self._normalize_vol_surface_rows(
-            self._normalize_chain_rows(self._load_options_chain_dataframe())
-        )
-        if self._has_sufficient_vol_surface_rows(base_rows):
-            return pd.DataFrame(base_rows)
-
-        client = self._get_options_tradier_client()
-        if client is None:
-            raise ValueError("TRAD vol surface chain unavailable")
-
-        expirations_response = client.get_option_expirations("TRAD")
-        expirations = expirations_response.get("expirations", {}).get("date", [])
-        if isinstance(expirations, str):
-            expirations = [expirations]
-
-        selected_expirations = self._select_vol_surface_expirations(list(expirations))
-        if not selected_expirations:
-            raise ValueError("No TRAD option expirations available for vol surface")
-
-        fetched_rows: list[dict[str, Any]] = []
-        for expiration in selected_expirations:
-            contracts = client.get_option_chain_with_greeks("TRAD", expiration)
-            if not contracts:
-                continue
-
-            for contract in contracts:
-                fetched_rows.append(
-                    {
-                        "strike": getattr(contract, "strike", None),
-                        "expiry": getattr(contract, "expiration", expiration),
-                        "option_type": getattr(contract, "option_type", ""),
-                        "implied_volatility": getattr(contract, "iv", None),
-                        "volume": getattr(contract, "volume", 0),
-                        "open_interest": getattr(contract, "open_interest", 0),
-                    }
-                )
-
-        combined_rows = self._normalize_vol_surface_rows(base_rows + fetched_rows)
-        if not self._has_sufficient_vol_surface_rows(combined_rows):
-            raise ValueError(
-                "Insufficient TRAD vol surface data "
-                f"({len(combined_rows)} rows across "
-                f"{len({row['expiry'].date() for row in combined_rows if isinstance(row.get('expiry'), datetime)})} expiries)"
-            )
-
-        return pd.DataFrame(combined_rows)
-
-    @staticmethod
-    def _should_refresh_vol_surface_snapshot(message: str) -> bool:
-        """Return True when the current surface should be rebuilt before use."""
-        text = str(message or "").strip().lower()
-        return "no surface available" in text or "term structure unavailable" in text
-
-    def _get_vol_surface_snapshot(self) -> dict[str, Any]:
-        """Return a current TRAD vol-surface snapshot, rebuilding when absent or stale."""
-        builder = self._get_vol_surface_builder()
-        rebuild_required = False
-
-        try:
-            snapshot = builder.get_term_structure_snapshot("TRAD")
-            age_ms = snapshot.get("surface_age_ms")
-            try:
-                snapshot_age_ms = float(age_ms)
-            except (TypeError, ValueError):
-                snapshot_age_ms = float("inf")
-
-            refresh_after_ms = float(getattr(self, "current_update_interval", 60)) * 1000.0
-            if math.isfinite(snapshot_age_ms) and snapshot_age_ms <= refresh_after_ms:
-                return snapshot
-            rebuild_required = True
-        except Exception as exc:
-            if not self._should_refresh_vol_surface_snapshot(str(exc)):
-                raise
-            rebuild_required = True
-
-        if rebuild_required:
-            spot = self._get_spy_spot()
-            if spot is None or spot <= 0:
-                raise ValueError("TRAD spot unavailable for vol surface")
-
-            options_data = self._load_vol_surface_chain_dataframe()
-            builder.build_surface("TRAD", options_data, spot)
-
-        return builder.get_term_structure_snapshot("TRAD")
-
-    def _update_vol_surface_metrics(self, updated_metrics: dict, errors: list) -> bool:
-        """Update volatility-surface term nodes and smile structure metrics."""
-        metric_defaults = {
-            "ATM_IV_0DTE": self.current_metrics.get("ATM_IV_0DTE", float("nan")),
-            "ATM_IV_1DTE": self.current_metrics.get("ATM_IV_1DTE", float("nan")),
-            "ATM_IV_7DTE": self.current_metrics.get("ATM_IV_7DTE", float("nan")),
-            "ATM_IV_30DTE": self.current_metrics.get("ATM_IV_30DTE", float("nan")),
-            "TERM_SLOPE_0_7": self.current_metrics.get("TERM_SLOPE_0_7", float("nan")),
-            "TERM_SLOPE_7_30": self.current_metrics.get("TERM_SLOPE_7_30", float("nan")),
-            "RR_25D": self.current_metrics.get("RR_25D", float("nan")),
-            "FLY_25D": self.current_metrics.get("FLY_25D", float("nan")),
-            "SURFACE_CONFIDENCE": self.current_metrics.get("SURFACE_CONFIDENCE", float("nan")),
-            "SURFACE_AGE_MS": self.current_metrics.get("SURFACE_AGE_MS", float("nan")),
-        }
-        updated_metrics.update({key: updated_metrics.get(key, value) for key, value in metric_defaults.items()})  # noqa: E501
-
-        try:
-            snapshot = self._get_vol_surface_snapshot()
-            updated_metrics["ATM_IV_0DTE"] = float(snapshot.get("atm_iv_0dte", float("nan")))
-            updated_metrics["ATM_IV_1DTE"] = float(snapshot.get("atm_iv_1dte", float("nan")))
-            updated_metrics["ATM_IV_7DTE"] = float(snapshot.get("atm_iv_7dte", float("nan")))
-            updated_metrics["ATM_IV_30DTE"] = float(snapshot.get("atm_iv_30dte", float("nan")))
-            updated_metrics["TERM_SLOPE_0_7"] = float(snapshot.get("term_slope_0_7", float("nan")))
-            updated_metrics["TERM_SLOPE_7_30"] = float(snapshot.get("term_slope_7_30", float("nan")))  # noqa: E501
-            updated_metrics["RR_25D"] = float(snapshot.get("rr_25d", float("nan")))
-            updated_metrics["FLY_25D"] = float(snapshot.get("fly_25d", float("nan")))
-            updated_metrics["SURFACE_CONFIDENCE"] = float(snapshot.get("surface_confidence", float("nan")))  # noqa: E501
-            updated_metrics["SURFACE_AGE_MS"] = float(snapshot.get("surface_age_ms", float("nan")))
-            if "VOL_SURFACE" in self.metric_quality:
-                q = self.metric_quality["VOL_SURFACE"]
-                q.last_successful_update = datetime.now(UTC)
-                q.data_points += 1
-                q.quality_score = min(1.0, q.quality_score + 0.01)
-
-            if self.pca_signal_engine is not None:
-                try:
-                    storage_status = self.pca_signal_engine.record_iv_surface_snapshot(snapshot)
-                    pca_iv_details = updated_metrics.get(
-                        "PCA-IV_DETAILS",
-                        self.current_metrics.get("PCA-IV_DETAILS", {}),
-                    )
-                    if not isinstance(pca_iv_details, dict):
-                        pca_iv_details = {}
-                    else:
-                        pca_iv_details = dict(pca_iv_details)
-
-                    nested_details = pca_iv_details.get("details", {})
-                    if not isinstance(nested_details, dict):
-                        nested_details = {}
-                    else:
-                        nested_details = dict(nested_details)
-
-                    nested_details.update(storage_status)
-                    pca_iv_details["details"] = nested_details
-                    updated_metrics["PCA-IV_DETAILS"] = pca_iv_details
-                except Exception as exc:
-                    self.logger.debug("PCA-IV history seed skipped: %s", exc)
-            return True
-        except Exception as e:
-            if self._is_transient_options_unavailable(str(e)):
-                self._log_deduped_issue(
-                    channel="vol_surface_deferred",
-                    message=f"Vol surface deferred: {e}",
-                    level="info",
-                )
-                return False
-            errors.append(f"vol surface update failed: {e}")
-            return False
 
     def _update_quality_metrics(self, updated_metrics: dict, errors: list):
         """Update quality tracking for all metrics"""
@@ -3351,7 +2280,6 @@ class CustomMetricsOrchestrator(QObject):
             index_snapshot = self._load_index_confirmation_snapshot()
             return {
                 'dix_score': self.current_metrics.get('DIX', 42.5),
-                'gex_level': self.current_metrics.get('GEX', -2.5),
                 'swan_score': self.current_metrics.get('SWAN', 1.85),
                 'skew_level': self.current_metrics.get('SKEW', 125.5),
                 # Lowercase aliases consumed directly by F09 trust-gate filters.
@@ -3361,10 +2289,6 @@ class CustomMetricsOrchestrator(QObject):
                 'vvix': self.current_metrics.get('VVIX', float('nan')),
                 'cpc': self.current_metrics.get('CPC', float('nan')),
                 'rvol': self.current_metrics.get('RVOL', float('nan')),
-                'dex_level': self.current_metrics.get('DEX', 850),
-                'ogl_level': self.current_metrics.get('OGL', 585.5),
-                'vex': self.current_metrics.get('VEX', 0.0),
-                'chex': self.current_metrics.get('CHEX', 0.0),
                 'yield_10y': self.current_metrics.get('YIELD_10Y', float('nan')),
                 'yield_slope': self.current_metrics.get('YIELD_SLOPE', float('nan')),
                 'yield_inverted': self.current_metrics.get('YIELD_INVERTED', False),
@@ -3383,25 +2307,6 @@ class CustomMetricsOrchestrator(QObject):
                 'sector_momentum_dispersion': self.current_metrics.get('SECTOR_MOMENTUM_DISPERSION', float('nan')),  # noqa: E501
                 'participation_score': self.current_metrics.get('PARTICIPATION_SCORE', float('nan')),  # noqa: E501
                 'sector_breadth': self.current_metrics.get('SECTOR_BREADTH', {}),
-                'ivr': self.current_metrics.get('IVR', float('nan')),
-                'atm_iv': self.current_metrics.get('ATM_IV', float('nan')),
-                'vrp': self.current_metrics.get('VRP', float('nan')),
-                'atm_iv_0dte': self.current_metrics.get('ATM_IV_0DTE', float('nan')),
-                'atm_iv_1dte': self.current_metrics.get('ATM_IV_1DTE', float('nan')),
-                'atm_iv_7dte': self.current_metrics.get('ATM_IV_7DTE', float('nan')),
-                'atm_iv_30dte': self.current_metrics.get('ATM_IV_30DTE', float('nan')),
-                'term_slope_0_7': self.current_metrics.get('TERM_SLOPE_0_7', float('nan')),
-                'term_slope_7_30': self.current_metrics.get('TERM_SLOPE_7_30', float('nan')),
-                'rr_25d': self.current_metrics.get('RR_25D', float('nan')),
-                'fly_25d': self.current_metrics.get('FLY_25D', float('nan')),
-                'surface_confidence': self.current_metrics.get('SURFACE_CONFIDENCE', float('nan')),
-                'surface_age_ms': self.current_metrics.get('SURFACE_AGE_MS', float('nan')),
-                'zero_gamma': self.current_metrics.get('ZERO_GAMMA', float('nan')),
-                'wall_confidence': self.current_metrics.get('WALL_CONFIDENCE', float('nan')),
-                'vanna_pressure': self.current_metrics.get('VANNA_PRESSURE', float('nan')),
-                'charm_pressure': self.current_metrics.get('CHARM_PRESSURE', float('nan')),
-                'flow_imbalance': self.current_metrics.get('FLOW_IMBALANCE', float('nan')),
-                'dealer_flow': self.current_metrics.get('DEALER_FLOW', {}),
                 'spy_change_pct': index_snapshot.get('spy_change_pct', self.current_metrics.get('TRAD_CHANGE_PCT', float('nan'))),
                 'qqq_change_pct': index_snapshot.get('qqq_change_pct', self.current_metrics.get('QQQ_CHANGE_PCT', float('nan'))),
                 'iwm_change_pct': index_snapshot.get('iwm_change_pct', self.current_metrics.get('IWM_CHANGE_PCT', float('nan'))),

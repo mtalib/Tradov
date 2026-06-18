@@ -1164,8 +1164,10 @@ class TradovApplication:
             self.gui_app = existing_app if existing_app is not None else QApplication(sys.argv)
 
             # CRITICAL: Set desktop file name for Wayland/GNOME integration
-            # This ensures the window appears under the launcher icon
-            self.gui_app.setDesktopFileName("tradov-trading-system")
+            # This ensures the window appears under the launcher icon.
+            # Must match the basename of tradov.desktop (no path, no extension)
+            # and the StartupWMClass value in that .desktop file.
+            self.gui_app.setDesktopFileName("tradov")
 
             self.gui_app.setApplicationName(self.config.app_name)
             self.gui_app.setApplicationVersion(self.config.version)

@@ -1546,7 +1546,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 # Persist per-symbol EOD close snapshots used by startup workflows
                 # and operational audit checks.
                 _symbol_prev_files = {
-                    "TRAD": "spy_prev_day.json",
+                    "SPY": "spy_prev_day.json",
                     "SPX": "spx_prev_day.json",
                     "$DJI": "dji_prev_day.json",
                     "DIA": "dia_prev_day.json",

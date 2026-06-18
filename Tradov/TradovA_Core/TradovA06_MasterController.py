@@ -216,8 +216,6 @@ class MasterController:
         # the health-monitor thread reads. RLock so the same thread can call
         # nested helpers (like _initialize_component) without deadlocking.
         self._components_lock = threading.RLock()
-        # N04 OptionsGreeksCalculator singleton — wired after Risk Management phase
-        self._n04_calculator: Any | None = None
 
         # Threading and async
         self.executor = ThreadPoolExecutor(max_workers=10)
@@ -574,13 +572,6 @@ class MasterController:
                 critical=True,
             ),
             StartupSequence(
-                phase="Options Analytics",
-                modules=["N04_OptionsGreeksCalculator"],
-                parallel=False,
-                timeout=20,
-                critical=False,  # Non-critical — system trades without it
-            ),
-            StartupSequence(
                 phase="Portfolio Management",
                 modules=[
                     "P05_MultiStrategyAllocator",
@@ -929,22 +920,6 @@ class MasterController:
                 return scheduler
             except Exception as e:
                 logger.warning("Could not initialize AgentScheduler: %s", e, exc_info=True)
-                return None
-
-        # ── N04 OptionsGreeksCalculator — shared singleton ────────────────────
-        if module_id == "N04_OptionsGreeksCalculator":
-            try:
-                from TradovN_OptionsAnalytics.TradovN04_OptionsGreeksCalculator import (
-                    get_n04_calculator,
-                )
-                calc = get_n04_calculator()
-                self._n04_calculator = calc
-                logger.info(
-                    "N04 OptionsGreeksCalculator singleton created and cached on MasterController"
-                )
-                return calc
-            except Exception as e:
-                logger.warning("Could not initialize N04 OptionsGreeksCalculator: %s", e)
                 return None
 
         # ── L09 UnifiedRegimeEngine ───────────────────────────────────────────

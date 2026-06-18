@@ -989,19 +989,17 @@ class TradovTradingDashboard(QMainWindow):
         # Active INFO allowlist — starts as the full default; user may narrow it
         # via the ALLOWLIST dialog.  Stored here so it survives mode toggles.
         self._gui_allowlist_active: tuple[str, ...] = _GUI_INFO_ALLOWLIST_DEFAULT
-        # User-facing SPX strategy allowlist (Advanced Controls).
-        self._spx_strategy_candidates: tuple[str, ...] = (
-            "BullPutSpread",
-            "BearCallSpread",
-            "PivotMeanReversion",
-            "ZeroHFT",
-            "Butterfly",
-            "IronCondor",
-            "IronButterfly",
-            "BrokenWingButterfly",
+        # Operator-curated permitted-strategy universe (the "STRATEGIES" button
+        # on the regime bar). These are this system's stat-arb stock/ETF
+        # strategies: D42 PairTrading, D43 DistanceApproach, D44 PCAStatArb.
+        # (The former options-strategy list belonged to a different app.)
+        self._strategy_candidates: tuple[str, ...] = (
+            "PairTrading",
+            "DistanceApproach",
+            "PCAStatArb",
         )
-        self._spx_allowed_strategies_active: tuple[str, ...] = self._load_allowed_strategies_state()
-        self._apply_allowed_strategies_override(self._spx_allowed_strategies_active, announce=False)
+        self._allowed_strategies_active: tuple[str, ...] = self._load_allowed_strategies_state()
+        self._apply_allowed_strategies_override(self._allowed_strategies_active, announce=False)
         self._signal_noise_loggers = (
             "TradovS_Signals.TradovS01_DIXCalculator",
             "Tradov.TradovS_Signals.TradovS01_DIXCalculator",
@@ -2501,7 +2499,7 @@ class TradovTradingDashboard(QMainWindow):
     # ==========================================================================
     def setup_ui(self):
         """Setup the complete UI"""
-        self.setWindowTitle("TRADOV - Autonomous Options Trading System v1.0")
+        self.setWindowTitle("AUTONOMOUS ARBITRAGE TRADER")
         self.setGeometry(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
         self.showMaximized()
 
@@ -2613,6 +2611,9 @@ class TradovTradingDashboard(QMainWindow):
         content_splitter.addWidget(right_panel)
 
         content_splitter.setSizes([340, 970, 610])
+        # Keep the MARKET OVERVIEW (left) pane from collapsing to zero width so it
+        # never starts hidden; its minimum width is set on the panel itself.
+        content_splitter.setCollapsible(0, False)
 
         main_layout.addWidget(content_splitter)
         central_widget.setLayout(main_layout)
@@ -2769,6 +2770,9 @@ class TradovTradingDashboard(QMainWindow):
     def toggle_chart(self):
         """Toggle the underlying chart visibility to provide more space for positions table."""
         chart_symbol = str(os.getenv("TRADOV_UNDERLYING_SYMBOL", "SPX") or "SPX").strip().upper() or "SPX"
+        if getattr(self, "chart_widget", None) is None:
+            self.log_system_message(f"Chart disabled in this layout for {chart_symbol}")
+            return
         if self.chart_visible:
             # Hide chart
             self.chart_widget.hide()
@@ -3524,6 +3528,13 @@ class TradovTradingDashboard(QMainWindow):
         """
         if not self.positions_table:
             return
+
+        # Update pair trading dashboard if visible
+        if getattr(self, "pair_trading_dashboard", None) is not None and self.pair_trading_dashboard.isVisible():
+            try:
+                self.pair_trading_dashboard.update_data()
+            except Exception:
+                pass
 
         # In paper trading mode the live account endpoints are not used;
         # paper positions are tracked internally by _PaperTradingWorker.
@@ -7576,6 +7587,76 @@ class TradovTradingDashboard(QMainWindow):
     # Regime pill bar — 5-field display (REGIME / STRESS / STANCE / GATE / DISPATCH)
     # ──────────────────────────────────────────────────────────────────
 
+    def _open_regime_override_menu(self, pos) -> None:
+        """Right-click menu on the regime pill: pick a regime or restore auto.
+
+        Applies immediately against the live D31 orchestrator when a session is
+        running; otherwise persists the choice to the override file so it takes
+        effect the next time the orchestrator reads it (and survives restarts).
+        """
+        try:
+            from PySide6.QtGui import QAction
+            from PySide6.QtWidgets import QMenu
+            from Tradov.TradovU_Utilities.TradovU50_RegimeOverrideStore import (
+                REGIME_OPTIONS,
+                load_regime_override,
+            )
+
+            # Current override (prefer live orchestrator, else the file).
+            current = None
+            orch = self._regime_orchestrator_safe()
+            if orch is not None and hasattr(orch, "get_regime_status"):
+                try:
+                    current = orch.get_regime_status().get("override_regime")
+                except Exception:
+                    current = None
+            else:
+                current = load_regime_override()
+
+            menu = QMenu(self.regime_pill)
+            for token, label in REGIME_OPTIONS:
+                action = QAction(label, menu)
+                action.setCheckable(True)
+                action.setChecked((token or None) == (current or None))
+                action.triggered.connect(
+                    lambda _checked=False, t=token: self._apply_regime_override_choice(t)
+                )
+                menu.addAction(action)
+                if token is None:
+                    menu.addSeparator()
+            menu.exec(self.regime_pill.mapToGlobal(pos))
+        except Exception as exc:  # menu must never crash the dashboard
+            self.logger.debug("regime override menu failed: %s", exc)
+
+    def _apply_regime_override_choice(self, token) -> None:
+        """Apply a regime-override selection from the pill menu."""
+        try:
+            orch = self._regime_orchestrator_safe()
+            if orch is not None and hasattr(orch, "set_regime_override"):
+                # Live path: takes effect now and persists via D31.
+                orch.set_regime_override(token)
+            else:
+                # No live session: persist to file for the next orchestrator read.
+                from Tradov.TradovU_Utilities.TradovU50_RegimeOverrideStore import (
+                    save_regime_override,
+                )
+                save_regime_override(token)
+            label = token or "auto"
+            self.add_system_log(f"Regime override set to: {label}")
+            # Refresh the pill bar so the change is visible immediately.
+            if hasattr(self, "update_regime_pills"):
+                self.update_regime_pills({})
+        except Exception as exc:
+            self.logger.debug("apply regime override failed: %s", exc)
+
+    def _regime_orchestrator_safe(self):
+        """Return the live D31 orchestrator if a session is running, else None."""
+        try:
+            sup = getattr(self, "_session_supervisor", None)
+            return getattr(sup, "orchestrator", None) if sup else None
+        except Exception:
+            return None
+
     def _get_dispatch_state_safe(self) -> dict:
         """Read D31's dispatch state, falling back to IDLE if unavailable.
 
@@ -8544,9 +8625,9 @@ class TradovTradingDashboard(QMainWindow):
         self.add_system_log(summary)
 
     def _load_allowed_strategies_state(self) -> tuple[str, ...]:
-        """Load persisted SPX strategy allowlist from profile JSON."""
+        """Load persisted permitted-strategy selection from profile JSON."""
         profile_path = self._resolve_veto_profile_path()
-        default_selection = self._spx_strategy_candidates
+        default_selection = self._strategy_candidates
 
         try:
             if profile_path.exists():
@@ -8556,7 +8637,7 @@ class TradovTradingDashboard(QMainWindow):
                     raw_set = {str(item).strip() for item in raw if str(item).strip()}
                     selected = tuple(
                         strategy
-                        for strategy in self._spx_strategy_candidates
+                        for strategy in self._strategy_candidates
                         if strategy in raw_set
                     )
                     if selected:
@@ -8567,7 +8648,7 @@ class TradovTradingDashboard(QMainWindow):
         return default_selection
 
     def _persist_allowed_strategies_state(self, selected: tuple[str, ...]) -> tuple[bool, str]:
-        """Persist SPX strategy allowlist under autonomous_readiness.allowed_strategies."""
+        """Persist permitted strategies under autonomous_readiness.allowed_strategies."""
         profile_path = self._resolve_veto_profile_path()
 
         try:
@@ -8589,57 +8670,53 @@ class TradovTradingDashboard(QMainWindow):
             return False, str(exc)
 
     def _apply_allowed_strategies_to_active_orchestrator(self, selected: tuple[str, ...]) -> bool:
-        """Apply selected strategy bases to a running D31 orchestrator, if present."""
+        """Apply the permitted-strategy selection to a running D31 orchestrator.
+
+        Removes hosted strategies that are no longer permitted and activates any
+        newly permitted ones via D31's curated loader. No-op (returns False) when
+        no session/orchestrator is running.
+        """
         supervisor = getattr(self, "_session_supervisor", None)
         orchestrator = getattr(supervisor, "orchestrator", None) if supervisor else None
         if orchestrator is None:
             return False
 
-        lean_allowlist = getattr(orchestrator, "lean_strategy_allowlist", None)
-        if not isinstance(lean_allowlist, set):
-            return False
+        applied = False
+        selected_set = {str(s).strip() for s in selected if str(s).strip()}
 
-        current_bases = {
-            name[:-8] if name.endswith("Strategy") else name
-            for name in lean_allowlist
-        }
-        allowlist_snapshot = getattr(orchestrator, "_allowed_strategies_allowlist_snapshot", None)
-        if not isinstance(allowlist_snapshot, set):
-            allowlist_snapshot = set(current_bases)
-            orchestrator._allowed_strategies_allowlist_snapshot = allowlist_snapshot
-
-        selected_bases = [
-            name
-            for name in selected
-            if name in allowlist_snapshot
-        ]
-        if not selected_bases:
-            return False
-
-        new_allowlist: set[str] = set()
-        for base in selected_bases:
-            new_allowlist.add(base)
-            new_allowlist.add(f"{base}Strategy")
-        orchestrator.lean_strategy_allowlist = new_allowlist
-
-        available_strategies = getattr(orchestrator, "available_strategies", None)
-        if isinstance(available_strategies, dict):
-            registry_snapshot = getattr(orchestrator, "_allowed_strategies_registry_snapshot", None)
-            if not isinstance(registry_snapshot, dict):
-                registry_snapshot = dict(available_strategies)
-                orchestrator._allowed_strategies_registry_snapshot = registry_snapshot
-
-            selected_base_set = set(selected_bases)
-            orchestrator.available_strategies = {
-                name: strategy_class
-                for name, strategy_class in registry_snapshot.items()
-                if name in selected_base_set
+        # Remove hosted strategies that are no longer permitted.
+        try:
+            from Tradov.TradovD_Strategies.TradovD31_StrategyOrchestrator import (
+                _D31_PERMITTED_STRATEGY_CLASSES,
+            )
+            classname_to_token = {
+                sym: tok for tok, (_mod, sym) in _D31_PERMITTED_STRATEGY_CLASSES.items()
             }
+            active = dict(getattr(orchestrator, "active_strategies", {}) or {})
+            for strategy_id, strat in active.items():
+                token = classname_to_token.get(type(strat).__name__)
+                if (
+                    token is not None
+                    and token not in selected_set
+                    and hasattr(orchestrator, "remove_strategy")
+                ):
+                    orchestrator.remove_strategy(strategy_id, close_positions=True)
+                    applied = True
+        except Exception as exc:
+            self.logger.debug("permitted-strategy removal skipped: %s", exc)
 
-        return True
+        # Activate newly permitted strategies via the curated loader.
+        if hasattr(orchestrator, "activate_permitted_strategies"):
+            try:
+                added = orchestrator.activate_permitted_strategies(list(selected_set))
+                applied = applied or bool(added)
+            except Exception as exc:
+                self.logger.debug("permitted-strategy activation skipped: %s", exc)
+
+        return applied
 
     def _apply_allowed_strategies_override(self, selected: tuple[str, ...], announce: bool = True) -> None:
-        """Apply SPX strategy selection to env/runtime without bypassing D31 policy flow."""
+        """Apply permitted-strategy selection to env/runtime without bypassing D31 policy flow."""
         os.environ["TRADOV_ALLOWED_STRATEGIES"] = ",".join(selected)
         applied_live = self._apply_allowed_strategies_to_active_orchestrator(selected)
 
@@ -8647,28 +8724,28 @@ class TradovTradingDashboard(QMainWindow):
             count = len(selected)
             status = "applied to active session" if applied_live else "will apply on next strategy start"
             self.add_system_log(
-                f"🎯 Allowed SPX strategies updated — {count} selected ({status})"
+                f"🎯 Permitted strategies updated — {count} selected ({status})"
             )
 
     def _open_allowed_strategies_dialog(self) -> None:
-        """Open SPX strategy chooser and persist selected runtime allowlist."""
+        """Open the permitted-strategies chooser and persist the selection."""
         dialog = QDialog(self)
-        dialog.setWindowTitle("ALLOWED STRATEGIES")
+        dialog.setWindowTitle("PERMITTED STRATEGIES")
         dialog.setModal(True)
         dialog.resize(460, 360)
 
         layout = QVBoxLayout(dialog)
-        title = QLabel("Select allowed SPX strategies for runtime selection")
+        title = QLabel("Select which strategies are permitted for runtime selection")
         title.setStyleSheet("color: #FFFFFF; font-size: 13px; font-weight: 600;")
         layout.addWidget(title)
 
-        subtitle = QLabel("Unchecked strategies are blocked from D31 lean selection.")
+        subtitle = QLabel("Unchecked strategies are blocked from selection.")
         subtitle.setStyleSheet("color: #B0B0B0; font-size: 12px;")
         layout.addWidget(subtitle)
 
-        selected_now = set(self._spx_allowed_strategies_active)
+        selected_now = set(self._allowed_strategies_active)
         checkboxes: dict[str, QCheckBox] = {}
-        for strategy_name in self._spx_strategy_candidates:
+        for strategy_name in self._strategy_candidates:
             cb = QCheckBox(strategy_name)
             cb.setChecked(strategy_name in selected_now)
             cb.setStyleSheet("color: #E8E8E8; font-size: 12px;")
@@ -8688,23 +8765,23 @@ class TradovTradingDashboard(QMainWindow):
 
         selected = tuple(
             strategy_name
-            for strategy_name in self._spx_strategy_candidates
+            for strategy_name in self._strategy_candidates
             if checkboxes[strategy_name].isChecked()
         )
         if not selected:
             QMessageBox.warning(
                 self,
-                "Allowed Strategies",
+                "Permitted Strategies",
                 "Please keep at least one strategy enabled.",
             )
             return
 
         persisted, detail = self._persist_allowed_strategies_state(selected)
         if not persisted:
-            self.add_system_log(f"⚠️ Failed to persist allowed strategies: {detail}")
+            self.add_system_log(f"⚠️ Failed to persist permitted strategies: {detail}")
             return
 
-        self._spx_allowed_strategies_active = selected
+        self._allowed_strategies_active = selected
         self._apply_allowed_strategies_override(selected, announce=True)
 
     def _resolve_veto_profile_path(self) -> Path:
@@ -9449,11 +9526,11 @@ def main():
 
     # CRITICAL: Set desktop file name for Wayland/GNOME integration
     # This MUST match the .desktop file name (without .desktop extension)
-    # so the window appears under the launcher icon instead of a separate gear icon
-    app.setDesktopFileName("tradov-trading-system")
+    # and StartupWMClass so the window appears under the launcher icon.
+    app.setDesktopFileName("tradov")
 
     # Set application identity
-    app.setApplicationName("tradov-trading-system")
+    app.setApplicationName("tradov")
     app.setOrganizationName("Tradov Trading System")
 
     # Implement qasync event loop integration for proper asyncio/Qt compatibility

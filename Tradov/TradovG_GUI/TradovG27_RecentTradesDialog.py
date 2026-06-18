@@ -44,7 +44,7 @@ class RecentTradesDialog(QDialog):
         super().__init__(parent)
         self._trades = list(trades or [])
 
-        self.setWindowTitle(f"Recent Trade History - {mode_name}")
+        self.setWindowTitle(f"Pair Trade History - {mode_name}")
         self.setModal(False)
         self.setMinimumSize(980, 520)
         self.resize(980, 520)
@@ -56,7 +56,7 @@ class RecentTradesDialog(QDialog):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
 
-        subtitle = QLabel("Showing last 30 recent trade records")
+        subtitle = QLabel("Showing last 30 pair trade records")
         subtitle.setStyleSheet("font-size: 12px; color: #b8b8b8;")
         layout.addWidget(subtitle)
 
@@ -223,7 +223,7 @@ class RecentTradesDialog(QDialog):
         action = display.action.replace("_", " ")
 
         summary_row = QTreeWidgetItem(self._table)
-        summary_row.setText(0, f"{timestamp} TRADE RECORD : {symbol}  |  ACTION: {action}")
+        summary_row.setText(0, f"{timestamp} PAIR TRADE RECORD : {symbol}  |  ACTION: {action}")
         summary_row.setForeground(0, QColor(COLORS.get("cyan", "#00ffff")))
         self._table.setFirstColumnSpanned(
             self._table.indexOfTopLevelItem(summary_row),

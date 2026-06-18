@@ -265,7 +265,7 @@ class IntegrationHub:
                     'TradovD_Strategies', 'TradovE_Risk', 'TradovF_Analysis',
                     'TradovG_GUI', 'TradovH_Storage', 'TradovI_Integration',
                     'TradovJ_Alerts', 'TradovK_Reports', 'TradovL_ML',
-                    'TradovM_Monitoring', 'TradovN_OptionsAnalytics',
+                    'TradovM_Monitoring',
                     'TradovP_PortfolioMgmt', 'TradovQ_Scripts', 'TradovR_Runtime',
                     'TradovS_Signals', 'Tradov.TradovU_Utilities', 'TradovX_Agents',
                     'TradovZ_Communication'

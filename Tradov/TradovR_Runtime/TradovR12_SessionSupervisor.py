@@ -806,6 +806,20 @@ class SessionSupervisor:
                     detail=f"mode={self.mode}; source=session_supervisor",
                 )
             self._components.append(self.orchestrator)
+            # Phase 1: host the operator-permitted strategies (curated allowlist)
+            # so they receive MARKET_DATA and emit STRATEGY_SIGNAL for D31 to gate
+            # and dispatch. Non-fatal if none activate.
+            if hasattr(self.orchestrator, "activate_permitted_strategies"):
+                try:
+                    activated = self.orchestrator.activate_permitted_strategies()
+                    self.logger.info(
+                        "Permitted strategies activated: %s",
+                        ", ".join(activated) if activated else "(none)",
+                    )
+                except Exception as act_exc:
+                    self.logger.error(
+                        "❌ Permitted-strategy activation failed: %s", act_exc
+                    )
             if self.mode == "paper" and not self.dry_run:
                 self._start_deferred_orchestrator_regime_engine_initialization(
                     self.orchestrator

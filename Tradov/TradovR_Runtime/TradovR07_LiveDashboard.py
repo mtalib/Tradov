@@ -274,13 +274,13 @@ class TradovSplashScreen(QSplashScreen):
         painter.setFont(title_font)
         painter.setPen(QColor(0, 255, 0))  # Green
         painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignTop,
-                        "TRADOV")
+                "AUTONOMOUS ARBITRAGE TRADER")
 
         # Subtitle
         subtitle_font = QFont("Arial", 14)
         painter.setFont(subtitle_font)
         painter.setPen(QColor(200, 200, 200))
-        painter.drawText(20, 100, "Autonomous Options Trading System v1.0")
+        painter.drawText(20, 100, "AUTONOMOUS ARBITRAGE TRADER v1.0")
 
         # Version and module info
         info_font = QFont("Arial", 10)
@@ -360,7 +360,8 @@ class TradovLiveDashboardLauncher:
         try:
             # Create Qt application
             self.app = QApplication(sys.argv)
-            self.app.setApplicationName("Tradov Trading System")
+            self.app.setDesktopFileName("tradov")
+            self.app.setApplicationName("AUTONOMOUS ARBITRAGE TRADER")
             self.app.setApplicationVersion("1.0")
 
             # Show splash screen

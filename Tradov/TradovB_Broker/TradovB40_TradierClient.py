@@ -146,15 +146,6 @@ SESSION_TTL = 270.0    # session token refresh threshold (4.5 min; Tradier TTL i
 TIMEOUT_METRICS_WINDOW_SECONDS = 300.0
 
 
-def _is_opra_vetter_required() -> bool:
-    """Return True when OPRA vetting is configured as mandatory.
-
-    Environment variable:
-        TRADOV_OPRA_REQUIRE_VETTER=true|1|yes|on
-    """
-    raw = str(os.environ.get("TRADOV_OPRA_REQUIRE_VETTER", "false")).strip().lower()
-    return raw in {"1", "true", "yes", "on"}
-
 # ==============================================================================
 # MODULE LOGGER
 # ==============================================================================
@@ -1631,26 +1622,6 @@ class TradierClient:
         response = self._make_request("GET", "/markets/options/chains", params=params, timeout=60)
 
         raw = self._parse_greeks_from_chain(response, symbol)
-
-        # Route through the central N14 vetting pipeline before returning.
-        # This ensures all consumers receive only structurally valid, market-quality
-        # contracts with bounded Greeks — regardless of which strategy calls this method.
-        try:
-            from Tradov.TradovN_OptionsAnalytics.TradovN14_OptionsDataVetter import get_vetter
-            raw = get_vetter().vet(raw)
-        except Exception as _vet_exc:  # pragma: no cover — import-time guard
-            if _is_opra_vetter_required():
-                msg = (
-                    "get_option_chain_with_greeks: N14 vetter unavailable and "
-                    "TRADOV_OPRA_REQUIRE_VETTER=true; refusing unvetted OPRA data"
-                )
-                logger.error(msg, exc_info=True)
-                raise TradierAPIError(msg) from _vet_exc
-            logger.warning(
-                "get_option_chain_with_greeks: N14 vetter unavailable (%s) — "
-                "returning unvetted data",
-                _vet_exc,
-            )
 
         return raw
 

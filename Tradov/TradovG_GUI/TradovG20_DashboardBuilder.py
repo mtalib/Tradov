@@ -29,11 +29,9 @@ from PySide6.QtWidgets import (QToolTip,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMenu,  # noqa: F401
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSplitter,  # noqa: F401
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -61,6 +59,9 @@ def build_left_panel(dashboard: Any, market_symbols: dict[str, list[str]]) -> QW
     """Create the market overview panel."""
     panel = QGroupBox("MARKET OVERVIEW")
     panel.setStyleSheet(f"background-color: {COLORS['background']};")
+    # Keep the watchlist columns (SYMBOL / LAST / CHG / CHG%) readable and stop
+    # the pane from starting (or being dragged) collapsed.
+    panel.setMinimumWidth(300)
     layout = QVBoxLayout()
     layout.setContentsMargins(0, 10, 0, 0)
 
@@ -135,21 +136,29 @@ def build_left_panel(dashboard: Any, market_symbols: dict[str, list[str]]) -> QW
 
 
 class _ClickablePillLabel(QLabel):
-    """QLabel pill that shows its tooltip immediately on left-click."""
+    """QLabel pill. Left-click shows its tooltip, or runs ``on_click`` if given.
 
-    def __init__(self, text: str, parent=None) -> None:
+    Using a QLabel (not a QPushButton) keeps every pill — including the
+    actionable STRATEGIES pill — pixel-identical in size.
+    """
+
+    def __init__(self, text: str, parent=None, on_click=None) -> None:
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._on_click = on_click
 
     def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
         if event.button() == Qt.MouseButton.LeftButton:
-            tip = self.toolTip()
-            if tip:
-                # Defer until after the release event is fully processed so
-                # Qt's tooltip manager (which hides on press) has already run.
-                pos = QCursor.pos()
-                rect = self.rect()
-                QTimer.singleShot(0, lambda: QToolTip.showText(pos, tip, self, rect, 8000))
+            if self._on_click is not None:
+                self._on_click()
+            else:
+                tip = self.toolTip()
+                if tip:
+                    # Defer until after the release event is fully processed so
+                    # Qt's tooltip manager (which hides on press) has already run.
+                    pos = QCursor.pos()
+                    rect = self.rect()
+                    QTimer.singleShot(0, lambda: QToolTip.showText(pos, tip, self, rect, 8000))
         super().mouseReleaseEvent(event)
 
 
@@ -177,13 +186,8 @@ def build_center_panel(dashboard: Any) -> QWidget:
     regime_layout.setContentsMargins(6, 0, 6, 0)
     regime_layout.setSpacing(0)
 
-    chart_symbol = str(os.getenv("TRADOV_UNDERLYING_SYMBOL", "SPX") or "SPX").strip().upper() or "SPX"
-    # Left anchor: "<UNDERLYING> - 5 MIN"
-    chart_label = QLabel(f"{chart_symbol} - 5 MIN")
-    chart_label.setStyleSheet(f"color: {COLORS['text']}; font-size: 13px;")
-    regime_layout.addWidget(chart_label)
-
-    regime_layout.addWidget(_regime_sep())
+    # Left side opens with a stretch so the pills center in the bar (the former
+    # "MARKET OVERVIEW" label was removed).
     regime_layout.addStretch(1)
 
     # ── Regime-bar pill labels ──────────────────────────────────────────
@@ -198,7 +202,19 @@ def build_center_panel(dashboard: Any) -> QWidget:
     # which also carries the HALT visual that the legacy TRADEABLE pill used to).
     dashboard.regime_pill = _ClickablePillLabel("REGIME: —")
     dashboard.regime_pill.setStyleSheet(_PILL_INIT_SS)
-    dashboard.regime_pill.setToolTip("Market regime from L09 detection pipeline")
+    dashboard.regime_pill.setToolTip(
+        "Market regime from L09 detection pipeline\n"
+        "(right-click to override / restore auto)"
+    )
+    # Right-click opens the user regime-override menu; left-click still shows
+    # the tooltip. Guarded so the dashboard renders even if the handler is absent.
+    if hasattr(dashboard, "_open_regime_override_menu"):
+        dashboard.regime_pill.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        dashboard.regime_pill.customContextMenuRequested.connect(
+            dashboard._open_regime_override_menu
+        )
     regime_layout.addWidget(dashboard.regime_pill)
 
     regime_layout.addWidget(_regime_sep())
@@ -236,31 +252,32 @@ def build_center_panel(dashboard: Any) -> QWidget:
     )
     regime_layout.addWidget(dashboard.dispatch_pill)
 
-    regime_layout.addStretch(1)
+    regime_layout.addWidget(_regime_sep())
 
-    # Chart toggle button (mounted near RTH chip in position toolbar)
-    dashboard.chart_toggle_btn = QPushButton("📊")
-    dashboard.chart_toggle_btn.setFixedSize(20, 20)
-    dashboard.chart_toggle_btn.setToolTip(f"Toggle {chart_symbol} Chart / Advanced Controls")
-    dashboard.chart_toggle_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS['panel']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 3px;
-                color: {COLORS['cyan']};
-                font-size: 12px;
-                padding: 0px;
-            }}
-            QPushButton:hover {{
-                background-color: {COLORS['border']};
-                border: 1px solid {COLORS['cyan']};
-            }}
-            QPushButton:pressed {{
-                background-color: {COLORS['cyan']};
-                color: {COLORS['background']};
-            }}
-        """)
-    dashboard.chart_toggle_btn.clicked.connect(dashboard.toggle_chart)
+    # PERMITTED STRATEGIES control — sits to the right of DISPATCH and opens the
+    # permitted-strategies selector so the operator can curate which strategies
+    # are permitted for runtime selection. Built as a _ClickablePillLabel (same
+    # widget type as the other pills) so it is exactly the same size; the blue
+    # accent keeps it readable as the actionable control.
+    dashboard.allowed_strategies_btn = _ClickablePillLabel(
+        "STRATEGIES",
+        on_click=(
+            dashboard._open_allowed_strategies_dialog
+            if hasattr(dashboard, "_open_allowed_strategies_dialog")
+            else None
+        ),
+    )
+    dashboard.allowed_strategies_btn.setStyleSheet(
+        "color: #cfe3ff; background-color: #1e2a3a; "
+        "border: 1px solid #3a5a8a; border-radius: 4px; "
+        "padding: 2px 10px; font-size: 13px;"
+    )
+    dashboard.allowed_strategies_btn.setToolTip(
+        "Permitted strategies — select which strategies are allowed for runtime selection"
+    )
+    regime_layout.addWidget(dashboard.allowed_strategies_btn)
+
+    regime_layout.addStretch(1)
 
     dashboard.regime_bar_widget.setLayout(regime_layout)
     layout.addWidget(dashboard.regime_bar_widget)
@@ -359,7 +376,7 @@ def build_center_panel(dashboard: Any) -> QWidget:
     dashboard.system_log_debug_btn.clicked.connect(
         lambda: dashboard._set_system_log_verbosity("DEBUG", announce=True)
     )
-    dashboard.system_log_mode_group = QButtonGroup(dashboard.chart_widget)
+    dashboard.system_log_mode_group = QButtonGroup(dashboard)
     dashboard.system_log_mode_group.setExclusive(True)
     dashboard.system_log_mode_group.addButton(dashboard.system_log_minimal_btn)
     dashboard.system_log_mode_group.addButton(dashboard.system_log_normal_btn)
@@ -378,64 +395,12 @@ def build_center_panel(dashboard: Any) -> QWidget:
         dashboard._open_allowlist_dialog
     )
 
-    create_chart_widget(dashboard)
-    dashboard.chart_visible = True
-    layout.addWidget(dashboard.chart_widget, 3)
-
-    create_chart_hidden_controls_panel(dashboard)
-    dashboard.chart_hidden_controls_panel.hide()
-    layout.addWidget(dashboard.chart_hidden_controls_panel, 4)
+    dashboard.chart_visible = False
 
     positions_group = QGroupBox()
     positions_layout = QVBoxLayout()
     positions_layout.setContentsMargins(2, 2, 2, 2)
     positions_layout.setSpacing(2)
-
-    pos_toolbar = QWidget()
-    pos_toolbar_layout = QHBoxLayout(pos_toolbar)
-    pos_toolbar_layout.setContentsMargins(0, 0, 0, 0)
-    pos_toolbar_layout.setSpacing(4)
-    dashboard.orders_title_label = QLabel()
-    dashboard._update_orders_title()
-    pos_toolbar_layout.addWidget(dashboard.orders_title_label)
-    pos_toolbar_layout.addStretch()
-    dashboard.refresh_orders_btn = QPushButton("⟳ Refresh")
-    dashboard.refresh_orders_btn.setFixedHeight(20)
-    dashboard.refresh_orders_btn.setStyleSheet(
-        f"font-size: 11px; padding: 0 6px; background-color: {COLORS['panel']};"
-        f" color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 3px;"
-    )
-    dashboard.refresh_orders_btn.setToolTip("Fetch live orders & positions from Tradier")
-    dashboard.refresh_orders_btn.clicked.connect(dashboard._refresh_positions_table)
-    pos_toolbar_layout.addWidget(dashboard.refresh_orders_btn)
-
-    # ── FLOW / EC / BLOCK / RTH chips (moved from centre top bar) ──────
-    _chip_ss = (
-        "color: {color}; background-color: #1e1e1e; "
-        "border: 1px solid #444; border-radius: 3px; "
-        "padding: 1px 5px; font-size: 11px;"
-    )
-    pos_toolbar_layout.addWidget(QLabel("  "))  # small gap
-
-    pos_toolbar_layout.addWidget(dashboard.signal_flow_heartbeat_label)
-    pos_toolbar_layout.addWidget(dashboard.event_clock_compact_label)
-    pos_toolbar_layout.addWidget(dashboard.entry_block_compact_label)
-    if getattr(dashboard, "recent_trades_history_btn", None) is None:
-        dashboard.recent_trades_history_btn = QPushButton("Trade History")
-        dashboard.recent_trades_history_btn.setFixedHeight(20)
-        dashboard.recent_trades_history_btn.setStyleSheet(
-            f"font-size: 11px; padding: 0 6px; background-color: {COLORS['panel']};"
-            f" color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 3px;"
-        )
-        dashboard.recent_trades_history_btn.setToolTip("Show last 30 recent trade records")
-        dashboard.recent_trades_history_btn.clicked.connect(
-            dashboard._open_recent_trades_history_dialog
-        )
-    pos_toolbar_layout.addWidget(dashboard.recent_trades_history_btn)
-    pos_toolbar_layout.addWidget(dashboard.trading_window_compact_label)
-    pos_toolbar_layout.addWidget(dashboard.chart_toggle_btn)
-    del _chip_ss  # declared for intent only; labels already styled above
-    positions_layout.addWidget(pos_toolbar)
 
     # All portfolio-strip labels are now None — data is surfaced via the
     # popup dialog (dashboard._open_portfolio_summary_dialog) which reads
@@ -450,11 +415,51 @@ def build_center_panel(dashboard: Any) -> QWidget:
     dashboard.port_vega_label = None
     dashboard.bp_used_label = None
 
+    # ── Pair Trading Dashboard (collapsible, hidden when disabled) ──
+    try:
+        from Tradov.TradovG_GUI.TradovG60_PairTradingWidgets import PairTradingDashboard as _PairDash
+        dashboard.pair_trading_dashboard = _PairDash()
+        pair_enabled = str(os.getenv("TRADOV_ENABLE_PAIR_TRADING", "")).strip().lower() in {
+            "1", "true", "yes", "on", "y",
+        }
+        dashboard.pair_trading_dashboard.setVisible(pair_enabled)
+        layout.addWidget(dashboard.pair_trading_dashboard, 3)
+        dashboard.pair_trading_group = dashboard.pair_trading_dashboard
+    except Exception:
+        dashboard.pair_trading_dashboard = None
+        dashboard.pair_trading_group = None
+
     dashboard.positions_table = create_positions_table(dashboard)
     dashboard.positions_table.setMinimumHeight(228)
 
+    directional_group = QGroupBox("DIRECTIONAL TRADING")
+    directional_group.setStyleSheet(
+        f"""
+            QGroupBox {{
+                color: {COLORS['cyan']};
+                border: 1px solid #1f1f1f;
+                border-radius: 4px;
+                margin-top: 10px;
+                padding-top: 6px;
+                background-color: #000000;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 4px;
+                background-color: #000000;
+            }}
+        """
+    )
+    directional_group.setVisible(False)
+    directional_layout = QVBoxLayout()
+    directional_layout.setContentsMargins(4, 6, 4, 4)
+    directional_layout.setSpacing(4)
+    directional_layout.addWidget(dashboard.positions_table)
+    directional_group.setLayout(directional_layout)
+
     # Tree of spreads + legs (paper) or broker orders/positions (live).
-    positions_layout.addWidget(dashboard.positions_table)
+    positions_layout.addWidget(directional_group)
 
     # The standalone spreads_table is removed — its rows are now top-level
     # parents inside positions_table when paper mode is active. _refresh_spreads_panel
@@ -464,7 +469,20 @@ def build_center_panel(dashboard: Any) -> QWidget:
     positions_group.setLayout(positions_layout)
     dashboard.positions_group = positions_group
     dashboard.spreads_group = positions_group  # backwards-compat alias
+    dashboard.directional_trading_group = directional_group
     layout.addWidget(positions_group, 4)
+
+    dashboard.pair_risk_summary_panel = None
+    try:
+        from Tradov.TradovG_GUI.TradovG60_PairTradingWidgets import PairRiskSummaryPanel as _PairRiskSummaryPanel
+        dashboard.pair_risk_summary_panel = _PairRiskSummaryPanel()
+        dashboard.pair_risk_summary_panel.setFixedHeight(92)
+        dashboard.pair_risk_summary_panel.setStyleSheet("background-color: #000000;")
+        layout.addWidget(dashboard.pair_risk_summary_panel, 0)
+        if getattr(dashboard, "pair_trading_dashboard", None) is not None:
+            dashboard.pair_trading_dashboard._risk_panel = dashboard.pair_risk_summary_panel
+    except Exception:
+        dashboard.pair_risk_summary_panel = None
 
     logs_container = QWidget()
     logs_container.setFixedHeight(190)
@@ -690,6 +708,8 @@ def build_right_panel(dashboard: Any) -> QWidget:
     dashboard._update_mode_buttons()
 
     pnl_group = QGroupBox("")
+    pnl_group.setFixedHeight(175)
+    pnl_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
     pnl_group.setStyleSheet(
         f"""
             QGroupBox {{
@@ -707,7 +727,33 @@ def build_right_panel(dashboard: Any) -> QWidget:
 
     dashboard.pnl_title_lbl = QLabel()
     dashboard._update_pnl_title()
-    pnl_layout.addWidget(dashboard.pnl_title_lbl)
+    if getattr(dashboard, "recent_trades_history_btn", None) is None:
+        dashboard.recent_trades_history_btn = QPushButton("TRADE HISTORY")
+        dashboard.recent_trades_history_btn.setFixedHeight(20)
+        dashboard.recent_trades_history_btn.setStyleSheet(
+            f"font-size: 11px; padding: 0 6px; background-color: {COLORS['panel']};"
+            f" color: {COLORS['warning']}; border: 1px solid {COLORS['border']}; border-radius: 3px;"
+        )
+        dashboard.recent_trades_history_btn.setToolTip("Show recent pair trade records")
+        dashboard.recent_trades_history_btn.clicked.connect(
+            dashboard._open_recent_trades_history_dialog
+        )
+
+    dashboard.refresh_orders_btn = QPushButton("⟳")
+    dashboard.refresh_orders_btn.setFixedSize(20, 20)
+    dashboard.refresh_orders_btn.setStyleSheet(
+        f"font-size: 12px; padding: 0; background-color: {COLORS['panel']};"
+        f" color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 10px;"
+    )
+    dashboard.refresh_orders_btn.setToolTip("Fetch live orders & positions from Tradier")
+    dashboard.refresh_orders_btn.clicked.connect(dashboard._refresh_positions_table)
+
+    pnl_header = QHBoxLayout()
+    pnl_header.addWidget(dashboard.pnl_title_lbl)
+    pnl_header.addStretch()
+    pnl_header.addWidget(dashboard.recent_trades_history_btn)
+    pnl_header.addWidget(dashboard.refresh_orders_btn)
+    pnl_layout.addLayout(pnl_header)
 
     dashboard.pnl_table = create_pnl_table()
     dashboard.pnl_table.setFixedHeight(140)
@@ -985,15 +1031,9 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
     dashboard.trade_audit_btn.clicked.connect(dashboard._open_trade_audit_dialog)
     action_row.addWidget(dashboard.trade_audit_btn)
 
-    dashboard.allowed_strategies_btn = QPushButton("ALLOWED STRATEGIES")
-    dashboard.allowed_strategies_btn.setFixedHeight(26)
-    dashboard.allowed_strategies_btn.setFixedWidth(action_button_width)
-    dashboard.allowed_strategies_btn.setStyleSheet(blue_button_style)
-    dashboard.allowed_strategies_btn.setToolTip(
-        "Select which SPX strategies are allowed for runtime selection"
-    )
-    dashboard.allowed_strategies_btn.clicked.connect(dashboard._open_allowed_strategies_dialog)
-    action_row.addWidget(dashboard.allowed_strategies_btn)
+    # NOTE: the permitted-strategies control ("STRATEGIES") now lives on the
+    # regime bar to the right of the DISPATCH pill (see the regime-bar builder),
+    # so the duplicate controls-row button was removed.
 
     dashboard.strategies_running_btn = QPushButton("STRATEGIES RUNNING")
     dashboard.strategies_running_btn.setFixedHeight(26)
@@ -1147,16 +1187,24 @@ def create_chart_hidden_controls_panel(dashboard: Any) -> None:
 def create_positions_table(dashboard: Any) -> QTreeWidget:
     """Create the positions tree widget."""
     tree = QTreeWidget()
-    columns = ["ACTION", "LEG", "STRIKE", "QTY", "PRICE", "CASH FLOW", "EXPIRY", "P&L", ""]
+    columns = ["TYPE", "SYMBOL / PAIR", "ENTRY / LEVEL", "QTY", "MARK", "NOTIONAL", "HOLD / EXPIRY", "P&L", ""]
     tree.setColumnCount(len(columns))
     tree.setHeaderLabels(columns)
     tree.headerItem().setToolTip(
+        2,
+        "Reference entry level or spread marker for the active trade.",
+    )
+    tree.headerItem().setToolTip(
         5,
-        "Entry cash flow for each leg: SELL credits are positive, BUY debits are negative.",
+        "Current notional or trade value associated with the row.",
+    )
+    tree.headerItem().setToolTip(
+        6,
+        "Holding duration for open positions, or expiry when the row comes from a legacy spread record.",
     )
     tree.headerItem().setToolTip(
         7,
-        "Current unrealized mark-to-market P&L for each leg or spread: green means gain, red means loss.",
+        "Current unrealized mark-to-market P&L: green means gain, red means loss.",
     )
 
     for col in range(len(columns)):
@@ -1173,16 +1221,18 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
         f"""
             QTreeWidget {{
                 font-size: 12px;
-                background-color: {COLORS["background"]};
+                background-color: #000000;
+                color: {COLORS["text"]};
                 border: none;
                 outline: none;
             }}
             QTreeWidget::item {{
                 padding: 1px 4px;
-                border-bottom: 1px solid {COLORS["border"]};
+                border-bottom: 1px solid #1f1f1f;
+                background-color: #000000;
             }}
             QTreeWidget::item:selected {{
-                background-color: #2a3a4a;
+                background-color: #111111;
             }}
             QTreeWidget::branch:has-children:!has-siblings:closed,
             QTreeWidget::branch:closed:has-children:has-siblings {{
@@ -1195,27 +1245,27 @@ def create_positions_table(dashboard: Any) -> QTreeWidget:
                 border-image: none;
             }}
             QHeaderView::section {{
-                background-color: {COLORS["panel"]};
+                background-color: #000000;
                 color: {COLORS["text"]};
-                border: 1px solid {COLORS["border"]};
+                border: 1px solid #1f1f1f;
                 padding: 2px;
                 font-size: 12px;
                 font-weight: normal;
             }}
             QScrollBar:vertical {{
                 width: 8px;
-                background: {COLORS["panel"]};
+                background: #000000;
             }}
         """,
     )
 
     tree.setColumnWidth(0, 92)
     tree.setColumnWidth(1, 146)
-    tree.setColumnWidth(2, 68)
+    tree.setColumnWidth(2, 92)
     tree.setColumnWidth(3, 44)
     tree.setColumnWidth(4, 60)
     tree.setColumnWidth(5, 124)
-    tree.setColumnWidth(6, 60)
+    tree.setColumnWidth(6, 92)
     tree.setColumnWidth(7, 110)
     tree.header().setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
     tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -1405,7 +1455,6 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
         ("Orders", "tradier_orders"),
         ("Account", "tradier_account"),
         ("Market Data", "tradier_market"),
-        ("Options Chain", "tradier_options"),
         ("Streaming", "tradier_streaming"),
     ]
     for row, (svc_name, svc_key) in enumerate(broker_services, start=1):
@@ -1433,7 +1482,6 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
     data_services = [
         ("Live Stream", "db_live"),
         ("Historical", "db_historical"),
-        ("Options", "db_options"),
         ("Book Data", "db_book"),
         ("Replay", "db_replay"),
     ]
@@ -1463,7 +1511,6 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
         ("Custom Metrics", "custom_metrics"),
         ("Risk Calculator", "risk_calc"),
         ("ML Engine", "ml_engine"),
-        ("Options Analyzer", "options"),
         ("Performance", "performance"),
     ]
     for row, (module_name, module_key) in enumerate(internal_modules, start=1):
@@ -1532,7 +1579,7 @@ def build_toolbar(dashboard: Any) -> QWidget:
     layout = QHBoxLayout()
 
     # TRADOV logo on left
-    logo_label = QLabel("S P Y D E R")
+    logo_label = QLabel("T R A D O V")
     try:
         logo_font = QFont("Michroma", 16, QFont.Weight.Normal)
     except Exception:

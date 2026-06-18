@@ -58,7 +58,7 @@ from Tradov.TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler
 # ==============================================================================
 # CONSTANTS
 # ==============================================================================
-APP_NAME = "Tradov Trading System"
+APP_NAME = "AUTONOMOUS ARBITRAGE TRADER"
 APP_VERSION = "1.0"
 APP_ORGANIZATION = "Tradov Trading"
 
