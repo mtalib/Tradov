@@ -52,7 +52,7 @@ Dual-Signal Interpretation (PSR × WRS):
                           maximum bearish posture; favour put credit spreads.
 
 Data Sources:
-    Primary  : Tradier REST API (TRADIER_API_KEY env var)
+    Primary  : Tradier REST API (TRADIER_LIVE_API_KEY env var)
     Fallback : yfinance (development / Tradier unavailable)
 
 Caching:
@@ -304,7 +304,7 @@ class _TradierMarketClient:
                 )
                 if resp.status_code == 401:
                     raise PSRDataError(
-                        "Tradier 401 — check TRADIER_API_KEY in .env"
+                        "Tradier 401 — check TRADIER_LIVE_API_KEY in .env"
                     )
                 if resp.status_code == 429:
                     wait = int(resp.headers.get("Retry-After", "5"))
@@ -620,7 +620,7 @@ class PSRSignal:
         use_cache: bool = True,
         start: str = HISTORY_START,
     ) -> None:
-        env_token = tradier_token or os.getenv("TRADIER_API_KEY")
+        env_token = tradier_token or os.getenv("TRADIER_LIVE_API_KEY")
         env_sandbox = sandbox or (
             os.getenv("TRADIER_ENVIRONMENT", "live").lower() == "sandbox"
         )
@@ -640,7 +640,7 @@ class PSRSignal:
         else:
             self._client = None
             _logger.warning(
-                "PSRSignal: TRADIER_API_KEY not set — will fall back to yfinance"
+                "PSRSignal: TRADIER_LIVE_API_KEY not set — will fall back to yfinance"
             )
 
     # ------------------------------------------------------------------
@@ -808,7 +808,7 @@ def plot_psr(
 
     Args:
         start: History start date.
-        tradier_token: Override TRADIER_API_KEY env var.
+        tradier_token: Override TRADIER_LIVE_API_KEY env var.
         output_path: Save path. Defaults to ~/.tradov/psr_cache/psr_YYYYMMDD.png.
         show: Call plt.show() after rendering.
 

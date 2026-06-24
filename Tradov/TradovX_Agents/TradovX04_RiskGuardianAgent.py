@@ -53,7 +53,7 @@ from Tradov.TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler
 from Tradov.TradovU_Utilities.TradovU11_FeatureFlags import is_tradovx_enabled
 from Tradov.TradovU_Utilities.TradovU17_LLMUtils import get_finance_model, strip_thinking_block
 from Tradov.TradovM_Monitoring.TradovM07_MigrationMonitor import get_migration_monitor
-from Tradov.TradovE_Risk.TradovE01_RiskManager import RiskManager
+from Tradov.TradovE_Risk.TradovE01_RiskManager import RiskManager, RiskConfig
 from Tradov.TradovE_Risk.TradovE02_PositionSizer import PositionSizer
 from Tradov.TradovE_Risk.TradovE04_DrawdownControl import DrawdownController
 
@@ -205,7 +205,12 @@ class TradovX04_RiskGuardianAgent:
         risk_history: Historical risk metrics
     """
 
-    def __init__(self, model_name: str = DEFAULT_MODEL, temperature: float = DEFAULT_TEMPERATURE):
+    def __init__(
+        self,
+        model_name: str = DEFAULT_MODEL,
+        temperature: float = DEFAULT_TEMPERATURE,
+        portfolio_value: float = 1_000_000.0,
+    ):
         """Initialize the Risk Guardian Agent"""
         self.logger = TradovLogger.get_logger(self.__class__.__name__)
         self.error_handler = TradovErrorHandler()
@@ -213,8 +218,8 @@ class TradovX04_RiskGuardianAgent:
         self.temperature = temperature
 
         # Initialize components
-        self.traditional_risk_manager = RiskManager()
-        self.position_sizer = PositionSizer()
+        self.traditional_risk_manager = RiskManager(config=RiskConfig())
+        self.position_sizer = PositionSizer(portfolio_value=portfolio_value)
         self.drawdown_controller = DrawdownController()
         self.migration_monitor = get_migration_monitor()
 
@@ -805,7 +810,8 @@ Format as JSON with keys: risk_level, summary, key_risks, recommendations, hedge
 # ==============================================================================
 def create_risk_guardian_agent(
     model_name: str = DEFAULT_MODEL,
-    temperature: float = DEFAULT_TEMPERATURE
+    temperature: float = DEFAULT_TEMPERATURE,
+    portfolio_value: float = 1_000_000.0,
 ) -> TradovX04_RiskGuardianAgent:
     """
     Factory function to create Risk Guardian Agent instance.
@@ -813,11 +819,12 @@ def create_risk_guardian_agent(
     Args:
         model_name: Ollama model to use
         temperature: Temperature for AI responses
+        portfolio_value: Portfolio value to seed the position sizer
 
     Returns:
         TradovX04_RiskGuardianAgent instance
     """
-    return TradovX04_RiskGuardianAgent(model_name, temperature)
+    return TradovX04_RiskGuardianAgent(model_name, temperature, portfolio_value)
 
 # Singleton instance
 _module_instance = None

@@ -22,6 +22,7 @@ Change Log:
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
+import logging
 from typing import Any
 
 try:
@@ -37,11 +38,9 @@ except ImportError:
     def _json_loads(data) -> Any:  # type: ignore[misc]
         return _json_std.loads(data)
 import time
-from typing import Any
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 import uuid
-import logging
 from collections import defaultdict
 import warnings
 
@@ -58,7 +57,7 @@ try:
     MSGPACK_AVAILABLE = True
 except ImportError:
     MSGPACK_AVAILABLE = False
-    warnings.warn("msgpack not installed. Using JSON serialization.", stacklevel=2)
+    logging.getLogger(__name__).debug("msgpack not installed. Using JSON serialization.")
 
 # Optional encryption
 try:
@@ -1450,4 +1449,3 @@ if __name__ == "__main__":
     )
 
     example_usage()
-

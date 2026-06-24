@@ -503,7 +503,7 @@ class PCASignalEngine:
         if not _TRADIER_FACTORY_AVAILABLE or create_tradier_client_from_env is None:
             return None
 
-        api_key = str(os.getenv("TRADIER_API_KEY", "")).strip()
+        api_key = str(os.getenv("TRADIER_LIVE_API_KEY", "")).strip()
         if not api_key:
             return None
 

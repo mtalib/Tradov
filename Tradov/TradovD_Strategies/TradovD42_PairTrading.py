@@ -23,7 +23,7 @@ Module Description:
         TRADOV_PAIR_LOOKBACK  (default 60)
         TRADOV_PAIR_MAX_HALF_LIFE (default 30)
         TRADOV_PAIR_SIZE_PCT  (default 0.02)
-        TRADOV_PAIR_MAX_OPEN  (default 10)
+        Open pair cap is fixed at 3 system-wide.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timedelta, UTC
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -57,7 +57,11 @@ from Tradov.TradovD_Strategies.TradovD50_PairTypes import (
     PairPosition,
     PairSide,
     PairStatus,
+    PairScanResult,
     PairTradingSignal,
+)
+from Tradov.TradovD_Strategies.TradovD58_PairScanDecisionAdapter import (
+    normalize_pair_scan_context,
 )
 from Tradov.TradovD_Strategies.TradovD51_PairScanner import (
     PairScanner,
@@ -68,6 +72,7 @@ from Tradov.TradovD_Strategies.TradovD54_KalmanHedgeRatio import (
 from Tradov.TradovD_Strategies.TradovD53_OUProcessFitter import (
     OUProcessFitter,
 )
+from config.config import PAIR_TRADING_MAX_OPEN
 
 
 def _env(key: str, default: str) -> str:
@@ -91,9 +96,9 @@ class PairTradingStrategy(BaseStrategy):
         self.lookback = int(config.get("lookback", _env("TRADOV_PAIR_LOOKBACK", "60")))
         self.max_half_life = float(config.get("max_half_life", _env("TRADOV_PAIR_MAX_HALF_LIFE", "30")))
         self.size_pct = float(config.get("size_pct", _env("TRADOV_PAIR_SIZE_PCT", "0.02")))
-        self.max_open_pairs = int(config.get("max_open_pairs", _env("TRADOV_PAIR_MAX_OPEN", "10")))
+        self.max_open_pairs = PAIR_TRADING_MAX_OPEN
 
-        self.scanner = PairScanner()
+        self.scanner = PairScanner(account_size=self.risk_profile.account_size)
         self.kalman_filters: dict[str, KalmanHedgeRatio] = {}
         self.ou_fitter = OUProcessFitter(
             entry_z=self.entry_z,
@@ -106,6 +111,7 @@ class PairTradingStrategy(BaseStrategy):
         self.coint_results: dict[str, CointegrationResult] = {}
         self.price_history: dict[str, list[float]] = {}
         self._price_buffer_len = self.lookback * 2
+        self._pair_scan_sink: Callable[[PairScanResult], None] | None = None
 
     def _initialize_strategy(self) -> None:
         self.logger.info(
@@ -115,6 +121,10 @@ class PairTradingStrategy(BaseStrategy):
             self.stop_z,
             self.max_open_pairs,
         )
+
+    def set_pair_scan_sink(self, sink: Callable[[PairScanResult], None] | None) -> None:
+        """Receive the latest scan result from the orchestrator wiring."""
+        self._pair_scan_sink = sink
 
     def _refresh_pair_state(self) -> dict[str, PairDefinition]:
         """Refresh pair metadata and ensure adaptive hedge-ratio state exists."""
@@ -217,8 +227,26 @@ class PairTradingStrategy(BaseStrategy):
     def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         signals: list[TradingSignal] = []
 
-        if len(self.pair_positions) >= self.max_open_pairs:
+        raw_scan = self.scanner.scan(price_history=market_data)
+        scan_result = normalize_pair_scan_context(raw_scan)
+        if self._pair_scan_sink is not None:
+            try:
+                self._pair_scan_sink(scan_result)
+            except Exception:
+                self.logger.debug("Pair scan sink update failed", exc_info=True)
+
+        if getattr(scan_result, "decision_state", "ready") != "ready":
+            self.logger.debug(
+                "Skipping pair signal generation due to scan state=%s reason=%s",
+                getattr(scan_result, "decision_state", "unknown"),
+                getattr(scan_result, "decision_reason", ""),
+            )
             return signals
+
+        if getattr(raw_scan, "ranked_pairs", None):
+            self.update_cointegration(list(raw_scan.ranked_pairs))
+        elif getattr(raw_scan, "validated_pairs", None):
+            self.update_cointegration(list(raw_scan.validated_pairs))
 
         pair_defs = self._refresh_pair_state()
         for pair_key, pair_def in pair_defs.items():

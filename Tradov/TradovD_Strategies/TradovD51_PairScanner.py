@@ -56,6 +56,7 @@ class PairScanner:
         method: CointegrationMethod = CointegrationMethod.BOTH,
         use_ml_selection: bool = False,
         ml_selector: Any | None = None,
+        account_size: float | None = None,
         logger: logging.Logger | None = None,
     ):
         self.price_history = price_history
@@ -67,6 +68,7 @@ class PairScanner:
         # (PCA + OPTICS/DBSCAN, D57) instead of the sector-based heuristic.
         self.use_ml_selection = use_ml_selection
         self._ml_selector = ml_selector
+        self.account_size = float(account_size) if account_size is not None else None
         self.logger = logger or TradovLogger.get_logger("PairScanner")
         self.coint_engine = CointegrationEngine()
         self._pair_defs: dict[str, PairDefinition] = {}
@@ -126,7 +128,9 @@ class PairScanner:
         prices = price_history if price_history is not None else self.price_history
         if prices is None or prices.empty:
             self.logger.warning("No price history available for scanning")
-            return PairScanResult()
+            empty_result = PairScanResult()
+            empty_result.build_decision_context()
+            return empty_result
 
         if candidate_pairs is None:
             if self.use_ml_selection:
@@ -164,6 +168,35 @@ class PairScanner:
                 method=self.method,
                 pair_key=f"{sym_a}/{sym_b}",
             )
+            result.metadata = dict(result.metadata or {})
+            pair_def = self._pair_defs.get(result.pair_key)
+            if pair_def is not None:
+                price_a = float(series_a.iloc[-1])
+                price_b = float(series_b.iloc[-1])
+                notional_base = self.account_size * pair_def.size_pct if self.account_size else 0.0
+                if notional_base <= 0.0:
+                    notional_base = max(price_a + price_b, 1.0) * 100.0
+                qty_a = max(1, int(notional_base / max(price_a, 1e-6)))
+                qty_b = max(1, int(qty_a * max(result.hedge_ratio, 1e-6) * price_a / max(price_b, 1e-6)))
+                entry_cost_dollars = abs(qty_a * price_a) + abs(qty_b * price_b)
+                max_loss_dollars = entry_cost_dollars
+                result.metadata.update({
+                    "symbol_a": sym_a,
+                    "symbol_b": sym_b,
+                    "price_a": price_a,
+                    "price_b": price_b,
+                    "estimated_notional_dollars": notional_base,
+                    "entry_cost_dollars": entry_cost_dollars,
+                    "cost_dollars": entry_cost_dollars,
+                    "estimated_cost_dollars": entry_cost_dollars,
+                    "funds_held_dollars": max_loss_dollars,
+                    "cash_held_dollars": max_loss_dollars,
+                    "buying_power_held": max_loss_dollars,
+                    "max_loss_dollars": max_loss_dollars,
+                    "quantity_a": qty_a,
+                    "quantity_b": qty_b,
+                    "pair_size_pct": pair_def.size_pct,
+                })
             raw_results.append(result)
 
         validated = self._apply_fdr(raw_results)
@@ -183,6 +216,7 @@ class PairScanner:
             fdr_method=self.fdr_method,
             fdr_alpha=self.fdr_alpha,
         )
+        scan_result.build_decision_context()
         self._last_scan = scan_result
         self.logger.info(
             "Scan complete: %d/%d pairs tradeable",

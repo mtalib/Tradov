@@ -55,12 +55,11 @@ Notification Channels:
     SLACK     Stub — logs "not yet implemented"; planned for future release
     TELEGRAM  Stub — logs "not yet implemented"; planned for future release
 
-Report Generation (daily at 17:00 ET):
-    Three files are written to the `report_dir` directory (default: black_swan_reports/):
-        daily_report_YYYYMMDD.txt    Human-readable summary with status distribution
-        daily_report_YYYYMMDD.json   Structured JSON for downstream processing
-        black_swan_data_YYYYMMDD.csv Per-row time-series for quantitative analysis
-    Reports can optionally be emailed (set `email_daily_report: True` in config).
+Report Generation:
+    Daily report generation is disabled by default in the pair-trading deployment.
+    The scheduler can still keep SWAN check history and emit alerts, but it will
+    not write daily text / JSON / CSV report files unless
+    `enable_daily_reports: True` is explicitly set in config.
 
 Tradov Integration:
     When TRADOV_INTEGRATION=True the following Tradov modules are used:
@@ -329,7 +328,9 @@ class BlackSwanScheduler:
         self.scheduled_tasks: dict[str, ScheduledTask] = {}
         self.alert_history: list[AlertRecord] = []
         self.daily_results: list[BlackSwanResult] = []
+        self.latest_result: BlackSwanResult | None = None
         self._last_logged_check_status: RiskStatus | None = None
+        self._restored_same_day_result = False
         self.running = False
         self.scheduler_thread: threading.Thread | None = None
         self._previous_signal_handlers: dict[int, Any] = {}
@@ -340,6 +341,10 @@ class BlackSwanScheduler:
 
         # Setup signal handlers
         self._install_signal_handlers()
+
+        # Rehydrate the most recent same-day result before any catch-up logic
+        # decides whether missed checks need to be replayed.
+        self.load_latest_result_from_database()
 
         # Initialize default tasks
         self._setup_default_tasks()
@@ -433,6 +438,9 @@ class BlackSwanScheduler:
             Task ID
         """
         task_id = "daily_report"
+        if not self.enable_daily_reports:
+            self.logger.info("Daily Black Swan reports are disabled; not scheduling %s", task_id)
+            return task_id
 
         def report_callback():
             self._generate_daily_report()
@@ -525,6 +533,9 @@ class BlackSwanScheduler:
 
     def _install_signal_handlers(self) -> None:
         """Install scheduler-local signal handlers without stealing the process exit path."""
+        if TRADOV_INTEGRATION:
+            self.logger.debug("Skipping Black Swan signal handler install under Tradov integration")
+            return
         for signum in (signal.SIGINT, signal.SIGTERM):
             try:
                 self._previous_signal_handlers[signum] = signal.getsignal(signum)
@@ -645,6 +656,8 @@ class BlackSwanScheduler:
 
             # Store result
             self.daily_results.append(result)
+            self.latest_result = result
+            self._restored_same_day_result = False
 
             # Log to database if available
             if self.data_access:
@@ -933,6 +946,9 @@ Please review market conditions and adjust positions accordingly.
     # ==========================================================================
     def _generate_daily_report(self):
         """Generate daily summary report."""
+        if not self.enable_daily_reports:
+            self.logger.debug("Daily Black Swan report generation skipped (disabled)")
+            return
         try:
             self.logger.info("Generating daily report")
 
@@ -1192,6 +1208,7 @@ Status Distribution:
         # Report settings
         self.report_dir = Path(self.config.get('report_dir', REPORT_OUTPUT_DIR))
         self.report_retention = self.config.get('report_retention_days', REPORT_RETENTION_DAYS)
+        self.enable_daily_reports = bool(self.config.get('enable_daily_reports', False))
 
     def _init_tradov_integration(self):
         """Initialize Tradov system integration."""
@@ -1241,11 +1258,12 @@ Status Distribution:
         for time_str in self.schedule_times:
             self.add_daily_check(time_str)
 
-        # Add daily report
+        # Daily reports are disabled by default in the pair-trading deployment.
         self.add_daily_report()
 
-        # Add cleanup task
-        self._add_cleanup_task()
+        # Cleanup is only useful when daily report files are being created.
+        if self.enable_daily_reports:
+            self._add_cleanup_task()
 
         # Fire any check times that were already missed today (e.g. late startup)
         self._run_missed_startup_checks()
@@ -1258,6 +1276,10 @@ Status Distribution:
         still produces at least one risk snapshot before the first future check fires.
         Only MARKET_CHECK tasks are considered; report/cleanup tasks are skipped.
         """
+        if self._restored_same_day_result:
+            self.logger.debug("Startup cache restored; skipping Black Swan catch-up checks")
+            return
+
         eastern_tz = pytz.timezone("US/Eastern")
         now = datetime.now(eastern_tz)
         today = now.date()
@@ -1325,6 +1347,16 @@ Status Distribution:
 
         except Exception as e:
             self.logger.error("Error during cleanup: %s", e)
+
+    def _is_same_trading_day(self, timestamp: datetime) -> bool:
+        """Return True when a timestamp falls on today's US/Eastern date."""
+        eastern_tz = pytz.timezone("US/Eastern")
+        now = datetime.now(eastern_tz)
+        if timestamp.tzinfo is None:
+            timestamp = eastern_tz.localize(timestamp)
+        else:
+            timestamp = timestamp.astimezone(eastern_tz)
+        return timestamp.date() == now.date()
 
     def _is_market_hours(self) -> bool:
         """Check if current time is during market hours."""
@@ -1424,6 +1456,80 @@ Status Distribution:
         except Exception as e:
             self.logger.error("Failed to log Black Swan result to database: %s", e)
 
+    def load_latest_result_from_database(self) -> BlackSwanResult | None:
+        """Load the newest same-day Black Swan result from SQLite."""
+        if not self.data_access:
+            return None
+
+        try:
+            rows = self.data_access.execute_query(
+                """
+                SELECT timestamp, status, score, alert_level, data_quality, components
+                FROM black_swan_results
+                ORDER BY timestamp DESC
+                LIMIT 1
+                """
+            )
+            if not rows:
+                return None
+
+            row = rows[0]
+            timestamp_raw = row["timestamp"]
+            timestamp = datetime.fromisoformat(timestamp_raw)
+            if not self._is_same_trading_day(timestamp):
+                return None
+
+            import json as _json
+
+            component_payload = _json.loads(row["components"] or "{}")
+            component_scores: dict[str, ComponentScore] = {}
+            for name, payload in component_payload.items():
+                if not isinstance(payload, dict):
+                    continue
+                component_scores[name] = ComponentScore(
+                    name=name,
+                    raw_score=float(payload.get("raw_score", 0.0)),
+                    weight=float(getattr(self.indicator, "weights", {}).get(name, 0.0)),
+                    weighted_score=float(payload.get("weighted_score", 0.0)),
+                    description=str(payload.get("description", "")),
+                )
+
+            result = BlackSwanResult(
+                timestamp=timestamp,
+                overall_score=float(row["score"]),
+                status=RiskStatus(row["status"]),
+                component_scores=component_scores,
+                data_quality=DataQuality(row["data_quality"]),
+                calculation_time_ms=0.0,
+                raw_data=None,
+            )
+
+            self.daily_results = [result]
+            self.latest_result = result
+            self._last_logged_check_status = result.status
+            self._restored_same_day_result = True
+
+            if hasattr(self.indicator, "score_history"):
+                self.indicator.score_history = [(timestamp, result.overall_score)]
+
+            self.logger.debug("Loaded cached Black Swan result from SQLite")
+            return result
+
+        except Exception as e:
+            self.logger.debug("Could not load cached Black Swan result: %s", e)
+            return None
+
+    def get_latest_result(self, allow_calculation: bool = True) -> BlackSwanResult | None:
+        """Return the latest same-day Black Swan result, if available."""
+        if self.latest_result and self._is_same_trading_day(self.latest_result.timestamp):
+            return self.latest_result
+
+        cached_result = self.load_latest_result_from_database()
+        if cached_result is not None or not allow_calculation:
+            return cached_result
+
+        return self._perform_market_check()
+
     def _run_scheduler(self):
         """Main scheduler loop."""
         self.logger.debug("Scheduler thread started")
@@ -1455,6 +1561,8 @@ Status Distribution:
         previous_handler = self._previous_signal_handlers.get(signum)
         self.logger.info("Received signal %s", signum)
         self.stop()
+        if TRADOV_INTEGRATION:
+            return
         if previous_handler == signal.SIG_IGN:
             return
         if previous_handler == signal.SIG_DFL:
@@ -1589,4 +1697,3 @@ if __name__ == "__main__":
         print(f"Last result: {lr['status']}  score={lr['score']:.2f}  at {lr['timestamp']}")  # noqa: T201
     else:
         print("No check result available yet.")  # noqa: T201
-

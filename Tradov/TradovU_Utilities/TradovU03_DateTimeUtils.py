@@ -32,9 +32,12 @@ from typing import Any
 import pandas as pd
 import pytz
 
-US_EASTERN = "US/Eastern"
+US_EASTERN = "America/New_York"
 UTC = "UTC"
-ET_TZ = pytz.timezone(US_EASTERN)
+try:
+    ET_TZ = pytz.timezone(US_EASTERN)
+except Exception:
+    ET_TZ = pytz.timezone("US/Eastern")
 
 # ==============================================================================
 # LOCAL IMPORTS

@@ -953,13 +953,13 @@ def create_paper_trading_harness_from_env(
     Build a :class:`PaperTradingHarness` from environment variables.
 
     Reads:
-        ``TRADIER_API_KEY``    – broker authentication token.
+        ``TRADIER_LIVE_API_KEY``    – broker authentication token.
         ``TRADIER_ACCOUNT_ID`` – account number.
-        ``TRADIER_LIVE_API_KEY`` / ``TRADIER_LIVE_ACCOUNT_ID`` (optional overrides).
+        ``TRADIER_LIVE_ACCOUNT_ID`` (optional override).
         ``PAPER_STARTING_EQUITY`` – override starting equity (default 100 000).
         ``PAPER_SNAPSHOT_DIR``    – root directory for snapshots/alerts.
 
-    If ``TRADIER_API_KEY`` is absent **or** the ``tradier`` package is not
+    If ``TRADIER_LIVE_API_KEY`` is absent **or** the ``tradier`` package is not
     installed, the harness is created with ``broker_client=None`` (dry-run
     mode — equity stays at the override value).
 
@@ -969,9 +969,8 @@ def create_paper_trading_harness_from_env(
     Returns:
         Ready-to-use :class:`PaperTradingHarness`.
     """
-    api_key = os.environ.get("TRADIER_API_KEY", "")
+    api_key = os.environ.get("TRADIER_LIVE_API_KEY", "")
     account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
-    api_key = os.environ.get("TRADIER_LIVE_API_KEY", "").strip() or api_key
     account_id = os.environ.get("TRADIER_LIVE_ACCOUNT_ID", "").strip() or account_id
     starting_equity = float(os.environ.get("PAPER_STARTING_EQUITY", "100000.0"))
 
@@ -1007,7 +1006,7 @@ def create_paper_trading_harness_from_env(
         if not HAS_TRADIER:
             logger.info("PaperTradingHarness: tradier package not available — dry-run mode")
         elif not api_key:
-            logger.info("PaperTradingHarness: TRADIER_API_KEY not set — dry-run mode")
+            logger.info("PaperTradingHarness: TRADIER_LIVE_API_KEY not set — dry-run mode")
 
     return PaperTradingHarness(
         broker_client=client,

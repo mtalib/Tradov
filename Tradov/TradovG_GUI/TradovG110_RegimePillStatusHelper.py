@@ -25,6 +25,13 @@ def build_regime_pill_status_plan(
     fallback_stress: str | None,
 ) -> RegimePillStatusPlan:
     """Return the derived stance, stress, and gate labels."""
+    if regime == "UNAVAILABLE":
+        return RegimePillStatusPlan(
+            stance="UNAVAILABLE",
+            stress="UNKNOWN",
+            gate="UNAVAILABLE",
+        )
+
     stance = str(execution_truth.get("stance", "")).strip().upper()
     if not stance:
         if regime == "BULL":

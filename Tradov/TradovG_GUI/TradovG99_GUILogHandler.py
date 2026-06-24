@@ -217,12 +217,18 @@ class GUILogHandler(QObject, logging.Handler):
 
     def _should_suppress_record(self, record: logging.LogRecord) -> bool:
         """Return True for low-value repetitive records that should not hit GUI logs."""
-        # Never suppress warnings/errors/criticals.
-        if record.levelno >= logging.WARNING:
-            return False
-
         logger_name = (record.name or "").strip()
         message = (record.getMessage() or "").strip()
+
+        # News has its own Breaking News panel. Feed fetch failures from public
+        # RSS providers are noisy and not actionable in the operator SYSTEM LOG.
+        if logger_name.endswith("TradovC09_NewsManager"):
+            if message.startswith("Error fetching from ") or message.startswith("BREAKING NEWS:"):
+                return True
+
+        # Never suppress other warnings/errors/criticals.
+        if record.levelno >= logging.WARNING:
+            return False
 
         # EventManager handler subscribe/unsubscribe churn can flood startup logs.
         if logger_name.endswith("TradovA05_EventManager"):

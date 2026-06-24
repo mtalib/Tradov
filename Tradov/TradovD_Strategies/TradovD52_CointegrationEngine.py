@@ -77,6 +77,7 @@ class CointegrationEngine:
             half_life = self._estimate_half_life(spread)
             spread_mean = float(np.mean(spread))
             spread_std = float(np.std(spread, ddof=1))
+            diagnostics = self._compute_diagnostics(series_a, series_b, spread, hedge_ratio)
             is_cointegrated = p_value <= self.significance_level
 
             return CointegrationResult(
@@ -91,6 +92,12 @@ class CointegrationEngine:
                 test_statistic=float(score),
                 critical_value=float(critical_values[0]),
                 sample_size=len(series_a),
+                residual_stability=diagnostics["residual_stability"],
+                hedge_ratio_stability=diagnostics["hedge_ratio_stability"],
+                regime_break_risk=diagnostics["regime_break_risk"],
+                liquidity_score=diagnostics["liquidity_score"],
+                event_risk_score=diagnostics["event_risk_score"],
+                metadata=diagnostics,
             )
         except Exception as e:
             self.logger.warning("Engle-Granger test failed for %s: %s", pair_key, e)
@@ -106,6 +113,7 @@ class CointegrationEngine:
                 test_statistic=0.0,
                 critical_value=0.0,
                 sample_size=len(series_a),
+                metadata={"engine_error": e.__class__.__name__},
             )
 
     def _johansen(
@@ -129,6 +137,7 @@ class CointegrationEngine:
             spread_mean = float(np.mean(spread))
             spread_std = float(np.std(spread, ddof=1))
             p_value = 0.01 if is_cointegrated else 0.5
+            diagnostics = self._compute_diagnostics(series_a, series_b, spread, hedge_ratio)
 
             return CointegrationResult(
                 pair_key=pair_key,
@@ -142,6 +151,12 @@ class CointegrationEngine:
                 test_statistic=float(trace_stat),
                 critical_value=float(trace_cv),
                 sample_size=len(series_a),
+                residual_stability=diagnostics["residual_stability"],
+                hedge_ratio_stability=diagnostics["hedge_ratio_stability"],
+                regime_break_risk=diagnostics["regime_break_risk"],
+                liquidity_score=diagnostics["liquidity_score"],
+                event_risk_score=diagnostics["event_risk_score"],
+                metadata=diagnostics,
             )
         except Exception as e:
             self.logger.warning("Johansen test failed for %s: %s", pair_key, e)
@@ -157,6 +172,7 @@ class CointegrationEngine:
                 test_statistic=0.0,
                 critical_value=0.0,
                 sample_size=len(series_a),
+                metadata={"engine_error": e.__class__.__name__},
             )
 
     @staticmethod
@@ -195,6 +211,93 @@ class CointegrationEngine:
             )
             results.append(result)
         return results
+
+    def _compute_diagnostics(
+        self,
+        series_a: np.ndarray,
+        series_b: np.ndarray,
+        spread: np.ndarray,
+        hedge_ratio: float,
+    ) -> dict[str, float]:
+        residuals = spread - float(np.mean(spread))
+        residual_stability = self._residual_stability(residuals)
+        hedge_ratio_stability = self._hedge_ratio_stability(series_a, series_b, hedge_ratio)
+        regime_break_risk = self._regime_break_risk(spread)
+        liquidity_score = self._liquidity_score(series_a, series_b)
+        event_risk_score = self._event_risk_score(series_a, series_b)
+        return {
+            "residual_stability": residual_stability,
+            "hedge_ratio_stability": hedge_ratio_stability,
+            "regime_break_risk": regime_break_risk,
+            "liquidity_score": liquidity_score,
+            "event_risk_score": event_risk_score,
+        }
+
+    @staticmethod
+    def _residual_stability(residuals: np.ndarray) -> float:
+        if len(residuals) < 3:
+            return 0.0
+        std = float(np.std(residuals, ddof=1))
+        if std <= 1e-12:
+            return 1.0
+        mean_abs = float(np.mean(np.abs(residuals)))
+        score = 1.0 - min(1.0, mean_abs / (std * 3.0))
+        return float(max(0.0, min(1.0, score)))
+
+    @staticmethod
+    def _hedge_ratio_stability(series_a: np.ndarray, series_b: np.ndarray, hedge_ratio: float) -> float:
+        n = min(len(series_a), len(series_b))
+        if n < 8:
+            return 0.0
+        step = max(1, n // 5)
+        estimates: list[float] = []
+        for start in range(0, n - step + 1, step):
+            end = min(n, start + step)
+            window_a = series_a[start:end]
+            window_b = series_b[start:end]
+            if len(window_a) < 3 or len(window_b) < 3:
+                continue
+            X = np.column_stack([np.ones(len(window_b)), window_b])
+            beta = np.linalg.lstsq(X, window_a, rcond=None)[0]
+            estimates.append(float(beta[1]))
+        if len(estimates) < 2:
+            return 0.0
+        spread = float(np.std(estimates, ddof=1))
+        return float(max(0.0, min(1.0, 1.0 / (1.0 + abs(spread / max(abs(hedge_ratio), 1e-6))))))
+
+    @staticmethod
+    def _regime_break_risk(spread: np.ndarray) -> float:
+        if len(spread) < 10:
+            return 1.0
+        mid = len(spread) // 2
+        first = spread[:mid]
+        second = spread[mid:]
+        if len(first) < 3 or len(second) < 3:
+            return 1.0
+        first_mean = float(np.mean(first))
+        second_mean = float(np.mean(second))
+        first_std = float(np.std(first, ddof=1))
+        second_std = float(np.std(second, ddof=1))
+        denom = max(first_std + second_std, 1e-6)
+        drift = abs(second_mean - first_mean) / denom
+        return float(max(0.0, min(1.0, drift / 3.0)))
+
+    @staticmethod
+    def _liquidity_score(series_a: np.ndarray, series_b: np.ndarray) -> float:
+        if len(series_a) < 2 or len(series_b) < 2:
+            return 0.0
+        corr = float(np.corrcoef(np.diff(series_a), np.diff(series_b))[0, 1])
+        corr = float(np.nan_to_num(abs(corr)))
+        return float(max(0.0, min(1.0, corr)))
+
+    @staticmethod
+    def _event_risk_score(series_a: np.ndarray, series_b: np.ndarray) -> float:
+        if len(series_a) < 5 or len(series_b) < 5:
+            return 0.5
+        vol_a = float(np.std(np.diff(series_a), ddof=1))
+        vol_b = float(np.std(np.diff(series_b), ddof=1))
+        relative_vol = abs(vol_a - vol_b) / max(vol_a + vol_b, 1e-6)
+        return float(max(0.0, min(1.0, 1.0 - relative_vol)))
 
 
 __all__ = ["CointegrationEngine"]

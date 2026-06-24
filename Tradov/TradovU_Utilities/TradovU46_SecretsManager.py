@@ -147,7 +147,7 @@ class SecretsManager:
 
         sm = get_secrets()
         token     = sm.get("TRADIER_API_TOKEN")
-        api_key   = sm.get("TRADIER_API_KEY", required=True)
+        api_key   = sm.get("TRADIER_LIVE_API_KEY", required=True)
 
         # Persist a new secret to the encrypted YAML file:
         sm.set("MY_SECRET", "s3cr3t_v4lue")

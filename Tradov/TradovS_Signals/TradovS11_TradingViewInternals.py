@@ -101,7 +101,7 @@ _CSS_PRICE_PRIMARY = '[data-qa-id="symbol-last-value"]'
 _CSS_PRICE_FALLBACK = 'span[class*="last-"]'
 
 _USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "Mozilla/5.0 (Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 

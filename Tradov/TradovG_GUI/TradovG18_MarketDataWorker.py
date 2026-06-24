@@ -50,6 +50,10 @@ from PySide6.QtCore import QObject, QMutex, QMutexLocker, QTimer, Signal, Slot
 # LOCAL IMPORTS
 # ==============================================================================
 from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
+from Tradov.TradovU_Utilities.TradovU51_RuntimeContext import (
+    RuntimeContext,
+    coerce_runtime_context,
+)
 from Tradov.TradovU_Utilities.TradovU03_DateTimeUtils import (
     LogThrottle,
     is_dashboard_session as _is_dashboard_session,
@@ -430,20 +434,26 @@ def _build_market_data_client() -> "TradierClient | None":
         from dotenv import load_dotenv  # noqa: PLC0415
         load_dotenv(override=True)
 
-        api_key = (
-            os.environ.get("TRADIER_LIVE_API_KEY")
-            or os.environ.get("TRADIER_API_KEY")
-            or ""
-        )
-        account_id = (
-            os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
-            or os.environ.get("TRADIER_ACCOUNT_ID")
-            or ""
+        live_api_key = os.environ.get("TRADIER_LIVE_API_KEY")
+        live_account_id = os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
+        legacy_account_id = os.environ.get("TRADIER_ACCOUNT_ID")
+
+        api_key = live_api_key or ""
+        account_id = live_account_id or legacy_account_id or ""
+        api_key_source = "TRADIER_LIVE_API_KEY"
+        account_id_source = (
+            "TRADIER_LIVE_ACCOUNT_ID" if live_account_id else "TRADIER_ACCOUNT_ID"
         )
         env_enum = TradingEnvironment.LIVE
 
-        if not api_key or not account_id:
+        if not api_key:
             return None
+
+        logger.info(
+            "Market-data credential source selected: api_key=%s account_id=%s",
+            api_key_source,
+            account_id_source,
+        )
 
         return _get_cached_tradier_client(api_key, account_id, env_enum)
     except Exception:
@@ -632,17 +642,19 @@ def _emit_live_balance_update(worker: Any) -> bool:
     return _emit_balance_update(worker, BALANCE_SOURCE_LIVE, equity, option_bp)
 
 
-def _runtime_trading_mode() -> str:
+def _runtime_trading_mode(runtime_context: RuntimeContext | None = None) -> str:
     """Return the normalized runtime trading mode used by safety guards."""
+    if runtime_context is not None:
+        return runtime_context.mode
     override = str(os.environ.get("TRADOV_TRADING_MODE", "")).strip().lower()
     if override:
         return override
     return str(os.environ.get("TRADING_MODE", "paper")).strip().lower()
 
 
-def _live_account_balance_reads_enabled() -> bool:
+def _live_account_balance_reads_enabled(runtime_context: RuntimeContext | None = None) -> bool:
     """Allow live-account balance reads only when runtime mode is explicitly live."""
-    return _runtime_trading_mode() == "live"
+    return _runtime_trading_mode(runtime_context) == "live"
 
 
 def _market_data_probe_succeeded(payload: dict) -> bool:
@@ -657,7 +669,7 @@ def _market_data_probe_succeeded(payload: dict) -> bool:
     )
 
 
-def check_api_connection():
+def check_api_connection(runtime_context: RuntimeContext | None = None):
     """Check if Tradier live market-data endpoint is reachable.
 
     Always probes the same live endpoint used for quote/chain reads, regardless
@@ -680,7 +692,7 @@ def check_api_connection():
             if client is not None:
                 quote_probe = client.get_quotes(["TRAD"])
                 if _market_data_probe_succeeded(quote_probe):
-                    trading_mode = os.environ.get("TRADING_MODE", "paper").lower()
+                    trading_mode = _runtime_trading_mode(runtime_context)
                     mode_label = "PAPER" if trading_mode == "paper" else "LIVE"
                     return True, f"Tradier API ({mode_label})"
 
@@ -689,23 +701,22 @@ def check_api_connection():
         return False, "Tradier API not configured"
 
     except Exception as e:
+        message = str(e)
+        if "Invalid Access Token" in message or "Authentication failed" in message:
+            return False, "Tradier API auth failed: Invalid Access Token"
         return False, f"API check failed: {e}"
 
 
 def _resolve_tradier_client_config() -> tuple[str, str, "TradingEnvironment"] | tuple[None, None, None]:
     """Resolve Tradier credentials for live-account balance reads only."""
-    api_key = (
-        os.environ.get("TRADIER_LIVE_API_KEY")
-        or os.environ.get("TRADIER_API_KEY")
-        or ""
-    )
+    api_key = os.environ.get("TRADIER_LIVE_API_KEY") or ""
     account_id = (
         os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
         or os.environ.get("TRADIER_ACCOUNT_ID")
         or ""
     )
 
-    if not api_key or not account_id:
+    if not api_key:
         return None, None, None
 
     return api_key, account_id, TradingEnvironment.LIVE
@@ -729,10 +740,11 @@ class ThreadSafeMarketDataWorker(QObject):
     fast_fetch_requested = Signal()  # Trigger lightweight quote-only refresh
     eod_snapshot_fetched = Signal(bool)  # True = real EOD prices written to live_data.json
 
-    def __init__(self, quiet_startup: bool = False):
+    def __init__(self, quiet_startup: bool = False, runtime_context: RuntimeContext | None = None):
         super().__init__()
         self.logger = TradovLogger.get_logger(__name__)
         self._quiet_startup = bool(quiet_startup)
+        self.runtime_context = coerce_runtime_context(runtime_context)
 
         # FIXED: Start with actual connection check instead of assuming connected
         self.api_connected = False
@@ -864,7 +876,7 @@ class ThreadSafeMarketDataWorker(QObject):
         """30-second heartbeat check for Tradier API connection"""
         try:
             # Check actual connection
-            connected, mode = check_api_connection()
+            connected, mode = check_api_connection(self.runtime_context)
             previous_status = self.api_connected
             self.api_connected = connected
 
@@ -910,7 +922,7 @@ class ThreadSafeMarketDataWorker(QObject):
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
                 if previous_status:
                     # Connection lost
-                    self.connection_status_changed.emit(False, "API DISCONNECTED")
+                    self.connection_status_changed.emit(False, mode or "API DISCONNECTED")
                     self.heartbeat_received.emit(
                         "💔 Heartbeat: Tradier API connection lost",
                     )
@@ -944,12 +956,12 @@ class ThreadSafeMarketDataWorker(QObject):
             from dotenv import load_dotenv
             load_dotenv(override=True)
 
-            trading_mode = _runtime_trading_mode()
+            trading_mode = _runtime_trading_mode(self.runtime_context)
             paper_snapshot_emitted = _emit_paper_balance_update(self)
             if trading_mode == "paper" and not paper_snapshot_emitted:
                 _warn_missing_paper_snapshot(self)
 
-            if _live_account_balance_reads_enabled():
+            if _live_account_balance_reads_enabled(self.runtime_context):
                 _emit_live_balance_update(self)
         except Exception:
             pass
@@ -969,13 +981,13 @@ class ThreadSafeMarketDataWorker(QObject):
             # TradovBox paper balances stay local-only. Live Tradier balance
             # reads are allowed only when the runtime mode is explicitly live.
             if not bool(getattr(self, "_quiet_startup", False)):
-                trading_mode = _runtime_trading_mode()
+                trading_mode = _runtime_trading_mode(self.runtime_context)
                 try:
                     paper_snapshot_emitted = _emit_paper_balance_update(self)
                     if trading_mode == "paper" and not paper_snapshot_emitted:
                         _warn_missing_paper_snapshot(self)
 
-                    if _live_account_balance_reads_enabled():
+                    if _live_account_balance_reads_enabled(self.runtime_context):
                         _emit_live_balance_update(self)
                 except Exception:
                     pass
@@ -1454,7 +1466,7 @@ class ThreadSafeMarketDataWorker(QObject):
             # live modes fetch EOD quotes from api.tradier.com.
             client = _build_market_data_client()
             if client is None:
-                logger.warning("📊 EOD snapshot skipped — TRADIER_API_KEY / TRADIER_ACCOUNT_ID not set")  # noqa: E501
+                logger.warning("📊 EOD snapshot skipped — TRADIER_LIVE_API_KEY / TRADIER_ACCOUNT_ID not set")  # noqa: E501
                 self.eod_snapshot_fetched.emit(False)
                 return
             symbols = _build_quote_symbol_basket()
@@ -1640,7 +1652,7 @@ class ThreadSafeMarketDataWorker(QObject):
         self.heartbeat_warning_timer.timeout.connect(self._heartbeat_warning)
 
         try:
-            connected, mode = check_api_connection()
+            connected, mode = check_api_connection(self.runtime_context)
             self.api_connected = connected
 
             if connected:
@@ -1651,23 +1663,23 @@ class ThreadSafeMarketDataWorker(QObject):
                 _startup_mkt = "PAPER" if _startup_sandbox else "LIVE"
                 self.market_data_status_changed.emit(_startup_mkt)
                 self.heartbeat_status_changed.emit("connected")  # Green heart
-                # Queue one immediate full fetch so launch-time hydration does
-                # not wait for the G05 retry timer or the 30s heartbeat.
-                self.fetch_requested.emit()
+                # Defer the first full fetch so the dashboard can finish
+                # rendering before network hydration begins.
+                QTimer.singleShot(1500, self.fetch_requested.emit)
                 if not self._quiet_startup:
                     logger.info("✅ Tradier API connected at startup: %s", mode)
             else:
-                self.connection_status_changed.emit(False, "API DISCONNECTED")
+                self.connection_status_changed.emit(False, mode or "API DISCONNECTED")
                 self.market_data_status_changed.emit("NONE")
                 self.heartbeat_status_changed.emit("disconnected")  # Red heart
                 if not self._quiet_startup:
-                    logger.info("❌ Tradier API disconnected at startup")
+                    logger.info("❌ Tradier API disconnected at startup: %s", mode)
 
         except Exception as e:
             if not self._quiet_startup:
                 logger.info("⚠️ Startup connection check error: %s", e)
             self.api_connected = False
-            self.connection_status_changed.emit(False, "API DISCONNECTED")
+            self.connection_status_changed.emit(False, f"API DISCONNECTED: {e}")
             self.market_data_status_changed.emit("NONE")
             self.heartbeat_status_changed.emit("error")  # Red heart
 
@@ -1713,7 +1725,7 @@ class ThreadSafeMarketDataWorker(QObject):
             return False
 
         # Check actual connection
-        connected, mode = check_api_connection()
+        connected, mode = check_api_connection(self.runtime_context)
         self.api_connected = connected
 
         if connected:
@@ -1721,7 +1733,7 @@ class ThreadSafeMarketDataWorker(QObject):
             is_sandbox = "SANDBOX" in mode.upper() or "PAPER" in mode.upper()
             self.market_data_status_changed.emit("PAPER" if is_sandbox else "LIVE")
             return True
-        self.connection_status_changed.emit(False, "API DISCONNECTED")
+        self.connection_status_changed.emit(False, mode or "API DISCONNECTED")
         self.market_data_status_changed.emit("NONE")
         return False
 
@@ -1729,7 +1741,7 @@ class ThreadSafeMarketDataWorker(QObject):
         """Manual disconnect"""
         logger.info("🔥 Manual disconnect requested")
         self.api_connected = False
-        self.connection_status_changed.emit(False, "API DISCONNECTED")
+        self.connection_status_changed.emit(False, "API DISCONNECTED: manual disconnect")
         self.market_data_status_changed.emit("NONE")
 
     @Slot()

@@ -40,6 +40,7 @@ from zoneinfo import ZoneInfo
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import requests
+from requests import exceptions as requests_exceptions
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
@@ -204,6 +205,8 @@ class TelegramBot:
             1,
             int(os.environ.get("TELEGRAM_PENDING_MAX_AGE_HOURS", "168") or "168"),
         )
+        self._command_poll_failure_count: int = 0
+        self._command_poll_last_failure_at: float = 0.0
         self._resume_dual_approval: bool = os.environ.get(
             "TELEGRAM_RESUME_DUAL_APPROVAL", "0"
         ).strip().lower() in ("1", "true", "yes", "on")
@@ -1778,7 +1781,44 @@ class TelegramBot:
                     self._update_offset = update["update_id"] + 1
                     self._handle_inbound_update(update)
 
+                self._command_poll_failure_count = 0
+                self._command_poll_last_failure_at = 0.0
+
+            except requests_exceptions.ReadTimeout:
+                self._command_poll_failure_count += 1
+                self._command_poll_last_failure_at = time.time()
+                if self._command_poll_failure_count == 1:
+                    self.logger.debug("Telegram command poll timeout while idle; retrying")
+                elif self._command_poll_failure_count < 3:
+                    self.logger.warning(
+                        "Telegram command poll timeout repeated (%d consecutive)",
+                        self._command_poll_failure_count,
+                    )
+                else:
+                    self.logger.error(
+                        "Telegram command poll timeout repeated (%d consecutive)",
+                        self._command_poll_failure_count,
+                    )
+                if stop_event is not None:
+                    if stop_event.wait(1):
+                        break
+                else:
+                    time.sleep(1)
+            except requests_exceptions.RequestException as exc:
+                self._command_poll_failure_count += 1
+                self._command_poll_last_failure_at = time.time()
+                if self._command_poll_failure_count < 3:
+                    self.logger.warning("Telegram command poll transient error: %s", exc)
+                else:
+                    self.logger.error("Telegram command poll error: %s", exc)
+                if stop_event is not None:
+                    if stop_event.wait(1):
+                        break
+                else:
+                    time.sleep(1)
             except Exception as exc:
+                self._command_poll_failure_count += 1
+                self._command_poll_last_failure_at = time.time()
                 self.logger.error("Telegram command poll error: %s", exc)
                 if stop_event is not None:
                     if stop_event.wait(1):

@@ -517,12 +517,21 @@ class BaseStrategy(ABC):
             self.error_handler.handle_error(e, {"method": "stop"})
             return False
 
-    def pause(self) -> bool:
+    def pause(self, reason: str | None = None) -> bool:
         """Pause the strategy"""
         if self.state == STRATEGY_ACTIVE:
             self.state = STRATEGY_PAUSED
             self.logger.info("Strategy %s paused", self.name)
-            self._publish_status_event("Strategy paused")
+            message = "Strategy paused"
+            if reason:
+                reason_text = str(reason).strip()
+                if reason_text:
+                    message = f"Strategy paused: {reason_text}"
+            self._publish_status_event(
+                message,
+                title=f"Strategy Paused: {self.name}",
+                strategy=self.name,
+            )
             return True
         return False
 
@@ -852,21 +861,37 @@ class BaseStrategy(ABC):
                     np.std(returns) * np.sqrt(252)
                 )
 
-    def _publish_status_event(self, message: str) -> None:
+    def _publish_status_event(
+        self,
+        message: str,
+        *,
+        title: str | None = None,
+        **extra: Any,
+    ) -> None:
         """Publish strategy status event"""
+        payload: dict[str, Any] = {
+            "message": message,
+            "state": self.state,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        if title:
+            payload["title"] = title
+        if extra:
+            payload.update(extra)
         self.event_manager.emit(
             EventType.ALERT,
-            {"message": message, "state": self.state, "timestamp": datetime.now(UTC).isoformat()},
+            payload,
             source=self.name,
         )
 
     def _handle_risk_alert(self, event: Event) -> None:
         """Handle risk alert events"""
         if event.data.get("severity") == "critical":
-            self.logger.warning("Critical risk alert received: %s", event.data.get('message'))
+            alert_message = str(event.data.get("message", "")).strip()
+            self.logger.warning("Critical risk alert received: %s", alert_message)
             # Potentially pause strategy or close positions
             if self.config.get("pause_on_critical_risk", True):
-                self.pause()
+                self.pause(reason=alert_message or "critical risk alert")
 
 
 # ==============================================================================
@@ -1068,4 +1093,3 @@ if __name__ == "__main__":
     # Stop strategy
     if strategy.stop():
         pass
-

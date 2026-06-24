@@ -16,7 +16,7 @@ Description:
     and social sentiment. Uses the FINANCE LLM to assess impact on SPY and
     options pricing.
 
-    Wraps TradovX11_SentimentAnalysisAgent with autonomous scheduling and
+    Wraps the sentiment analysis agent with autonomous scheduling and
     enhanced LLM-powered news interpretation.
 
     Key responsibilities:
@@ -51,11 +51,11 @@ from .TradovY00_BaseAutoAgent import (
 
 try:
     from Tradov.TradovX_Agents.TradovX11_SentimentAnalysisAgent import (
-        TradovX11_SentimentAnalysisAgent,
+        TradovX11_SentimentAnalysisAgent as SentimentAnalysisAgent,
     )
-    X11_AVAILABLE = True
+    SENTIMENT_AGENT_AVAILABLE = True
 except ImportError:
-    X11_AVAILABLE = False
+    SENTIMENT_AGENT_AVAILABLE = False
 
 
 # ==============================================================================
@@ -164,12 +164,12 @@ class TradovY06_NewsSentinelAgent(BaseAutoAgent):
         self._alerts_sent_today: int = 0
 
         # Delegate
-        self._x11_agent: Any | None = None
-        if X11_AVAILABLE:
+        self._sentiment_agent: Any | None = None
+        if SENTIMENT_AGENT_AVAILABLE:
             try:
-                self._x11_agent = TradovX11_SentimentAnalysisAgent()
+                self._sentiment_agent = SentimentAnalysisAgent()
             except Exception as e:
-                logging.getLogger(__name__).warning("Failed to initialize X11 SentimentAnalysisAgent: %s", e)  # noqa: E501
+                logging.getLogger(__name__).warning("Failed to initialize sentiment analysis agent: %s", e)  # noqa: E501
 
     # ==========================================================================
     # LIFECYCLE
@@ -198,7 +198,7 @@ class TradovY06_NewsSentinelAgent(BaseAutoAgent):
         self._tick_count += 1
         self.TICK_INTERVAL = self.TICK_INTERVALS.get(session, 180.0)
 
-        # 1. Fetch new news (from X11 delegate or simulated)
+        # 1. Fetch new news (from sentiment delegate or simulated)
         self._fetch_news()
 
         # 2. Process pending news through LLM
@@ -219,12 +219,12 @@ class TradovY06_NewsSentinelAgent(BaseAutoAgent):
     # ==========================================================================
     def _fetch_news(self) -> None:
         """Fetch latest news from available sources."""
-        if self._x11_agent:
+        if self._sentiment_agent:
             try:
                 # v27 SPEC-15: AsyncBridge avoids RuntimeError under nested loop.
                 from Tradov.TradovU_Utilities.TradovU50_AsyncBridge import run_coro_in_thread
                 news = run_coro_in_thread(
-                    self._x11_agent.get_latest_news(symbol="SPY")
+                    self._sentiment_agent.get_latest_news(symbol="SPY")
                 )
 
                 if news:

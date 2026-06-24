@@ -849,7 +849,6 @@ class PaperTradingQtWorker(QObject):
 
             api_key = (
                 os.environ.get("TRADIER_LIVE_API_KEY", "")
-                or os.environ.get("TRADIER_API_KEY", "")
             )
             account_id = (
                 os.environ.get("TRADIER_LIVE_ACCOUNT_ID", "")
@@ -859,7 +858,7 @@ class PaperTradingQtWorker(QObject):
 
             if not api_key or not account_id:
                 self.error.emit(
-                    "TRADIER_API_KEY and TRADIER_ACCOUNT_ID must be set in .env\n"
+                    "TRADIER_LIVE_API_KEY and TRADIER_ACCOUNT_ID must be set in .env\n"
                     "Paper trading requires Tradier market-data credentials.",
                 )
                 self.connection_ready.emit(False)

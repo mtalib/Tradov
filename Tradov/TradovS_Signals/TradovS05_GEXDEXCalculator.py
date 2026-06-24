@@ -37,13 +37,17 @@ Description:
 # ==============================================================================
 import logging
 import math
+import json
+import os
 from datetime import datetime, UTC
+from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 import numpy as np
 import pandas as pd
+import pytz
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -94,11 +98,25 @@ class GEXDEXCalculator:
         self.logger = logging.getLogger(__name__)
         self.logger.debug("GEXDEXCalculator initialized (real options chain mode)")
         self._last_result: dict | None = None
+        self._snapshot_path = Path(
+            os.environ.get(
+                "TRADOV_GEXDEX_SNAPSHOT_FILE",
+                os.path.join(
+                    os.environ.get(
+                        "TRADOV_DATA_DIR",
+                        os.path.join(os.path.dirname(__file__), "..", "..", "data"),
+                    ),
+                    "cache",
+                    "gexdex_last_snapshot.json",
+                ),
+            )
+        )
         # Cache SPY expirations for the trading day — the list only changes
         # at most once per day, so re-fetching every 60-second GEX cycle
         # creates unnecessary /options/expirations calls that trigger timeouts.
         self._cached_expirations: list[str] = []
         self._expirations_cache_date: str = ""  # "YYYY-MM-DD" of last fetch
+        self.load_last_snapshot_from_disk()
 
     def _refresh_cached_expirations_from_tradier(self, client: object, today_str: str) -> None:
         """Fetch and cache SPY expirations, retrying once on transient failures."""
@@ -157,12 +175,14 @@ class GEXDEXCalculator:
         if chain_df is not None and len(chain_df) > 0:
             result = self._compute_from_chain(chain_df, spot_price)
             self._last_result = result
+            self._save_last_snapshot_to_disk(result)
             return result
 
         # Attempt to pull chain from the Tradier B40 fallback if no data passed
         try:
             result = self._compute_from_internal_sources(spot_price)
             self._last_result = result
+            self._save_last_snapshot_to_disk(result)
             return result
         except Exception as exc:
             raise DataUnavailableError(
@@ -242,7 +262,52 @@ class GEXDEXCalculator:
             "data_source": "simulated",
         }
         self._last_result = result
+        self._save_last_snapshot_to_disk(result)
         return result
+
+    def get_last_snapshot(self) -> dict | None:
+        """Return the latest same-day cached GEX/DEX snapshot if available."""
+        if not self._last_result:
+            return None
+        timestamp = self._last_result.get("timestamp")
+        if not isinstance(timestamp, datetime):
+            return None
+        if not self._is_same_trading_day(timestamp):
+            return None
+        return dict(self._last_result)
+
+    def load_last_snapshot_from_disk(self) -> dict | None:
+        """Restore the latest same-day GEX/DEX snapshot from disk."""
+        try:
+            if not self._snapshot_path.exists():
+                return None
+
+            payload = json.loads(self._snapshot_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return None
+
+            timestamp_raw = payload.get("timestamp")
+            if not timestamp_raw:
+                return None
+            timestamp = datetime.fromisoformat(str(timestamp_raw))
+            if not self._is_same_trading_day(timestamp):
+                return None
+
+            snapshot = {
+                "gex": float(payload.get("gex", 0.0)),
+                "dex": float(payload.get("dex", 0.0)),
+                "ogl": float(payload.get("ogl", 0.0)),
+                "vex": float(payload.get("vex", 0.0)),
+                "chex": float(payload.get("chex", 0.0)),
+                "timestamp": timestamp,
+                "num_strikes": int(payload.get("num_strikes", 0)),
+                "data_source": str(payload.get("data_source", "disk-cache")),
+            }
+            self._last_result = snapshot
+            return snapshot
+        except Exception as exc:
+            self.logger.debug("Could not load GEX/DEX snapshot: %s", exc)
+            return None
 
     # ------------------------------------------------------------------
     # Internal computation
@@ -557,6 +622,38 @@ class GEXDEXCalculator:
             raise DataUnavailableError(
                 f"Tradier B40 direct fallback failed: {e}"
             ) from e
+
+    def _save_last_snapshot_to_disk(self, result: dict) -> None:
+        """Persist the latest successful same-day snapshot to disk."""
+        try:
+            timestamp = result.get("timestamp")
+            if not isinstance(timestamp, datetime) or not self._is_same_trading_day(timestamp):
+                return
+
+            payload = {
+                "gex": float(result.get("gex", 0.0)),
+                "dex": float(result.get("dex", 0.0)),
+                "ogl": float(result.get("ogl", 0.0)),
+                "vex": float(result.get("vex", 0.0)),
+                "chex": float(result.get("chex", 0.0)),
+                "timestamp": timestamp.isoformat(),
+                "num_strikes": int(result.get("num_strikes", 0)),
+                "data_source": str(result.get("data_source", "unknown")),
+            }
+            self._snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            self._snapshot_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception as exc:
+            self.logger.debug("Could not save GEX/DEX snapshot: %s", exc)
+
+    def _is_same_trading_day(self, timestamp: datetime) -> bool:
+        """Return True when timestamp is on today's US/Eastern date."""
+        eastern = pytz.timezone("US/Eastern")
+        now_et = datetime.now(eastern)
+        if timestamp.tzinfo is None:
+            timestamp = eastern.localize(timestamp)
+        else:
+            timestamp = timestamp.astimezone(eastern)
+        return timestamp.date() == now_et.date()
 
 
 # ==============================================================================

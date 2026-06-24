@@ -20,7 +20,7 @@ Module Description:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -39,11 +39,11 @@ class OUFitResult:
     stop_threshold: float
     score: float
     method: str
-    metadata: dict[str, Any] = None
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
+    mean_reversion_speed: float = 0.0
+    stationarity_confidence: float = 0.0
+    half_life_band: str = "unknown"
+    max_holding_period_suggestion: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class OUProcessFitter:
@@ -64,24 +64,9 @@ class OUProcessFitter:
         self.logger = logger or TradovLogger.get_logger("OUProcessFitter")
 
     def fit(self, spread: np.ndarray) -> OUFitResult:
-        try:
-            return self._fit_arbitragelab(spread)
-        except Exception as e:
-            self.logger.debug(
-                "ArbitrageLab OU fit failed, falling back to MLE: %s", e
-            )
-            return self._fit_mle(spread)
-
-    def _fit_arbitragelab(self, spread: np.ndarray) -> OUFitResult:
-        from arbitragelab.fit.ou_fit import OUMLE
-
-        ou = OUMLE(spread)
-        params = ou.fit()
-        mu = float(params.get("mu", np.mean(spread)))
-        theta = float(params.get("theta", 0.1))
-        sigma = float(params.get("sigma", np.std(spread, ddof=1)))
-        half_life = np.log(2) / theta if theta > 0 else float("inf")
-        return self._build_result(mu, theta, sigma, half_life, spread, "arbitragelab")
+        # Keep the fitter fully Tradov-native and license-simple by using the
+        # built-in MLE implementation instead of a third-party OU dependency.
+        return self._fit_mle(spread)
 
     def _fit_mle(self, spread: np.ndarray) -> OUFitResult:
         n = len(spread)
@@ -96,6 +81,10 @@ class OUProcessFitter:
                 stop_threshold=0.0,
                 score=0.0,
                 method="mle",
+                mean_reversion_speed=0.0,
+                stationarity_confidence=0.0,
+                half_life_band="insufficient-data",
+                max_holding_period_suggestion=0,
             )
 
         S_x = np.sum(spread[:-1])
@@ -133,6 +122,7 @@ class OUProcessFitter:
         exit_threshold = mu + self.exit_z * sigma_eq
         stop_threshold = mu + self.stop_z * sigma_eq
         score = self._score_fit(spread, mu, theta, sigma)
+        half_life_band, max_holding_period = self._describe_half_life(half_life)
         return OUFitResult(
             mu=mu,
             theta=theta,
@@ -143,6 +133,10 @@ class OUProcessFitter:
             stop_threshold=stop_threshold,
             score=score,
             method=method,
+            mean_reversion_speed=theta,
+            stationarity_confidence=self._stationarity_confidence(spread),
+            half_life_band=half_life_band,
+            max_holding_period_suggestion=max_holding_period,
         )
 
     @staticmethod
@@ -157,6 +151,30 @@ class OUProcessFitter:
         k = 3
         aic = 2 * k - 2 * ll
         return float(-aic)
+
+    @staticmethod
+    def _stationarity_confidence(spread: np.ndarray) -> float:
+        if len(spread) < 5:
+            return 0.0
+        centered = spread - np.mean(spread)
+        if np.std(centered, ddof=1) <= 1e-12:
+            return 0.0
+        lagged = centered[:-1]
+        current = centered[1:]
+        if len(lagged) < 2:
+            return 0.0
+        corr = float(np.corrcoef(lagged, current)[0, 1])
+        corr = float(np.nan_to_num(corr))
+        return float(max(0.0, min(1.0, 1.0 - abs(corr))))
+
+    def _describe_half_life(self, half_life: float) -> tuple[str, int]:
+        if not np.isfinite(half_life) or half_life <= 0:
+            return "unbounded", 0
+        if half_life <= 10:
+            return "fast", max(5, int(np.ceil(half_life * 3)))
+        if half_life <= 30:
+            return "moderate", max(10, int(np.ceil(half_life * 3)))
+        return "slow", max(20, int(np.ceil(min(half_life, self.max_half_life) * 3)))
 
     def optimal_thresholds(
         self,

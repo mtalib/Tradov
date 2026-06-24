@@ -30,6 +30,23 @@ import logging
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
+def _bootstrap_project_venv() -> None:
+    """Re-exec under the project venv when launched with the wrong interpreter."""
+    root = Path(__file__).resolve().parent.parent.parent
+    venv_python = root / ".venv" / "bin" / "python"
+    try:
+        if Path(sys.executable).resolve() == venv_python.resolve():
+            return
+    except OSError:
+        pass
+
+    if venv_python.exists() and os.access(venv_python, os.X_OK):
+        os.execv(str(venv_python), [str(venv_python), *sys.argv])
+
+
+_bootstrap_project_venv()
+
+
 def main():
     """Main entry point"""
     try:
@@ -49,6 +66,13 @@ def main():
             logging.info("This might be due to missing dependencies in the dashboard modules.")
             # Fall back to basic window
             raise ImportError("Dashboard modules not found")  # noqa: B904
+
+        from Tradov.TradovG_GUI.TradovG00_ApplicationManager import (
+            DisplayMode,
+            configure_qt_platform_environment,
+        )
+
+        configure_qt_platform_environment(DisplayMode.GUI)
 
         app = QApplication(sys.argv)
         app.setApplicationName("AUTONOMOUS ARBITRAGE TRADER")
@@ -83,6 +107,13 @@ def main():
                 QVBoxLayout,
                 QWidget,
             )
+
+            from Tradov.TradovG_GUI.TradovG00_ApplicationManager import (
+                DisplayMode,
+                configure_qt_platform_environment,
+            )
+
+            configure_qt_platform_environment(DisplayMode.GUI)
 
             app = QApplication(sys.argv)
 

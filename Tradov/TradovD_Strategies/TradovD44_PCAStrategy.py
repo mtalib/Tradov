@@ -21,7 +21,7 @@ Module Description:
     shorts are balanced across the eigenportfolio factor structure. Signals
     are published on the shared event bus; this class places no orders.
 
-    Configuration via env vars (overridable through config):
+    Configuration via env vars:
         TRADOV_PCA_CORR_WINDOW  (default 252)  PCA correlation lookback
         TRADOV_PCA_RESID_WINDOW (default 60)   residual / OU lookback
         TRADOV_PCA_KAPPA_MIN    (default 8.4)  min reversion speed
