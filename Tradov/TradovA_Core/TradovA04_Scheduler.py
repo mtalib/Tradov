@@ -2319,4 +2319,3 @@ if __name__ == "__main__":
 
     # Stop event manager
     event_manager.stop()
-

@@ -36,4 +36,12 @@ def build_pnl_title_presentation(*, is_paper: bool) -> ModeTitlePresentation:
 
 def build_orders_title_presentation(*, is_paper: bool) -> ModeTitlePresentation:
     """Build the mode-specific orders title text and style."""
-    return _build_mode_title_presentation("ORDERS & POSITIONS", is_paper=is_paper)
+    if is_paper:
+        return ModeTitlePresentation(
+            text="ORDERS & POSITIONS - PAPER",
+            style="font-weight: normal; color: #FFA500;",
+        )
+    return ModeTitlePresentation(
+        text="ORDERS & POSITIONS - LIVE",
+        style="font-weight: normal; color: #00FF00;",
+    )

@@ -1,5 +1,6 @@
+#!/usr/bin/env python3
 """
-TRADOV - Multi-Agent Stock Trading System v1.0
+TRADOV - Autonomous Options Trading System v1.0
 
 Series: TradovD_Strategies
 Module: TradovD50_PairTypes.py
@@ -18,111 +19,225 @@ Module Description:
       - CointegrationResult: per-pair cointegration test output
 """
 
-# NOTE: Auto-recovered stub from .pyc bytecode. Logic needs manual restoration.
+from __future__ import annotations
 
-import dataclasses
-import datetime
-import enum
-import typing
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, UTC
+from enum import Enum
+from typing import Any
 
-from typing import Any, dataclass
-
-class PairSide:
-    def __init__(self):
-        pass
-
-
-class PairStatus:
-    def __init__(self):
-        pass
+from Tradov.TradovD_Strategies.TradovD01_BaseStrategy import (
+    TradingSignal,
+    SignalType,
+    SignalStrength,
+    PositionState,
+)
 
 
-class CointegrationMethod:
-    def __init__(self):
-        pass
+class PairSide(Enum):
+    LONG_SHORT = "long_short"
+    SHORT_LONG = "short_long"
 
 
+class PairStatus(Enum):
+    CANDIDATE = "candidate"
+    VALIDATED = "validated"
+    ACTIVE = "active"
+    DEGRADED = "degraded"
+    BROKEN = "broken"
+    EXCLUDED = "excluded"
+
+
+class CointegrationMethod(Enum):
+    ENGLE_GRANGER = "engle_granger"
+    JOHANSEN = "johansen"
+    BOTH = "both"
+
+
+@dataclass(frozen=True)
 class PairDefinition:
-    def __init__(self):
-        pass
+    symbol_a: str
+    symbol_b: str
+    sector: str
+    pair_type: str
+    status: PairStatus = PairStatus.CANDIDATE
+    entry_z: float = 2.0
+    exit_z: float = 0.5
+    stop_z: float = 3.5
+    max_half_life: int = 30
+    size_pct: float = 0.02
+    lookback: int = 60
 
-        pass
+    @property
+    def key(self) -> str:
+        return f"{self.symbol_a}/{self.symbol_b}"
 
-    def key(self):
-        pass
 
-
+@dataclass
 class CointegrationResult:
-    def __init__(self):
-        pass
+    pair_key: str
+    is_cointegrated: bool
+    p_value: float
+    hedge_ratio: float
+    half_life: float
+    spread_mean: float
+    spread_std: float
+    method: CointegrationMethod
+    test_statistic: float
+    critical_value: float
+    sample_size: int
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    metadata: dict[str, Any] = field(default_factory=dict)
+    ranking_score: float = 0.0
+    ranking_components: dict[str, float] = field(default_factory=dict)
 
-    def <lambda>():
-        pass
-
-        pass
-
-    def is_tradeable(self):
-        pass
+    @property
+    def is_tradeable(self) -> bool:
+        return self.is_cointegrated and self.half_life > 0 and self.half_life < 30
 
 
+@dataclass
 class PairScanResult:
-    def __init__(self):
-        pass
+    scan_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    total_candidates: int = 0
+    validated_pairs: list[CointegrationResult] = field(default_factory=list)
+    ranked_pairs: list[CointegrationResult] = field(default_factory=list)
+    fdr_method: str = "benjamini_hochberg"
+    fdr_alpha: float = 0.05
 
-    def <lambda>():
-        pass
-
-    def <lambda>():
-        pass
-
-        pass
-
-    def tradeable_count(self):
-        pass
+    @property
+    def tradeable_count(self) -> int:
+        return sum(1 for r in self.validated_pairs if r.is_tradeable)
 
 
-class PairTradingSignal:
-    def __init__(self):
-        pass
+@dataclass
+class PairTradingSignal(TradingSignal):
+    pair_key: str = ""
+    pair_side: PairSide = PairSide.LONG_SHORT
+    hedge_ratio: float = 1.0
+    z_score: float = 0.0
+    half_life: float = 0.0
+    spread_price: float = 0.0
+    symbol_a: str = ""
+    symbol_b: str = ""
+    quantity_a: int = 0
+    quantity_b: int = 0
 
-        pass
+    def to_dict(self) -> dict[str, Any]:
+        base = super().to_dict()
+        base.update({
+            "pair_key": self.pair_key,
+            "pair_side": self.pair_side.value,
+            "hedge_ratio": self.hedge_ratio,
+            "z_score": self.z_score,
+            "half_life": self.half_life,
+            "spread_price": self.spread_price,
+            "symbol_a": self.symbol_a,
+            "symbol_b": self.symbol_b,
+            "quantity_a": self.quantity_a,
+            "quantity_b": self.quantity_b,
+        })
+        return base
 
-    def to_dict(self):
-        pass
 
-
+@dataclass
 class PairPosition:
-    def __init__(self):
-        pass
+    position_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    pair_key: str = ""
+    pair_side: PairSide = PairSide.LONG_SHORT
+    state: PositionState = PositionState.PENDING
+    symbol_a: str = ""
+    symbol_b: str = ""
+    quantity_a: int = 0
+    quantity_b: int = 0
+    entry_price_a: float = 0.0
+    entry_price_b: float = 0.0
+    current_price_a: float = 0.0
+    current_price_b: float = 0.0
+    hedge_ratio: float = 1.0
+    entry_z: float = 0.0
+    current_z: float = 0.0
+    entry_spread: float = 0.0
+    current_spread: float = 0.0
+    entry_time: datetime = field(default_factory=lambda: datetime.now(UTC))
+    exit_time: datetime | None = None
+    exit_reason: str | None = None
+    realized_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
+    strategy_name: str = "PairTrading"
+    order_id_a: str | None = None
+    order_id_b: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def <lambda>():
-        pass
+    def update_prices(self, price_a: float, price_b: float, spread_mean: float = 0.0, spread_std: float = 1.0) -> None:
+        self.current_price_a = price_a
+        self.current_price_b = price_b
+        self.current_spread = price_a - self.hedge_ratio * price_b
+        if spread_std > 0:
+            self.current_z = (self.current_spread - spread_mean) / spread_std
+        if self.pair_side == PairSide.LONG_SHORT:
+            self.unrealized_pnl = (
+                (price_a - self.entry_price_a) * self.quantity_a
+                + (self.entry_price_b - price_b) * self.quantity_b
+            )
+        else:
+            self.unrealized_pnl = (
+                (self.entry_price_a - price_a) * self.quantity_a
+                + (price_b - self.entry_price_b) * self.quantity_b
+            )
 
-    def <lambda>():
-        pass
+    def close(self, price_a: float, price_b: float, reason: str) -> None:
+        self.update_prices(price_a, price_b)
+        self.realized_pnl = self.unrealized_pnl
+        self.unrealized_pnl = 0.0
+        self.exit_time = datetime.now(UTC)
+        self.exit_reason = reason
+        self.state = PositionState.CLOSED
 
-        pass
+    @property
+    def is_open(self) -> bool:
+        return self.state in {PositionState.PENDING, PositionState.OPENING, PositionState.OPEN}
 
-    def update_prices(self, price_a, price_b, spread_mean, spread_std):
-        pass
+    @property
+    def duration(self) -> timedelta | None:
+        if self.exit_time:
+            return self.exit_time - self.entry_time
+        return datetime.now(UTC) - self.entry_time
 
-        pass
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "position_id": self.position_id,
+            "pair_key": self.pair_key,
+            "pair_side": self.pair_side.value,
+            "state": self.state.value,
+            "symbol_a": self.symbol_a,
+            "symbol_b": self.symbol_b,
+            "quantity_a": self.quantity_a,
+            "quantity_b": self.quantity_b,
+            "entry_price_a": self.entry_price_a,
+            "entry_price_b": self.entry_price_b,
+            "current_price_a": self.current_price_a,
+            "current_price_b": self.current_price_b,
+            "hedge_ratio": self.hedge_ratio,
+            "entry_z": self.entry_z,
+            "current_z": self.current_z,
+            "unrealized_pnl": self.unrealized_pnl,
+            "realized_pnl": self.realized_pnl,
+            "duration_seconds": self.duration.total_seconds() if self.duration else None,
+            "exit_reason": self.exit_reason,
+            "strategy_name": self.strategy_name,
+        }
 
-    def close(self, price_a, price_b, reason):
-        pass
 
-        pass
-
-    def is_open(self):
-        pass
-
-        pass
-
-    def duration(self):
-        pass
-
-        pass
-
-    def to_dict(self):
-        pass
-
+__all__ = [
+    "PairSide",
+    "PairStatus",
+    "CointegrationMethod",
+    "PairDefinition",
+    "CointegrationResult",
+    "PairScanResult",
+    "PairTradingSignal",
+    "PairPosition",
+]

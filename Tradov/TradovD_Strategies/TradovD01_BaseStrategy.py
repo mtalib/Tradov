@@ -13,10 +13,6 @@ Last Updated: 2026-01-16 Time: 19:25:06
 Module Description:
     TRADOV - Automated TRAD Options Trading System
 
-Change Log:
-    2026-01-16:
-        - Applied standard Python formatting
-        - Updated module header and structure
 """
 
 # ==============================================================================

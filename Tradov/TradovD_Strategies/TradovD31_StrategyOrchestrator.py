@@ -91,6 +91,10 @@ except ImportError:
         def _d31_now_et() -> datetime:  # type: ignore[misc]
             return datetime.now(_d31_zoneinfo.ZoneInfo("America/New_York"))
 
+from Tradov.TradovD_Strategies.TradovD58_PairScanDecisionAdapter import (
+    normalize_pair_scan_context,
+)
+
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
@@ -123,6 +127,7 @@ try:
     from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
     from Tradov.TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler, TradingError  # noqa: F401
     from Tradov.TradovU_Utilities.TradovU10_TradingCalendar import TradingCalendar
+    from Tradov.TradovU_Utilities.TradovU51_RuntimeContext import RuntimeContext
 
     # Strategy imports (optional per strategy; do not disable orchestrator wiring)
     try:
@@ -147,39 +152,7 @@ try:
             return callable(getattr(cls, "generate_signal", None))
 
     _OPTIONAL_STRATEGY_CACHE: dict[tuple[str, str], Any] = {}
-    _OPTIONAL_STRATEGY_IMPORTS: dict[str, tuple[str, str]] = {
-        "IronCondor": ("Tradov.TradovD_Strategies.TradovD02_IronCondor", "IronCondorStrategy"),
-        "CreditSpread": ("Tradov.TradovD_Strategies.TradovD03_CreditSpread", "CreditSpreadStrategy"),
-        "ZeroDTE": ("Tradov.TradovD_Strategies.TradovD04_ZeroDTE", "ZeroDTEStrategy"),
-        "ZeroHFT": ("Tradov.TradovD_Strategies.TradovD41_ZeroHFT", "ZeroHFTStrategy"),
-        "Straddle": ("Tradov.TradovD_Strategies.TradovD05_Straddle", "StraddleStrategy"),
-        "BullPutSpread": ("Tradov.TradovD_Strategies.TradovD06_BullPutSpread", "BullPutSpreadStrategy"),
-        "BearCallSpread": ("Tradov.TradovD_Strategies.TradovD07_BearCallSpread", "BearCallSpreadStrategy"),
-        "BullCallSpread": ("Tradov.TradovD_Strategies.TradovD35_BullCallSpread", "BullCallSpreadStrategy"),
-        "BullishStrangle": ("Tradov.TradovD_Strategies.TradovD37_BullishStrangle", "BullishStrangleStrategy"),
-        "BearPutSpread": ("Tradov.TradovD_Strategies.TradovD36_BearPutSpread", "BearPutSpreadStrategy"),
-        "PutCreditSpread7": ("Tradov.TradovD_Strategies.TradovD39_PutCreditSpread7", "PutCreditSpread7Strategy"),
-        "OpeningRangeBreakout": ("Tradov.TradovD_Strategies.TradovD08_OpeningRangeBreakout", "OpeningRangeBreakoutStrategy"),
-        "GreeksBased": ("Tradov.TradovD_Strategies.TradovD09_GreeksBasedStrategy", "GreeksBasedStrategy"),
-        "SpecializedZeroDTE": ("Tradov.TradovD_Strategies.TradovD11_SpecializedZeroDTE", "SpecializedZeroDTEStrategy"),
-        "IronButterfly": ("Tradov.TradovD_Strategies.TradovD10_IronButterfly", "IronButterflyStrategy"),
-        "BrokenWingButterfly": ("Tradov.TradovD_Strategies.TradovD23_BrokenWingButterfly", "BrokenWingButterflyStrategy"),
-        "Butterfly": ("Tradov.TradovD_Strategies.TradovD24_Butterfly", "ButterflyStrategy"),
-        "CalendarSpread": ("Tradov.TradovD_Strategies.TradovD14_CalendarSpread", "CalendarSpreadStrategy"),
-        "StraddleStrangle": ("Tradov.TradovD_Strategies.TradovD15_StraddleStrangle", "StraddleStrangleStrategy"),
-        "RatioSpreads": ("Tradov.TradovD_Strategies.TradovD16_RatioSpreads", "RatioSpreadsStrategy"),
-        "DiagonalSpread": ("Tradov.TradovD_Strategies.TradovD17_DiagonalSpread", "DiagonalSpreadStrategy"),
-        "JadeLizard": ("Tradov.TradovD_Strategies.TradovD19_JadeLizard", "JadeLizardStrategy"),
-        "JadeLizardZero": ("Tradov.TradovD_Strategies.TradovD38_JadeLizardZero", "JadeLizardZeroStrategy"),
-        "VerticalSpreadOptimizer": ("Tradov.TradovD_Strategies.TradovD20_VerticalSpreadOptimizer", "VerticalSpreadOptimizer"),
-        "DoubleCalendar": ("Tradov.TradovD_Strategies.TradovD21_DoubleCalendar", "DoubleCalendarStrategy"),
-        "AdaptiveVolatility": ("Tradov.TradovD_Strategies.TradovD22_AdaptiveVolatility", "AdaptiveVolatilityStrategy"),
-        "GammaScalper": ("Tradov.TradovD_Strategies.TradovD26_GammaScalper", "GammaScalperStrategy"),
-        "RSIMeanReversion": ("Tradov.TradovD_Strategies.TradovD12_RSIMeanReversion", "RSIMeanReversionStrategy"),
-        "MACrossover": ("Tradov.TradovD_Strategies.TradovD13_MACrossover", "MACrossoverStrategy"),
-        "RenaissanceMeanReversion": ("Tradov.TradovD_Strategies.TradovD33_RenaissanceMeanReversion", "RenaissanceMeanReversionStrategy"),
-        "PivotMeanReversion": ("Tradov.TradovD_Strategies.TradovD34_PivotMeanReversion", "PivotMeanReversionStrategy"),
-    }
+    _OPTIONAL_STRATEGY_IMPORTS: dict[str, tuple[str, str]] = {}
 
     def _optional_strategy(import_path: str, symbol: str) -> Any:
         cache_key = (import_path, symbol)
@@ -503,6 +476,7 @@ except ImportError as e:
     TradovLogger = None  # type: ignore[assignment]
     TradovErrorHandler = None  # type: ignore[assignment]
     TradingCalendar = None  # type: ignore[assignment]
+    RuntimeContext = None  # type: ignore[assignment]
     BaseStrategy = object  # type: ignore[assignment,misc]
     EventManager = None  # type: ignore[assignment]
     Event = None  # type: ignore[assignment]
@@ -678,6 +652,38 @@ _D31_EXECUTION_GATE_LABELS = {
     "event_transition": "EVENT",
 }
 
+# Operator-curated permitted-strategy universe: allowlist token -> (module, class).
+# This is an explicit loader map used by ``activate_permitted_strategies`` to
+# instantiate the strategies the operator permits (via the PERMITTED STRATEGIES
+# dialog / TRADOV_ALLOWED_STRATEGIES). It is deliberately separate from the
+# retired regime-weight registry (``available_strategies``) — selection here is
+# operator-driven, not regime-weighted. Tokens mirror the GUI candidate list.
+_D31_PERMITTED_STRATEGY_CLASSES: dict[str, tuple[str, str]] = {
+    "PairTrading": (
+        "Tradov.TradovD_Strategies.TradovD42_PairTrading",
+        "PairTradingStrategy",
+    ),
+    "DistanceApproach": (
+        "Tradov.TradovD_Strategies.TradovD43_DistanceStrategy",
+        "DistanceTradingStrategy",
+    ),
+    "PCAStatArb": (
+        "Tradov.TradovD_Strategies.TradovD44_PCAStrategy",
+        "PCAStatArbStrategy",
+    ),
+}
+
+# Dedicated horizon bucket for stat-arb stock/ETF strategies. Unlike the
+# options DTE buckets (ultra_short / short / swing), these are continuous,
+# market-neutral strategies meant to run concurrently, so this bucket is exempt
+# from the one-strategy-per-bucket occupancy cap (the overall
+# MAX_CONCURRENT_STRATEGIES limit still applies).
+_D31_STAT_ARB_BUCKET = "stat_arb"
+_D31_STAT_ARB_STRATEGY_BASES = {
+    (sym[:-8] if sym.endswith("Strategy") else sym).lower()
+    for (_mod, sym) in _D31_PERMITTED_STRATEGY_CLASSES.values()
+}
+
 class AllocationMethod(Enum):
     """Portfolio allocation methods"""
     EQUAL_WEIGHT = "equal_weight"
@@ -790,7 +796,8 @@ class StrategyOrchestrator:
                  allocation_method: AllocationMethod = AllocationMethod.PERFORMANCE_BASED,
                  connectivity_manager: Any | None = None,
                  event_manager: EventManager | None = None,
-                 regime_engine: Any | None = None):
+                 regime_engine: Any | None = None,
+                 runtime_context: Any | None = None):
         """
         Initialize Strategy Orchestrator.
 
@@ -801,6 +808,7 @@ class StrategyOrchestrator:
             connectivity_manager: Connectivity management integration
             event_manager: Event management system
             regime_engine: Optional L09 UnifiedRegimeEngine instance for ML-driven regime detection
+            runtime_context: Optional immutable R12-owned runtime context.
         """
         # Setup logging and error handling
         if TradovLogger:
@@ -809,6 +817,11 @@ class StrategyOrchestrator:
             self.logger = logging.getLogger(__name__)
 
         self.error_handler = TradovErrorHandler() if TradovErrorHandler else None
+        self.runtime_context = (
+            runtime_context
+            if RuntimeContext is not None and isinstance(runtime_context, RuntimeContext)
+            else None
+        )
 
         # Core configuration
         self.base_capital = base_capital
@@ -862,24 +875,7 @@ class StrategyOrchestrator:
                     self.event_manager = None
 
         self.lean_mode = self._resolve_lean_mode()
-        self.lean_strategy_allowlist = {
-            "BullPutSpread",
-            "BullPutSpreadStrategy",
-            "BearCallSpread",
-            "BearCallSpreadStrategy",
-            "PivotMeanReversion",
-            "PivotMeanReversionStrategy",
-            "ZeroHFT",
-            "ZeroHFTStrategy",
-            "Butterfly",
-            "ButterflyStrategy",
-            "IronCondor",
-            "IronCondorStrategy",
-            "IronButterfly",
-            "IronButterflyStrategy",
-            "BrokenWingButterfly",
-            "BrokenWingButterflyStrategy",
-        }
+        self.lean_strategy_allowlist = set()
         # D34 PivotMeanReversion remains feature-flagged for selector routing so
         # D30 can prefer it on S08 pivot confirmation without changing the rest
         # of the lean allowlist contract.
@@ -889,39 +885,6 @@ class StrategyOrchestrator:
             self.lean_strategy_allowlist.update({
                 "PivotMeanReversion",
                 "PivotMeanReversionStrategy",
-            })
-        if os.getenv("TRADOV_ENABLE_BULL_CALL_SPREAD", "").strip().lower() in {
-            "1", "true", "yes", "on", "y",
-        }:
-            self.lean_strategy_allowlist.update({
-                "BullCallSpread",
-                "BullCallSpreadStrategy",
-            })
-        if os.getenv("TRADOV_ENABLE_BEAR_PUT_SPREAD", "").strip().lower() in {
-            "1", "true", "yes", "on", "y",
-        }:
-            self.lean_strategy_allowlist.update({
-                "BearPutSpread",
-                "BearPutSpreadStrategy",
-            })
-        if os.getenv("TRADOV_ENABLE_BULLISH_STRANGLE", "").strip().lower() in {
-            "1", "true", "yes", "on", "y",
-        }:
-            self.lean_strategy_allowlist.update({
-                "BullishStrangle",
-                "BullishStrangleStrategy",
-            })
-        if os.getenv("TRADOV_ENABLE_PUT_CREDIT_SPREAD_7", "").strip().lower() in {
-            "1", "true", "yes", "on", "y",
-        }:
-            self.lean_strategy_allowlist.update({
-                "PutCreditSpread7",
-                "PutCreditSpread7Strategy",
-            })
-        if self._paper_calendar_spread_routing_flag_enabled():
-            self.lean_strategy_allowlist.update({
-                "CalendarSpread",
-                "CalendarSpreadStrategy",
             })
         self._apply_env_allowed_strategies_override()
 
@@ -947,6 +910,24 @@ class StrategyOrchestrator:
             regime_duration_days=0,
             last_regime_change=datetime.now(UTC)
         )
+
+        # User-selectable regime override. When None (default) the regime is
+        # auto-detected; when set to a MarketRegime the orchestrator forces that
+        # regime so all downstream consumers (strategy weights, execution gates)
+        # honor the user's choice. ``_last_detected_regime`` keeps the auto value
+        # for transparency/audit while an override is active.
+        self._regime_override: MarketRegime | None = None
+        self._last_detected_regime: MarketRegime = MarketRegime.SIDEWAYS_LOW_VOL
+        # Persisted override (survives restarts; also the channel a GUI uses to
+        # change the regime when no live orchestrator object is reachable).
+        try:
+            from Tradov.TradovU_Utilities.TradovU50_RegimeOverrideStore import (
+                default_override_path,
+            )
+            self._regime_override_path = default_override_path()
+        except Exception:
+            self._regime_override_path = None
+        self._load_regime_override()
 
         # Performance tracking
         self.portfolio_metrics = PortfolioMetrics(
@@ -989,6 +970,8 @@ class StrategyOrchestrator:
         self._live_engine = None
         # OrderManager reference for mid-price walk execution (set via set_order_manager)
         self._order_manager: Any = None
+        # Pair executor reference for coordinated two-leg stat-arb dispatch.
+        self._pair_executor: Any = None
         # VIXAnalyzer for live VIX reads in regime detection (set via set_vix_analyzer)
         self._vix_analyzer: Any | None = None
         # RiskManager — resolved once and cached to avoid per-signal import overhead
@@ -999,6 +982,9 @@ class StrategyOrchestrator:
         self._metrics_orchestrator: Any | None = None
         self._live_options_metrics_snapshot: dict[str, float | None] = {}
         self._live_options_metrics_loaded_monotonic: float = 0.0
+        self._latest_pair_scan: Any | None = None
+        self._last_pair_strategy_name: str | None = None
+        self._last_pair_strategy_selected_at: datetime | None = None
         # S18 economic calendar — lazily resolved for eco stand-down gate
         self._eco_calendar: Any | None = None
         self._eco_calendar_resolved: bool = False
@@ -1072,9 +1058,15 @@ class StrategyOrchestrator:
         self._signal_drop_audit_partition_mode: str = str(
             os.getenv("TRADOV_D31_SIGNAL_DROP_AUDIT_PARTITION_MODE", "auto")
         ).strip().lower()
-        self._audit_run_mode: str = "unknown"
+        self._audit_run_mode: str = (
+            str(self.runtime_context.mode) if self.runtime_context is not None else "unknown"
+        )
         self._audit_source_context: str = "unknown"
-        self._audit_session_id: str = f"d31-{uuid.uuid4().hex[:12]}"
+        self._audit_session_id: str = (
+            str(self.runtime_context.session_id)
+            if self.runtime_context is not None
+            else f"d31-{uuid.uuid4().hex[:12]}"
+        )
         self._paper_midwalk_bypass_marker_emitted: bool = False
         self._last_selector_outcome_audit_fingerprint: tuple[Any, ...] | None = None
 
@@ -2204,6 +2196,7 @@ class StrategyOrchestrator:
                 if (
                     active_bucket_counts.get(horizon_bucket, 0) >= 1
                     and not overlay_registration_allowed
+                    and horizon_bucket != _D31_STAT_ARB_BUCKET
                 ):
                     raise ValueError(
                         "Horizon-bucket already occupied: "
@@ -2304,6 +2297,7 @@ class StrategyOrchestrator:
                     if (
                         active_bucket_counts.get(horizon_bucket, 0) >= 1
                         and not overlay_registration_allowed
+                        and horizon_bucket != _D31_STAT_ARB_BUCKET
                     ):
                         late_registration_error = ValueError(
                             "Horizon-bucket already occupied: "
@@ -2335,6 +2329,15 @@ class StrategyOrchestrator:
 
             self._seed_runtime_cadence_for_strategy(strategy_id, strategy)
 
+            if hasattr(strategy, "set_pair_scan_sink"):
+                try:
+                    strategy.set_pair_scan_sink(self.set_latest_pair_scan)
+                except Exception:
+                    self.logger.debug(
+                        "D31 could not attach pair scan sink to %s",
+                        getattr(strategy, "name", strategy_id),
+                        exc_info=True,
+                    )
             # Notify ExitMonitor so it can attribute positions to this strategy.
             # The ExitMonitor is owned by SessionSupervisor and may not exist in
             # all execution contexts (e.g. tests), so we look it up lazily.
@@ -2415,7 +2418,7 @@ class StrategyOrchestrator:
             with self._strategies_lock:
                 if strategy_id not in self.active_strategies:
                     return False
-                self.active_strategies[strategy_id].pause()
+                self.active_strategies[strategy_id].pause(reason="manual pause")
                 self.paused_strategies.add(strategy_id)
 
             self.logger.info("⏸️ Paused strategy: %s", strategy_id)
@@ -3282,9 +3285,11 @@ class StrategyOrchestrator:
 
     def _get_risk_profile_for_strategy(self, strategy_class: type) -> RiskProfile:  # noqa: F821
         """Return a RiskProfile sized to this strategy's capital slice."""
-        from TradovD_Strategies.TradovD01_BaseStrategy import RiskProfile  # lazy to avoid circular
-        # Fraction of base_capital for a single strategy slot
-        n = max(1, len(self.available_strategies))
+        from Tradov.TradovD_Strategies.TradovD01_BaseStrategy import RiskProfile  # lazy to avoid circular
+        # Fraction of base_capital for a single strategy slot. The legacy
+        # available_strategies registry is retired (always empty), so size by the
+        # concurrent-strategy slot cap instead — each slot gets an equal share.
+        n = max(1, self.max_concurrent_strategies)
         slice_size = self.base_capital / n
         return RiskProfile(account_size=slice_size)
 
@@ -3309,58 +3314,15 @@ class StrategyOrchestrator:
         if strategy_type_normalized in {"broken_wing_butterfly", "jade_lizard_zero"}:
             resolved.setdefault("target_dte", 0)
 
-        if strategy_type_normalized == "zero_hft":
-            resolved.setdefault("target_dte", 0)
-            resolved.setdefault("require_defined_risk_entry", True)
-            resolved.setdefault("spread_width_points", 3.0)
-            if str(self._audit_run_mode or "").strip().lower() == "paper":
-                if resolved.get("broker_client") is None:
-                    broker_client = self._build_zero_hft_paper_quote_broker()
-                    if broker_client is not None:
-                        resolved["broker_client"] = broker_client
-                if resolved.get("gamma_engine") is None and resolved.get("broker_client") is not None:
-                    try:
-                        from Tradov.TradovN_OptionsAnalytics.TradovN15_GammaRegimeEngine import GammaRegimeEngine
-
-                        quote_broker = resolved["broker_client"]
-                        resolved["gamma_engine"] = GammaRegimeEngine(
-                            lambda underlying, expiration, quote_broker=quote_broker: quote_broker.get_option_chain_with_greeks(underlying, expiration),
-                            underlying=str(resolved.get("symbol") or "SPX").upper(),
-                        )
-                    except Exception as exc:
-                        self.logger.warning("ZeroHFT gamma engine defaults unavailable: %s", exc)
-
         return resolved
 
-    def _build_zero_hft_paper_quote_broker(self) -> Any | None:
-        """Build a quote-only paper adapter for ZeroHFT planning in D41."""
-        if self._live_engine is None:
-            return None
-
-        quote_client_factory = getattr(self._live_engine, "_get_paper_option_quote_client", None)
-        if not callable(quote_client_factory):
-            return None
-
-        try:
-            quote_client = quote_client_factory()
-        except Exception as exc:
-            self.logger.warning("ZeroHFT quote client bootstrap failed: %s", exc)
-            return None
-
-        if quote_client is None:
-            return None
-
-        get_option_expirations = getattr(quote_client, "get_option_expirations", None)
-        get_option_chain_with_greeks = getattr(quote_client, "get_option_chain_with_greeks", None)
-        if not callable(get_option_expirations) or not callable(get_option_chain_with_greeks):
-            return None
-
-        return SimpleNamespace(
-            trading_mode="paper",
-            mode="paper",
-            get_option_expirations=get_option_expirations,
-            get_option_chain_with_greeks=get_option_chain_with_greeks,
-        )
+    @staticmethod
+    def _is_stat_arb_strategy(strategy_name: str) -> bool:
+        """True for the stat-arb stock/ETF strategies (D42/D43/D44)."""
+        base = str(strategy_name or "")
+        if base.endswith("Strategy"):
+            base = base[:-8]
+        return base.lower() in _D31_STAT_ARB_STRATEGY_BASES
 
     def _resolve_horizon_bucket(self, strategy_name: str, config: dict[str, Any]) -> str:
         """Resolve strategy horizon bucket used for admission guardrails.
@@ -3375,6 +3337,11 @@ class StrategyOrchestrator:
         raw = str((config or {}).get("horizon_bucket", "")).strip().lower()
         if raw in {"ultra_short", "short", "swing"}:
             return raw
+
+        # Stat-arb stock/ETF strategies share a dedicated, concurrency-friendly
+        # bucket rather than an options DTE bucket.
+        if self._is_stat_arb_strategy(strategy_name):
+            return _D31_STAT_ARB_BUCKET
 
         target_dte_raw = (config or {}).get("target_dte")
         try:
@@ -3774,6 +3741,14 @@ class StrategyOrchestrator:
 
             # Classify regime — prefer L09 UnifiedRegimeEngine when injected
             new_regime = self._classify_market_regime_unified(current_vix, vix_percentile, trend_strength)  # noqa: E501
+
+            # Preserve the auto-detected regime for audit, pick up any override
+            # written externally (e.g. by the GUI with no live session), then
+            # let a user-selected override (if any) take precedence.
+            self._last_detected_regime = new_regime
+            self._sync_regime_override_from_disk()
+            if self._regime_override is not None:
+                new_regime = self._regime_override
 
             # Update regime data
             regime_changed = new_regime != self.market_regime.current_regime
@@ -4281,24 +4256,112 @@ class StrategyOrchestrator:
     @staticmethod
     def _map_selector_strategy_to_registry_name(strategy_value: Any) -> str | None:
         """Map D30 StrategyType values to D31 strategy registry keys."""
-        raw = str(strategy_value or "").strip().lower()
-        strategy_map = {
-            "bull_put_spread": "BullPutSpread",
-            "put_credit_spread_7": "PutCreditSpread7",
-            "bear_call_spread": "BearCallSpread",
-            "iron_condor": "IronCondor",
-            "iron_butterfly": "IronButterfly",
-            "broken_wing_butterfly": "BrokenWingButterfly",
-            "bullish_strangle": "BullishStrangle",
-            "butterfly": "Butterfly",
-            "bull_call_spread": "BullCallSpread",
-            "bear_put_spread": "BearPutSpread",
-            "calendar_spread": "CalendarSpread",
-            "calendar_spreads": "CalendarSpread",
-            "pivot_mean_reversion": "PivotMeanReversion",
-            "no_trade": None,
+        if strategy_value is None:
+            return None
+
+        token = str(getattr(strategy_value, "value", strategy_value)).strip().lower()
+        if not token:
+            return None
+
+        if token in {"hold", "no_trade", "no-trade", "none"}:
+            return None
+
+        mapping = {
+            "pairtrading": "PairTrading",
+            "pair_trading": "PairTrading",
+            "pair trading": "PairTrading",
+            "distanceapproach": "DistanceApproach",
+            "distance_approach": "DistanceApproach",
+            "distance approach": "DistanceApproach",
+            "pcastarb": "PCAStatArb",
+            "pca_stat_arb": "PCAStatArb",
+            "pca stat arb": "PCAStatArb",
+            "pca": "PCAStatArb",
         }
-        return strategy_map.get(raw)
+        return mapping.get(token)
+
+    def set_latest_pair_scan(self, scan_result: Any | None) -> None:
+        """Cache the most recent pair scan for post-scan strategy selection."""
+        self._latest_pair_scan = scan_result
+
+    def _build_pair_scan_context(self, scan_result: Any | None = None) -> Any | None:
+        scan = scan_result if scan_result is not None else self._latest_pair_scan
+        if scan is None:
+            return None
+        try:
+            max_age = float(os.environ.get("TRADOV_PAIR_SCAN_MAX_AGE_SECONDS", "300") or 300.0)
+        except Exception:
+            max_age = 300.0
+        return normalize_pair_scan_context(scan, max_age_seconds=max_age)
+
+    def select_strategy_for_pair_scan(
+        self,
+        scan_result: Any | None = None,
+        consensus: Any | None = None,
+        pivot_signal: dict[str, Any] | None = None,
+    ) -> tuple[str | None, str]:
+        """Resolve a pair-family strategy using scan freshness and rank quality."""
+        scan_context = self._build_pair_scan_context(scan_result)
+        if scan_context is None:
+            return None, "scan_unavailable"
+
+        selector = self._get_d30_selector()
+        if selector is None:
+            return None, "selector_unavailable"
+
+        if consensus is None:
+            consensus = self._build_d30_consensus()
+
+        if consensus is None:
+            return None, "consensus_unavailable"
+
+        selection = selector.select_strategy_from_consensus(
+            consensus,
+            pivot_signal=pivot_signal or self._get_cached_pivot_signal_for_selector(),
+            scan_context=scan_context,
+            current_strategy=self._last_pair_strategy_name,
+        )
+        self._last_selector_feature_flag = getattr(selection, "selector_feature_flag", None)
+
+        selected_strategy = getattr(selection, "selected_strategy", None)
+        strategy_value = getattr(selected_strategy, "value", selected_strategy)
+        strategy_name = self._map_selector_strategy_to_registry_name(strategy_value)
+        if strategy_name is None and isinstance(strategy_value, str):
+            raw_token = strategy_value.strip()
+            if raw_token in _D31_PERMITTED_STRATEGY_CLASSES:
+                strategy_name = raw_token
+        reason = str(getattr(selection, "reason", strategy_value or "selector_result"))
+        scan_state = str(getattr(selection, "scan_state", "unknown"))
+        scan_score = getattr(selection, "scan_score", None)
+        scan_rank = getattr(selection, "scan_rank", None)
+        scan_age_seconds = getattr(selection, "scan_age_seconds", None)
+        best_pair_key = getattr(selection, "best_pair_key", None)
+
+        if strategy_name is None:
+            self.logger.info(
+                "Pair scan decision: HOLD scan_state=%s reason=%s age=%.1fs rank=%s score=%s best_pair=%s",
+                scan_state,
+                reason,
+                float(scan_age_seconds or 0.0),
+                scan_rank,
+                scan_score,
+                best_pair_key,
+            )
+            return None, reason
+
+        self._last_pair_strategy_name = strategy_name
+        self._last_pair_strategy_selected_at = datetime.now(UTC)
+        self.logger.info(
+            "Pair scan decision: strategy=%s scan_state=%s reason=%s age=%.1fs rank=%s score=%s best_pair=%s",
+            strategy_name,
+            scan_state,
+            reason,
+            float(scan_age_seconds or 0.0),
+            scan_rank,
+            scan_score,
+            best_pair_key,
+        )
+        return strategy_name, reason
 
     @staticmethod
     def _normalize_allowed_strategy_token(token: str, canonical_map: dict[str, str]) -> str | None:
@@ -4330,7 +4393,7 @@ class StrategyOrchestrator:
             return
 
         canonical_base_map: dict[str, str] = {}
-        for value in self.lean_strategy_allowlist:
+        for value in self.lean_strategy_allowlist or _D31_PERMITTED_STRATEGY_CLASSES.keys():
             base = value[:-8] if value.endswith("Strategy") else value
             canonical_base_map[base.lower()] = base
 
@@ -4386,69 +4449,11 @@ class StrategyOrchestrator:
         strategy_name: str | None,
         selector_reason: str,
     ) -> tuple[str | None, str]:
-        """Optionally override low-vol paper lean selections to CalendarSpread."""
-        if strategy_name is None:
-            return None, selector_reason
-        if not self._paper_calendar_spread_routing_flag_enabled() or self._is_live_mode():
-            return strategy_name, selector_reason
-
-        regime = self.market_regime.current_regime
-        override_candidates = {
-            MarketRegime.BULL_LOW_VOL: {"BullPutSpread"},
-            MarketRegime.BEAR_LOW_VOL: {"BearCallSpread"},
-            MarketRegime.SIDEWAYS_LOW_VOL: {"IronCondor"},
-        }
-        allowed_sources = override_candidates.get(regime)
-        if not allowed_sources or strategy_name not in allowed_sources:
-            return strategy_name, selector_reason
-
-        # D31's non-lean regime weights already include CalendarSpread in these
-        # low-volatility regimes; this paper-only flag opts lean mode into the
-        # same family without changing any live defaults.
-        override_reason = f"paper_calendar_spread_override:{regime.value}:{selector_reason or strategy_name}"
-        return "CalendarSpread", override_reason
+        """Preserve selector output without introducing legacy option overrides."""
+        return strategy_name, selector_reason
 
     def _fallback_lean_strategy_name(self) -> str | None:
         """Fallback lean mapping when D30 selector or consensus is unavailable."""
-        regime = self.market_regime.current_regime
-        if regime in {MarketRegime.CRISIS, MarketRegime.EVENT_TRANSITION}:
-            return None
-
-        bull_call_enabled = str(os.getenv("TRADOV_ENABLE_BULL_CALL_SPREAD", "")).strip().lower() in {
-            "1", "true", "yes", "on", "y"
-        }
-        bear_put_enabled = str(os.getenv("TRADOV_ENABLE_BEAR_PUT_SPREAD", "")).strip().lower() in {
-            "1", "true", "yes", "on", "y"
-        }
-        bullish_strangle_enabled = str(
-            os.getenv("TRADOV_ENABLE_BULLISH_STRANGLE", "")
-        ).strip().lower() in {"1", "true", "yes", "on", "y"}
-        put_credit_spread_7_enabled = str(
-            os.getenv("TRADOV_ENABLE_PUT_CREDIT_SPREAD_7", "")
-        ).strip().lower() in {"1", "true", "yes", "on", "y"}
-        pivot_enabled = str(os.getenv("TRADOV_ENABLE_PIVOT_MEAN_REVERSION", "")).strip().lower() in {
-            "1", "true", "yes", "on", "y"
-        }
-        pivot_payload = self._get_cached_pivot_signal_for_selector() or {}
-        pivot_fired = bool(pivot_payload.get("fired", False))
-
-        if regime == MarketRegime.RECOVERY and bullish_strangle_enabled:
-            return "BullishStrangle"
-        if regime in {MarketRegime.BULL_LOW_VOL, MarketRegime.BULL_HIGH_VOL, MarketRegime.RECOVERY}:
-            if put_credit_spread_7_enabled and self._put_credit_spread_7_eligible_now():
-                return "PutCreditSpread7"
-            return "BullCallSpread" if bull_call_enabled else "BullPutSpread"
-        if regime in {MarketRegime.BEAR_LOW_VOL, MarketRegime.BEAR_HIGH_VOL}:
-            return "BearPutSpread" if bear_put_enabled else "BearCallSpread"
-        if regime == MarketRegime.SIDEWAYS_LOW_VOL:
-            if pivot_enabled and pivot_fired:
-                return "PivotMeanReversion"
-            return "IronCondor"
-        if regime == MarketRegime.SIDEWAYS_HIGH_VOL:
-            if bullish_strangle_enabled and pivot_fired:
-                return "BullishStrangle"
-            return "IronButterfly"
-
         return None
 
     @staticmethod
@@ -4469,26 +4474,25 @@ class StrategyOrchestrator:
         strategy_name: str | None,
         selector_reason: str,
     ) -> str | None:
-        """Return a fail-closed reason for untyped paper IronCondor selection."""
-        if self._is_live_mode() or strategy_name != "IronCondor":
-            return None
-
-        normalized_reason = str(selector_reason or "").strip().lower()
-        # Only block truly untyped fallbacks (D31 plain fallback and D30's
-        # untyped neutral-posture else-branch).  D30 regime-named fallback
-        # paths such as "Range/calm fallback regime — Iron Condor" are typed
-        # selections and must NOT be blocked.
-        _UNTYPED_FALLBACK_TOKENS = ("fallback_lean_mapping", "fallback neutral posture")
-        if any(token in normalized_reason for token in _UNTYPED_FALLBACK_TOKENS):
-            return f"untyped_selector_iron_condor:{selector_reason or 'fallback_lean_mapping'}"
-
         return None
 
-    def _select_strategy_name_for_regime(self) -> tuple[str | None, str]:
+    def _select_strategy_name_for_regime(
+        self,
+        scan_result: Any | None = None,
+    ) -> tuple[str | None, str]:
         """Resolve the current lean strategy via D30, with deterministic fallback."""
         self._last_selector_feature_flag = None
         selector = self._get_d30_selector()
         consensus = self._build_d30_consensus()
+
+        if scan_result is not None or self._latest_pair_scan is not None:
+            scan_strategy_name, scan_reason = self.select_strategy_for_pair_scan(
+                scan_result=scan_result,
+                consensus=consensus,
+                pivot_signal=self._get_cached_pivot_signal_for_selector(),
+            )
+            if scan_strategy_name is not None or scan_reason not in {"scan_unavailable", "selector_unavailable", "consensus_unavailable"}:
+                return scan_strategy_name, scan_reason
 
         if selector is not None and consensus is not None:
             try:
@@ -4499,6 +4503,10 @@ class StrategyOrchestrator:
                 self._last_selector_feature_flag = getattr(selection, "selector_feature_flag", None)
                 strategy_value = getattr(getattr(selection, "selected_strategy", None), "value", None)
                 strategy_name = self._map_selector_strategy_to_registry_name(strategy_value)
+                if strategy_name is None and isinstance(strategy_value, str):
+                    raw_token = strategy_value.strip()
+                    if raw_token in _D31_PERMITTED_STRATEGY_CLASSES:
+                        strategy_name = raw_token
                 reason = str(getattr(selection, "reason", strategy_value or "selector_result"))
                 strategy_name, reason = self._maybe_override_paper_calendar_spread_selection(
                     strategy_name,
@@ -4573,73 +4581,171 @@ class StrategyOrchestrator:
             )
             return {strategy_name: 1.0}
 
-        # Strategy weights by regime (this would be backtested/optimized)
-        regime_weights = {
-            MarketRegime.BULL_LOW_VOL: {
-                'IronCondor': 0.3,
-                'CreditSpread': 0.2,
-                'IronButterfly': 0.15,
-                'ZeroDTE': 0.1,
-                'Straddle': 0.1,
-                'CalendarSpread': 0.1,
-                'JadeLizard': 0.05,
-                'MACrossover': 0.05,
-            },
-            MarketRegime.BULL_HIGH_VOL: {
-                'CreditSpread': 0.35,
-                'Straddle': 0.25,
-                'ZeroDTE': 0.2,
-                'IronCondor': 0.1,
-                'GammaScalper': 0.1,
-                'RSIMeanReversion': 0.05,
-            },
-            MarketRegime.BEAR_LOW_VOL: {
-                'CreditSpread': 0.3,
-                'IronCondor': 0.25,
-                'IronButterfly': 0.2,
-                'ZeroDTE': 0.1,
-                'CalendarSpread': 0.15,
-                'RenaissanceMeanReversion': 0.05,
-            },
-            MarketRegime.BEAR_HIGH_VOL: {
-                'Straddle': 0.35,
-                'CreditSpread': 0.3,
-                'ZeroDTE': 0.2,
-                'GammaScalper': 0.15,
-                'RSIMeanReversion': 0.1,
-            },
-            MarketRegime.SIDEWAYS_LOW_VOL: {
-                'IronCondor': 0.35,
-                'IronButterfly': 0.25,
-                'CalendarSpread': 0.15,
-                'CreditSpread': 0.15,
-                'JadeLizard': 0.1,
-                'PivotMeanReversion': 0.1,
-            },
-            MarketRegime.SIDEWAYS_HIGH_VOL: {
-                'IronCondor': 0.25,
-                'Straddle': 0.25,
-                'CreditSpread': 0.2,
-                'GammaScalper': 0.15,
-                'ZeroDTE': 0.15,
-                'PivotMeanReversion': 0.1,
-            },
-            MarketRegime.CRISIS: {
-                'CreditSpread': 0.6,
-                'Straddle': 0.4,
-                'RSIMeanReversion': 0.1,
-            }
+        # Non-lean: the legacy regime-weight auto-selection subsystem
+        # (available_strategies registry + _configure_strategies_for_regime) is
+        # retired; production selection runs through the lean selector and
+        # regime execution-gating. See TradovT142.
+        return {}
+
+    @staticmethod
+    def _resolve_regime_policy_key(regime: Any) -> str:
+        """Map a MarketRegime (or its value) to a regime policy bucket.
+
+        Used by ``get_regime_status`` to report the policy bucket for the
+        effective (possibly user-overridden) regime.
+        """
+        raw = str(getattr(regime, "value", regime) or "").strip().lower()
+        if raw in _D31_REGIME_POLICY_KEYS:
+            return raw
+        return _D31_REGIME_POLICY_ALIASES.get(raw, "range_calm")
+
+    # ==========================================================================
+    # USER-SELECTABLE REGIME OVERRIDE
+    # ==========================================================================
+
+    @staticmethod
+    def _coerce_regime(regime: Any) -> MarketRegime | None:
+        """Resolve a user-supplied regime to a MarketRegime, or None for auto.
+
+        Accepts a MarketRegime, its string value ("crisis"), its enum name
+        ("CRISIS"), or None / "auto" / "" to mean automatic detection.
+        """
+        if regime is None:
+            return None
+        if isinstance(regime, MarketRegime):
+            return regime
+        token = str(regime).strip().lower()
+        if token in ("", "auto", "none"):
+            return None
+        for r in MarketRegime:
+            if r.value == token or r.name.lower() == token:
+                return r
+        raise ValueError(
+            f"Unknown regime {regime!r}; valid options: "
+            f"{[r.value for r in MarketRegime]} (or 'auto')"
+        )
+
+    def set_regime_override(self, regime: Any) -> MarketRegime:
+        """Force the market regime to a user-selected value (or back to auto).
+
+        Applies immediately: the effective ``current_regime`` is set and
+        strategies are reconfigured for it, so the user's choice takes effect
+        without waiting for the next detection cycle. Pass ``None`` / ``"auto"``
+        to clear the override and resume automatic detection.
+
+        Args:
+            regime: a MarketRegime, its value/name string, or None / "auto".
+
+        Returns:
+            The effective MarketRegime after applying the override.
+        """
+        resolved = self._coerce_regime(regime)
+        self._regime_override = resolved
+
+        if resolved is None:
+            # Revert to the most recent auto-detected regime.
+            self.market_regime.current_regime = self._last_detected_regime
+            self.logger.info(
+                "📊 Regime override cleared; resuming auto-detection (now: %s)",
+                self._last_detected_regime.value,
+            )
+        else:
+            self.market_regime.current_regime = resolved
+            self.market_regime.last_regime_change = datetime.now(UTC)
+            self.market_regime.regime_duration_days = 0
+            self.market_regime.regime_history.append((datetime.now(UTC), resolved))
+            self.logger.info("📊 Regime override set by user: %s", resolved.value)
+
+        self._save_regime_override()
+
+        try:
+            self._configure_strategies_for_regime()
+        except Exception as e:
+            self.error_handler.handle_error(e, "StrategyOrchestrator.set_regime_override")
+
+        return self.market_regime.current_regime
+
+    def _load_regime_override(self) -> None:
+        """Load any persisted override on start-up and apply it to current_regime."""
+        path = getattr(self, "_regime_override_path", None)
+        if path is None:
+            return
+        try:
+            from Tradov.TradovU_Utilities.TradovU50_RegimeOverrideStore import (
+                load_regime_override,
+            )
+            token = load_regime_override(path)
+            resolved = self._coerce_regime(token)
+            self._regime_override = resolved
+            if resolved is not None:
+                self.market_regime.current_regime = resolved
+                self.logger.info(
+                    "📊 Loaded persisted regime override: %s", resolved.value
+                )
+        except Exception as e:
+            self.logger.warning("Could not load regime override: %s", e)
+
+    def _save_regime_override(self) -> None:
+        """Persist the current override (or its cleared state) to disk."""
+        path = getattr(self, "_regime_override_path", None)
+        if path is None:
+            return
+        try:
+            from Tradov.TradovU_Utilities.TradovU50_RegimeOverrideStore import (
+                save_regime_override,
+            )
+            token = self._regime_override.value if self._regime_override else None
+            save_regime_override(token, path)
+        except Exception as e:
+            self.logger.warning("Could not persist regime override: %s", e)
+
+    def _sync_regime_override_from_disk(self) -> None:
+        """Pick up an override changed externally (e.g. by the GUI, no session).
+
+        Cheap JSON read called once per detection cycle so a file written by
+        another process takes effect without a restart or a live object handle.
+        """
+        path = getattr(self, "_regime_override_path", None)
+        if path is None:
+            return
+        try:
+            from Tradov.TradovU_Utilities.TradovU50_RegimeOverrideStore import (
+                load_regime_override,
+            )
+            resolved = self._coerce_regime(load_regime_override(path))
+        except Exception:
+            return
+        if resolved != self._regime_override:
+            self._regime_override = resolved
+            self.logger.info(
+                "📊 Regime override changed externally to: %s",
+                resolved.value if resolved else "auto",
+            )
+
+    def clear_regime_override(self) -> MarketRegime:
+        """Clear any user regime override and resume automatic detection."""
+        return self.set_regime_override(None)
+
+    def get_regime_status(self) -> dict[str, Any]:
+        """Report effective vs. detected regime and the override state.
+
+        Suitable for surfacing in the GUI so the user can see whether the
+        regime is auto-detected or manually overridden, and which regimes are
+        available to select.
+        """
+        effective = self.market_regime.current_regime
+        return {
+            "effective_regime": effective.value,
+            "detected_regime": self._last_detected_regime.value,
+            "override_active": self._regime_override is not None,
+            "override_regime": (
+                self._regime_override.value if self._regime_override else None
+            ),
+            "policy_key": self._resolve_regime_policy_key(effective),
+            "regime_confidence": self.market_regime.regime_confidence,
+            "available_regimes": [r.value for r in MarketRegime],
         }
 
-        if self._put_credit_spread_7_eligible_now():
-            bull_low_vol = regime_weights.get(MarketRegime.BULL_LOW_VOL)
-            if bull_low_vol is not None:
-                bull_low_vol['PutCreditSpread7'] = 0.25
-            bull_high_vol = regime_weights.get(MarketRegime.BULL_HIGH_VOL)
-            if bull_high_vol is not None:
-                bull_high_vol['PutCreditSpread7'] = 0.15
-
-        return regime_weights.get(regime, {})
 
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES
@@ -4661,8 +4767,8 @@ class StrategyOrchestrator:
                 )
 
                 if not self.available_strategies:
-                    self.logger.warning(
-                        "No strategy classes registered — cannot configure strategies"
+                    self.logger.debug(
+                        "Strategy registry is retired; using explicit permitted-strategy activation instead"
                     )
                     return
 
@@ -4766,7 +4872,9 @@ class StrategyOrchestrator:
                                 conflict.conflict_type,
                             )
                             try:
-                                self.active_strategies[loser_id].pause()
+                                self.active_strategies[loser_id].pause(
+                                    reason=f"conflict: {conflict.conflict_type}"
+                                )
                                 self.paused_strategies.add(loser_id)
                             except Exception as exc:
                                 self.logger.error(
@@ -4810,7 +4918,9 @@ class StrategyOrchestrator:
                             self.market_regime.current_regime.value,
                         )
                         try:
-                            self.active_strategies[strategy_id].pause()
+                            self.active_strategies[strategy_id].pause(
+                                reason=f"zero weight in {self.market_regime.current_regime.value} regime"
+                            )
                             self.paused_strategies.add(strategy_id)
                         except Exception:
                             pass
@@ -4912,7 +5022,10 @@ class StrategyOrchestrator:
                 for strategy_id, strategy in list(self.active_strategies.items()):
                     if strategy_id not in self.paused_strategies:
                         try:
-                            strategy.pause()
+                            if getattr(risk_manager, "_data_stale", False):
+                                strategy.pause(reason="market data stale")
+                            else:
+                                strategy.pause(reason="daily risk limit breached")
                             self.paused_strategies.add(strategy_id)
                         except Exception:
                             pass
@@ -4983,41 +5096,83 @@ class StrategyOrchestrator:
         return None
 
     def _initialize_strategy_registry(self) -> None:
-        """Initialize available strategy registry"""
-        if TRADOV_MODULES_AVAILABLE:
-            candidate_strategies: dict[str, Any] = {}
-            candidate_strategy_names = list(_OPTIONAL_STRATEGY_IMPORTS)
-            candidate_strategy_names.extend([
-                'EvolvedCreditSpread',
-                'VIXHedging',
-            ])
+        """Initialize available strategy registry.
 
-            if self.lean_mode:
-                candidate_strategy_names = [
-                    name
-                    for name in candidate_strategy_names
-                    if name in self.lean_strategy_allowlist
-                ]
-
-            for strategy_name in candidate_strategy_names:
-                if strategy_name == 'EvolvedCreditSpread':
-                    candidate_strategies[strategy_name] = EvolvedCreditSpreadAdapter
-                    continue
-                if strategy_name == 'VIXHedging':
-                    candidate_strategies[strategy_name] = VIXHedgingAdapter
-                    continue
-
-                candidate_strategies[strategy_name] = _OPTIONAL_STRATEGY_IMPORTS[strategy_name]
-
-            self.available_strategies = {
-                name: cls
-                for name, cls in candidate_strategies.items()
-                if isinstance(cls, tuple) or _is_strategy_class(cls)
-            }
-        else:
-            self.available_strategies = {}
+        Retired: the registry-driven auto-activation subsystem is intentionally
+        empty (see TradovT142). Production strategy selection runs through the
+        lean selector and regime execution-gating, not this registry.
+        """
+        self.available_strategies = {}
 
         self.logger.debug("📋 Registered %s strategy types", len(self.available_strategies))
+
+    def activate_permitted_strategies(
+        self, allowlist: list[str] | tuple[str, ...] | None = None
+    ) -> list[str]:
+        """Instantiate and host the operator-permitted strategies.
+
+        This is the explicit, operator-curated activation path (it does not use
+        the retired regime-weight registry). For each permitted token it resolves
+        the strategy class from ``_D31_PERMITTED_STRATEGY_CLASSES``, ensures the
+        class name is allowed under lean mode, and hosts it via ``add_strategy``
+        (which then receives MARKET_DATA and emits STRATEGY_SIGNAL for gating /
+        dispatch like any hosted strategy).
+
+        Args:
+            allowlist: permitted strategy tokens; when None, read from
+                ``TRADOV_ALLOWED_STRATEGIES`` (falling back to all known tokens).
+
+        Returns:
+            The class names that were newly activated.
+        """
+        # Resolve the permitted tokens.
+        if allowlist is None:
+            raw = str(os.environ.get("TRADOV_ALLOWED_STRATEGIES", "")).strip()
+            tokens = (
+                [t.strip() for t in raw.split(",") if t.strip()]
+                if raw
+                else list(_D31_PERMITTED_STRATEGY_CLASSES)
+            )
+        else:
+            tokens = [str(t).strip() for t in allowlist if str(t).strip()]
+
+        # Case-insensitive token -> canonical key.
+        canonical = {k.lower(): k for k in _D31_PERMITTED_STRATEGY_CLASSES}
+
+        with self._strategies_lock:
+            active_names = {
+                getattr(alloc, "strategy_name", "")
+                for alloc in self.strategy_allocations.values()
+            }
+
+        activated: list[str] = []
+        for token in tokens:
+            key = canonical.get(token.lower())
+            if key is None:
+                self.logger.warning(
+                    "Permitted-strategy token not recognized: %s", token
+                )
+                continue
+            cls = _optional_strategy(*_D31_PERMITTED_STRATEGY_CLASSES[key])
+            if cls is None:
+                self.logger.warning("Permitted strategy unavailable: %s", key)
+                continue
+            # add_strategy enforces a lean-mode allowlist gate; allow this class.
+            self.lean_strategy_allowlist.add(cls.__name__)
+            if cls.__name__ in active_names:
+                continue
+            try:
+                strategy_id = self.add_strategy(cls, {"symbol": self._regime_source_symbol})
+                activated.append(cls.__name__)
+                self.logger.info(
+                    "✅ Activated permitted strategy: %s (%s)", key, strategy_id
+                )
+            except ValueError as exc:
+                # Concurrency / horizon-bucket caps may block additional slots.
+                self.logger.warning(
+                    "Permitted strategy %s not activated: %s", key, exc
+                )
+        return activated
 
     def _setup_event_subscriptions(self):
         """Setup event system subscriptions"""
@@ -5391,6 +5546,8 @@ class StrategyOrchestrator:
 
     def _is_live_mode_for_agent_handoff_policy(self) -> bool:
         """Resolve live/paper mode specifically for handoff policy enforcement."""
+        if self.runtime_context is not None:
+            return bool(self.runtime_context.is_live)
         candidates = (
             self._audit_run_mode,
             os.environ.get("TRADOV_TRADING_MODE"),
@@ -5782,7 +5939,14 @@ class StrategyOrchestrator:
                 self._seed_runtime_cadence_for_strategy(strategy_id, strategy)
                 continue
             try:
-                strategy.process_market_data(market_df)
+                strategy_market_df = (
+                    self._build_pair_scanner_price_frame()
+                    if self._strategy_needs_pair_price_frame(strategy)
+                    else market_df
+                )
+                if strategy_market_df is None or (hasattr(strategy_market_df, "empty") and strategy_market_df.empty):
+                    continue
+                strategy.process_market_data(strategy_market_df)
             except Exception as exc:
                 self.logger.error(
                     "Error feeding market data to strategy %s: %s", strategy_id, exc, exc_info=True
@@ -6180,6 +6344,8 @@ class StrategyOrchestrator:
             strategy_id = signal.get("strategy_id", signal.get("strategy_name", ""))
             side = signal.get("action", signal.get("side", "buy"))
             symbol = str(signal.get("symbol") or "")
+            if self._dispatch_pair_trade_signal(signal):
+                return
             if self._is_entry_action(side):
                 embargo_remaining_s = self._get_manual_close_reentry_embargo_remaining(
                     symbol,
@@ -6394,22 +6560,17 @@ class StrategyOrchestrator:
         normalized = re.sub(r"_v\d+$", "", normalized)
 
         aliases = {
-            "bullishstrangle": "bullish_strangle",
-            "bullishstranglestrategy": "bullish_strangle",
-            "bull_put_spread": "bull_put_credit_spread",
-            "bear_call_spread": "bear_call_credit_spread",
-            "brokenwingbutterfly": "broken_wing_butterfly",
-            "ironbutterfly": "iron_butterfly",
-            "jadelizardzero": "jade_lizard_zero",
-            "jadelizardzerostrategy": "jade_lizard_zero",
-            "putcreditspread7": "put_credit_spread_7",
-            "putcreditspread7strategy": "put_credit_spread_7",
-            "iron_condor": "iron_condor_defined_risk",
-            "zerohft": "zero_hft",
-            "zerohftstrategy": "zero_hft",
             "pivotmeanreversion": "pivot_mean_reversion",
             "pivot_mr": "pivot_mean_reversion",
             "d34_pivotmr": "pivot_mean_reversion",
+            "openingrangebreakout": "opening_range_breakout",
+            "openingrangebreakoutstrategy": "opening_range_breakout",
+            "rsimeanreversion": "rsi_mean_reversion",
+            "rsimeanreversionstrategy": "rsi_mean_reversion",
+            "macrossover": "ma_crossover",
+            "macrossoverstrategy": "ma_crossover",
+            "renaissancemeanreversion": "renaissance_mean_reversion",
+            "renaissancemeanreversionstrategy": "renaissance_mean_reversion",
         }
         return aliases.get(normalized, normalized)
 
@@ -6579,6 +6740,12 @@ class StrategyOrchestrator:
             if self._entry_gate_fail_closed():
                 return False, "market_conditions_unavailable"
             return True, ""
+
+        if (
+            market_conditions.get("market_conditions_available") is False
+            and self._entry_gate_fail_closed()
+        ):
+            return False, "market_conditions_unavailable"
 
         metadata = signal.get("metadata") if isinstance(signal.get("metadata"), dict) else {}
         action = str(signal.get("action") or signal.get("side") or metadata.get("action") or "").strip().lower()  # noqa: E501
@@ -6779,6 +6946,8 @@ class StrategyOrchestrator:
 
     def _is_live_mode(self) -> bool:
         """Return True when runtime is configured for live trading."""
+        if self.runtime_context is not None:
+            return bool(self.runtime_context.is_live)
         candidates = (
             self._audit_run_mode,
             os.environ.get("TRADOV_TRADING_MODE"),
@@ -7069,6 +7238,65 @@ class StrategyOrchestrator:
 
         market_df = pd.DataFrame(rows)
         return self._enrich_market_df_with_options_metrics(market_df)
+
+    @staticmethod
+    def _strategy_needs_pair_price_frame(strategy: Any) -> bool:
+        return (
+            strategy.__class__.__name__ == "PairTradingStrategy"
+            or strategy.__class__.__name__ == "DistanceTradingStrategy"
+            or (
+                hasattr(strategy, "scanner")
+                and hasattr(strategy, "set_pair_scan_sink")
+            )
+        )
+
+    def _build_pair_scanner_price_frame(self) -> pd.DataFrame | None:
+        """Build the wide symbol-column price frame expected by PairScanner."""
+        cache = self.market_data_cache if isinstance(self.market_data_cache, dict) else {}
+        if not cache:
+            return None
+
+        try:
+            from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_pair_universe
+            pair_universe = set(get_pair_universe())
+        except Exception:
+            pair_universe = set()
+
+        series_by_symbol: dict[str, pd.Series] = {}
+        for symbol, bucket in cache.items():
+            if not isinstance(symbol, str):
+                continue
+            normalized_symbol = symbol.strip().upper()
+            if pair_universe and normalized_symbol not in pair_universe:
+                continue
+            if not isinstance(bucket, deque) or not bucket:
+                continue
+
+            prices: list[float] = []
+            for tick in list(bucket)[-120:]:
+                if not isinstance(tick, dict):
+                    continue
+                value = self._coerce_float(
+                    tick.get("close")
+                    or tick.get("last")
+                    or tick.get("price")
+                    or tick.get("mark")
+                )
+                if value is None and tick.get("bid") is not None and tick.get("ask") is not None:
+                    bid = self._coerce_float(tick.get("bid"))
+                    ask = self._coerce_float(tick.get("ask"))
+                    if bid is not None and ask is not None and bid > 0 and ask > 0:
+                        value = (bid + ask) / 2.0
+                if value is not None and value > 0:
+                    prices.append(float(value))
+
+            if prices:
+                series_by_symbol[normalized_symbol] = pd.Series(prices[-120:], dtype="float64")
+
+        if len(series_by_symbol) < 2:
+            return None
+
+        return pd.DataFrame(series_by_symbol)
 
     def _extract_iron_condor_setup_payload(self, signal: dict[str, Any]) -> dict[str, Any]:
         """Extract explicit iron-condor strikes/expiry hints when present."""
@@ -9245,76 +9473,6 @@ class StrategyOrchestrator:
         self.logger.debug(
             "LiveEngine wired to StrategyOrchestrator for approved-signal dispatch"
         )
-        self._refresh_zero_hft_runtime_bindings()
-
-    def _refresh_zero_hft_runtime_bindings(self) -> None:
-        """Backfill ZeroHFT paper runtime integrations after engine wiring."""
-        if self._live_engine is None:
-            return
-
-        with self._strategies_lock:
-            active_strategies = list(self.active_strategies.items())
-
-        for strategy_id, strategy in active_strategies:
-            strategy_type = self._normalise_strategy_type_for_entry_gate(
-                getattr(strategy, "strategy_type", getattr(strategy, "name", strategy_id))
-            )
-            if strategy_type != "zero_hft":
-                continue
-
-            runtime_config = getattr(strategy, "runtime_config", None)
-            if not isinstance(runtime_config, dict):
-                runtime_config = {}
-
-            resolved_config = self._apply_strategy_runtime_config_defaults("ZeroHFT", runtime_config)
-            broker_client = resolved_config.get("broker_client")
-            gamma_engine = resolved_config.get("gamma_engine")
-            calendar_service = resolved_config.get("calendar_service") or getattr(
-                strategy,
-                "calendar_service",
-                None,
-            )
-
-            if broker_client is None or gamma_engine is None or calendar_service is None:
-                continue
-
-            try:
-                from Tradov.TradovD_Strategies.TradovD40_MicroTrancheExecutor import (
-                    MicroTrancheExecutor,
-                )
-
-                strategy.runtime_config = resolved_config
-                strategy.broker_client = broker_client
-                strategy.gamma_engine = gamma_engine
-                strategy.calendar_service = calendar_service
-                if getattr(strategy, "micro_executor", None) is None:
-                    strategy.micro_executor = MicroTrancheExecutor(
-                        broker_client=broker_client,
-                        gamma_engine=gamma_engine,
-                        calendar_service=calendar_service,
-                        target_delta=float(resolved_config.get("short_delta_target", 0.10)),
-                        short_delta_min=resolved_config.get("short_delta_min"),
-                        short_delta_max=resolved_config.get("short_delta_max"),
-                        wing_width_points=float(resolved_config.get("spread_width_points", 3.0)),
-                        tranche_quantity=int(resolved_config.get("tranche_quantity", 1)),
-                        min_net_credit=float(resolved_config.get("min_premium", 0.35)),
-                        underlying_symbol=str(resolved_config.get("symbol") or "SPX").upper(),
-                        option_root=str(resolved_config.get("option_root") or "SPXW").upper(),
-                        paper_only=bool(resolved_config.get("paper_only", True)),
-                        start_time=resolved_config.get("entry_delay_time") or strategy._entry_start_time(),
-                        end_time=resolved_config.get("entry_window_end") or strategy.entry_window_end,
-                    )
-                self.logger.info(
-                    "ZeroHFT runtime bindings refreshed after LiveEngine wiring (strategy=%s)",
-                    strategy_id,
-                )
-            except Exception as exc:
-                self.logger.warning(
-                    "ZeroHFT runtime rebinding failed for %s: %s",
-                    strategy_id,
-                    exc,
-                    exc_info=True,
-                )
 
     def set_regime_engine(self, engine: Any) -> None:
         """Attach or replace the optional L09 regime engine after startup."""
@@ -9351,6 +9509,119 @@ class StrategyOrchestrator:
         self.logger.info(
             "OrderManager wired to StrategyOrchestrator for mid-price walk execution"
         )
+
+    def set_pair_executor(self, executor: Any) -> None:
+        """Wire a coordinated pair executor for pair-trading signals."""
+        self._pair_executor = executor
+        self.logger.info("Pair executor wired to StrategyOrchestrator")
+
+    def flatten_pair_position(self, pair_key: str, reason: str = "manual_pair_flatten") -> bool:
+        """Flatten one open pair position by key using the pair executor or event fallback."""
+        pair_key = str(pair_key or "").strip()
+        if not pair_key:
+            return False
+
+        with self._strategies_lock:
+            active_snapshot = list(getattr(self, "active_strategies", {}).items())
+
+        target_strategy: Any | None = None
+        target_position: Any | None = None
+        for _strategy_id, strategy in active_snapshot:
+            get_positions = getattr(strategy, "get_pair_positions", None)
+            if not callable(get_positions):
+                continue
+            try:
+                positions = get_positions() or {}
+            except Exception:
+                continue
+            if not isinstance(positions, dict):
+                continue
+            if pair_key not in positions:
+                continue
+            target_strategy = strategy
+            target_position = positions[pair_key]
+            break
+
+        if target_strategy is None or target_position is None:
+            self.logger.warning("Pair flatten requested for unknown pair_key=%s", pair_key)
+            return False
+
+        pair_executor = self._pair_executor
+        pair_order = None
+        if pair_executor is not None and hasattr(pair_executor, "close_pair"):
+            try:
+                pair_order = pair_executor.close_pair(target_position)
+            except Exception as exc:
+                self.logger.error(
+                    "Pair flatten close failed for pair_key=%s: %s",
+                    pair_key,
+                    exc,
+                    exc_info=True,
+                )
+
+        pair_order_state = str(
+            getattr(getattr(pair_order, "state", None), "value", getattr(pair_order, "state", "")) or ""
+        ).strip().lower()
+        if pair_order is not None and pair_order_state not in {"failed", "cancelled"}:
+            closer = getattr(target_strategy, "close_pair_position", None)
+            if callable(closer):
+                try:
+                    closer(pair_key, reason)
+                except Exception as exc:
+                    self.logger.warning(
+                        "Could not clear local pair state for pair_key=%s: %s",
+                        pair_key,
+                        exc,
+                        exc_info=True,
+                    )
+            return True
+
+        symbols: list[str] = []
+        for attr in ("symbol_a", "symbol_b"):
+            symbol = str(getattr(target_position, attr, "") or "").strip()
+            if symbol and symbol not in symbols:
+                symbols.append(symbol)
+
+        if symbols:
+            try:
+                from Tradov.TradovA_Core.TradovA05_EventManager import EventType, get_event_manager  # noqa: PLC0415
+
+                event_manager = get_event_manager()
+                if event_manager is not None:
+                    event_manager.emit(
+                        EventType.FLATTEN_REQUEST,
+                        {
+                            "type": "symbols_flatten",
+                            "reason": reason,
+                            "symbols": symbols,
+                        },
+                        source="StrategyOrchestrator",
+                    )
+                    closer = getattr(target_strategy, "close_pair_position", None)
+                    if callable(closer):
+                        try:
+                            closer(pair_key, reason)
+                        except Exception as exc:
+                            self.logger.warning(
+                                "Could not clear local pair state after fallback flatten for pair_key=%s: %s",
+                                pair_key,
+                                exc,
+                                exc_info=True,
+                            )
+                    return True
+            except Exception as exc:
+                self.logger.error(
+                    "Pair flatten fallback failed for pair_key=%s: %s",
+                    pair_key,
+                    exc,
+                    exc_info=True,
+                )
+
+        return False
+
+    def exit_pair_position(self, pair_key: str, reason: str = "manual_pair_exit") -> bool:
+        """Compatibility alias for newer callers."""
+        return self.flatten_pair_position(pair_key, reason=reason)
 
     def set_vix_analyzer(self, analyzer: Any) -> None:
         """Wire a VIXAnalyzer (C10) so _update_market_regime reads live VIX data.
@@ -9752,6 +10023,123 @@ class StrategyOrchestrator:
             is not None
         )
 
+    @staticmethod
+    def _is_pair_trade_payload(payload: dict[str, Any]) -> bool:
+        return all(
+            key in payload and str(payload.get(key) or "").strip()
+            for key in ("pair_key", "symbol_a", "symbol_b")
+        )
+
+    def _build_pair_trading_signal(self, payload: dict[str, Any]) -> Any | None:
+        try:
+            from Tradov.TradovD_Strategies.TradovD50_PairTypes import PairSide, PairTradingSignal
+            from Tradov.TradovD_Strategies.TradovD01_BaseStrategy import (
+                SignalStrength,
+                SignalType,
+            )
+        except Exception:
+            return None
+
+        action = str(payload.get("action") or payload.get("side") or "buy").strip().lower()
+        if action in {"sell", "sell_to_open", "sell_short"}:
+            signal_type = SignalType.SELL
+        elif action in {"close", "sell_to_close"}:
+            signal_type = SignalType.CLOSE
+        else:
+            signal_type = SignalType.BUY
+
+        pair_side_raw = str(payload.get("pair_side") or "").strip().lower()
+        if pair_side_raw == "short_long":
+            pair_side = PairSide.SHORT_LONG
+        else:
+            pair_side = PairSide.LONG_SHORT
+
+        strength_raw = str(payload.get("strength") or "").strip().lower()
+        if strength_raw == "very_strong":
+            strength = SignalStrength.VERY_STRONG
+        elif strength_raw == "strong":
+            strength = SignalStrength.STRONG
+        elif strength_raw == "moderate":
+            strength = SignalStrength.MODERATE
+        else:
+            strength = SignalStrength.WEAK
+
+        try:
+            timestamp = datetime.fromisoformat(str(payload.get("timestamp"))) if payload.get("timestamp") else datetime.now(UTC)
+        except Exception:
+            timestamp = datetime.now(UTC)
+        try:
+            expires_at = datetime.fromisoformat(str(payload.get("expires_at"))) if payload.get("expires_at") else timestamp + timedelta(seconds=300)
+        except Exception:
+            expires_at = timestamp + timedelta(seconds=300)
+
+        try:
+            return PairTradingSignal(
+                signal_id=str(payload.get("signal_id") or uuid.uuid4().hex),
+                signal_type=signal_type,
+                symbol=str(payload.get("symbol") or f"{payload.get('symbol_a')}/{payload.get('symbol_b')}"),
+                strength=strength,
+                confidence=float(payload.get("confidence") or 0.0),
+                entry_price=float(payload.get("entry_price") or payload.get("price") or 0.0),
+                stop_loss=float(payload.get("stop_loss") or 0.0),
+                take_profit=float(payload.get("take_profit") or 0.0),
+                position_size=max(1, int(payload.get("position_size") or payload.get("quantity") or payload.get("quantity_a") or 1)),
+                timestamp=timestamp,
+                expires_at=expires_at,
+                metadata=dict(payload.get("metadata") or {}),
+                bid=float(payload.get("bid") or 0.0),
+                ask=float(payload.get("ask") or 0.0),
+                option_symbol=str(payload.get("option_symbol") or ""),
+                pair_key=str(payload.get("pair_key") or ""),
+                pair_side=pair_side,
+                hedge_ratio=float(payload.get("hedge_ratio") or 1.0),
+                z_score=float(payload.get("z_score") or 0.0),
+                half_life=float(payload.get("half_life") or 0.0),
+                spread_price=float(payload.get("spread_price") or 0.0),
+                symbol_a=str(payload.get("symbol_a") or ""),
+                symbol_b=str(payload.get("symbol_b") or ""),
+                quantity_a=max(1, int(payload.get("quantity_a") or payload.get("quantity") or 1)),
+                quantity_b=max(1, int(payload.get("quantity_b") or payload.get("quantity") or 1)),
+            )
+        except Exception as exc:
+            self.logger.warning("D31 could not normalize pair signal: %s", exc)
+            return None
+
+    def _dispatch_pair_trade_signal(self, signal: Any) -> bool:
+        """Route pair-trading signals through the coordinated pair executor."""
+        pair_executor = self._pair_executor
+        payload = signal if isinstance(signal, dict) else (signal.to_dict() if hasattr(signal, "to_dict") else {})
+        if not isinstance(payload, dict) or not self._is_pair_trade_payload(payload):
+            return False
+
+        if pair_executor is None:
+            self.logger.error(
+                "D31 pair signal dropped — no pair executor wired: pair_key=%s",
+                payload.get("pair_key"),
+            )
+            self._record_signal_drop("dispatch", "pair_executor_unavailable", signal=signal)
+            return True
+
+        pair_signal = self._build_pair_trading_signal(payload)
+        if pair_signal is None:
+            self._record_signal_drop("dispatch", "pair_signal_normalization_failed", signal=signal)
+            return True
+
+        try:
+            result = pair_executor.execute_pair(pair_signal)
+        except Exception as exc:
+            self.logger.error("D31 pair dispatch failed: %s", exc, exc_info=True)
+            self._record_signal_drop("dispatch", "pair_dispatch_exception", signal=signal, detail=str(exc))
+            return True
+
+        self.logger.info(
+            "Pair order dispatched: pair_key=%s state=%s",
+            getattr(result, "pair_key", payload.get("pair_key")),
+            getattr(getattr(result, "state", None), "value", getattr(result, "state", "")),
+        )
+        self._record_signal_dispatch_outcome_safe("dispatch_submitted", signal=signal)
+        return True
+
     def _dispatch_approved_signal(self, signal: Any) -> None:
         """Convert a risk-approved strategy signal to an order and submit it.
 
@@ -9828,6 +10216,8 @@ class StrategyOrchestrator:
             symbol = _get("symbol", "")
             quantity = int(_get("quantity", 0))
             strategy_id = _get("strategy_id", _get("strategy_name", ""))
+            if self._dispatch_pair_trade_signal(raw_signal_payload or raw):
+                return
 
             if not symbol or not quantity:
                 self._clear_pending_entry_reservation(symbol, strategy_id)

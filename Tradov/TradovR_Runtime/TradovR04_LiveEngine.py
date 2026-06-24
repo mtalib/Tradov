@@ -66,6 +66,9 @@ _ET = ZoneInfo("America/New_York")
 MAX_DAILY_TRADES = int(os.environ.get('MAX_DAILY_TRADES', 100))
 MAX_POSITION_SIZE = int(os.environ.get('MAX_POSITION_SIZE', 10000))  # contracts
 MAX_DAILY_LOSS = float(os.environ.get('MAX_DAILY_LOSS_USD', 10000))  # dollars
+MAX_LIVE_TRADES = int(os.environ.get('TRADOV_MAX_LIVE_TRADES', 3))
+MAX_PAIR_TRADES = int(os.environ.get('TRADOV_MAX_PAIR_TRADES', 3))
+MAX_DIRECTIONAL_TRADES = int(os.environ.get('TRADOV_MAX_DIRECTIONAL_TRADES', 0))
 EMERGENCY_STOP_LOSS = float(os.environ.get('EMERGENCY_STOP_LOSS_PCT', 0.05))  # 5% portfolio loss
 
 # Confirmation settings - Opt-in for development mode
@@ -146,6 +149,9 @@ class LiveTradingConfig:
     max_daily_trades: int = MAX_DAILY_TRADES
     max_position_size: int = MAX_POSITION_SIZE
     max_daily_loss: float = MAX_DAILY_LOSS
+    max_live_trades: int = MAX_LIVE_TRADES
+    max_pair_trades: int = MAX_PAIR_TRADES
+    max_directional_trades: int = MAX_DIRECTIONAL_TRADES
     enable_extended_hours: bool = False
     require_confirmation: bool = REQUIRE_LIVE_ORDER_CONFIRMATION  # Autonomous by default
     high_risk_confirmation: bool = HIGH_RISK_ORDER_CONFIRMATION  # Selective confirmation for large orders  # noqa: E501
@@ -1442,6 +1448,8 @@ class LiveEngine:
             "strategy_id",
             "strategy",
             "strategy_name",
+            "strategy_type",
+            "pair_key",
             "opened_at",
             "order_id",
             "underlying_symbol",
@@ -1453,6 +1461,101 @@ class LiveEngine:
                 merged[key] = existing.get(key)
 
         return merged
+
+    @staticmethod
+    def _normalize_strategy_type(value: Any) -> str:
+        return str(value or "").strip().lower()
+
+    @classmethod
+    def _extract_trade_identity(cls, payload: dict[str, Any] | None) -> tuple[str, str, str, str]:
+        """Extract a stable trade identity from an order or position payload."""
+        if not isinstance(payload, dict):
+            return "", "", "", ""
+
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        strategy_id = str(
+            payload.get("strategy_id")
+            or payload.get("strategy")
+            or payload.get("strategy_name")
+            or metadata.get("strategy_id")
+            or metadata.get("strategy")
+            or metadata.get("strategy_name")
+            or ""
+        ).strip()
+        strategy_type = cls._normalize_strategy_type(
+            payload.get("strategy_type")
+            or metadata.get("strategy_type")
+            or payload.get("pair_key")
+            or metadata.get("pair_key")
+            or payload.get("strategy")
+            or metadata.get("strategy")
+            or payload.get("strategy_name")
+            or metadata.get("strategy_name")
+        )
+        pair_key = str(payload.get("pair_key") or metadata.get("pair_key") or "").strip()
+        slot_kind = "pair" if pair_key or "pair" in strategy_type else "directional"
+        slot_id = pair_key if slot_kind == "pair" and pair_key else strategy_id
+        return strategy_id, strategy_type, slot_kind, slot_id
+
+    def _collect_live_trade_slots(self) -> dict[str, set[str]]:
+        """Collect currently live trade slots split by pair and directional types."""
+        pair_slots: set[str] = set()
+        directional_slots: set[str] = set()
+
+        with self._pending_orders_lock:
+            pending_orders = [
+                entry.get("order")
+                for entry in self.pending_orders.values()
+                if isinstance(entry, dict) and isinstance(entry.get("order"), dict)
+            ]
+
+        with self._active_positions_lock:
+            active_positions = [
+                position
+                for position in self.active_positions.values()
+                if isinstance(position, dict)
+            ]
+
+        for payload in (*pending_orders, *active_positions):
+            strategy_id, _, slot_kind, slot_id = self._extract_trade_identity(payload)
+            if slot_kind == "pair":
+                if slot_id:
+                    pair_slots.add(slot_id)
+                elif strategy_id:
+                    pair_slots.add(strategy_id)
+                continue
+
+            if strategy_id:
+                directional_slots.add(strategy_id)
+
+        return {
+            "pair": pair_slots,
+            "directional": directional_slots,
+        }
+
+    def _project_live_trade_slots(self, order: dict[str, Any]) -> dict[str, set[str]]:
+        """Project live slot counts after admitting one additional order."""
+        live_slots = self._collect_live_trade_slots()
+        projected = {
+            "pair": set(live_slots["pair"]),
+            "directional": set(live_slots["directional"]),
+        }
+
+        _, _, slot_kind, slot_id = self._extract_trade_identity(order)
+        if slot_kind == "pair":
+            if slot_id:
+                projected["pair"].add(slot_id)
+        elif order.get("strategy_id") or order.get("strategy") or order.get("strategy_name"):
+            projected["directional"].add(
+                str(
+                    order.get("strategy_id")
+                    or order.get("strategy")
+                    or order.get("strategy_name")
+                    or ""
+                ).strip()
+            )
+
+        return projected
 
     def _check_heartbeat(self):
         """Check broker connection heartbeat."""
@@ -1556,6 +1659,44 @@ class LiveEngine:
                 message=(
                     f"Multi-leg option strategy {strategy_id} requires explicit "
                     "option-leg routing"
+                ),
+                timestamp=datetime.now(_ET),
+            )
+
+        projected_slots = self._project_live_trade_slots(order)
+        projected_pair_trades = len(projected_slots["pair"])
+        projected_directional_trades = len(projected_slots["directional"])
+        projected_total_trades = projected_pair_trades + projected_directional_trades
+
+        if projected_total_trades > self.config.max_live_trades:
+            return SafetyCheck(
+                check_name="live_trade_limit",
+                result=SafetyCheckResult.FAILED,
+                message=(
+                    f"Live trade limit exceeded: {projected_total_trades}/"
+                    f"{self.config.max_live_trades}"
+                ),
+                timestamp=datetime.now(_ET),
+            )
+
+        if projected_pair_trades > self.config.max_pair_trades:
+            return SafetyCheck(
+                check_name="pair_trade_limit",
+                result=SafetyCheckResult.FAILED,
+                message=(
+                    f"Pair trade limit exceeded: {projected_pair_trades}/"
+                    f"{self.config.max_pair_trades}"
+                ),
+                timestamp=datetime.now(_ET),
+            )
+
+        if projected_directional_trades > self.config.max_directional_trades:
+            return SafetyCheck(
+                check_name="directional_trade_limit",
+                result=SafetyCheckResult.FAILED,
+                message=(
+                    f"Directional trade limit exceeded: {projected_directional_trades}/"
+                    f"{self.config.max_directional_trades}"
                 ),
                 timestamp=datetime.now(_ET),
             )
@@ -3303,6 +3444,40 @@ class LiveEngine:
         if not strategy:
             strategy = str(position_snapshot.get("strategy") or existing_strategy or "")
 
+        strategy_id = str(
+            data.get("strategy_id")
+            or pending_order.get("strategy_id")
+            or position_snapshot.get("strategy_id")
+            or existing_position.get("strategy_id")
+            or strategy
+            or ""
+        ).strip()
+        strategy_name = str(
+            data.get("strategy_name")
+            or pending_order.get("strategy_name")
+            or pending_order.get("strategy")
+            or position_snapshot.get("strategy_name")
+            or position_snapshot.get("strategy")
+            or strategy
+            or ""
+        ).strip()
+        strategy_type = str(
+            data.get("strategy_type")
+            or pending_order.get("strategy_type")
+            or (pending_order.get("metadata", {}) if isinstance(pending_order.get("metadata"), dict) else {}).get("strategy_type")
+            or position_snapshot.get("strategy_type")
+            or existing_position.get("strategy_type")
+            or ""
+        ).strip().lower()
+        pair_key = str(
+            data.get("pair_key")
+            or pending_order.get("pair_key")
+            or (pending_order.get("metadata", {}) if isinstance(pending_order.get("metadata"), dict) else {}).get("pair_key")
+            or position_snapshot.get("pair_key")
+            or existing_position.get("pair_key")
+            or ""
+        ).strip()
+
         fill_quantity = abs(existing_quantity - quantity) or data.get("filled_quantity") or data.get("quantity")
         realized_pnl = self._calculate_realized_pnl_from_fill(
             symbol=symbol,
@@ -3364,6 +3539,10 @@ class LiveEngine:
                     "entry_price": entry_price,
                     "current_price": current_price or entry_price,
                     "strategy": strategy,
+                    "strategy_id": strategy_id,
+                    "strategy_name": strategy_name,
+                    "strategy_type": strategy_type or None,
+                    "pair_key": pair_key or None,
                     "opened_at": opened_at,
                     "order_id": order_id,
                     "underlying_symbol": underlying_symbol,
@@ -4169,6 +4348,9 @@ def create_live_engine(
         max_daily_trades=config.get("max_daily_trades", MAX_DAILY_TRADES),
         max_position_size=config.get("max_position_size", MAX_POSITION_SIZE),
         max_daily_loss=config.get("max_daily_loss", MAX_DAILY_LOSS),
+        max_live_trades=config.get("max_live_trades", MAX_LIVE_TRADES),
+        max_pair_trades=config.get("max_pair_trades", MAX_PAIR_TRADES),
+        max_directional_trades=config.get("max_directional_trades", MAX_DIRECTIONAL_TRADES),
         enable_extended_hours=config.get("enable_extended_hours", False),
         require_confirmation=config.get("require_confirmation", True),
     )

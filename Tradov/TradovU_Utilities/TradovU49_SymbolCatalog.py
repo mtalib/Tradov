@@ -40,6 +40,8 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "OPTIONS ANALYTICS",
     "BONDS & CREDIT",
     "CORRELATIONS",
+    "PAIR EQUITIES",
+    "PAIR ETFS",
     "CUSTOM METRICS",
 )
 
@@ -50,7 +52,7 @@ CATEGORY_ORDER: tuple[str, ...] = (
 # - backend_symbol supports legacy market-data group naming (e.g. TICK-NYSE).
 SYMBOL_CATALOG: tuple[SymbolDefinition, ...] = (
     SymbolDefinition("DIA", "MAJOR INDICES", True, "quote", provider_symbol="DIA", backend_symbol="DIA"),
-    SymbolDefinition("TRAD", "MAJOR INDICES", True, "quote", provider_symbol="TRAD", backend_symbol="TRAD"),
+    SymbolDefinition("SPY", "MAJOR INDICES", True, "quote", provider_symbol="SPY", backend_symbol="SPY"),
     SymbolDefinition("SPX", "S&P CORE", False, "quote", provider_symbol="SPX", backend_symbol="SPX"),
     SymbolDefinition("$DJI", None, False, "quote", provider_symbol="$DJI"),
     SymbolDefinition("NDX", None, False, "quote", provider_symbol="NDX"),
@@ -109,6 +111,103 @@ SYMBOL_CATALOG: tuple[SymbolDefinition, ...] = (
     SymbolDefinition("SWAN", "CUSTOM METRICS", True, "event-only", optional=True),
     SymbolDefinition("PMR", "CUSTOM METRICS", True, "computed", optional=True),
 
+    # ── PAIR TRADING EQUITIES (50 stocks across 10 sectors) ──
+    # Technology
+    SymbolDefinition("AAPL", "PAIR EQUITIES", True, "quote", provider_symbol="AAPL"),
+    SymbolDefinition("MSFT", "PAIR EQUITIES", True, "quote", provider_symbol="MSFT"),
+    SymbolDefinition("GOOGL", "PAIR EQUITIES", True, "quote", provider_symbol="GOOGL"),
+    SymbolDefinition("META", "PAIR EQUITIES", True, "quote", provider_symbol="META"),
+    SymbolDefinition("AMZN", "PAIR EQUITIES", True, "quote", provider_symbol="AMZN"),
+    # Financials
+    SymbolDefinition("JPM", "PAIR EQUITIES", True, "quote", provider_symbol="JPM"),
+    SymbolDefinition("BAC", "PAIR EQUITIES", True, "quote", provider_symbol="BAC"),
+    SymbolDefinition("WFC", "PAIR EQUITIES", True, "quote", provider_symbol="WFC"),
+    SymbolDefinition("GS", "PAIR EQUITIES", True, "quote", provider_symbol="GS"),
+    SymbolDefinition("MS", "PAIR EQUITIES", True, "quote", provider_symbol="MS"),
+    # Healthcare
+    SymbolDefinition("JNJ", "PAIR EQUITIES", True, "quote", provider_symbol="JNJ"),
+    SymbolDefinition("UNH", "PAIR EQUITIES", True, "quote", provider_symbol="UNH"),
+    SymbolDefinition("PFE", "PAIR EQUITIES", True, "quote", provider_symbol="PFE"),
+    SymbolDefinition("MRK", "PAIR EQUITIES", True, "quote", provider_symbol="MRK"),
+    SymbolDefinition("ABBV", "PAIR EQUITIES", True, "quote", provider_symbol="ABBV"),
+    # Energy
+    SymbolDefinition("XOM", "PAIR EQUITIES", True, "quote", provider_symbol="XOM"),
+    SymbolDefinition("CVX", "PAIR EQUITIES", True, "quote", provider_symbol="CVX"),
+    SymbolDefinition("COP", "PAIR EQUITIES", True, "quote", provider_symbol="COP"),
+    SymbolDefinition("SLB", "PAIR EQUITIES", True, "quote", provider_symbol="SLB"),
+    SymbolDefinition("EOG", "PAIR EQUITIES", True, "quote", provider_symbol="EOG"),
+    # Industrials
+    SymbolDefinition("CAT", "PAIR EQUITIES", True, "quote", provider_symbol="CAT"),
+    SymbolDefinition("GE", "PAIR EQUITIES", True, "quote", provider_symbol="GE"),
+    SymbolDefinition("MMM", "PAIR EQUITIES", True, "quote", provider_symbol="MMM"),
+    SymbolDefinition("HON", "PAIR EQUITIES", True, "quote", provider_symbol="HON"),
+    SymbolDefinition("BA", "PAIR EQUITIES", True, "quote", provider_symbol="BA"),
+    # Consumer Discretionary
+    SymbolDefinition("HD", "PAIR EQUITIES", True, "quote", provider_symbol="HD"),
+    SymbolDefinition("LOW", "PAIR EQUITIES", True, "quote", provider_symbol="LOW"),
+    SymbolDefinition("TSLA", "PAIR EQUITIES", True, "quote", provider_symbol="TSLA"),
+    SymbolDefinition("NKE", "PAIR EQUITIES", True, "quote", provider_symbol="NKE"),
+    SymbolDefinition("TGT", "PAIR EQUITIES", True, "quote", provider_symbol="TGT"),
+    # Consumer Staples
+    SymbolDefinition("PG", "PAIR EQUITIES", True, "quote", provider_symbol="PG"),
+    SymbolDefinition("KO", "PAIR EQUITIES", True, "quote", provider_symbol="KO"),
+    SymbolDefinition("PEP", "PAIR EQUITIES", True, "quote", provider_symbol="PEP"),
+    SymbolDefinition("COST", "PAIR EQUITIES", True, "quote", provider_symbol="COST"),
+    SymbolDefinition("WMT", "PAIR EQUITIES", True, "quote", provider_symbol="WMT"),
+    # Materials
+    SymbolDefinition("LIN", "PAIR EQUITIES", True, "quote", provider_symbol="LIN"),
+    SymbolDefinition("APD", "PAIR EQUITIES", True, "quote", provider_symbol="APD"),
+    SymbolDefinition("SHW", "PAIR EQUITIES", True, "quote", provider_symbol="SHW"),
+    SymbolDefinition("DD", "PAIR EQUITIES", True, "quote", provider_symbol="DD"),
+    SymbolDefinition("NEM", "PAIR EQUITIES", True, "quote", provider_symbol="NEM"),
+    # Utilities
+    SymbolDefinition("NEE", "PAIR EQUITIES", True, "quote", provider_symbol="NEE"),
+    SymbolDefinition("DUK", "PAIR EQUITIES", True, "quote", provider_symbol="DUK"),
+    SymbolDefinition("SO", "PAIR EQUITIES", True, "quote", provider_symbol="SO"),
+    SymbolDefinition("D", "PAIR EQUITIES", True, "quote", provider_symbol="D"),
+    SymbolDefinition("AEP", "PAIR EQUITIES", True, "quote", provider_symbol="AEP"),
+    # Communication Services
+    SymbolDefinition("DIS", "PAIR EQUITIES", True, "quote", provider_symbol="DIS"),
+    SymbolDefinition("NFLX", "PAIR EQUITIES", True, "quote", provider_symbol="NFLX"),
+    SymbolDefinition("CMCSA", "PAIR EQUITIES", True, "quote", provider_symbol="CMCSA"),
+    SymbolDefinition("T", "PAIR EQUITIES", True, "quote", provider_symbol="T"),
+    SymbolDefinition("VZ", "PAIR EQUITIES", True, "quote", provider_symbol="VZ"),
+
+    # ── PAIR TRADING ETFS (30 ETFs for sector/asset-class pairs) ──
+    # Sector ETFs (Select SPDR)
+    SymbolDefinition("XLK", "PAIR ETFS", True, "quote", provider_symbol="XLK"),
+    SymbolDefinition("XLF", "PAIR ETFS", True, "quote", provider_symbol="XLF"),
+    SymbolDefinition("XLE", "PAIR ETFS", True, "quote", provider_symbol="XLE"),
+    SymbolDefinition("XLV", "PAIR ETFS", True, "quote", provider_symbol="XLV"),
+    SymbolDefinition("XLI", "PAIR ETFS", True, "quote", provider_symbol="XLI"),
+    SymbolDefinition("XLY", "PAIR ETFS", True, "quote", provider_symbol="XLY"),
+    SymbolDefinition("XLP", "PAIR ETFS", True, "quote", provider_symbol="XLP"),
+    SymbolDefinition("XLU", "PAIR ETFS", True, "quote", provider_symbol="XLU"),
+    SymbolDefinition("XLRE", "PAIR ETFS", True, "quote", provider_symbol="XLRE"),
+    SymbolDefinition("XLC", "PAIR ETFS", True, "quote", provider_symbol="XLC"),
+    SymbolDefinition("XLB", "PAIR ETFS", True, "quote", provider_symbol="XLB"),
+    # Vanguard Sector ETFs (natural pairs with SPDRs)
+    SymbolDefinition("VGT", "PAIR ETFS", True, "quote", provider_symbol="VGT"),
+    SymbolDefinition("VFH", "PAIR ETFS", True, "quote", provider_symbol="VFH"),
+    SymbolDefinition("VDE", "PAIR ETFS", True, "quote", provider_symbol="VDE"),
+    SymbolDefinition("VHT", "PAIR ETFS", True, "quote", provider_symbol="VHT"),
+    SymbolDefinition("VIS", "PAIR ETFS", True, "quote", provider_symbol="VIS"),
+    SymbolDefinition("VCR", "PAIR ETFS", True, "quote", provider_symbol="VCR"),
+    SymbolDefinition("VDC", "PAIR ETFS", True, "quote", provider_symbol="VDC"),
+    SymbolDefinition("VPU", "PAIR ETFS", True, "quote", provider_symbol="VPU"),
+    SymbolDefinition("VNQ", "PAIR ETFS", True, "quote", provider_symbol="VNQ"),
+    SymbolDefinition("VOX", "PAIR ETFS", True, "quote", provider_symbol="VOX"),
+    # iShares Sector ETFs
+    SymbolDefinition("IYW", "PAIR ETFS", True, "quote", provider_symbol="IYW"),
+    SymbolDefinition("IYF", "PAIR ETFS", True, "quote", provider_symbol="IYF"),
+    SymbolDefinition("IYE", "PAIR ETFS", True, "quote", provider_symbol="IYE"),
+    SymbolDefinition("IYH", "PAIR ETFS", True, "quote", provider_symbol="IYH"),
+    SymbolDefinition("IYJ", "PAIR ETFS", True, "quote", provider_symbol="IYJ"),
+    # Broad-market / factor ETFs
+    SymbolDefinition("RSP", "PAIR ETFS", True, "quote", provider_symbol="RSP"),
+    SymbolDefinition("QQQE", "PAIR ETFS", True, "quote", provider_symbol="QQQE"),
+    SymbolDefinition("SPYV", "PAIR ETFS", True, "quote", provider_symbol="SPYV"),
+    SymbolDefinition("SPYG", "PAIR ETFS", True, "quote", provider_symbol="SPYG"),
 )
 
 
@@ -339,6 +438,86 @@ def build_default_symbol_config() -> dict:
     }
 
 
+PAIR_EQUITY_SECTORS: dict[str, tuple[str, ...]] = {
+    "Technology": ("AAPL", "MSFT", "GOOGL", "META", "AMZN"),
+    "Financials": ("JPM", "BAC", "WFC", "GS", "MS"),
+    "Healthcare": ("JNJ", "UNH", "PFE", "MRK", "ABBV"),
+    "Energy": ("XOM", "CVX", "COP", "SLB", "EOG"),
+    "Industrials": ("CAT", "GE", "MMM", "HON", "BA"),
+    "Consumer Discretionary": ("HD", "LOW", "TSLA", "NKE", "TGT"),
+    "Consumer Staples": ("PG", "KO", "PEP", "COST", "WMT"),
+    "Materials": ("LIN", "APD", "SHW", "DD", "NEM"),
+    "Utilities": ("NEE", "DUK", "SO", "D", "AEP"),
+    "Communication Services": ("DIS", "NFLX", "CMCSA", "T", "VZ"),
+}
+
+DEFAULT_PAIR_DEFINITIONS: tuple[tuple[str, str, str, str], ...] = (
+    # Equity pairs (same sector)
+    ("HD", "LOW", "Consumer Discretionary", "equity"),
+    ("JPM", "BAC", "Financials", "equity"),
+    ("XOM", "CVX", "Energy", "equity"),
+    ("PG", "KO", "Consumer Staples", "equity"),
+    ("JNJ", "UNH", "Healthcare", "equity"),
+    ("AAPL", "MSFT", "Technology", "equity"),
+    ("GOOGL", "META", "Technology", "equity"),
+    ("PEP", "KO", "Consumer Staples", "equity"),
+    ("COST", "WMT", "Consumer Staples", "equity"),
+    ("CAT", "GE", "Industrials", "equity"),
+    # ETF pairs (SPDR ↔ Vanguard)
+    ("XLE", "VDE", "Energy", "etf"),
+    ("XLF", "VFH", "Financials", "etf"),
+    ("XLK", "VGT", "Technology", "etf"),
+    ("XLV", "VHT", "Healthcare", "etf"),
+    ("XLI", "VIS", "Industrials", "etf"),
+    ("XLY", "VCR", "Consumer Discretionary", "etf"),
+    ("XLP", "VDC", "Consumer Staples", "etf"),
+    ("XLU", "VPU", "Utilities", "etf"),
+    ("XLRE", "VNQ", "Real Estate", "etf"),
+    ("XLC", "VOX", "Communication Services", "etf"),
+    # Cross-asset / thematic
+    ("XLF", "XLE", "Cross-Sector", "cross_asset"),
+    ("XLK", "XLV", "Tech vs Healthcare", "cross_asset"),
+    ("XLY", "XLP", "Discretionary vs Staples", "cross_asset"),
+    ("XLE", "XLU", "Energy vs Utilities", "cross_asset"),
+    ("XLF", "XLI", "Financials vs Industrials", "cross_asset"),
+)
+
+
+def get_pair_equity_symbols() -> set[str]:
+    return {
+        definition.symbol
+        for definition in SYMBOL_CATALOG
+        if definition.display_category == "PAIR EQUITIES"
+    }
+
+
+def get_pair_etf_symbols() -> set[str]:
+    return {
+        definition.symbol
+        for definition in SYMBOL_CATALOG
+        if definition.display_category == "PAIR ETFS"
+    }
+
+
+def get_pair_universe() -> set[str]:
+    return get_pair_equity_symbols() | get_pair_etf_symbols()
+
+
+def get_pair_quote_basket() -> list[str]:
+    seen: set[str] = set()
+    basket: list[str] = []
+    for definition in SYMBOL_CATALOG:
+        if definition.display_category not in {"PAIR EQUITIES", "PAIR ETFS"}:
+            continue
+        if definition.fetch_requirement not in {"quote", "proxy"}:
+            continue
+        provider_symbol = definition.provider_symbol or definition.symbol
+        if provider_symbol not in seen:
+            basket.append(provider_symbol)
+            seen.add(provider_symbol)
+    return basket
+
+
 __all__ = [
     "CATEGORY_ORDER",
     "SYMBOL_CATALOG",
@@ -355,4 +534,10 @@ __all__ = [
     "get_realtime_sentinel_symbols",
     "get_symbol_catalog",
     "get_worker_live_data_keys",
+    "PAIR_EQUITY_SECTORS",
+    "DEFAULT_PAIR_DEFINITIONS",
+    "get_pair_equity_symbols",
+    "get_pair_etf_symbols",
+    "get_pair_universe",
+    "get_pair_quote_basket",
 ]
