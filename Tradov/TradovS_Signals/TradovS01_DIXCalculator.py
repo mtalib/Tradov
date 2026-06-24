@@ -291,7 +291,7 @@ class TradovDIXCalculator:
             # fetch via requests with a browser UA, then parse the HTML string.
             _wiki_headers = {
                 "User-Agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "Mozilla/5.0 (Linux x86_64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                 ),
                 "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
@@ -441,7 +441,7 @@ class TradovDIXCalculator:
         # Presenting a realistic browser UA + Accept headers bypasses the block.
         _headers = {
             "User-Agent": (
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "Mozilla/5.0 (Linux x86_64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             ),
             "Accept": "text/plain,text/html,application/xhtml+xml,*/*;q=0.8",

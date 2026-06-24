@@ -57,6 +57,7 @@ import numpy as np
 # ==============================================================================
 from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
 from Tradov.TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler
+from Tradov.TradovU_Utilities.TradovU51_RuntimeContext import RuntimeContext, coerce_runtime_context
 
 try:
     from Tradov.TradovZ_Communication.TradovZ02_MessageProtocol import (
@@ -334,11 +335,12 @@ class AgentMessageBus:
     topic-based routing, and fault tolerance.
     """
 
-    def __init__(self, config: dict[str, Any] | None = None):
+    def __init__(self, config: dict[str, Any] | None = None, runtime_context: RuntimeContext | None = None):
         """Initialize the message bus"""
         self.logger = TradovLogger.get_logger(__name__)
         self.error_handler = TradovErrorHandler()
         self.config = config or {}
+        self.runtime_context = coerce_runtime_context(runtime_context)
 
         # Threading
         self._lock = threading.RLock()
@@ -409,6 +411,8 @@ class AgentMessageBus:
 
     def _resolve_trading_mode(self) -> str:
         """Resolve operating mode to "paper" or "live"."""
+        if self.runtime_context is not None:
+            return self.runtime_context.mode
         paper_mode = self.config.get("paper_mode")
         if isinstance(paper_mode, bool):
             return "paper" if paper_mode else "live"
@@ -1309,9 +1313,12 @@ class AgentMessageBus:
 # ==============================================================================
 # FACTORY FUNCTION
 # ==============================================================================
-def create_message_bus(config: dict[str, Any] | None = None) -> AgentMessageBus:
+def create_message_bus(
+    config: dict[str, Any] | None = None,
+    runtime_context: RuntimeContext | None = None,
+) -> AgentMessageBus:
     """Create and initialize message bus instance"""
-    return AgentMessageBus(config)
+    return AgentMessageBus(config, runtime_context=runtime_context)
 
 
 # ==============================================================================

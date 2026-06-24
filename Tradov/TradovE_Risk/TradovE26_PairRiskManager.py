@@ -39,6 +39,7 @@ from Tradov.TradovD_Strategies.TradovD50_PairTypes import (
     PairTradingSignal,
     PairStatus,
 )
+from config.config import PAIR_TRADING_MAX_OPEN
 
 
 @dataclass
@@ -46,7 +47,7 @@ class PairRiskLimits:
     max_pair_notional: float = 50000.0
     max_total_pair_notional: float = 200000.0
     max_pairs_per_sector: int = 3
-    max_open_pairs: int = 10
+    max_open_pairs: int = PAIR_TRADING_MAX_OPEN
     max_beta_deviation: float = 0.15
     max_coint_p_value: float = 0.10
     max_single_pair_pnl_pct: float = 0.02
@@ -76,6 +77,7 @@ class PairRiskManager:
         logger: logging.Logger | None = None,
     ):
         self.limits = limits or PairRiskLimits()
+        self.limits.max_open_pairs = PAIR_TRADING_MAX_OPEN
         self.correlation_manager = correlation_manager
         self.logger = logger or TradovLogger.get_logger("PairRiskManager")
         self._sector_map: dict[str, str] = {}

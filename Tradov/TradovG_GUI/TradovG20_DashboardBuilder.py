@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (QToolTip,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -160,6 +161,33 @@ class _ClickablePillLabel(QLabel):
                     rect = self.rect()
                     QTimer.singleShot(0, lambda: QToolTip.showText(pos, tip, self, rect, 8000))
         super().mouseReleaseEvent(event)
+
+
+class _ReadOnlyLogView(QPlainTextEdit):
+    """Display-only log widget that still allows selection and copy."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard,
+        )
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.setUndoRedoEnabled(False)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # type: ignore[override]
+        super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event) -> None:  # type: ignore[override]
+        super().contextMenuEvent(event)
 
 
 def _regime_sep() -> "QLabel":
@@ -415,19 +443,98 @@ def build_center_panel(dashboard: Any) -> QWidget:
     dashboard.port_vega_label = None
     dashboard.bp_used_label = None
 
-    # ── Pair Trading Dashboard (collapsible, hidden when disabled) ──
+    # ── Pair Trading Panels ──
+    dashboard.pair_trading_dashboard = None
+    dashboard.pair_scanner_panel = None
+    dashboard.pair_positions_panel = None
+    dashboard.pair_risk_summary_panel = None
+    dashboard.pair_breaking_news_panel = None
+    dashboard.pair_breaking_news_container = None
+    pair_container = QWidget()
+    pair_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
+    pair_container.setMinimumHeight(478)
+    pair_container_layout = QVBoxLayout()
+    pair_container_layout.setContentsMargins(0, 6, 0, 0)
+    pair_container_layout.setSpacing(3)
+    pair_container.setLayout(pair_container_layout)
+
+    pair_status_label = QLabel("PAIR TRADING PANELS LOADING...")
+    pair_status_label.setStyleSheet(
+        f"color: {COLORS['text_dim']}; font-size: 12px; padding: 4px 6px;"
+    )
+    pair_container_layout.addWidget(pair_status_label)
+
+    panels_loaded = 0
     try:
-        from Tradov.TradovG_GUI.TradovG60_PairTradingWidgets import PairTradingDashboard as _PairDash
-        dashboard.pair_trading_dashboard = _PairDash()
-        pair_enabled = str(os.getenv("TRADOV_ENABLE_PAIR_TRADING", "")).strip().lower() in {
-            "1", "true", "yes", "on", "y",
-        }
-        dashboard.pair_trading_dashboard.setVisible(pair_enabled)
-        layout.addWidget(dashboard.pair_trading_dashboard, 3)
-        dashboard.pair_trading_group = dashboard.pair_trading_dashboard
+        from Tradov.TradovG_GUI.TradovG60_PairTradingWidgets import (
+            BreakingNewsPanel as _BreakingNewsPanel,
+            PairPositionsPanel as _PairPositionsPanel,
+            PairRiskSummaryPanel as _PairRiskSummaryPanel,
+            PairScannerPanel as _PairScannerPanel,
+        )
     except Exception:
-        dashboard.pair_trading_dashboard = None
-        dashboard.pair_trading_group = None
+        logger.exception("Pair trading widget module failed to import")
+        if hasattr(dashboard, "add_system_log"):
+            dashboard.add_system_log("Pair trading widgets failed to import; showing fallback placeholder")
+        pair_status_label.setText("PAIR TRADING PANELS UNAVAILABLE")
+    else:
+        pair_container_layout.removeWidget(pair_status_label)
+        pair_status_label.hide()
+
+        try:
+            dashboard.pair_scanner_panel = _PairScannerPanel()
+            dashboard.pair_scanner_panel.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.MinimumExpanding,
+            )
+            dashboard.pair_scanner_panel.setMinimumHeight(160)
+            pair_container_layout.addWidget(dashboard.pair_scanner_panel)
+            panels_loaded += 1
+        except Exception:
+            logger.exception("Pair scanner panel failed to initialize")
+            dashboard.pair_scanner_panel = None
+
+        try:
+            dashboard.pair_positions_panel = _PairPositionsPanel()
+            dashboard.pair_positions_panel.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.MinimumExpanding,
+            )
+            dashboard.pair_positions_panel.setMinimumHeight(190)
+            pair_container_layout.addWidget(dashboard.pair_positions_panel)
+            panels_loaded += 1
+        except Exception:
+            logger.exception("Pair positions panel failed to initialize")
+            dashboard.pair_positions_panel = None
+
+        try:
+            dashboard.pair_risk_summary_panel = _PairRiskSummaryPanel()
+            dashboard.pair_risk_summary_panel.setFixedHeight(142)
+            dashboard.pair_risk_summary_panel.setStyleSheet("background-color: #000000;")
+            dashboard.pair_risk_summary_panel.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Fixed,
+            )
+            pair_container_layout.addWidget(dashboard.pair_risk_summary_panel)
+            panels_loaded += 1
+        except Exception:
+            logger.exception("Pair risk summary panel failed to initialize")
+            dashboard.pair_risk_summary_panel = None
+
+        if panels_loaded == 0:
+            pair_status_label.setText("PAIR TRADING PANELS UNAVAILABLE")
+            pair_status_label.show()
+            if hasattr(dashboard, "add_system_log"):
+                dashboard.add_system_log("Pair trading panels failed to initialize; showing fallback placeholder")
+
+    _pair_enabled_raw = os.getenv("TRADOV_ENABLE_PAIR_TRADING")
+    if _pair_enabled_raw is None or not _pair_enabled_raw.strip():
+        pair_enabled = True
+    else:
+        pair_enabled = _pair_enabled_raw.strip().lower() in {"1", "true", "yes", "on", "y"}
+    pair_container.setVisible(pair_enabled)
+    dashboard.pair_trading_group = pair_container
+    layout.addWidget(pair_container, 5)
 
     dashboard.positions_table = create_positions_table(dashboard)
     dashboard.positions_table.setMinimumHeight(228)
@@ -470,19 +577,52 @@ def build_center_panel(dashboard: Any) -> QWidget:
     dashboard.positions_group = positions_group
     dashboard.spreads_group = positions_group  # backwards-compat alias
     dashboard.directional_trading_group = directional_group
-    layout.addWidget(positions_group, 4)
+    layout.addWidget(positions_group, 3)
 
-    dashboard.pair_risk_summary_panel = None
+    dashboard.pair_breaking_news_container = QWidget()
+    dashboard.pair_breaking_news_container.setSizePolicy(
+        QSizePolicy.Policy.Expanding,
+        QSizePolicy.Policy.MinimumExpanding,
+    )
+    # Let the breaking-news area absorb the vertical slack that used to sit
+    # between the pair summary block and the news feed.
+    dashboard.pair_breaking_news_container.setMinimumHeight(118)
+    news_container_layout = QVBoxLayout()
+    news_container_layout.setContentsMargins(0, 0, 0, 0)
+    news_container_layout.setSpacing(0)
+    dashboard.pair_breaking_news_container.setLayout(news_container_layout)
+
     try:
-        from Tradov.TradovG_GUI.TradovG60_PairTradingWidgets import PairRiskSummaryPanel as _PairRiskSummaryPanel
-        dashboard.pair_risk_summary_panel = _PairRiskSummaryPanel()
-        dashboard.pair_risk_summary_panel.setFixedHeight(92)
-        dashboard.pair_risk_summary_panel.setStyleSheet("background-color: #000000;")
-        layout.addWidget(dashboard.pair_risk_summary_panel, 0)
-        if getattr(dashboard, "pair_trading_dashboard", None) is not None:
-            dashboard.pair_trading_dashboard._risk_panel = dashboard.pair_risk_summary_panel
+        dashboard.pair_breaking_news_panel = _BreakingNewsPanel()
+        dashboard.pair_breaking_news_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.MinimumExpanding,
+        )
+        news_container_layout.addWidget(dashboard.pair_breaking_news_panel)
     except Exception:
-        dashboard.pair_risk_summary_panel = None
+        logger.exception("Breaking news panel failed to initialize")
+        dashboard.pair_breaking_news_panel = None
+        fallback = QLabel("BREAKING NEWS UNAVAILABLE")
+        fallback.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; padding: 6px;")
+        news_container_layout.addWidget(fallback)
+
+    _news_enabled_raw = os.getenv("TRADOV_ENABLE_PAIR_TRADING")
+    if _news_enabled_raw is None or not _news_enabled_raw.strip():
+        news_enabled = True
+    else:
+        news_enabled = _news_enabled_raw.strip().lower() in {"1", "true", "yes", "on", "y"}
+    dashboard.pair_breaking_news_container.setVisible(news_enabled)
+    layout.addWidget(dashboard.pair_breaking_news_container, 1)
+
+    try:
+        if getattr(dashboard, "pair_breaking_news_panel", None) is not None and hasattr(dashboard, "news_manager"):
+            dashboard.pair_breaking_news_panel.set_news_manager(getattr(dashboard, "news_manager", None))
+        if getattr(dashboard, "pair_scanner_panel", None) is not None and hasattr(dashboard, "_refresh_pair_trading_panels"):
+            dashboard._refresh_pair_trading_panels()
+    except Exception:
+        pass
+    if hasattr(dashboard, "_update_pair_trading_titles"):
+        dashboard._update_pair_trading_titles()
 
     logs_container = QWidget()
     logs_container.setFixedHeight(190)
@@ -498,12 +638,11 @@ def build_center_panel(dashboard: Any) -> QWidget:
     logs_layout.setContentsMargins(6, 6, 6, 6)
     logs_layout.setSpacing(3)
 
-    dashboard.system_log = QTextEdit()
-    dashboard.system_log.setReadOnly(True)
+    dashboard.system_log = _ReadOnlyLogView()
     dashboard.system_log.setMaximumHeight(150)
     dashboard.system_log.setStyleSheet(
         f"""
-            QTextEdit {{
+            QPlainTextEdit {{
                 font-family: monospace;
                 font-size: 13px;
             }}
@@ -833,12 +972,11 @@ def build_right_panel(dashboard: Any) -> QWidget:
     auto_layout.setContentsMargins(5, 5, 5, 5)
     auto_layout.setSpacing(0)
 
-    dashboard.auto_log = QTextEdit()
-    dashboard.auto_log.setReadOnly(True)
+    dashboard.auto_log = _ReadOnlyLogView()
     dashboard.auto_log.setFixedHeight(110)
     dashboard.auto_log.setStyleSheet(
         f"""
-            QTextEdit {{
+            QPlainTextEdit {{
                 font-family: monospace;
                 font-size: 13px;
                 color: {COLORS["cyan"]};
@@ -1366,7 +1504,7 @@ def create_pnl_table() -> QTableWidget:
 
 
 def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
-    """Create the unified Prometheus metrics widget."""
+    """Create the pair-trading Prometheus metrics widget."""
     container = QWidget()
     container.setStyleSheet(
         f"""
@@ -1377,14 +1515,14 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
             }}
         """,
     )
-    container.setFixedHeight(200)
+    container.setFixedHeight(164)
 
     main_layout = QVBoxLayout()
     main_layout.setContentsMargins(10, 8, 10, 8)
     main_layout.setSpacing(2)
 
     title_layout = QHBoxLayout()
-    title_label = QLabel("PROMETHEUS METRICS MONITOR")
+    title_label = QLabel("PAIR TRADING METRICS")
     title_label.setStyleSheet(
         f"""
             color: {COLORS["text"]};
@@ -1407,7 +1545,7 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
         "SYSTEM HEALTH",
         "BROKER API",
         "DATA FEEDS",
-        "INTERNAL MODULES",
+        "PAIR MODULES",
     ]
     for col, header in enumerate(headers):
         header_label = QLabel(header)
@@ -1427,8 +1565,6 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
         ("RISK MANAGER", "●"),
         ("MARKET DATA", "●"),
         ("STRATEGY ENGINE", "●"),
-        ("ML MODELS", "●"),
-        ("DATABASE", "●"),
     ]
     for row, (name, status) in enumerate(components, start=1):
         component_widget = QWidget()
@@ -1455,7 +1591,6 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
         ("Orders", "tradier_orders"),
         ("Account", "tradier_account"),
         ("Market Data", "tradier_market"),
-        ("Streaming", "tradier_streaming"),
     ]
     for row, (svc_name, svc_key) in enumerate(broker_services, start=1):
         svc_widget = QWidget()
@@ -1482,8 +1617,7 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
     data_services = [
         ("Live Stream", "db_live"),
         ("Historical", "db_historical"),
-        ("Book Data", "db_book"),
-        ("Replay", "db_replay"),
+        ("News Feed", "news_feed"),
     ]
     for row, (feed_name, feed_key) in enumerate(data_services, start=1):
         feed_widget = QWidget()
@@ -1510,9 +1644,13 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
     internal_modules = [
         ("Custom Metrics", "custom_metrics"),
         ("Risk Calculator", "risk_calc"),
-        ("ML Engine", "ml_engine"),
-        ("Performance", "performance"),
     ]
+    max_rows = max(
+        len(components),
+        len(broker_services),
+        len(data_services),
+        len(internal_modules),
+    )
     for row, (module_name, module_key) in enumerate(internal_modules, start=1):
         module_widget = QWidget()
         module_layout = QHBoxLayout()
@@ -1544,7 +1682,7 @@ def create_unified_prometheus_metrics(dashboard: Any) -> QWidget:
     for col in range(4):
         grid.setColumnStretch(col, 1)
 
-    for row in range(1, 6):
+    for row in range(1, max_rows + 1):
         grid.setRowMinimumHeight(row, 24)
 
     main_layout.addLayout(grid)

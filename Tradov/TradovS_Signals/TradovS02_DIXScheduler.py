@@ -29,6 +29,7 @@ import time as time_module
 from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
 from enum import Enum
+from pathlib import Path
 
 # ==============================================================================
 # THIRD-PARTY IMPORTS
@@ -273,6 +274,10 @@ class TradovDIXScheduler:
         self.calculation_history = []
         self.status = SchedulerStatus.IDLE
 
+        # Rehydrate the most recent same-day result so restarts can reuse it
+        # without forcing a fresh calculation.
+        self.load_latest_result_from_disk()
+
         self.logger.debug("%s initialized", self.__class__.__name__)
 
     # ==========================================================================
@@ -420,17 +425,14 @@ class TradovDIXScheduler:
         Returns:
             Dictionary with latest DIX data or None
         """
-        if self.latest_result:
+        if self.latest_result and self._is_same_trading_day(self.latest_result.timestamp):
             age = datetime.now(UTC) - self.latest_result.timestamp
-
-            # Return cached if less than 24 hours old
-            if age.total_seconds() < 86400:
-                return {
-                    "dix_percentage": self.latest_result.dix_percentage,
-                    "sentiment": self.latest_result.sentiment,
-                    "timestamp": self.latest_result.timestamp,
-                    "age_hours": age.total_seconds() / 3600,
-                }
+            return {
+                "dix_percentage": self.latest_result.dix_percentage,
+                "sentiment": self.latest_result.sentiment,
+                "timestamp": self.latest_result.timestamp,
+                "age_hours": age.total_seconds() / 3600,
+            }
 
         if not allow_calculation:
             self.logger.debug("No recent DIX cache available; skipping fresh calculation")
@@ -449,6 +451,53 @@ class TradovDIXScheduler:
             }
 
         return None
+
+    def load_latest_result_from_disk(self) -> CalculationResult | None:
+        """Load the newest same-day DIX result from the persisted JSON cache."""
+        try:
+            data_dir = Path(os.environ.get(
+                "TRADOV_DATA_DIR",
+                os.path.join(os.path.dirname(__file__), "..", "..", "data"),
+            ))
+            if not data_dir.exists():
+                return None
+
+            for history_file in sorted(data_dir.glob("dix_history_*.json"), reverse=True):
+                try:
+                    payload = json.loads(history_file.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+
+                timestamp_raw = payload.get("timestamp")
+                if not timestamp_raw:
+                    continue
+
+                try:
+                    timestamp = datetime.fromisoformat(timestamp_raw)
+                except ValueError:
+                    continue
+
+                if not self._is_same_trading_day(timestamp):
+                    continue
+
+                result = CalculationResult(
+                    timestamp=timestamp,
+                    dix_value=float(payload.get("dix_value", 0.0)),
+                    dix_percentage=float(payload.get("dix_percentage", 0.0)),
+                    sentiment=str(payload.get("sentiment", "NEUTRAL")),
+                    status=SchedulerStatus.COMPLETED,
+                    error_message=None,
+                    execution_time=float(payload.get("execution_time", 0.0)),
+                )
+                self.latest_result = result
+                self.calculation_history = [result]
+                self.logger.debug("Loaded cached DIX result from %s", history_file.name)
+                return result
+
+            return None
+        except Exception as e:
+            self.logger.debug("Could not load cached DIX result: %s", e)
+            return None
 
     # ==========================================================================
     # PRIVATE METHODS - SCHEDULING
@@ -858,6 +907,11 @@ Today's Trading Bias:
 
         except Exception as e:
             self.logger.error("Failed to save to database: %s", e)
+
+    def _is_same_trading_day(self, timestamp: datetime) -> bool:
+        """Return True when a timestamp falls on today's US/Eastern date."""
+        timestamp_et = timestamp.astimezone(TIMEZONE) if timestamp.tzinfo else TIMEZONE.localize(timestamp)
+        return timestamp_et.date() == datetime.now(TIMEZONE).date()
 
     # ==========================================================================
     # PRIVATE METHODS - UTILITIES

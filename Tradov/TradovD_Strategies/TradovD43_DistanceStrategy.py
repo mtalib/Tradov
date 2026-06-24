@@ -20,12 +20,12 @@ Module Description:
     shared event bus so the D31 StrategyOrchestrator / LiveEngine can route
     both legs. Does not place orders itself.
 
-    Configuration via env vars (overridable through config):
+    Configuration via env vars:
         TRADOV_DIST_ENTRY_K     (default 2.0)   trading band in std units
         TRADOV_DIST_TOP_N       (default 20)    pairs to retain
         TRADOV_DIST_FORMATION   (default 252)   formation window (bars)
         TRADOV_DIST_SIZE_PCT    (default 0.02)  notional per leg
-        TRADOV_DIST_MAX_OPEN    (default 10)    max concurrent pairs
+        Open pair cap is fixed at 3 system-wide.
         TRADOV_DIST_SAME_SECTOR (default 0)     1 to require same sector
 """
 
@@ -34,7 +34,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timedelta, UTC
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 
@@ -51,12 +51,17 @@ from Tradov.TradovD_Strategies.TradovD01_BaseStrategy import (
 from Tradov.TradovD_Strategies.TradovD50_PairTypes import (
     PairPosition,
     PairSide,
+    PairScanResult,
     PairTradingSignal,
+)
+from Tradov.TradovD_Strategies.TradovD58_PairScanDecisionAdapter import (
+    build_formed_pair_scan_context,
 )
 from Tradov.TradovD_Strategies.TradovD55_DistanceEngine import (
     DistanceApproachEngine,
     DistancePair,
 )
+from config.config import PAIR_TRADING_MAX_OPEN
 
 
 def _env(key: str, default: str) -> str:
@@ -81,7 +86,7 @@ class DistanceTradingStrategy(BaseStrategy):
         self.top_n = int(cfg.get("top_n", _env("TRADOV_DIST_TOP_N", "20")))
         self.formation = int(cfg.get("formation", _env("TRADOV_DIST_FORMATION", "252")))
         self.size_pct = float(cfg.get("size_pct", _env("TRADOV_DIST_SIZE_PCT", "0.02")))
-        self.max_open_pairs = int(cfg.get("max_open_pairs", _env("TRADOV_DIST_MAX_OPEN", "10")))
+        self.max_open_pairs = PAIR_TRADING_MAX_OPEN
         self.same_sector_only = bool(int(cfg.get("same_sector", _env("TRADOV_DIST_SAME_SECTOR", "0"))))
 
         self.engine = DistanceApproachEngine(
@@ -97,6 +102,7 @@ class DistanceTradingStrategy(BaseStrategy):
         self._buffer_len = self.formation
         self._bars_since_formation = 0
         self._reformation_interval = int(cfg.get("reformation_interval", self.formation))
+        self._pair_scan_sink: Callable[[PairScanResult], None] | None = None
 
     def _initialize_strategy(self) -> None:
         self.logger.info(
@@ -106,6 +112,10 @@ class DistanceTradingStrategy(BaseStrategy):
             self.formation,
             self.max_open_pairs,
         )
+
+    def set_pair_scan_sink(self, sink: Callable[[PairScanResult], None] | None) -> None:
+        """Receive the latest scan result from the orchestrator wiring."""
+        self._pair_scan_sink = sink
 
     # ------------------------------------------------------------------ #
     # Data intake
@@ -145,6 +155,9 @@ class DistanceTradingStrategy(BaseStrategy):
         self.formed_pairs = {p.key: p for p in pairs}
         self._bars_since_formation = 0
 
+    def _build_scan_context(self) -> PairScanResult | Any:
+        return build_formed_pair_scan_context(self.formed_pairs.values())
+
     # ------------------------------------------------------------------ #
     # Signal generation
     # ------------------------------------------------------------------ #
@@ -152,6 +165,21 @@ class DistanceTradingStrategy(BaseStrategy):
         self._ingest_market_data(market_data)
         self._bars_since_formation += 1
         self._maybe_form_pairs()
+
+        scan_result = self._build_scan_context()
+        if self._pair_scan_sink is not None:
+            try:
+                self._pair_scan_sink(scan_result)
+            except Exception:
+                self.logger.debug("Distance scan sink update failed", exc_info=True)
+
+        if getattr(scan_result, "decision_state", "ready") != "ready":
+            self.logger.debug(
+                "Skipping distance signal generation due to scan state=%s reason=%s",
+                getattr(scan_result, "decision_state", "unknown"),
+                getattr(scan_result, "decision_reason", ""),
+            )
+            return []
 
         signals: list[TradingSignal] = []
         if len(self.pair_positions) >= self.max_open_pairs:

@@ -220,9 +220,9 @@ class CustomMetricsOrchestrator(QObject):
         # Current metrics storage with thread-safe access
         self._metrics_lock = threading.RLock()
         self.current_metrics = {
-            "DIX": 0.0,
-            "SWAN": 1.0,
-            "SKEW": 100.0,
+            "DIX": float("nan"),
+            "SWAN": float("nan"),
+            "SKEW": float("nan"),
             "PCA-PROXY": 0.0,
             "PCA-IV": 0.0,
             "YIELD_10Y": float("nan"),
@@ -619,6 +619,7 @@ class CustomMetricsOrchestrator(QObject):
                 return
 
             self._ensure_calculators_initialized()
+            self._prime_persistent_indicator_caches()
 
             if self._shutdown_requested:
                 return
@@ -659,6 +660,90 @@ class CustomMetricsOrchestrator(QObject):
         finally:
             if self._startup_thread is threading.current_thread():
                 self._startup_thread = None
+
+    def _prime_persistent_indicator_caches(self) -> None:
+        """Restore same-day indicator snapshots before the first live update."""
+        if self.gex_calculator is not None:
+            try:
+                gex_snapshot = self.gex_calculator.get_last_snapshot()
+                if gex_snapshot:
+                    self.current_metrics["GEX"] = gex_snapshot.get("gex", self.current_metrics.get("GEX", -2.5))
+                    self.current_metrics["DEX"] = gex_snapshot.get("dex", self.current_metrics.get("DEX", 850))
+                    self.current_metrics["OGL"] = gex_snapshot.get("ogl", self.current_metrics.get("OGL", 585.5))
+                    self.current_metrics["VEX"] = gex_snapshot.get("vex", self.current_metrics.get("VEX", 0.0))
+                    self.current_metrics["CHEX"] = gex_snapshot.get("chex", self.current_metrics.get("CHEX", 0.0))
+            except Exception as e:
+                self.logger.debug("GEX cache hydration skipped: %s", e)
+
+        if self.dix_scheduler is not None:
+            try:
+                dix_data = self.dix_scheduler.get_latest_dix(allow_calculation=False)
+                if dix_data:
+                    self.current_metrics["DIX"] = dix_data["dix_percentage"]
+            except Exception as e:
+                self.logger.debug("DIX cache hydration skipped: %s", e)
+
+        if self.swan_scheduler is not None:
+            try:
+                swan_result = self.swan_scheduler.get_latest_result(allow_calculation=False)
+                if swan_result:
+                    self.current_metrics["SWAN"] = swan_result.overall_score
+            except Exception as e:
+                self.logger.debug("SWAN cache hydration skipped: %s", e)
+
+        nymo_value = self._get_cached_nymo_value()
+        if nymo_value is not None:
+            self.current_metrics["NYMO"] = nymo_value
+
+        self._prime_pca_snapshot_metrics()
+
+    def _get_cached_nymo_value(self) -> float | None:
+        """Return the persisted NYMO proxy value when the EMA warm state exists."""
+        if math.isfinite(self._nymo_ema_fast) and math.isfinite(self._nymo_ema_slow):
+            return round(self._nymo_ema_fast - self._nymo_ema_slow, 1)
+        return None
+
+    def _prime_pca_snapshot_metrics(self) -> None:
+        """Restore cached PCA snapshots so the dashboard starts with recent state."""
+        if self.pca_signal_engine is None:
+            return
+
+        try:
+            proxy_snapshot = self.pca_signal_engine.get_proxy_snapshot()
+            self.current_metrics["PCA-PROXY"] = float(proxy_snapshot.signal_value)
+            self.current_metrics["PCA-PROXY_CHANGE"] = float(proxy_snapshot.change)
+            self.current_metrics["PCA-PROXY_DETAILS"] = {
+                "source": proxy_snapshot.source,
+                "status": proxy_snapshot.status,
+                "explained_variance": proxy_snapshot.explained_variance,
+                "spectral_gap": proxy_snapshot.spectral_gap,
+                "dispersion_score": proxy_snapshot.dispersion_score,
+                "universe_size": proxy_snapshot.universe_size,
+                "confidence": proxy_snapshot.confidence,
+                "timestamp": proxy_snapshot.timestamp.isoformat(),
+                "details": proxy_snapshot.details or {},
+            }
+        except Exception as e:
+            self.logger.debug("PCA-PROXY cache hydration skipped: %s", e)
+
+        try:
+            iv_snapshot = self.pca_signal_engine.get_iv_snapshot()
+            self.current_metrics["PCA-IV"] = float(iv_snapshot.signal_value)
+            self.current_metrics["PCA-IV_CHANGE"] = float(iv_snapshot.change)
+            self.current_metrics["PCA-IV_DETAILS"] = {
+                "source": iv_snapshot.source,
+                "status": iv_snapshot.status,
+                "placeholder": iv_snapshot.placeholder,
+                "explained_variance": iv_snapshot.explained_variance,
+                "spectral_gap": iv_snapshot.spectral_gap,
+                "dispersion_score": iv_snapshot.dispersion_score,
+                "universe_size": iv_snapshot.universe_size,
+                "confidence": iv_snapshot.confidence,
+                "timestamp": iv_snapshot.timestamp.isoformat(),
+                "details": iv_snapshot.details or {},
+            }
+        except Exception as e:
+            self.logger.debug("PCA-IV cache hydration skipped: %s", e)
 
     def stop(self):
         """Stop the orchestrator"""
@@ -1031,15 +1116,21 @@ class CustomMetricsOrchestrator(QObject):
     def _update_dix_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update DIX metrics"""
         try:
+            if self.dix_scheduler is not None:
+                dix_data = self.dix_scheduler.get_latest_dix(allow_calculation=False)
+                if dix_data:
+                    updated_metrics["DIX"] = dix_data["dix_percentage"]
+                    self.dix_updated.emit(dix_data["dix_percentage"])
+                    return True
+
             if self.dix_calculator:
                 dix_result = self.dix_calculator.calculate_dix()
                 if dix_result:
                     updated_metrics["DIX"] = dix_result.dix_percentage
                     self.dix_updated.emit(dix_result.dix_percentage)
                     return True
-                else:
-                    updated_metrics["DIX"] = self.current_metrics.get("DIX", 42.5)
-                    return False
+                updated_metrics["DIX"] = self.current_metrics.get("DIX", 42.5)
+                return False
             else:
                 # Simulation fallback
                 updated_metrics["DIX"] = 42.5 + np.random.normal(0, 2.0)
@@ -1058,6 +1149,17 @@ class CustomMetricsOrchestrator(QObject):
     def _update_swan_metrics(self, updated_metrics: dict, errors: list) -> bool:
         """Update SWAN metrics"""
         try:
+            if self.swan_scheduler is not None:
+                swan_result = self.swan_scheduler.get_latest_result(allow_calculation=False)
+                if swan_result:
+                    updated_metrics["SWAN"] = swan_result.overall_score
+                    self.swan_updated.emit({
+                        "score": swan_result.overall_score,
+                        "status": swan_result.status.value,
+                        "components": swan_result.component_scores,
+                    })
+                    return True
+
             if self.swan_indicator:
                 # Pass live TICK/ADD/TRIN breadth data into the SWAN internals
                 # component so the score reflects current market breadth.
@@ -1078,11 +1180,11 @@ class CustomMetricsOrchestrator(QObject):
                     "components": swan_result.component_scores,
                 })
                 return True
-            else:
-                # Simulation fallback
-                current_swan = self.current_metrics.get("SWAN", 1.85)
-                updated_metrics["SWAN"] = max(1.0, min(5.0, current_swan + np.random.normal(0, 0.1)))  # noqa: E501
-                return False
+
+            # Simulation fallback
+            current_swan = self.current_metrics.get("SWAN", 1.85)
+            updated_metrics["SWAN"] = max(1.0, min(5.0, current_swan + np.random.normal(0, 0.1)))  # noqa: E501
+            return False
         except Exception as e:
             errors.append(f"SWAN update error: {e}")
             self._log_deduped_issue(
@@ -2178,17 +2280,17 @@ class CustomMetricsOrchestrator(QObject):
     def get_dix(self) -> float:
         """Get current DIX value"""
         with self._metrics_lock:
-            return self.current_metrics.get("DIX", 0)
+            return self.current_metrics.get("DIX", float("nan"))
 
     def get_swan(self) -> float:
         """Get current SWAN value"""
         with self._metrics_lock:
-            return self.current_metrics.get("SWAN", 1)
+            return self.current_metrics.get("SWAN", float("nan"))
 
     def get_skew(self) -> float:
         """Get current SKEW value"""
         with self._metrics_lock:
-            return self.current_metrics.get("SKEW", 100)
+            return self.current_metrics.get("SKEW", float("nan"))
 
     def get_stress_level(self) -> StressLevel:
         """Get current market stress level"""
@@ -2278,10 +2380,54 @@ class CustomMetricsOrchestrator(QObject):
         """
         with self._metrics_lock:
             index_snapshot = self._load_index_confirmation_snapshot()
+            now = datetime.now(UTC)
+
+            def _metric_value(name: str) -> float:
+                value = self.current_metrics.get(name, float("nan"))
+                try:
+                    numeric = float(value)
+                except (TypeError, ValueError):
+                    return float("nan")
+                return numeric if math.isfinite(numeric) else float("nan")
+
+            def _metric_health(name: str) -> dict[str, Any]:
+                quality = self.metric_quality.get(name)
+                value = _metric_value(name)
+                last_update = getattr(quality, "last_successful_update", None)
+                age_seconds = None
+                if isinstance(last_update, datetime):
+                    age_seconds = max(0.0, (now - last_update).total_seconds())
+                available = (
+                    math.isfinite(value)
+                    and bool(getattr(quality, "source_available", True))
+                    and (
+                        quality is None
+                        or float(getattr(quality, "quality_score", 0.0) or 0.0) > 0.0
+                    )
+                )
+                return {
+                    "value": value,
+                    "available": available,
+                    "fresh": available and (age_seconds is None or age_seconds <= CACHE_EXPIRY_SECONDS),
+                    "age_seconds": age_seconds,
+                    "source_available": bool(getattr(quality, "source_available", available)),
+                    "quality": float(getattr(quality, "quality_score", 1.0 if available else 0.0) or 0.0),
+                }
+
+            metric_health = {
+                "DIX": _metric_health("DIX"),
+                "SWAN": _metric_health("SWAN"),
+                "SKEW": _metric_health("SKEW"),
+            }
+            market_conditions_available = all(
+                item["available"] and item["fresh"] for item in metric_health.values()
+            )
             return {
-                'dix_score': self.current_metrics.get('DIX', 42.5),
-                'swan_score': self.current_metrics.get('SWAN', 1.85),
-                'skew_level': self.current_metrics.get('SKEW', 125.5),
+                'dix_score': metric_health["DIX"]["value"],
+                'swan_score': metric_health["SWAN"]["value"],
+                'skew_level': metric_health["SKEW"]["value"],
+                'market_conditions_available': market_conditions_available,
+                'metric_health': metric_health,
                 # Lowercase aliases consumed directly by F09 trust-gate filters.
                 'vix': self.current_metrics.get('VIX', float('nan')),
                 'vix9d': self.current_metrics.get('VIX9D', float('nan')),
@@ -2381,5 +2527,3 @@ if __name__ == "__main__":
 
     # Show quality report
     quality_report = orchestrator.get_quality_report()
-
-

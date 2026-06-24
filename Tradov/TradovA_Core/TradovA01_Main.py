@@ -15,6 +15,8 @@ This ensures the GUI launches properly after establishing reliable broker connec
 """
 
 import importlib.util
+import faulthandler
+import shutil
 import os
 import sys
 import logging
@@ -24,6 +26,7 @@ import asyncio
 import threading
 from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
+from string import ascii_uppercase
 from typing import Any, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -37,6 +40,22 @@ except ImportError:
 # Add project root to path (now need to go up 3 levels: TradovA01_Main.py -> TradovA_Core -> Tradov -> project_root)  # noqa: E501
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
+
+
+def _bootstrap_project_venv() -> None:
+    """Re-exec under the project venv when launched with the wrong interpreter."""
+    venv_python = project_root / ".venv" / "bin" / "python"
+    try:
+        if Path(sys.executable).resolve() == venv_python.resolve():
+            return
+    except OSError:
+        pass
+
+    if venv_python.exists() and os.access(venv_python, os.X_OK):
+        os.execv(str(venv_python), [str(venv_python), *sys.argv])
+
+
+_bootstrap_project_venv()
 
 _A01_EASTERN_TZ = ZoneInfo("America/New_York")
 _A01_PAPER_LOAD_START_ET = dt_time(9, 0)
@@ -148,6 +167,13 @@ try:
 except ImportError:
     _get_coordinator = None
     _HAS_COORDINATOR = False
+
+try:
+    from Tradov.TradovU_Utilities.TradovU47_SingleInstance import (
+        try_acquire_tradov_instance_lock,
+    )
+except ImportError:
+    try_acquire_tradov_instance_lock = None  # type: ignore[assignment]
 
 try:
     from Tradov.TradovU_Utilities.TradovU01_Logger import get_logger, TradovLogger
@@ -469,6 +495,8 @@ class TradovApplication:
         # Setup logging first
         self._setup_logging()
         self.logger: Any = get_logger_func("TradovApplication")
+        self._enable_faulthandler()
+        self._install_exception_hooks()
 
         # Core components
         self.event_manager: Any = None
@@ -635,6 +663,205 @@ class TradovApplication:
             _tradov_root = logging.getLogger("Tradov")
             if not _tradov_root.handlers:
                 _tradov_root.addHandler(logging.StreamHandler())
+
+    def _get_active_log_file_path(self) -> Path | None:
+        """Return the most recent file-backed log path currently attached to logging."""
+        candidates: list[Path] = []
+        root_logger = logging.getLogger()
+        for handler in root_logger.handlers:
+            base_filename = getattr(handler, "baseFilename", None)
+            if not base_filename:
+                continue
+            try:
+                candidate = Path(base_filename)
+            except Exception:
+                continue
+            if candidate.exists():
+                candidates.append(candidate)
+
+        if candidates:
+            return max(candidates, key=lambda path: path.stat().st_mtime)
+
+        fallback_candidates = [
+            Path.home() / ".tradov" / "logs" / f"tradov_{datetime.now().strftime('%Y%m%d')}.log",
+            project_root / "logs" / "startup.log",
+        ]
+        for candidate in fallback_candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    @staticmethod
+    def _next_test_log_path(test_log_dir: Path, date_prefix: str) -> Path:
+        """Return the next available A/B/C-style exported crash-log path."""
+        test_log_dir.mkdir(parents=True, exist_ok=True)
+        for suffix in ascii_uppercase:
+            candidate = test_log_dir / f"{date_prefix}{suffix}-Tradov-Log"
+            if not candidate.exists():
+                return candidate
+
+        # Fallback if a date somehow has >26 exports.
+        counter = 1
+        while True:
+            candidate = test_log_dir / f"{date_prefix}AA{counter}-Tradov-Log"
+            if not candidate.exists():
+                return candidate
+            counter += 1
+
+    def _export_active_log_snapshot(self) -> None:
+        """Copy the active runtime log into the checked-in test-log folder."""
+        source_log = self._get_active_log_file_path()
+        if source_log is None:
+            return
+
+        try:
+            root_logger = logging.getLogger()
+            for handler in root_logger.handlers:
+                flush = getattr(handler, "flush", None)
+                if callable(flush):
+                    try:
+                        flush()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        test_log_dir = project_root / "11-TestLogs"
+        date_prefix = datetime.now().strftime("%Y-%m-%d")
+        destination = self._next_test_log_path(test_log_dir, date_prefix)
+
+        try:
+            shutil.copy2(source_log, destination)
+            self.logger.info("Exported runtime log snapshot to %s", destination)
+        except Exception as exc:
+            self.logger.warning("Could not export runtime log snapshot: %s", exc, exc_info=True)
+
+    def _write_crash_watchdog(
+        self,
+        reason: str,
+        *,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        exc_traceback: Any = None,
+        thread_name: str | None = None,
+    ) -> None:
+        """Write a small crash summary file for quick triage."""
+        test_log_dir = project_root / "11-TestLogs"
+        test_log_dir.mkdir(parents=True, exist_ok=True)
+        watchdog_path = test_log_dir / "latest-tradov-crash.txt"
+
+        lines = [
+            f"timestamp: {datetime.now().isoformat()}",
+            f"reason: {reason}",
+        ]
+        if thread_name:
+            lines.append(f"thread: {thread_name}")
+        if exc_type is not None:
+            lines.append(f"exception_type: {exc_type.__name__}")
+        if exc_value is not None:
+            lines.append(f"exception_message: {exc_value}")
+        source_log = self._get_active_log_file_path()
+        if source_log is not None:
+            lines.append(f"source_log: {source_log}")
+
+        if exc_type is not None and exc_value is not None:
+            try:
+                import traceback as _traceback
+
+                lines.append("")
+                lines.append("traceback:")
+                lines.extend(
+                    _traceback.format_exception(exc_type, exc_value, exc_traceback)
+                )
+            except Exception:
+                pass
+
+        try:
+            watchdog_path.write_text("".join(lines), encoding="utf-8")
+            self.logger.info("Updated crash watchdog at %s", watchdog_path)
+        except Exception as exc:
+            self.logger.warning("Could not write crash watchdog: %s", exc, exc_info=True)
+
+    def _enable_faulthandler(self) -> None:
+        """Enable fatal-crash trace dumps to 11-TestLogs."""
+        if getattr(self, "_faulthandler_enabled", False):
+            return
+
+        test_log_dir = project_root / "11-TestLogs"
+        test_log_dir.mkdir(parents=True, exist_ok=True)
+        faulthandler_path = test_log_dir / "latest-tradov-faulthandler.log"
+
+        try:
+            self._faulthandler_file = open(faulthandler_path, "a", buffering=1, encoding="utf-8")
+            faulthandler.enable(file=self._faulthandler_file, all_threads=True)
+            for sig in (signal.SIGABRT, signal.SIGSEGV, signal.SIGFPE, signal.SIGILL):
+                try:
+                    faulthandler.register(sig, file=self._faulthandler_file, all_threads=True, chain=True)
+                except Exception:
+                    pass
+            self._faulthandler_enabled = True
+            self.logger.info("Faulthandler enabled at %s", faulthandler_path)
+        except Exception as exc:
+            self.logger.warning("Could not enable faulthandler: %s", exc, exc_info=True)
+
+    def _install_exception_hooks(self) -> None:
+        """Capture uncaught exceptions so crash traces land in the exported log."""
+        if getattr(self, "_exception_hooks_installed", False):
+            return
+
+        self._original_sys_excepthook = sys.excepthook
+        self._original_threading_excepthook = getattr(threading, "excepthook", None)
+
+        def _handle_main_exception(exc_type, exc_value, exc_traceback):  # noqa: ANN001
+            try:
+                self.logger.critical(
+                    "Uncaught exception in main thread",
+                    exc_info=(exc_type, exc_value, exc_traceback),
+                )
+            except Exception:
+                pass
+            try:
+                self._write_crash_watchdog(
+                    "uncaught main-thread exception",
+                    exc_type=exc_type,
+                    exc_value=exc_value,
+                    exc_traceback=exc_traceback,
+                )
+                self._export_active_log_snapshot()
+            except Exception:
+                pass
+            original = getattr(self, "_original_sys_excepthook", None)
+            if callable(original):
+                original(exc_type, exc_value, exc_traceback)
+
+        def _handle_thread_exception(args):  # noqa: ANN001
+            try:
+                self.logger.critical(
+                    "Uncaught exception in thread %s",
+                    getattr(args.thread, "name", "unknown"),
+                    exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+                )
+            except Exception:
+                pass
+            try:
+                self._write_crash_watchdog(
+                    "uncaught worker-thread exception",
+                    exc_type=args.exc_type,
+                    exc_value=args.exc_value,
+                    exc_traceback=args.exc_traceback,
+                    thread_name=getattr(args.thread, "name", None),
+                )
+                self._export_active_log_snapshot()
+            except Exception:
+                pass
+            original = getattr(self, "_original_threading_excepthook", None)
+            if callable(original):
+                original(args)
+
+        sys.excepthook = _handle_main_exception
+        if hasattr(threading, "excepthook"):
+            threading.excepthook = _handle_thread_exception  # type: ignore[assignment]
+        self._exception_hooks_installed = True
 
     def _raise_if_shutdown_requested(self, phase: str) -> None:
         """Abort startup work once a shutdown request has already been received."""
@@ -1151,6 +1378,13 @@ class TradovApplication:
             )
             self._raise_if_shutdown_requested("GUI startup")
 
+            from Tradov.TradovG_GUI.TradovG00_ApplicationManager import (
+                DisplayMode,
+                configure_qt_platform_environment,
+            )
+
+            configure_qt_platform_environment(DisplayMode.GUI)
+
             # Create Qt application
             if QApplication is None:
                 raise RuntimeError("QApplication is not available")
@@ -1173,14 +1407,39 @@ class TradovApplication:
             self.gui_app.setApplicationVersion(self.config.version)
             self._raise_if_shutdown_requested("Qt application initialization")
 
+            loading_dialog = None
+            try:
+                loading_dialog = QDialog()
+                loading_dialog.setWindowTitle("TRADOV")
+                loading_dialog.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+                loading_dialog.setWindowFlag(Qt.WindowType.Tool, True)
+                loading_layout = QVBoxLayout(loading_dialog)
+                loading_label = QLabel("Launching TRADOV...")
+                loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                loading_label.setStyleSheet(
+                    "font-size: 18px; padding: 20px; color: #ffffff;"
+                )
+                loading_layout.addWidget(loading_label)
+                loading_dialog.setStyleSheet("background-color: #0a0a0a;")
+                loading_dialog.setFixedSize(360, 140)
+                loading_dialog.show()
+                self.gui_app.processEvents()
+            except Exception as exc:
+                self.logger.debug("Startup loading dialog unavailable: %s", exc)
+                loading_dialog = None
+
             # Create main window - lazy-load GUI modules (deferred to avoid slow startup)
             # Try real TradovG05 Trading Dashboard first
             has_trading_dashboard = False
             TradovTradingDashboard = None
             try:
+                import_start = time.perf_counter()
                 from Tradov.TradovG_GUI.TradovG05_TradingDashboard import TradovTradingDashboard  # type: ignore[assignment]
                 has_trading_dashboard = True
-                self.logger.info("Real Trading Dashboard (G05) loaded successfully.")
+                self.logger.info(
+                    "Real Trading Dashboard (G05) loaded successfully in %.3fs",
+                    time.perf_counter() - import_start,
+                )
             except ImportError as e:
                 self.logger.warning("Trading Dashboard not available: %s", e)
 
@@ -1215,7 +1474,12 @@ class TradovApplication:
                 self.logger.info("🚀 Starting REAL TradovG05 Trading Dashboard...")
 
                 try:
+                    construct_start = time.perf_counter()
                     self.main_window = TradovTradingDashboard()
+                    self.logger.info(
+                        "Real Trading Dashboard constructed in %.3fs",
+                        time.perf_counter() - construct_start,
+                    )
                 except Exception as e:
                     self.logger.error("❌ Failed to create dashboard: %s", e, exc_info=True)
                     import traceback
@@ -1256,6 +1520,9 @@ class TradovApplication:
                                 except Exception:
                                     pass
 
+                if loading_dialog is not None:
+                    loading_dialog.close()
+
                 self._raise_if_shutdown_requested("Trading Dashboard display")
                 self.main_window.show()
                 self.logger.info("✅ Real Trading Dashboard launched successfully!")
@@ -1277,13 +1544,21 @@ class TradovApplication:
                 self.logger.info("🚀 Starting Working Trading Dashboard (fallback)...")
 
                 try:
+                    construct_start = time.perf_counter()
                     self.main_window = WorkingTradovDashboard()
+                    self.logger.info(
+                        "Working Trading Dashboard constructed in %.3fs",
+                        time.perf_counter() - construct_start,
+                    )
                 except Exception as e:
                     self.logger.error("❌ Failed to create working dashboard: %s", e, exc_info=True)
                     import traceback
 
                     self.logger.debug(traceback.format_exc())
                     raise
+
+                if loading_dialog is not None:
+                    loading_dialog.close()
 
                 self._raise_if_shutdown_requested("Working Dashboard display")
                 self.main_window.show()
@@ -1306,6 +1581,8 @@ class TradovApplication:
                     "⚠️ Trading Dashboard not available, using test window..."
                 )
                 self.main_window = TradovMainWindow(self)
+                if loading_dialog is not None:
+                    loading_dialog.close()
                 self._raise_if_shutdown_requested("fallback window display")
                 self.main_window.show()
 
@@ -1387,6 +1664,12 @@ class TradovApplication:
             import traceback
 
             self.logger.debug(traceback.format_exc())
+            self._write_crash_watchdog(
+                "caught application runtime exception",
+                exc_type=type(e),
+                exc_value=e,
+                exc_traceback=e.__traceback__,
+            )
             return 1
         finally:
             self.shutdown()
@@ -1515,6 +1798,7 @@ class TradovApplication:
                 )
 
             self.logger.info("✅ Shutdown complete")
+            self._export_active_log_snapshot()
 
 
 def _load_runtime_dotenv(startup_log: logging.Logger) -> None:
@@ -1541,64 +1825,79 @@ def main() -> int:
     _startup_log = logging.getLogger("TradovA01_Main")
 
     _load_runtime_dotenv(_startup_log)
+    instance_lock = None
+    if try_acquire_tradov_instance_lock is not None:
+        instance_lock = try_acquire_tradov_instance_lock()
+        if instance_lock is None:
+            _startup_log.error(
+                "Another Tradov instance is already running; refusing to start."
+            )
+            return 1
 
-    _startup_log.info("=" * 70)
-    _startup_log.info("TRADOV - Autonomous Options Trading System v1.0")
-    _startup_log.info("PROVEN Race Condition Fix Integration Test")
-    _startup_log.info("=" * 70)
-    _startup_log.info(
-        "System: Logger=%s | EventManager=%s | Broker=%s | PySide6=%s",
-        "OK" if has_logger else "MISSING",
-        "OK" if has_event_manager else "MISSING",
-        "OK" if has_broker_modules else "MISSING",
-        "OK" if has_qt else "MISSING",
-    )
+    try:
+        _startup_log.info("=" * 70)
+        _startup_log.info("TRADOV - Autonomous Options Trading System v1.0")
+        _startup_log.info("PROVEN Race Condition Fix Integration Test")
+        _startup_log.info("=" * 70)
+        _startup_log.info(
+            "System: Logger=%s | EventManager=%s | Broker=%s | PySide6=%s",
+            "OK" if has_logger else "MISSING",
+            "OK" if has_event_manager else "MISSING",
+            "OK" if has_broker_modules else "MISSING",
+            "OK" if has_qt else "MISSING",
+        )
 
-    # Broker: Tradier API (TradovB40_TradierClient) — legacy broker removed
+        # Broker: Tradier API (TradovB40_TradierClient) — legacy broker removed
 
-    # Parse command line arguments
-    import argparse
+        # Parse command line arguments
+        import argparse
 
-    parser = argparse.ArgumentParser(
-        description="TRADOV - Autonomous Options Trading System"
-    )
-    _ = parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-    _ = parser.add_argument(
-        "--headless", action="store_true", help="Run in headless mode"
-    )
-    _ = parser.add_argument("--no-gui", action="store_true", help="Disable GUI")
-    args = parser.parse_args()
+        parser = argparse.ArgumentParser(
+            description="TRADOV - Autonomous Options Trading System"
+        )
+        _ = parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+        _ = parser.add_argument(
+            "--headless", action="store_true", help="Run in headless mode"
+        )
+        _ = parser.add_argument("--no-gui", action="store_true", help="Disable GUI")
+        args = parser.parse_args()
 
-    # Create configuration
-    config = TradovConfig()
-    config.debug_mode = args.debug
-    config.headless_mode = args.headless
-    config.enable_gui = not args.no_gui and not args.headless
+        # Create configuration
+        config = TradovConfig()
+        config.debug_mode = args.debug
+        config.headless_mode = args.headless
+        config.enable_gui = not args.no_gui and not args.headless
 
-    if args.debug:
-        config.log_level = logging.DEBUG
-        _startup_log.debug("Debug mode enabled")
+        if args.debug:
+            config.log_level = logging.DEBUG
+            _startup_log.debug("Debug mode enabled")
 
-    if args.headless:
-        _startup_log.info("Headless mode enabled")
+        if args.headless:
+            _startup_log.info("Headless mode enabled")
 
-    # Create and run application
-    app = TradovApplication(config)
+        # Create and run application
+        app = TradovApplication(config)
 
-    # Setup signal handlers
-    def signal_handler(signum: int, _frame: Any) -> None:
-        _startup_log.info("Received signal %s, shutting down...", signum)
-        app.shutdown()
+        # Setup signal handlers
+        def signal_handler(signum: int, _frame: Any) -> None:
+            _startup_log.info("Received signal %s, shutting down...", signum)
+            app.shutdown()
 
-    _ = signal.signal(signal.SIGINT, signal_handler)
-    _ = signal.signal(signal.SIGTERM, signal_handler)
+        _ = signal.signal(signal.SIGINT, signal_handler)
+        _ = signal.signal(signal.SIGTERM, signal_handler)
 
-    # Run the application
-    _startup_log.info("Starting TRADOV with PROVEN race condition fix...")
-    exit_code = app.run()
+        # Run the application
+        _startup_log.info("Starting TRADOV with PROVEN race condition fix...")
+        exit_code = app.run()
 
-    _startup_log.info("TRADOV exited with code: %s (%s)", exit_code, 'success' if exit_code == 0 else 'failure')  # noqa: E501
-    return exit_code
+        _startup_log.info("TRADOV exited with code: %s (%s)", exit_code, 'success' if exit_code == 0 else 'failure')  # noqa: E501
+        return exit_code
+    finally:
+        if instance_lock is not None:
+            try:
+                instance_lock.release()
+            except Exception:
+                pass
 
 
 def _finalize_process_exit(exit_code: int) -> None:

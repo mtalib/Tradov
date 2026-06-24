@@ -62,6 +62,12 @@ class PairDefinition:
     sector: str
     pair_type: str
     status: PairStatus = PairStatus.CANDIDATE
+    quality_score: float = 0.0
+    last_validated_at: datetime | None = None
+    last_retired_at: datetime | None = None
+    retire_reason: str | None = None
+    validation_count: int = 0
+    degradation_count: int = 0
     entry_z: float = 2.0
     exit_z: float = 0.5
     stop_z: float = 3.5
@@ -89,6 +95,11 @@ class CointegrationResult:
     sample_size: int
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
+    residual_stability: float = 0.0
+    hedge_ratio_stability: float = 0.0
+    regime_break_risk: float = 0.0
+    liquidity_score: float = 0.0
+    event_risk_score: float = 0.0
     ranking_score: float = 0.0
     ranking_components: dict[str, float] = field(default_factory=dict)
 
@@ -104,12 +115,94 @@ class PairScanResult:
     total_candidates: int = 0
     validated_pairs: list[CointegrationResult] = field(default_factory=list)
     ranked_pairs: list[CointegrationResult] = field(default_factory=list)
+    best_pair_key: str = ""
+    best_ranking_score: float = 0.0
+    best_ranking_components: dict[str, float] = field(default_factory=dict)
+    scan_age_seconds: float = 0.0
+    decision_state: str = "hold"
+    decision_reason: str = ""
     fdr_method: str = "benjamini_hochberg"
     fdr_alpha: float = 0.05
 
     @property
     def tradeable_count(self) -> int:
         return sum(1 for r in self.validated_pairs if r.is_tradeable)
+
+    def best_result(self) -> CointegrationResult | None:
+        """Return the top-ranked pair if one is available."""
+        if self.ranked_pairs:
+            return self.ranked_pairs[0]
+        if self.validated_pairs:
+            return max(self.validated_pairs, key=lambda r: r.ranking_score)
+        return None
+
+    def age_seconds(self, now: datetime | None = None) -> float:
+        """Return the elapsed age of this scan in seconds."""
+        current = now or datetime.now(UTC)
+        return max(0.0, (current - self.timestamp).total_seconds())
+
+    def is_fresh(self, max_age_seconds: float) -> bool:
+        return self.age_seconds() <= max_age_seconds
+
+    def build_decision_context(
+        self,
+        max_age_seconds: float = 300.0,
+        min_rank_score: float = 0.0,
+    ) -> "PairDecisionContext":
+        """Create a compact decision payload for post-scan gating."""
+        best = self.best_result()
+        self.scan_age_seconds = self.age_seconds()
+        self.best_pair_key = best.pair_key if best is not None else ""
+        self.best_ranking_score = float(best.ranking_score) if best is not None else 0.0
+        self.best_ranking_components = dict(best.ranking_components) if best is not None else {}
+
+        if best is None or self.tradeable_count == 0:
+            self.decision_state = "hold"
+            self.decision_reason = "no_tradeable_pairs"
+        elif not self.is_fresh(max_age_seconds):
+            self.decision_state = "hold"
+            self.decision_reason = "scan_stale"
+        elif self.best_ranking_score < min_rank_score:
+            self.decision_state = "hold"
+            self.decision_reason = "rank_below_threshold"
+        else:
+            self.decision_state = "ready"
+            self.decision_reason = "scan_ready"
+
+        return PairDecisionContext(
+            scan_id=self.scan_id,
+            scan_timestamp=self.timestamp,
+            scan_age_seconds=self.scan_age_seconds,
+            total_candidates=self.total_candidates,
+            tradeable_count=self.tradeable_count,
+            best_pair_key=self.best_pair_key or None,
+            best_ranking_score=self.best_ranking_score,
+            best_ranking_components=dict(self.best_ranking_components),
+            is_fresh=self.is_fresh(max_age_seconds),
+            decision_state=self.decision_state,
+            decision_reason=self.decision_reason,
+            min_rank_score=min_rank_score,
+            max_age_seconds=max_age_seconds,
+        )
+
+
+@dataclass(frozen=True)
+class PairDecisionContext:
+    """Decision payload derived from a pair scan."""
+
+    scan_id: str
+    scan_timestamp: datetime
+    scan_age_seconds: float
+    total_candidates: int
+    tradeable_count: int
+    best_pair_key: str | None
+    best_ranking_score: float
+    best_ranking_components: dict[str, float] = field(default_factory=dict)
+    is_fresh: bool = False
+    decision_state: str = "hold"
+    decision_reason: str = ""
+    min_rank_score: float = 0.0
+    max_age_seconds: float = 300.0
 
 
 @dataclass
@@ -238,6 +331,7 @@ __all__ = [
     "PairDefinition",
     "CointegrationResult",
     "PairScanResult",
+    "PairDecisionContext",
     "PairTradingSignal",
     "PairPosition",
 ]

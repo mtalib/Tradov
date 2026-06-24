@@ -128,6 +128,11 @@ from Tradov.TradovU_Utilities.TradovU41_CircuitBreaker import tradier_breaker
 from Tradov.TradovU_Utilities.TradovU44_ShutdownCoordinator import get_shutdown_coordinator
 from Tradov.TradovU_Utilities.TradovU45_RetryWithBackoff import retry_async
 from Tradov.TradovU_Utilities.TradovU03_DateTimeUtils import is_tradier_active_window
+from Tradov.TradovU_Utilities.TradovU51_RuntimeContext import (
+    RuntimeContext,
+    coerce_runtime_context,
+    resolve_effective_trading_mode,
+)
 
 # ==============================================================================
 # CONSTANTS
@@ -544,9 +549,10 @@ class TradierClient:
     def __init__(
         self,
         api_key: str,
-        account_id: str,
+        account_id: str | None,
         environment: TradingEnvironment = TradingEnvironment.SANDBOX,
-        timeout: int = DEFAULT_TIMEOUT
+        timeout: int = DEFAULT_TIMEOUT,
+        runtime_context: RuntimeContext | None = None,
     ):
         """
         Initialize Tradier API client.
@@ -558,9 +564,12 @@ class TradierClient:
             timeout: HTTP request timeout in seconds
         """
         self.api_key = api_key
-        self.account_id = account_id
+        self.account_id = str(account_id).strip() if account_id is not None else ""
         self.environment = environment
         self.timeout = timeout
+        self.runtime_context = coerce_runtime_context(runtime_context)
+        self._resolved_account_id: str | None = None
+        self._api_key_source: str | None = None
 
         # Set base URL based on environment
         if environment in (TradingEnvironment.SANDBOX, TradingEnvironment.PAPER):
@@ -583,6 +592,76 @@ class TradierClient:
         )
 
         logger.debug("TradierClient initialized for %s environment", environment.value)
+
+    def _should_resolve_account_id_from_profile(self) -> bool:
+        """Return True when the client should prefer /user/profile discovery."""
+        raw = os.getenv("TRADOV_RESOLVE_TRADIER_ACCOUNT_FROM_PROFILE", "true")
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _extract_first_account_id(profile_response: dict[str, Any]) -> str | None:
+        """Extract the first usable account ID from a /user/profile payload."""
+        profile = profile_response.get("profile") or {}
+        account = profile.get("account")
+
+        if isinstance(account, dict):
+            value = account.get("account_number") or account.get("id") or ""
+            return str(value).strip() or None
+
+        if isinstance(account, list) and account:
+            first = account[0]
+            if isinstance(first, dict):
+                value = first.get("account_number") or first.get("id") or ""
+                return str(value).strip() or None
+
+        return None
+
+    def _resolve_account_id_from_profile(self) -> str | None:
+        """Resolve and cache an account ID from the authenticated profile."""
+        if self._resolved_account_id:
+            return self._resolved_account_id
+
+        if not self._should_resolve_account_id_from_profile() and self.account_id:
+            return self.account_id
+
+        try:
+            profile = self.get_user_profile()
+        except Exception as exc:
+            logger.debug("Tradier profile account discovery failed: %s", exc)
+            return self.account_id or None
+
+        account_id = self._extract_first_account_id(profile)
+        if account_id:
+            self._resolved_account_id = account_id
+            if self.account_id and self.account_id != account_id:
+                logger.warning(
+                    "Tradier profile account %s differs from configured account %s; using profile account",
+                    account_id,
+                    self.account_id,
+                )
+            else:
+                logger.info("Tradier profile account resolved: %s", account_id)
+            return account_id
+
+        return self.account_id or None
+
+    def _get_account_id(self) -> str:
+        """Return the effective Tradier account id or raise if unavailable."""
+        if self._resolved_account_id:
+            return self._resolved_account_id
+
+        if self._should_resolve_account_id_from_profile():
+            resolved = self._resolve_account_id_from_profile()
+            if resolved:
+                return resolved
+
+        if self.account_id:
+            return self.account_id
+
+        raise ValueError(
+            "Tradier account ID could not be resolved. Set TRADIER_LIVE_ACCOUNT_ID / "
+            "TRADIER_ACCOUNT_ID or allow profile-based discovery."
+        )
 
     def _create_session(self) -> requests.Session:
         """
@@ -624,23 +703,16 @@ class TradierClient:
 
         return session
 
-    @staticmethod
-    def _resolve_effective_trading_mode() -> str:
+    def _resolve_effective_trading_mode(self) -> str:
         """Resolve runtime trading mode for safety guards.
 
         Prefers explicit trading-mode variables and intentionally ignores
         ``TRADIER_ENVIRONMENT`` so paper mode can consume live market data.
         """
-        raw_mode = (
-            os.getenv("TRADING_MODE")
-            or os.getenv("TRADOV_TRADING_MODE")
-            or "paper"
+        return resolve_effective_trading_mode(
+            runtime_context=self.runtime_context,
+            env_mode=os.getenv("TRADING_MODE") or os.getenv("TRADOV_TRADING_MODE"),
         )
-        mode = str(raw_mode).strip().lower()
-
-        if mode in {"live", "production", "prod"}:
-            return "live"
-        return "paper"
 
     @staticmethod
     def _is_preview_order_payload(
@@ -669,7 +741,7 @@ class TradierClient:
         if str(method).strip().upper() != "POST":
             return False
 
-        order_endpoint = f"/accounts/{self.account_id}/orders"
+        order_endpoint = f"/accounts/{self._get_account_id()}/orders"
         if not str(endpoint).startswith(order_endpoint):
             return False
 
@@ -900,8 +972,9 @@ class TradierClient:
             >>> balances = client.get_account_balances()
             >>> print(balances["balances"]["total_equity"])
         """
-        logger.debug("Fetching balances for account %s", self.account_id)
-        endpoint = f"/accounts/{self.account_id}/balances"
+        account_id = self._get_account_id()
+        logger.debug("Fetching balances for account %s", account_id)
+        endpoint = f"/accounts/{account_id}/balances"
         try:
             payload = self._make_request("GET", endpoint)
         except TradierAPIError as exc:
@@ -939,8 +1012,9 @@ class TradierClient:
             >>> for pos in positions["positions"]["position"]:
             ...     print(f"{pos['symbol']}: {pos['quantity']} shares")
         """
-        logger.info("Fetching positions for account %s", self.account_id)
-        return self._make_request("GET", f"/accounts/{self.account_id}/positions")
+        account_id = self._get_account_id()
+        logger.info("Fetching positions for account %s", account_id)
+        return self._make_request("GET", f"/accounts/{account_id}/positions")
 
     def get_history(self, limit: int = 100) -> dict[str, Any]:
         """
@@ -952,10 +1026,11 @@ class TradierClient:
         Returns:
             Trade history events
         """
-        logger.info("Fetching history for account %s", self.account_id)
+        account_id = self._get_account_id()
+        logger.info("Fetching history for account %s", account_id)
         return self._make_request(
             "GET",
-            f"/accounts/{self.account_id}/history",
+            f"/accounts/{account_id}/history",
             params={"limit": limit}
         )
 
@@ -1007,10 +1082,11 @@ class TradierClient:
         if symbol:
             params["symbol"] = symbol
 
-        logger.info("Fetching gain/loss for account %s", self.account_id)
+        account_id = self._get_account_id()
+        logger.info("Fetching gain/loss for account %s", account_id)
         return self._make_request(
             "GET",
-            f"/accounts/{self.account_id}/gainloss",
+            f"/accounts/{account_id}/gainloss",
             params=params,
         )
 
@@ -1126,11 +1202,8 @@ class TradierClient:
             tag = f"tradov-{uuid.uuid4().hex[:16]}"
         payload["tag"] = tag
 
-        return self._make_request(
-            "POST",
-            f"/accounts/{self.account_id}/orders",
-            data=payload
-        )
+        account_id = self._get_account_id()
+        return self._make_request("POST", f"/accounts/{account_id}/orders", data=payload)
 
     def get_order(self, order_id: int) -> dict[str, Any]:
         """
@@ -1143,7 +1216,8 @@ class TradierClient:
             Order details
         """
         logger.info("Fetching order %s", order_id)
-        return self._make_request("GET", f"/accounts/{self.account_id}/orders/{order_id}")
+        account_id = self._get_account_id()
+        return self._make_request("GET", f"/accounts/{account_id}/orders/{order_id}")
 
     def cancel_order(self, order_id: int) -> bool:
         """
@@ -1161,9 +1235,8 @@ class TradierClient:
         relied on the raw dict should use ``_cancel_order_raw()`` instead.
         """
         logger.info("Canceling order %s", order_id)
-        raw: dict[str, Any] = self._make_request(
-            "DELETE", f"/accounts/{self.account_id}/orders/{order_id}"
-        )
+        account_id = self._get_account_id()
+        raw: dict[str, Any] = self._make_request("DELETE", f"/accounts/{account_id}/orders/{order_id}")
         # Tradier returns {"order": {"id": <int>, "status": "ok"}} on success.
         return bool((raw or {}).get("order", {}).get("id"))
 
@@ -1174,8 +1247,9 @@ class TradierClient:
         Returns:
             List of orders
         """
-        logger.info("Fetching all orders for account %s", self.account_id)
-        return self._make_request("GET", f"/accounts/{self.account_id}/orders")
+        account_id = self._get_account_id()
+        logger.info("Fetching all orders for account %s", account_id)
+        return self._make_request("GET", f"/accounts/{account_id}/orders")
 
     def close_position(
         self,
@@ -1375,11 +1449,8 @@ class TradierClient:
         if stop_price is not None:
             payload["stop"] = stop_price
 
-        return self._make_request(
-            "POST",
-            f"/accounts/{self.account_id}/orders",
-            data=payload,
-        )
+        account_id = self._get_account_id()
+        return self._make_request("POST", f"/accounts/{account_id}/orders", data=payload)
 
     def preview_multileg_order(
         self,
@@ -1425,11 +1496,8 @@ class TradierClient:
             payload[f"side[{i}]"] = leg.side.value
             payload[f"quantity[{i}]"] = str(leg.quantity)
 
-        return self._make_request(
-            "POST",
-            f"/accounts/{self.account_id}/orders",
-            data=payload,
-        )
+        account_id = self._get_account_id()
+        return self._make_request("POST", f"/accounts/{account_id}/orders", data=payload)
 
     def preview_iron_condor(
         self,
@@ -2020,11 +2088,8 @@ class TradierClient:
             payload[f"side[{i}]"] = leg.side.value
             payload[f"quantity[{i}]"] = str(leg.quantity)
 
-        return self._make_request(
-            "POST",
-            f"/accounts/{self.account_id}/orders",
-            data=payload,
-        )
+        account_id = self._get_account_id()
+        return self._make_request("POST", f"/accounts/{account_id}/orders", data=payload)
 
     def place_iron_condor(
         self,
@@ -2206,9 +2271,10 @@ class TradierClient:
             payload["stop"] = str(stop)
 
         logger.info("Modifying order %s: %s", order_id, payload)
+        account_id = self._get_account_id()
         return self._make_request(
             "PUT",
-            f"/accounts/{self.account_id}/orders/{order_id}",
+            f"/accounts/{account_id}/orders/{order_id}",
             data=payload,
         )
 
@@ -2262,11 +2328,8 @@ class TradierClient:
             payload[f"quantity[{i}]"] = str(leg.quantity)
 
         logger.info("Placing OCO order: %s (%s legs)", symbol, len(legs))
-        return self._make_request(
-            "POST",
-            f"/accounts/{self.account_id}/orders",
-            data=payload,
-        )
+        account_id = self._get_account_id()
+        return self._make_request("POST", f"/accounts/{account_id}/orders", data=payload)
 
     def place_oto_order(
         self,
@@ -2314,11 +2377,8 @@ class TradierClient:
             payload[f"quantity[{i}]"] = str(leg.quantity)
 
         logger.info("Placing OTO order: %s (%s legs)", symbol, len(legs))
-        return self._make_request(
-            "POST",
-            f"/accounts/{self.account_id}/orders",
-            data=payload,
-        )
+        account_id = self._get_account_id()
+        return self._make_request("POST", f"/accounts/{account_id}/orders", data=payload)
 
     def place_otoco_order(
         self,
@@ -2368,11 +2428,8 @@ class TradierClient:
             payload[f"quantity[{i}]"] = str(leg.quantity)
 
         logger.info("Placing OTOCO order: %s (%s legs)", symbol, len(legs))
-        return self._make_request(
-            "POST",
-            f"/accounts/{self.account_id}/orders",
-            data=payload,
-        )
+        account_id = self._get_account_id()
+        return self._make_request("POST", f"/accounts/{account_id}/orders", data=payload)
 
     # ==========================================================================
     # STREAMING SESSION
@@ -2423,7 +2480,8 @@ class TradierClient:
 
     def __repr__(self) -> str:
         """String representation."""
-        return f"TradierClient(account={self.account_id}, env={self.environment.value})"
+        account_id = self._resolved_account_id or self.account_id or "<unresolved>"
+        return f"TradierClient(account={account_id}, env={self.environment.value})"
 
     # ==========================================================================
     # ASYNC WRAPPERS WITH RATE LIMITING & CIRCUIT BREAKERS
@@ -3580,16 +3638,19 @@ class TradierMarketStream:
 # ==============================================================================
 # FACTORY FUNCTIONS
 # ==============================================================================
-def create_tradier_client_from_env(environment: TradingEnvironment | None = None) -> TradierClient:
+def create_tradier_client_from_env(
+    environment: TradingEnvironment | None = None,
+    runtime_context: RuntimeContext | None = None,
+) -> TradierClient:
     """
     Create TradierClient from environment variables.
 
-    Required environment variables:
-        - TRADIER_API_KEY: API access token
+        Required environment variables:
+        - TRADIER_LIVE_API_KEY: API access token
         - TRADIER_ACCOUNT_ID: Account ID
 
         Optional environment variables:
-                - TRADIER_ENVIRONMENT: ``"live"``, ``"production"``, or ``"sandbox"``
+                - TRADIER_ENVIRONMENT: ``"live"`` or ``"production"``
                     (default: ``"live"``).
           When *environment* is not passed explicitly, this variable is read to
           determine which Tradier endpoint to connect to.  This is independent of
@@ -3609,37 +3670,60 @@ def create_tradier_client_from_env(environment: TradingEnvironment | None = None
 
     Example:
         >>> import os
-        >>> os.environ["TRADIER_API_KEY"] = "your_token"
+        >>> os.environ["TRADIER_LIVE_API_KEY"] = "your_token"
         >>> os.environ["TRADIER_ACCOUNT_ID"] = "your_account"
         >>> os.environ["TRADIER_ENVIRONMENT"] = "live"
         >>> client = create_tradier_client_from_env()  # picks up TRADIER_ENVIRONMENT
     """
-    api_key = os.getenv("TRADIER_API_KEY")
-    account_id = os.getenv("TRADIER_ACCOUNT_ID")
+    try:
+        from dotenv import load_dotenv  # noqa: PLC0415
+
+        load_dotenv(override=True)
+    except ImportError:
+        pass
+
+    live_api_key = os.getenv("TRADIER_LIVE_API_KEY")
+    live_account_id = os.getenv("TRADIER_LIVE_ACCOUNT_ID")
+    legacy_account_id = os.getenv("TRADIER_ACCOUNT_ID")
+
+    api_key = live_api_key
+    account_id = live_account_id or legacy_account_id
+    api_key_source = "TRADIER_LIVE_API_KEY"
+    account_id_source = "TRADIER_LIVE_ACCOUNT_ID" if live_account_id else "TRADIER_ACCOUNT_ID"
 
     if not api_key:
-        raise ValueError("TRADIER_API_KEY environment variable not set")
+        raise ValueError(
+            "TRADIER_LIVE_API_KEY environment variable not set"
+        )
     if not account_id:
-        raise ValueError("TRADIER_ACCOUNT_ID environment variable not set")
+        raise ValueError(
+            "TRADIER_LIVE_ACCOUNT_ID or TRADIER_ACCOUNT_ID environment variable not set"
+        )
 
+    logger.info(
+        "Tradier credential source selected: api_key=%s account_id=%s",
+        api_key_source,
+        account_id_source,
+    )
     if environment is None:
         _env_raw = os.getenv("TRADIER_ENVIRONMENT")
         _env_str = str(_env_raw).strip().lower() if _env_raw is not None else "live"
         if _env_str in {"", "live", "production"}:
             environment = TradingEnvironment.LIVE
-        elif _env_str == "sandbox":
-            environment = TradingEnvironment.SANDBOX
         else:
             raise ValueError(
                 "Invalid TRADIER_ENVIRONMENT value. Expected one of: "
-                "live, production, sandbox"
+                "live, production"
             )
 
-    return TradierClient(
+    client = TradierClient(
         api_key=api_key,
         account_id=account_id,
-        environment=environment
+        environment=environment,
+        runtime_context=runtime_context,
     )
+    client._api_key_source = api_key_source
+    return client
 
 
 # ==============================================================================

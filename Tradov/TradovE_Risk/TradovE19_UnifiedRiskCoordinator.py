@@ -682,6 +682,13 @@ class UnifiedRiskCoordinator:
             return None
 
         try:
+            # Keep the X04 position sizer aligned with the live portfolio value.
+            if hasattr(self.ai_risk_guardian, "position_sizer") and self.ai_risk_guardian.position_sizer:
+                try:
+                    self.ai_risk_guardian.position_sizer.update_portfolio_value(portfolio_value)
+                except Exception as sync_error:
+                    self.logger.debug("AI guardian portfolio sync failed: %s", sync_error)
+
             # Check cache
             cache_key_data = {
                 'positions_count': len(positions),
@@ -1185,4 +1192,3 @@ if __name__ == "__main__":
     # Performance comparison
     for _metric, _value in consolidation['performance_gains'].items():
         pass
-

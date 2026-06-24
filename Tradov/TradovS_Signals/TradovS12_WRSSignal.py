@@ -39,7 +39,7 @@ Signal Levels (by expanding percentile rank):
     CRITICAL : 90 – 100th pct  — minimum size, no naked short-puts
 
 Data Sources:
-    Primary  : Tradier REST API (TRADIER_API_KEY env var)
+    Primary  : Tradier REST API (TRADIER_LIVE_API_KEY env var)
     Fallback : yfinance (for development / when Tradier unavailable)
 
 Caching:
@@ -304,7 +304,7 @@ class _TradierMarketClient:
                 )
                 if resp.status_code == 401:
                     raise WRSDataError(
-                        "Tradier 401 — check TRADIER_API_KEY in .env"
+                        "Tradier 401 — check TRADIER_LIVE_API_KEY in .env"
                     )
                 if resp.status_code == 429:
                     wait = int(resp.headers.get("Retry-After", "5"))
@@ -657,7 +657,7 @@ class WRSSignal:
         use_cache: bool = True,
         start: str = HISTORY_START,
     ) -> None:
-        env_token = tradier_token or os.getenv("TRADIER_API_KEY")
+        env_token = tradier_token or os.getenv("TRADIER_LIVE_API_KEY")
         env_sandbox = sandbox or (
             os.getenv("TRADIER_ENVIRONMENT", "live").lower() == "sandbox"
         )
@@ -675,7 +675,7 @@ class WRSSignal:
         else:
             self._client = None
             _logger.warning(
-                "WRSSignal: TRADIER_API_KEY not set — will fall back to yfinance"
+                "WRSSignal: TRADIER_LIVE_API_KEY not set — will fall back to yfinance"
             )
 
     # ------------------------------------------------------------------
@@ -837,7 +837,7 @@ def plot_wrs(
 
     Args:
         start: History start date.
-        tradier_token: Override TRADIER_API_KEY env var.
+        tradier_token: Override TRADIER_LIVE_API_KEY env var.
         output_path: Save path. Defaults to ~/.tradov/wrs_cache/wrs_YYYYMMDD.png.
         show: Call plt.show() after rendering.
 

@@ -49,7 +49,10 @@ def handle_connection_status_changed(dashboard: Any, connected: bool, status: st
             dashboard.api_connect_icon.setStyleSheet(
                 f"color: {COLORS['negative']}; font-size: 13px;",
             )
-            dashboard.api_connect_icon.setToolTip("Click to connect to Tradier API")
+            tooltip = "Click to connect to Tradier API"
+            if "auth failed" in (status or "").lower() or "invalid access token" in (status or "").lower():
+                tooltip = "Tradier auth failed - check token approval or account pairing"
+            dashboard.api_connect_icon.setToolTip(tooltip)
 
         if dashboard.trading_active:
             dashboard.trading_active = False
@@ -60,7 +63,10 @@ def handle_connection_status_changed(dashboard: Any, connected: bool, status: st
             dashboard.start_btn.setText("START TRADING")
             dashboard.add_system_log("Trading stopped - API connection lost")
 
-        if "MARKET CLOSED" in status:
+        lowered_status = (status or "").lower()
+        if "auth failed" in lowered_status or "invalid access token" in lowered_status:
+            dashboard.add_system_log("❌ TRADIER AUTH FAILED - CHECK TOKEN APPROVAL / ACCOUNT PAIRING")
+        elif "MARKET CLOSED" in status:
             dashboard.add_system_log("📊 Market closed - API disconnected")
         else:
             dashboard.add_system_log("🔌 Disconnected from Tradier API")

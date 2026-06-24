@@ -11,10 +11,10 @@ Year Created: 2026
 Last Updated: 2026-06-03 Time: 00:00:00
 
 Module Description:
-    Executes both legs of a pair trade simultaneously using separate
+    Executes both legs of a pair trade using separate
     single-leg orders (Tradier multileg API requires same underlying).
     Provides best-effort atomic execution:
-      - Places both legs at the same time
+      - Places legs sequentially by default, or concurrently when enabled
       - If leg B fails/rejected, auto-closes leg A to avoid orphan
       - Tracks paired order state for fill reconciliation
       - Supports market and limit orders for both legs
@@ -23,7 +23,9 @@ Module Description:
 from __future__ import annotations
 
 import logging
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
 from enum import Enum
@@ -73,6 +75,12 @@ class PairOrder:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
     error_message: str | None = None
+    leg_a_submitted_at: datetime | None = None
+    leg_b_submitted_at: datetime | None = None
+    leg_a_ack_at: datetime | None = None
+    leg_b_ack_at: datetime | None = None
+    leg_submit_delay_ms: float | None = None
+    telemetry: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_complete(self) -> bool:
@@ -80,6 +88,7 @@ class PairOrder:
             PairOrderState.BOTH_FILLED,
             PairOrderState.FAILED,
             PairOrderState.CANCELLED,
+            PairOrderState.RECOVERY,
         }
 
 
@@ -88,10 +97,14 @@ class PairOrderExecutor:
         self,
         order_manager: Any = None,
         timeout_seconds: float = 30.0,
+        concurrent_submissions: bool = False,
+        max_leg_submit_delay_ms: float = 500.0,
         logger: logging.Logger | None = None,
     ):
         self.order_manager = order_manager
         self.timeout_seconds = timeout_seconds
+        self.concurrent_submissions = concurrent_submissions
+        self.max_leg_submit_delay_ms = max_leg_submit_delay_ms
         self.logger = logger or TradovLogger.get_logger("PairOrderExecutor")
         self._active_orders: dict[str, PairOrder] = {}
         self._order_to_pair: dict[str, str] = {}
@@ -152,7 +165,22 @@ class PairOrderExecutor:
             **kwargs_b,
         )
 
-        id_a = self._submit_order(order_a)
+        id_a, id_b = self._submit_pair_legs(pair_order, order_a, order_b)
+        if self.concurrent_submissions and ((id_a is None) != (id_b is None)):
+            if id_a is not None:
+                pair_order.leg_a_order_id = str(id_a)
+                with self._lock:
+                    self._order_to_pair[str(id_a)] = pair_order.pair_order_id
+            if id_b is not None:
+                pair_order.leg_b_order_id = str(id_b)
+                with self._lock:
+                    self._order_to_pair[str(id_b)] = pair_order.pair_order_id
+            pair_order.state = PairOrderState.RECOVERY
+            pair_order.error_message = "Partial pair submission recovered"
+            self._recover_partial_submission(pair_order, leg_a_id=id_a, leg_b_id=id_b)
+            self._emit_event(pair_order)
+            return pair_order
+
         if id_a is None:
             pair_order.state = PairOrderState.FAILED
             pair_order.error_message = "Leg A submission failed"
@@ -164,7 +192,6 @@ class PairOrderExecutor:
         with self._lock:
             self._order_to_pair[str(id_a)] = pair_order.pair_order_id
 
-        id_b = self._submit_order(order_b)
         if id_b is None:
             self.logger.warning(
                 "Leg B failed for pair %s — recovering leg A (%s)",
@@ -173,7 +200,7 @@ class PairOrderExecutor:
             )
             pair_order.state = PairOrderState.RECOVERY
             pair_order.error_message = "Leg B submission failed; recovering leg A"
-            self._recover_leg_a(pair_order)
+            self._recover_partial_submission(pair_order, leg_a_id=id_a, leg_b_id=id_b)
             self._emit_event(pair_order)
             return pair_order
 
@@ -190,6 +217,113 @@ class PairOrderExecutor:
             pair_order.leg_b_order_id,
         )
         return pair_order
+
+    def _submit_pair_legs(
+        self,
+        pair_order: PairOrder,
+        order_a: OrderRequest,
+        order_b: OrderRequest,
+    ) -> tuple[Any, Any]:
+        """Submit pair legs with optional concurrent placement and timing telemetry."""
+        if not self.concurrent_submissions:
+            start_a = time.monotonic()
+            pair_order.leg_a_submitted_at = datetime.now(UTC)
+            id_a = self._submit_order(order_a)
+            pair_order.leg_a_ack_at = datetime.now(UTC) if id_a is not None else None
+
+            start_b = time.monotonic()
+            pair_order.leg_b_submitted_at = datetime.now(UTC)
+            id_b = self._submit_order(order_b)
+            pair_order.leg_b_ack_at = datetime.now(UTC) if id_b is not None else None
+            pair_order.leg_submit_delay_ms = max(0.0, (start_b - start_a) * 1000.0)
+            pair_order.telemetry.update(
+                {
+                    "submission_mode": "sequential",
+                    "leg_submit_delay_ms": pair_order.leg_submit_delay_ms,
+                    "max_leg_submit_delay_ms": self.max_leg_submit_delay_ms,
+                    "leg_delay_within_limit": pair_order.leg_submit_delay_ms <= self.max_leg_submit_delay_ms,
+                }
+            )
+            if pair_order.leg_submit_delay_ms > self.max_leg_submit_delay_ms:
+                self.logger.warning(
+                    "Pair leg submit delay exceeded limit: pair=%s delay_ms=%.1f limit_ms=%.1f",
+                    pair_order.pair_key,
+                    pair_order.leg_submit_delay_ms,
+                    self.max_leg_submit_delay_ms,
+                )
+            return id_a, id_b
+
+        pair_order.telemetry["submission_mode"] = "concurrent"
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="pair-order") as executor:
+            pair_order.leg_a_submitted_at = datetime.now(UTC)
+            start_a = time.monotonic()
+            future_a = executor.submit(self._submit_order, order_a)
+            pair_order.leg_b_submitted_at = datetime.now(UTC)
+            start_b = time.monotonic()
+            future_b = executor.submit(self._submit_order, order_b)
+            pair_order.leg_submit_delay_ms = abs(start_b - start_a) * 1000.0
+
+            try:
+                id_a = future_a.result(timeout=self.timeout_seconds)
+                pair_order.leg_a_ack_at = datetime.now(UTC) if id_a is not None else None
+            except FutureTimeout:
+                self.logger.error("Leg A submission timed out for pair %s", pair_order.pair_key)
+                id_a = None
+            try:
+                id_b = future_b.result(timeout=self.timeout_seconds)
+                pair_order.leg_b_ack_at = datetime.now(UTC) if id_b is not None else None
+            except FutureTimeout:
+                self.logger.error("Leg B submission timed out for pair %s", pair_order.pair_key)
+                id_b = None
+
+        pair_order.telemetry.update(
+            {
+                "leg_submit_delay_ms": pair_order.leg_submit_delay_ms,
+                "max_leg_submit_delay_ms": self.max_leg_submit_delay_ms,
+                "leg_delay_within_limit": pair_order.leg_submit_delay_ms <= self.max_leg_submit_delay_ms,
+            }
+        )
+        if (id_a is None) != (id_b is None):
+            pair_order.telemetry["partial_ack"] = True
+            pair_order.telemetry["partial_ack_leg"] = "A" if id_a is not None else "B"
+        return id_a, id_b
+
+    def _recover_partial_submission(
+        self,
+        pair_order: PairOrder,
+        *,
+        leg_a_id: Any,
+        leg_b_id: Any,
+    ) -> None:
+        """Cancel any acknowledged leg when the pair cannot be completed."""
+        cancel_order = getattr(self.order_manager, "cancel_order", None)
+        if not callable(cancel_order):
+            pair_order.state = PairOrderState.FAILED
+            pair_order.error_message = "Partial pair submission could not be recovered"
+            return
+
+        recovered_ids: list[str] = []
+        for leg_id in (leg_a_id, leg_b_id):
+            if leg_id is None:
+                continue
+            try:
+                cancel_order(str(leg_id))
+                recovered_ids.append(str(leg_id))
+            except Exception as exc:
+                self.logger.warning(
+                    "Pair recovery cancel failed pair=%s leg_id=%s error=%s",
+                    pair_order.pair_key,
+                    leg_id,
+                    exc,
+                )
+
+        if recovered_ids:
+            pair_order.telemetry["recovered_leg_ids"] = tuple(recovered_ids)
+            pair_order.state = PairOrderState.RECOVERY
+        else:
+            pair_order.state = PairOrderState.FAILED
+            pair_order.error_message = "Partial pair submission could not be recovered"
+        pair_order.completed_at = datetime.now(UTC)
 
     def on_fill(self, order_id: str, filled_qty: float, avg_price: float) -> None:
         with self._lock:
@@ -339,6 +473,12 @@ class PairOrderExecutor:
                     "state": pair_order.state.value,
                     "leg_a_order_id": pair_order.leg_a_order_id,
                     "leg_b_order_id": pair_order.leg_b_order_id,
+                    "leg_a_submitted_at": pair_order.leg_a_submitted_at.isoformat() if pair_order.leg_a_submitted_at else None,
+                    "leg_b_submitted_at": pair_order.leg_b_submitted_at.isoformat() if pair_order.leg_b_submitted_at else None,
+                    "leg_a_ack_at": pair_order.leg_a_ack_at.isoformat() if pair_order.leg_a_ack_at else None,
+                    "leg_b_ack_at": pair_order.leg_b_ack_at.isoformat() if pair_order.leg_b_ack_at else None,
+                    "leg_submit_delay_ms": pair_order.leg_submit_delay_ms,
+                    "telemetry": dict(pair_order.telemetry),
                 },
                 source="PairOrderExecutor",
             )

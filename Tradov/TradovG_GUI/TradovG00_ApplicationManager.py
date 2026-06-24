@@ -92,6 +92,25 @@ class AppConfig:
     enable_high_dpi: bool = True
     style_sheet: str | None = None
 
+
+def configure_qt_platform_environment(display_mode: DisplayMode = DisplayMode.GUI) -> None:
+    """
+    Configure Qt platform environment variables before QApplication creation.
+
+    GUI mode is forced onto the native Wayland platform so Qt does not fall
+    back to legacy desktop backends when a session exposes multiple options.
+    """
+    if display_mode == DisplayMode.HEADLESS:
+        os.environ["QT_QPA_PLATFORM"] = "minimal"
+        return
+
+    if display_mode == DisplayMode.OFFSCREEN:
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        return
+
+    os.environ["QT_QPA_PLATFORM"] = "wayland"
+    os.environ.pop("DISPLAY", None)
+
 # ==============================================================================
 # MAIN CLASS
 # ==============================================================================
@@ -317,17 +336,7 @@ class ApplicationManager(QObject):
     # ==========================================================================
     def _configure_display_mode(self) -> None:
         """Configure display mode settings."""
-        if self.config.display_mode == DisplayMode.HEADLESS:
-            os.environ['QT_QPA_PLATFORM'] = 'minimal'
-        elif self.config.display_mode == DisplayMode.OFFSCREEN:
-            os.environ['QT_QPA_PLATFORM'] = 'offscreen'
-        else:
-            # Force the native Wayland backend when running under a Wayland compositor.
-            # Without this Qt falls back to XWayland which causes rendering glitches and
-            # clipboard issues on Ubuntu 25+ / GNOME Wayland.
-            # Only set if the caller has not already overridden QT_QPA_PLATFORM.
-            if "QT_QPA_PLATFORM" not in os.environ and os.environ.get("WAYLAND_DISPLAY"):
-                os.environ["QT_QPA_PLATFORM"] = "wayland"
+        configure_qt_platform_environment(self.config.display_mode)
 
         # Enable high DPI support
         if self.config.enable_high_dpi:
@@ -460,4 +469,3 @@ if __name__ == "__main__":
                 widget.setWindowTitle("Test Widget")
 
         app_manager.shutdown_application()
-

@@ -87,6 +87,7 @@ class LivenessMonitor:
         self,
         event_manager: Any,
         engine: Any = None,
+        runtime_context: Any = None,
         heartbeat_path: str = DEFAULT_HEARTBEAT_PATH,
         healthz_port: int | None = None,
         deadman_seconds: float = DEADMAN_SECONDS_DEFAULT,
@@ -94,6 +95,7 @@ class LivenessMonitor:
         self.logger = TradovLogger.get_logger(__name__)
         self._em = event_manager
         self._engine = engine
+        self._runtime_context = runtime_context
         self._heartbeat_path = heartbeat_path
         self._healthz_port = int(
             healthz_port
@@ -233,18 +235,53 @@ class LivenessMonitor:
     def _is_paper_mode(self) -> bool:
         """Best-effort paper-mode detection used for deadman gating."""
         try:
+            runtime_context = self._runtime_context
+            if runtime_context is not None:
+                if bool(getattr(runtime_context, "is_paper", False)):
+                    return True
+                mode = str(getattr(runtime_context, "mode", "") or "").strip().lower()
+                if mode == "paper":
+                    return True
+
             engine = self._engine
             if engine is None:
-                return False
+                mode = str(
+                    os.environ.get("TRADING_MODE", "")
+                    or os.environ.get("TRADOV_TRADING_MODE", "")
+                ).strip().lower()
+                return mode == "paper"
+
+            engine_mode = getattr(engine, "mode", None)
+            if engine_mode is not None:
+                mode_value = getattr(engine_mode, "value", engine_mode)
+                mode_name = getattr(engine_mode, "name", engine_mode)
+                if str(mode_value).strip().lower() == "paper" or str(mode_name).strip().lower() == "paper":
+                    return True
 
             config = getattr(engine, "config", None)
+            for attr_name in ("mode", "trading_mode"):
+                config_mode = getattr(config, attr_name, None)
+                if config_mode is None:
+                    continue
+                mode_value = getattr(config_mode, "value", config_mode)
+                mode_name = getattr(config_mode, "name", config_mode)
+                if str(mode_value).strip().lower() == "paper" or str(mode_name).strip().lower() == "paper":
+                    return True
+
             account_id = str(getattr(config, "account_id", "") or "").upper()
             if account_id.startswith("PAPER"):
                 return True
 
             broker = getattr(engine, "broker", None)
             broker_name = type(broker).__name__.lower() if broker is not None else ""
-            return "paper" in broker_name
+            if "paper" in broker_name:
+                return True
+
+            mode = str(
+                os.environ.get("TRADING_MODE", "")
+                or os.environ.get("TRADOV_TRADING_MODE", "")
+            ).strip().lower()
+            return mode == "paper"
         except Exception:
             return False
 
@@ -295,6 +332,7 @@ class LivenessMonitor:
 def create_liveness_monitor(
     event_manager: Any,
     engine: Any = None,
+    runtime_context: Any = None,
     heartbeat_path: str | None = None,
     healthz_port: int | None = None,
     deadman_seconds: float = DEADMAN_SECONDS_DEFAULT,
@@ -302,6 +340,7 @@ def create_liveness_monitor(
     return LivenessMonitor(
         event_manager=event_manager,
         engine=engine,
+        runtime_context=runtime_context,
         heartbeat_path=heartbeat_path or DEFAULT_HEARTBEAT_PATH,
         healthz_port=healthz_port,
         deadman_seconds=deadman_seconds,

@@ -154,7 +154,7 @@ class DataProviderRouter:
 
     def _build_tradier_client(self) -> Any:
         """Construct a TradierClient configured for the active market-data environment."""
-        from TradovB_Broker.TradovB40_TradierClient import (  # type: ignore[import]
+        from Tradov.TradovB_Broker.TradovB40_TradierClient import (
             TradierClient,
             TradingEnvironment,
         )
@@ -182,8 +182,7 @@ class DataProviderRouter:
         environment = TradingEnvironment.LIVE
         api_key = (
             self._api_key
-            or os.environ.get("TRADIER_LIVE_API_KEY")
-            or os.environ.get("TRADIER_API_KEY", "")
+            or os.environ.get("TRADIER_LIVE_API_KEY", "")
         )
         account_id = (
             os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
@@ -191,14 +190,13 @@ class DataProviderRouter:
         )
 
         if not api_key:
-            key_hint = "TRADIER_LIVE_API_KEY (or TRADIER_API_KEY)"
+            key_hint = "TRADIER_LIVE_API_KEY"
             raise ValueError(
                 f"Tradier API key not set. Add {key_hint} to your .env file."
             )
         if not account_id:
-            account_hint = "TRADIER_LIVE_ACCOUNT_ID (or TRADIER_ACCOUNT_ID)"
-            raise ValueError(
-                f"Tradier account ID not set. Add {account_hint} to your .env file."
+            logger.warning(
+                "No Tradier account id configured; will attempt /user/profile discovery"
             )
 
         logger.debug(

@@ -1076,7 +1076,6 @@ class DataFeedManager:
             if environment == TradingEnvironment.LIVE:
                 api_key = (
                     os.environ.get("TRADIER_LIVE_API_KEY")
-                    or os.environ.get("TRADIER_API_KEY")
                     or ""
                 )
                 account_id = (
@@ -1087,7 +1086,6 @@ class DataFeedManager:
             else:
                 api_key = (
                     os.environ.get("TRADIER_SANDBOX_API_KEY")
-                    or os.environ.get("TRADIER_API_KEY")
                     or ""
                 )
                 account_id = (
@@ -1354,4 +1352,3 @@ def get_data_feed_manager(
 
     em = _gem()
     return DataFeedManager(provider=provider, event_manager=em)
-

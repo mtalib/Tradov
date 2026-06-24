@@ -43,6 +43,23 @@ def build_custom_metric_signal_panel_sync_plan(
     regime_value: object,
 ) -> CustomMetricSignalPanelSyncPlan:
     """Return the signal-panel regime payload and live S07 values."""
+    market_conditions_available = bool(metrics.get("market_conditions_available", True))
+    if not market_conditions_available:
+        clear_live_keys = tuple(
+            widget_key
+            for s07_key, (widget_key, _) in metric_routing.items()
+            if s07_key not in ("TICK", "ADD", "TRIN")
+        )
+        return CustomMetricSignalPanelSyncPlan(
+            regime_value="UNAVAILABLE",
+            swan=float("nan"),
+            dix=float("nan"),
+            skew=float("nan"),
+            gex=float("nan"),
+            live_data={},
+            clear_live_keys=clear_live_keys,
+        )
+
     live_data: dict[str, float] = {}
     clear_live_keys: list[str] = []
     for s07_key, (widget_key, scale) in metric_routing.items():

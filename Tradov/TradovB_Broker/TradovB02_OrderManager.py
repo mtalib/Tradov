@@ -87,6 +87,7 @@ from Tradov.TradovB_Broker.TradovB40_TradierClient import (
     TradierAccountStream,
     AccountEvent,
     create_tradier_client_from_env,
+    build_option_symbol,
 )
 
 # ==============================================================================
@@ -118,6 +119,7 @@ TRADIER_STATUS_MAP: dict[str, "OrderState"] = {}  # populated after OrderState d
 class OrderState(Enum):
     """Order lifecycle states."""
     PENDING = auto()           # Created locally, not yet submitted
+    SUBMITTING = auto()        # Locally staged; broker acknowledgement pending
     SUBMITTED = auto()         # Sent to Tradier
     OPEN = auto()              # Acknowledged by exchange
     PARTIALLY_FILLED = auto()  # Partial fill received
@@ -133,6 +135,7 @@ class OrderState(Enum):
     def is_active(self) -> bool:
         """True if order is still live (could fill or cancel)."""
         return self in {
+            OrderState.SUBMITTING,
             OrderState.SUBMITTED,
             OrderState.OPEN,
             OrderState.PARTIALLY_FILLED,
@@ -162,6 +165,7 @@ TRADIER_STATUS_MAP = {
     "filled": OrderState.FILLED,
     "expired": OrderState.EXPIRED,
     "canceled": OrderState.CANCELLED,
+    "cancelled": OrderState.CANCELLED,
     "rejected": OrderState.REJECTED,
 }
 
@@ -342,6 +346,7 @@ class OrderManager:
 
         # Order tracking
         self._orders: dict[str, Order] = {}
+        self._pending_submissions: dict[str, Order] = {}
         self._order_lock = RLock()
         self._shutdown_event = ThreadEvent()
 
@@ -399,6 +404,92 @@ class OrderManager:
         self.stop_persistence()
         self.logger.info("OrderManager stopped")
 
+    def _ensure_order_tag(self, order: Order) -> str:
+        """Ensure every routed order has a locally persisted broker tag."""
+        if order.tag:
+            return order.tag
+        prefix = str(order.strategy_name or order.order_class or "order")
+        prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", prefix).strip("-").lower()
+        prefix = prefix[:24] or "tradov"
+        order.tag = f"{prefix}-{uuid.uuid4().hex[:16]}"
+        return order.tag
+
+    def _stage_submission(self, order: Order) -> OrderResult | None:
+        """Stage an order in SUBMITTING state before broker routing."""
+        with self._order_lock:
+            if order.order_id in self._orders or order.order_id in self._pending_submissions:
+                return OrderResult(
+                    success=False,
+                    order_id=order.order_id,
+                    operation="submit",
+                    message="Duplicate order ID",
+                    error_code="DUPLICATE_ORDER_ID",
+                )
+
+            self._ensure_order_tag(order)
+            order.state = OrderState.SUBMITTING
+            order.submitted_time = datetime.now(UTC)
+            order.updated_at = datetime.now(UTC)
+            self._pending_submissions[order.order_id] = order
+        return None
+
+    def _commit_order(self, order: Order) -> None:
+        """Move a staged order into the committed ledger."""
+        self._orders[order.order_id] = order
+
+    def _finalize_submission_ack(
+        self,
+        order: Order,
+        tradier_id: int | None,
+    ) -> bool:
+        """Promote a staged order after broker acknowledgement."""
+        with self._order_lock:
+            self._pending_submissions.pop(order.order_id, None)
+            if tradier_id:
+                order.tradier_order_id = tradier_id
+                order.state = OrderState.OPEN
+                self.metrics["orders_submitted"] += 1
+                self._commit_order(order)
+            else:
+                order.state = OrderState.REJECTED
+                order.error_message = "No order ID in response"
+                self.metrics["orders_rejected"] += 1
+                self._commit_order(order)
+            order.updated_at = datetime.now(UTC)
+        return tradier_id is not None
+
+    def _reconcile_submission_by_tag(self, order: Order) -> int | None:
+        """Best-effort lookup for ambiguous submissions after a timeout."""
+        if not order.tag or not hasattr(self.tradier, "get_orders"):
+            return None
+        try:
+            response = self.tradier.get_orders()
+        except Exception as exc:
+            self.logger.warning(
+                "Order timeout reconciliation by tag failed for %s tag=%s: %s",
+                order.order_id,
+                order.tag,
+                exc,
+            )
+            return None
+
+        orders_payload = response.get("orders", {}) if isinstance(response, dict) else {}
+        raw_orders = orders_payload.get("order", []) if isinstance(orders_payload, dict) else []
+        if isinstance(raw_orders, dict):
+            raw_orders = [raw_orders]
+
+        for broker_order in raw_orders or []:
+            if not isinstance(broker_order, dict):
+                continue
+            if str(broker_order.get("tag") or "") != str(order.tag):
+                continue
+            broker_id = broker_order.get("id")
+            try:
+                return int(broker_id)
+            except (TypeError, ValueError):
+                return None
+        return None
+
     # ==========================================================================
     # ORDER SUBMISSION — SYNC
     # ==========================================================================
@@ -417,20 +508,9 @@ class OrderManager:
             OrderResult with success/failure and Tradier order ID.
         """
         try:
-            with self._order_lock:
-                # Prevent duplicates
-                if order.order_id in self._orders:
-                    return OrderResult(
-                        success=False,
-                        order_id=order.order_id,
-                        operation="submit",
-                        message="Duplicate order ID",
-                        error_code="DUPLICATE_ORDER_ID",
-                    )
-
-                order.submitted_time = datetime.now(UTC)
-                order.updated_at = datetime.now(UTC)
-                self._orders[order.order_id] = order
+            duplicate = self._stage_submission(order)
+            if duplicate is not None:
+                return duplicate
 
             self.logger.info(
                 f"Submitting order {order.order_id}: "
@@ -449,10 +529,12 @@ class OrderManager:
             blocked, reasons = self._evaluate_liquidity_gate(order)
             if blocked:
                 with self._order_lock:
+                    self._pending_submissions.pop(order.order_id, None)
                     order.state = OrderState.REJECTED
                     order.error_message = "; ".join(reasons)
                     order.updated_at = datetime.now(UTC)
                     self.metrics["orders_rejected"] += 1
+                    self._commit_order(order)
 
                 self._record_liquidity_feed(order, gate_passed=False, reasons=reasons)
                 self._record_execution_feed(
@@ -473,10 +555,12 @@ class OrderManager:
             blocked, reasons = self._evaluate_execution_quality_gate()
             if blocked:
                 with self._order_lock:
+                    self._pending_submissions.pop(order.order_id, None)
                     order.state = OrderState.REJECTED
                     order.error_message = "; ".join(reasons)
                     order.updated_at = datetime.now(UTC)
                     self.metrics["orders_rejected"] += 1
+                    self._commit_order(order)
 
                 self._record_execution_feed(
                     order=order,
@@ -509,20 +593,7 @@ class OrderManager:
 
             # Extract Tradier order ID from response
             tradier_id = self._extract_order_id(response)
-
-            with self._order_lock:
-                if tradier_id:
-                    order.tradier_order_id = tradier_id
-                    order.state = OrderState.OPEN
-                    self.metrics["orders_submitted"] += 1
-                else:
-                    order.state = OrderState.REJECTED
-                    order.error_message = "No order ID in response"
-                    self.metrics["orders_rejected"] += 1
-
-                order.updated_at = datetime.now(UTC)
-
-            success = tradier_id is not None
+            success = self._finalize_submission_ack(order, tradier_id)
             if success:
                 self._record_execution_feed(
                     order=order,
@@ -618,20 +689,12 @@ class OrderManager:
                 raw_response=response,
             )
 
-        except TradierAPIError as e:
+        except (TradierAPIError, ConnectionError, TimeoutError) as e:
             self.logger.error("Cancel failed for %s: %s", order_id, e)
-            with self._order_lock:
-                if order_id in self._orders:
-                    self._orders[order_id].warning_message = str(e)
-                    # Revert to previous active state if cancel failed
-                    if self._orders[order_id].state == OrderState.PENDING_CANCEL:
-                        self._orders[order_id].state = OrderState.OPEN
-            return OrderResult(
-                success=False,
+            return self._handle_order_transport_error(
                 order_id=order_id,
+                error=e,
                 operation="cancel",
-                message=str(e),
-                error_code="CANCEL_FAILED",
             )
 
     def modify_order(
@@ -716,14 +779,12 @@ class OrderManager:
                 raw_response=response,
             )
 
-        except TradierAPIError as e:
+        except (TradierAPIError, ConnectionError, TimeoutError) as e:
             self.logger.error("Modify failed for %s: %s", order_id, e)
-            return OrderResult(
-                success=False,
+            return self._handle_order_transport_error(
                 order_id=order_id,
+                error=e,
                 operation="modify",
-                message=str(e),
-                error_code="MODIFY_FAILED",
             )
 
     # ==========================================================================
@@ -809,9 +870,10 @@ class OrderManager:
         )
 
         try:
-            with self._order_lock:
-                order.submitted_time = datetime.now(UTC)
-                self._orders[order.order_id] = order
+            duplicate = self._stage_submission(order)
+            if duplicate is not None:
+                duplicate.operation = "submit_multileg"
+                return duplicate
 
             self.logger.info(
                 f"Submitting multileg order {order.order_id}: "
@@ -832,23 +894,14 @@ class OrderManager:
                 order_type=order_type,
                 duration=TradierOrderDuration(duration),
                 price=price,
-                tag=tag,
+                tag=order.tag,
             )
 
             tradier_id = self._extract_order_id(response)
-
-            with self._order_lock:
-                if tradier_id:
-                    order.tradier_order_id = tradier_id
-                    order.state = OrderState.OPEN
-                    self.metrics["orders_submitted"] += 1
-                else:
-                    order.state = OrderState.REJECTED
-                    self.metrics["orders_rejected"] += 1
-                order.updated_at = datetime.now(UTC)
+            success = self._finalize_submission_ack(order, tradier_id)
 
             return OrderResult(
-                success=tradier_id is not None,
+                success=success,
                 order_id=order.order_id,
                 tradier_order_id=tradier_id,
                 operation="submit_multileg",
@@ -909,9 +962,10 @@ class OrderManager:
         )
 
         try:
-            with self._order_lock:
-                order.submitted_time = datetime.now(UTC)
-                self._orders[order.order_id] = order
+            duplicate = self._stage_submission(order)
+            if duplicate is not None:
+                duplicate.operation = "submit_iron_condor"
+                return duplicate
 
             self.logger.info(
                 f"Submitting Iron Condor {order.order_id}: "
@@ -928,32 +982,43 @@ class OrderManager:
                     operation="submit_iron_condor",
                 )
 
-            response = self.tradier.place_iron_condor(
+            legs = [
+                OptionLeg(
+                    option_symbol=build_option_symbol(symbol, expiration, "P", put_buy_strike),
+                    side=TradierOrderSide.BUY_TO_OPEN,
+                    quantity=quantity,
+                ),
+                OptionLeg(
+                    option_symbol=build_option_symbol(symbol, expiration, "P", put_sell_strike),
+                    side=TradierOrderSide.SELL_TO_OPEN,
+                    quantity=quantity,
+                ),
+                OptionLeg(
+                    option_symbol=build_option_symbol(symbol, expiration, "C", call_sell_strike),
+                    side=TradierOrderSide.SELL_TO_OPEN,
+                    quantity=quantity,
+                ),
+                OptionLeg(
+                    option_symbol=build_option_symbol(symbol, expiration, "C", call_buy_strike),
+                    side=TradierOrderSide.BUY_TO_OPEN,
+                    quantity=quantity,
+                ),
+            ]
+            order.legs = legs
+            response = self.tradier.place_multileg_order(
                 symbol=symbol,
-                expiration=expiration,
-                put_buy_strike=put_buy_strike,
-                put_sell_strike=put_sell_strike,
-                call_sell_strike=call_sell_strike,
-                call_buy_strike=call_buy_strike,
-                quantity=quantity,
-                price=price,
+                legs=legs,
+                order_type="credit",
                 duration=TradierOrderDuration(duration),
+                price=price,
+                tag=order.tag,
             )
 
             tradier_id = self._extract_order_id(response)
-
-            with self._order_lock:
-                if tradier_id:
-                    order.tradier_order_id = tradier_id
-                    order.state = OrderState.OPEN
-                    self.metrics["orders_submitted"] += 1
-                else:
-                    order.state = OrderState.REJECTED
-                    self.metrics["orders_rejected"] += 1
-                order.updated_at = datetime.now(UTC)
+            success = self._finalize_submission_ack(order, tradier_id)
 
             return OrderResult(
-                success=tradier_id is not None,
+                success=success,
                 order_id=order.order_id,
                 tradier_order_id=tradier_id,
                 operation="submit_iron_condor",
@@ -1014,9 +1079,10 @@ class OrderManager:
         )
 
         try:
-            with self._order_lock:
-                order.submitted_time = datetime.now(UTC)
-                self._orders[order.order_id] = order
+            duplicate = self._stage_submission(order)
+            if duplicate is not None:
+                duplicate.operation = "submit_credit_spread"
+                return duplicate
 
             self.logger.info(
                 f"Submitting credit spread {order.order_id}: "
@@ -1032,31 +1098,34 @@ class OrderManager:
                     operation="submit_credit_spread",
                 )
 
-            response = self.tradier.place_credit_spread(
+            option_type_token = option_type[0].upper()
+            legs = [
+                OptionLeg(
+                    option_symbol=build_option_symbol(symbol, expiration, option_type_token, sell_strike),
+                    side=TradierOrderSide.SELL_TO_OPEN,
+                    quantity=quantity,
+                ),
+                OptionLeg(
+                    option_symbol=build_option_symbol(symbol, expiration, option_type_token, buy_strike),
+                    side=TradierOrderSide.BUY_TO_OPEN,
+                    quantity=quantity,
+                ),
+            ]
+            order.legs = legs
+            response = self.tradier.place_multileg_order(
                 symbol=symbol,
-                expiration=expiration,
-                sell_strike=sell_strike,
-                buy_strike=buy_strike,
-                option_type=option_type,
-                quantity=quantity,
-                price=price,
+                legs=legs,
+                order_type="credit",
                 duration=TradierOrderDuration(duration),
+                price=price,
+                tag=order.tag,
             )
 
             tradier_id = self._extract_order_id(response)
-
-            with self._order_lock:
-                if tradier_id:
-                    order.tradier_order_id = tradier_id
-                    order.state = OrderState.OPEN
-                    self.metrics["orders_submitted"] += 1
-                else:
-                    order.state = OrderState.REJECTED
-                    self.metrics["orders_rejected"] += 1
-                order.updated_at = datetime.now(UTC)
+            success = self._finalize_submission_ack(order, tradier_id)
 
             return OrderResult(
-                success=tradier_id is not None,
+                success=success,
                 order_id=order.order_id,
                 tradier_order_id=tradier_id,
                 operation="submit_credit_spread",
@@ -1378,7 +1447,7 @@ class OrderManager:
     def get_order(self, order_id: str) -> Order | None:
         """Get order by local ID."""
         with self._order_lock:
-            return self._orders.get(order_id)
+            return self._orders.get(order_id) or self._pending_submissions.get(order_id)
 
     def get_order_by_tradier_id(self, tradier_id: int) -> Order | None:
         """Get order by Tradier order ID."""
@@ -1391,22 +1460,34 @@ class OrderManager:
     def get_orders_by_symbol(self, symbol: str) -> list[Order]:
         """Get all orders for a symbol."""
         with self._order_lock:
-            return [o for o in self._orders.values() if o.symbol == symbol]
+            committed = [o for o in self._orders.values() if o.symbol == symbol]
+            pending = [o for o in self._pending_submissions.values() if o.symbol == symbol]
+            return [*committed, *pending]
 
     def get_orders_by_state(self, state: OrderState) -> list[Order]:
         """Get all orders in a specific state."""
         with self._order_lock:
-            return [o for o in self._orders.values() if o.state == state]
+            committed = [o for o in self._orders.values() if o.state == state]
+            pending = [o for o in self._pending_submissions.values() if o.state == state]
+            return [*committed, *pending]
 
     def get_active_orders(self) -> list[Order]:
         """Get all active (non-terminal) orders."""
         with self._order_lock:
-            return [o for o in self._orders.values() if o.state.is_active]
+            return [
+                *[o for o in self._orders.values() if o.state.is_active],
+                *[o for o in self._pending_submissions.values() if o.state.is_active],
+            ]
 
     def get_all_orders(self) -> list[Order]:
         """Get all tracked orders."""
         with self._order_lock:
-            return list(self._orders.values())
+            committed = list(self._orders.values())
+            pending = [
+                order for order_id, order in self._pending_submissions.items()
+                if order_id not in self._orders
+            ]
+            return [*committed, *pending]
 
     def refresh_order(self, order_id: str) -> Order | None:
         """
@@ -1699,10 +1780,12 @@ class OrderManager:
         detail = "; ".join(reasons) if reasons else "non-SPXW option entry blocked"
 
         with self._order_lock:
+            self._pending_submissions.pop(order.order_id, None)
             order.state = OrderState.REJECTED
             order.error_message = detail
             order.updated_at = datetime.now(UTC)
             self.metrics["orders_rejected"] += 1
+            self._commit_order(order)
 
         self._record_execution_feed(
             order=order,
@@ -1750,6 +1833,7 @@ class OrderManager:
                 limit_price=order.price,
                 stop_price=order.stop_price,
                 order_class=TradierOrderClass.OPTION,
+                tag=order.tag,
             )
 
         # Equity orders (default)
@@ -1762,6 +1846,7 @@ class OrderManager:
             limit_price=order.price,
             stop_price=order.stop_price,
             order_class=TradierOrderClass.EQUITY,
+            tag=order.tag,
         )
 
     def _extract_order_id(self, response: dict[str, Any]) -> int | None:
@@ -1776,11 +1861,29 @@ class OrderManager:
 
     def _handle_submission_error(self, order: Order, error: Exception) -> OrderResult:
         """Handle order submission error consistently."""
+        if isinstance(error, (ConnectionError, TimeoutError)):
+            reconciled_id = self._reconcile_submission_by_tag(order)
+            if reconciled_id is not None:
+                self._finalize_submission_ack(order, reconciled_id)
+                self._record_execution_feed(
+                    order=order,
+                    lifecycle_event=EventType.ORDER_SUBMITTED,
+                )
+                return OrderResult(
+                    success=True,
+                    order_id=order.order_id,
+                    tradier_order_id=reconciled_id,
+                    operation="submit",
+                    message="Order reconciled by broker tag after transport error",
+                )
+
         with self._order_lock:
+            self._pending_submissions.pop(order.order_id, None)
             order.state = OrderState.REJECTED
             order.error_message = str(error)
             order.updated_at = datetime.now(UTC)
             self.metrics["orders_rejected"] += 1
+            self._commit_order(order)
 
         self._record_execution_feed(
             order=order,
@@ -1794,6 +1897,43 @@ class OrderManager:
             operation="submit",
             message=str(error),
             error_code="SUBMISSION_ERROR",
+        )
+
+    def _handle_order_transport_error(
+        self,
+        *,
+        order_id: str,
+        error: Exception,
+        operation: str,
+    ) -> OrderResult:
+        """Normalize cancel/modify transport failures and refresh local state."""
+        refreshed_order = self.refresh_order(order_id)
+        with self._order_lock:
+            order = self._orders.get(order_id)
+            if order is not None:
+                order.warning_message = str(error)
+                if operation == "cancel" and order.state == OrderState.PENDING_CANCEL:
+                    order.state = OrderState.OPEN
+                order.updated_at = datetime.now(UTC)
+                self._commit_order(order)
+
+        if operation == "cancel" and refreshed_order is not None and refreshed_order.state == OrderState.CANCELLED:
+            return OrderResult(
+                success=True,
+                order_id=order_id,
+                tradier_order_id=refreshed_order.tradier_order_id,
+                operation=operation,
+                message="Order cancel reconciled after transport error",
+                raw_response={"refreshed": True},
+            )
+
+        error_code = "CANCEL_FAILED" if operation == "cancel" else "MODIFY_FAILED"
+        return OrderResult(
+            success=False,
+            order_id=order_id,
+            operation=operation,
+            message=str(error),
+            error_code=error_code,
         )
 
     # ==========================================================================
@@ -2404,4 +2544,3 @@ if __name__ == "__main__":
 
     except Exception:
         pass
-

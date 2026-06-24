@@ -19,6 +19,61 @@ Change Log:
         - Updated module header and structure
 """
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
+from Tradov.TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler
+
+try:
+    from pykalman import KalmanFilter
+    _PYKALMAN_AVAILABLE = True
+except Exception:
+    KalmanFilter = None  # type: ignore[assignment]
+    _PYKALMAN_AVAILABLE = False
+
+
+DEFAULT_ZSCORE_WINDOW = 20
+DEFAULT_IV_WINDOW = 252
+DEFAULT_VOLATILITY_WINDOW = 60
+ZSCORE_OVERBOUGHT = 2.0
+ZSCORE_OVERSOLD = -2.0
+IV_EXTREME_LOW = 10.0
+IV_LOW_PERCENTILE = 25.0
+IV_HIGH_PERCENTILE = 75.0
+IV_EXTREME_HIGH = 90.0
+MIN_CONFIDENCE_THRESHOLD = 0.5
+HIGH_CONFIDENCE_THRESHOLD = 0.75
+
+
+class MeanReversionSignal(Enum):
+    """Discrete mean-reversion signal direction."""
+
+    STRONG_BUY = "strong_buy"
+    BUY = "buy"
+    NEUTRAL = "neutral"
+    SELL = "sell"
+    STRONG_SELL = "strong_sell"
+
+
+class VolatilityRegime(Enum):
+    """Implied-volatility percentile regime."""
+
+    VERY_LOW = "very_low"
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    VERY_HIGH = "very_high"
+
+
 @dataclass
 class RenaissanceSignal:
     """Renaissance-style trading signal with full context"""
@@ -363,7 +418,24 @@ class VolatilityIndicators:
         else:
             return VolatilityRegime.VERY_HIGH
 
+    def order_flow_imbalance(
+        self,
+        buy_volume: pd.Series,
+        sell_volume: pd.Series,
+        window: int = 20,
+    ) -> pd.Series:
+        """
+        Calculate smoothed order-flow imbalance.
 
+        Args:
+            buy_volume: Series of buy-side volume.
+            sell_volume: Series of sell-side volume.
+            window: Smoothing window.
+
+        Returns:
+            Series of order-flow imbalance values in the approximate range -1 to 1.
+        """
+        try:
             total_volume = buy_volume + sell_volume + 1e-10
             imbalance = (buy_volume - sell_volume) / total_volume
 
@@ -711,4 +783,3 @@ if __name__ == "__main__":
     current_signal = signal_gen.get_current_signal(data)
     if current_signal:
         pass
-

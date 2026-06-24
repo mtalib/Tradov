@@ -87,14 +87,15 @@ def build_regime_pill_state_plan(
     vix_commit_cycles: int = 3,
 ) -> RegimePillStatePlan:
     """Return normalized pill state and the next sticky/VIX fallback state."""
-    swan = _metric_value(metrics, "SWAN", 1.9)
-    dix = _metric_value(metrics, "DIX", 42.0)
-    skew = _metric_value(metrics, "SKEW", 120.0)
-    gex = _metric_value(metrics, "GEX", 0.0)
+    market_conditions_available = bool(metrics.get("market_conditions_available", True))
+    swan = _metric_value(metrics, "SWAN", float("nan"))
+    dix = _metric_value(metrics, "DIX", float("nan"))
+    skew = _metric_value(metrics, "SKEW", float("nan"))
+    gex = _metric_value(metrics, "GEX", float("nan"))
 
     swan_live = _metric_entry_is_live(metrics, "SWAN")
     dix_live = _metric_entry_is_live(metrics, "DIX")
-    s07_live = swan_live and dix_live
+    s07_live = market_conditions_available and swan_live and dix_live
 
     vix_new_regime = _classify_vix_regime(vix_snapshot)
     if vix_new_regime == vix_candidate_regime:
@@ -110,7 +111,9 @@ def build_regime_pill_state_plan(
         else (regime_sticky or "RANGE")
     )
 
-    if not s07_live:
+    if not market_conditions_available:
+        regime = "UNAVAILABLE"
+    elif not s07_live:
         regime = regime_sticky if regime_sticky is not None else vix_regime
     elif swan >= 2.0:
         regime = "CRISIS"

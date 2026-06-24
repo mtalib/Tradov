@@ -112,6 +112,34 @@ class PairPositionTracker:
                 for p in self._positions.values()
             )
 
+    def get_total_entry_cost(self) -> float:
+        with self._lock:
+            return sum(
+                abs(p.quantity_a * p.entry_price_a) + abs(p.quantity_b * p.entry_price_b)
+                for p in self._positions.values()
+            )
+
+    def get_total_funds_held(self) -> float:
+        with self._lock:
+            total = 0.0
+            for pos in self._positions.values():
+                metadata = pos.metadata or {}
+                candidate = metadata.get("cash_held_dollars")
+                if candidate in (None, ""):
+                    candidate = metadata.get("buying_power_held")
+                if candidate in (None, ""):
+                    candidate = metadata.get("max_loss_dollars")
+                if candidate in (None, ""):
+                    candidate = metadata.get("funds_held_dollars")
+                if candidate not in (None, ""):
+                    try:
+                        total += abs(float(candidate))
+                        continue
+                    except (TypeError, ValueError):
+                        pass
+                total += abs(pos.quantity_a * pos.entry_price_a) + abs(pos.quantity_b * pos.entry_price_b)
+            return total
+
     def get_net_dollar_exposure(self) -> dict[str, float]:
         with self._lock:
             exposure: dict[str, float] = {}

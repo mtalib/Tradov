@@ -20,6 +20,12 @@ from Tradov.TradovG_GUI.TradovG41_RegimeLiquidityPresenter import build_pill_sty
 # STRATEGIES selector and is independent of the regime — the regime sets the
 # execution posture (Gate / Stance) and the halt policy, not the strategy.
 _REGIME_TIPS: dict[str, str] = {
+    "UNAVAILABLE": (
+        "<b>REGIME UNAVAILABLE</b><br><br>"
+        "S07 market conditions are unavailable or stale.<br>"
+        "The dashboard is showing an explicit unavailable state instead of "
+        "fabricating a neutral regime."
+    ),
     "BULL": (
         "<b>BULL REGIME</b><br><br>"
         "<b>Trigger (S07 composite):</b><br>"
@@ -79,6 +85,11 @@ _REGIME_TIPS: dict[str, str] = {
 }
 
 _DISPATCH_TIPS: dict[str, str] = {
+    "UNAVAILABLE": (
+        "<b>DISPATCH: UNAVAILABLE</b><br><br>"
+        "S07 market conditions are unavailable or stale. "
+        "Execution posture is being shown explicitly as unavailable."
+    ),
     "FLOWING": (
         "<b>DISPATCH: FLOWING</b><br><br>"
         "D31 has approved and dispatched a signal in the last 120s.<br>"
@@ -111,6 +122,10 @@ _DISPATCH_TIPS: dict[str, str] = {
 }
 
 _STANCE_TIPS: dict[str, str] = {
+    "UNAVAILABLE": (
+        "<b>STANCE: UNAVAILABLE</b><br><br>"
+        "The regime layer does not have fresh S07 market conditions."
+    ),
     "BULLISH": (
         "<b>BULLISH STANCE</b><br><br>"
         "D31 maps BULL regime &rarr; BULLISH stance<br><br>"
@@ -161,6 +176,10 @@ _STRESS_TIPS: dict[str, str] = {
 # the entry posture (permit vs halt); the specific strategies are operator-
 # curated via the STRATEGIES selector, not fixed per gate.
 _GATE_TIPS: dict[str, str] = {
+    "UNAVAILABLE": (
+        "<b>UNAVAILABLE GATE</b><br><br>"
+        "The regime layer does not have fresh S07 market conditions."
+    ),
     "BULL TREND": (
         "<b>BULL TREND GATE</b><br><br>"
         "Derived from a BULL regime (DIX/GEX strong, SWAN low).<br><br>"
@@ -280,6 +299,12 @@ def build_regime_pill_bar_presentation(
     border_color: str,
 ) -> RegimePillBarPresentation:
     """Build the full regime pill bar presentation from computed state."""
+    swan_value_text = "n/a"
+    if s07_live:
+        try:
+            swan_value_text = f"{float(swan):.2f}"
+        except Exception:
+            swan_value_text = "n/a"
     regime_pill = _build_pill_presentation("REGIME", regime, _REGIME_TIPS, "Regime")
     stress_pill = _build_pill_presentation("STRESS", stress, _STRESS_TIPS, "Stress")
     stance_pill = _build_pill_presentation("STANCE", stance, _STANCE_TIPS, "Strategy stance")
@@ -296,10 +321,12 @@ def build_regime_pill_bar_presentation(
         if s07_live else
         "VIX fallback with debounce / sticky last-good S07"
     )
+    if regime == "UNAVAILABLE":
+        regime_source = "S07 market conditions unavailable"
     dispatch_tooltip_parts.append(
         "<b>State reconciliation:</b><br>"
         f"&bull; <b>REGIME</b>: {regime} (source: {regime_source})<br>"
-        f"&bull; <b>STRESS</b>: {stress} (source: S07 SWAN bands; now={swan:.2f}; "
+        f"&bull; <b>STRESS</b>: {stress} (source: S07 SWAN bands; now={swan_value_text}; "
         "LOW &lt; 1.5, MEDIUM &ge; 1.5, HIGH &ge; 2.0, CRISIS &ge; 3.0)<br>"
         f"&bull; <b>STANCE</b>: {stance} (source: D31 execution regime={execution_regime or 'n/a'})<br>"
         f"&bull; <b>GATE</b>: {gate} (source: D31 policy bucket={execution_gate_key or 'n/a'})<br>"

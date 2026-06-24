@@ -276,8 +276,27 @@ class LiveEngine:
 
         # State management
         self.state = ExecutionState.INITIALIZED
-        account_id = str(getattr(config, "account_id", "") or "").upper()
-        self.mode = TradingMode.PAPER if account_id.startswith("PAPER") else TradingMode.LIVE
+        def _config_hint(name: str) -> Any:
+            if hasattr(config, "get"):
+                try:
+                    return config.get(name)  # type: ignore[call-arg]
+                except Exception:
+                    return None
+            return getattr(config, name, None)
+
+        mode_hint = str(
+            _config_hint("mode")
+            or _config_hint("trading_mode")
+            or _config_hint("runtime_mode")
+            or ""
+        ).strip().lower()
+        if mode_hint == "paper":
+            self.mode = TradingMode.PAPER
+        elif mode_hint == "live":
+            self.mode = TradingMode.LIVE
+        else:
+            account_id = str(getattr(config, "account_id", "") or "").upper()
+            self.mode = TradingMode.PAPER if account_id.startswith("PAPER") else TradingMode.LIVE
         self.current_session: TradingSession | None = None
 
         # Order management
@@ -1149,8 +1168,10 @@ class LiveEngine:
 
         Call this whenever the broker layer raises TradierServerError after
         all retries are exhausted.  If the count reaches API_PANIC_THRESHOLD
-        the engine enters API Panic Mode: no new entries are accepted and all
-        open positions are closed per close_positions_on_emergency.
+        the engine enters API Panic Mode.
+
+        Live mode: pause trading and keep the dashboard/session alive.
+        Paper mode: pause new entries and keep the dashboard/session alive.
         Auto-resets when reset_api_error_count() is called on success.
         """
         self._api_error_count += 1
@@ -1160,9 +1181,25 @@ class LiveEngine:
         )
         if self._api_error_count >= API_PANIC_THRESHOLD and not self._api_panic_mode:
             self._api_panic_mode = True
-            self.emergency_stop_all(
-                f"Tradier API unreachable - {self._api_error_count} consecutive 5xx errors"
+            reason = f"Tradier API unreachable - {self._api_error_count} consecutive 5xx errors"
+            paused = self.pause_trading()
+            self._emit_event(
+                "trading_paused",
+                {
+                    "reason": reason,
+                    "source": "LiveEngine.API_PANIC",
+                    "api_error_count": self._api_error_count,
+                    "threshold": API_PANIC_THRESHOLD,
+                },
             )
+            if paused:
+                self.logger.critical("API panic triggered trading pause: %s", reason)
+            else:
+                self.logger.critical(
+                    "API panic could not pause trading cleanly (state=%s): %s",
+                    self.state,
+                    reason,
+                )
 
     def reset_api_error_count(self) -> None:
         """Reset the consecutive 5xx counter after a successful broker call."""

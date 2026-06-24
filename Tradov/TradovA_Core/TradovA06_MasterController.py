@@ -790,11 +790,11 @@ class MasterController:
                     TradierClient,
                     TradingEnvironment,
                 )
-                api_key = os.environ.get("TRADIER_API_KEY", "")
+                api_key = os.environ.get("TRADIER_LIVE_API_KEY", "")
                 account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
                 if not api_key or not account_id:
                     logger.warning(
-                        "TRADIER_API_KEY or TRADIER_ACCOUNT_ID not set — "
+                        "TRADIER_LIVE_API_KEY or TRADIER_ACCOUNT_ID not set — "
                         "broker client unavailable"
                     )
                     return None

@@ -36,13 +36,13 @@ class SymbolDefinition:
 CATEGORY_ORDER: tuple[str, ...] = (
     "MAJOR INDICES",
     "MARKET INTERNALS",
+    "CUSTOM METRICS",
     "VOLATILITY",
     "OPTIONS ANALYTICS",
     "BONDS & CREDIT",
     "CORRELATIONS",
     "PAIR EQUITIES",
     "PAIR ETFS",
-    "CUSTOM METRICS",
 )
 
 
