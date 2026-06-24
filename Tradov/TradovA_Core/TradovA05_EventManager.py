@@ -140,6 +140,7 @@ class EventType(Enum):
     MARGIN_CALL = "margin_call"
     STOP_LOSS_TRIGGERED = "stop_loss_triggered"
     FLATTEN_REQUEST = "flatten_request"  # P2-2: flatten all positions (e.g. prolonged data stale)
+    EXIT_REQUEST = FLATTEN_REQUEST  # Backward compatibility alias
 
     # Connection events
     CONNECTION = "connection"
@@ -173,6 +174,8 @@ class EventType(Enum):
     ALERT = "alert"
     ALERT_GENERATED = "alert_generated"  # Legacy alias used by C11/N-series
     ANALYTICS = "analytics"              # Legacy analytics stream event
+    NEWS_ANALYSIS = "news_analysis"
+    BREAKING_NEWS = "breaking_news"
     DATA_UPDATE = "data_update"          # Legacy market-data update event
     INFO = "info"
     DEBUG = "debug"
@@ -1507,4 +1510,3 @@ class EventBus:
 def get_event_bus():
     """Factory function to get EventBus instance"""
     return EventBus()
-

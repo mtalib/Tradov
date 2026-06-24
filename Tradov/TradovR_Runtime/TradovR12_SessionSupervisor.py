@@ -58,6 +58,8 @@ from zoneinfo import ZoneInfo
 # LOCAL IMPORTS
 # ==============================================================================
 from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
+from Tradov.TradovU_Utilities.TradovU51_RuntimeContext import RuntimeContext
+from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_pair_quote_basket
 
 # ==============================================================================
 # CONSTANTS
@@ -98,7 +100,8 @@ class SessionSupervisor:
     Args:
         mode: ``"live"`` or ``"paper"``.
         symbols: Market symbols to subscribe to.  Defaults to
-            ``FEED_SYMBOLS`` env-var, falling back to ``["SPX", "VIX", "QQQ"]``.
+            ``FEED_SYMBOLS`` env-var, falling back to the pair-quote basket so
+            stat-arb strategies receive a scan-capable universe.
 
     Attributes:
         mode: Active trading mode.
@@ -114,15 +117,32 @@ class SessionSupervisor:
     ) -> None:
         self.logger = TradovLogger.get_logger(__name__)
         self.mode = mode
-        os.environ["TRADOV_TRADING_MODE"] = str(mode)
         self.session_id: str = ""
+        self.runtime_context = RuntimeContext(
+            mode=mode,
+            session_id="pending",
+            broker_environment=str(os.getenv("TRADIER_ENVIRONMENT", "live") or "live").strip().lower(),
+            market_data_environment=str(
+                os.getenv("TRADIER_MARKET_DATA_ENVIRONMENT")
+                or os.getenv("TRADIER_ENVIRONMENT")
+                or "live"
+            ).strip().lower(),
+            strict_autonomous=self._is_truthy_env(os.getenv("TRADOV_AUTONOMOUS_STRICT")),
+        )
         self.dry_run: bool = dry_run
         self.skip_orphan_sweep: bool = skip_orphan_sweep
-        self.symbols: list[str] = symbols or [
-            s.strip()
-            for s in os.environ.get("FEED_SYMBOLS", "SPX,VIX,QQQ").split(",")
-            if s.strip()
-        ]
+        if symbols is not None:
+            self.symbols = list(symbols)
+        else:
+            feed_symbols_raw = os.environ.get("FEED_SYMBOLS")
+            if feed_symbols_raw:
+                self.symbols = [
+                    s.strip()
+                    for s in feed_symbols_raw.split(",")
+                    if s.strip()
+                ]
+            else:
+                self.symbols = get_pair_quote_basket()
 
         # Ordered list of started components — stopped in reverse on shutdown.
         self._components: list[Any] = []
@@ -140,6 +160,7 @@ class SessionSupervisor:
         self.engine: Any = None
         self.orchestrator: Any = None
         self.exit_monitor: Any = None
+        self.pair_executor: Any = None
         # O1/O9/A13 (v14): LivenessMonitor — heartbeat + /healthz + deadman.
         self.liveness: Any = None
         self._flatten_request_handler_id: str | None = None
@@ -166,7 +187,25 @@ class SessionSupervisor:
         Returns:
             ``True`` on success, ``False`` if any required component fails.
         """
+        try:
+            from dotenv import load_dotenv  # noqa: PLC0415
+
+            load_dotenv(override=True)
+        except Exception:
+            pass
+
         self.session_id = f"{self.mode}-{uuid.uuid4().hex[:12]}"
+        self.runtime_context = RuntimeContext(
+            mode=self.mode,
+            session_id=self.session_id,
+            broker_environment=str(os.getenv("TRADIER_ENVIRONMENT", "live") or "live").strip().lower(),
+            market_data_environment=str(
+                os.getenv("TRADIER_MARKET_DATA_ENVIRONMENT")
+                or os.getenv("TRADIER_ENVIRONMENT")
+                or "live"
+            ).strip().lower(),
+            strict_autonomous=self._is_truthy_env(os.getenv("TRADOV_AUTONOMOUS_STRICT")),
+        )
         self._deferred_l09_cancel.clear()
         self.logger.debug(
             "SessionSupervisor.start() — mode=%s symbols=%s session_id=%s",
@@ -267,6 +306,7 @@ class SessionSupervisor:
             return self._abort("BootSelfTest")
         self._log_startup_profile("boot_self_test_complete")
 
+        self._emit_startup_routing_receipt()
         self._running = True
         self._log_startup_profile("start_complete")
         self._end_startup_profile()
@@ -274,6 +314,63 @@ class SessionSupervisor:
         self.logger.info("✅ Session started — %s", self.mode.capitalize())
 
         return True
+
+    def _startup_routing_receipt(self) -> dict[str, Any]:
+        """Build a structured summary of effective startup routing."""
+        broker_class = type(self.broker).__name__ if self.broker is not None else None
+        feed_class = type(self.feed).__name__ if self.feed is not None else None
+        orchestrator_class = type(self.orchestrator).__name__ if self.orchestrator is not None else None
+        try:
+            from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_pair_universe
+            pair_universe = set(get_pair_universe())
+        except Exception:
+            pair_universe = set()
+        pair_feed_symbols = sorted(
+            symbol
+            for symbol in self.symbols
+            if str(symbol).strip().upper() in pair_universe
+        )
+        return {
+            "event": "startup_effective_routing",
+            "session_id": self.session_id,
+            "runtime_context": self.runtime_context.to_dict(),
+            "mode": self.mode,
+            "dry_run": self.dry_run,
+            "broker_class": broker_class,
+            "market_data_feed_class": feed_class,
+            "orchestrator_class": orchestrator_class,
+            "symbols": list(self.symbols),
+            "pair_feed_symbols": pair_feed_symbols,
+            "pair_feed_coverage_ok": len(pair_feed_symbols) >= 2,
+            "live_only_policy": {
+                "tradier_environment": str(os.getenv("TRADIER_ENVIRONMENT", "live") or "live").strip().lower(),
+                "market_data_environment": str(
+                    os.getenv("TRADIER_MARKET_DATA_ENVIRONMENT")
+                    or os.getenv("TRADIER_ENVIRONMENT")
+                    or "live"
+                ).strip().lower(),
+                "sandbox_market_data_allowed": self._is_truthy_env(
+                    os.getenv("TRADOV_ALLOW_SANDBOX_MARKET_DATA")
+                ),
+            },
+            "entry_gate_fail_closed": self.mode == "live",
+            "synthetic_market_defaults_allowed": False,
+        }
+
+    def _emit_startup_routing_receipt(self) -> None:
+        """Emit/log the effective startup routing receipt without blocking startup."""
+        receipt = self._startup_routing_receipt()
+        self.logger.info("STARTUP_EFFECTIVE_ROUTING %s", receipt)
+        try:
+            if self.em is not None:
+                from Tradov.TradovA_Core.TradovA05_EventManager import EventType
+                self.em.emit(
+                    EventType.STARTUP,
+                    receipt,
+                    source="SessionSupervisor",
+                )
+        except Exception as exc:
+            self.logger.debug("Startup routing receipt emit failed: %s", exc)
 
     def stop(self, flatten: bool = False) -> None:
         """
@@ -437,6 +534,22 @@ class SessionSupervisor:
                 event_manager=self.em,
                 provider=provider_name,
             )
+            try:
+                from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_pair_universe
+                pair_universe = set(get_pair_universe())
+            except Exception:
+                pair_universe = set()
+            pair_feed_symbols = [
+                symbol
+                for symbol in self.symbols
+                if str(symbol).strip().upper() in pair_universe
+            ]
+            if len(pair_feed_symbols) < 2:
+                self.logger.warning(
+                    "Pair scan universe is undersized: pair_symbols=%s feed_symbols=%s",
+                    pair_feed_symbols,
+                    self.symbols,
+                )
             if not self.feed.start():
                 self.logger.error("❌ DataFeed.start() returned False")
                 return False
@@ -520,7 +633,7 @@ class SessionSupervisor:
             from Tradov.TradovB_Broker.TradovB40_TradierClient import (
                 create_tradier_client_from_env,
             )
-            self.broker = create_tradier_client_from_env()
+            self.broker = create_tradier_client_from_env(runtime_context=self.runtime_context)
             self.logger.info("✅ Tradier broker (LIVE) created")
             return True
         except Exception as exc:
@@ -623,6 +736,7 @@ class SessionSupervisor:
             )
             config = {
                 "account_id": account_id,
+                "mode": self.mode,
                 "max_daily_trades": int(os.environ.get("MAX_DAILY_TRADES", 100)),
                 "max_daily_loss": float(os.environ.get("MAX_DAILY_LOSS_USD", 10_000)),
                 "require_confirmation": (self.mode == "live"),
@@ -743,6 +857,7 @@ class SessionSupervisor:
                 allocation_method=allocation_method,
                 event_manager=self.em,
                 regime_engine=l09_engine,
+                runtime_context=self.runtime_context,
             )
             if hasattr(self.orchestrator, "set_decision_audit_context"):
                 self.orchestrator.set_decision_audit_context(
@@ -757,6 +872,14 @@ class SessionSupervisor:
             ):
                 self.orchestrator.set_startup_regime_engine_pending(True)
             self.orchestrator.set_live_engine(self.engine)
+            if self.mode == "paper":
+                paper_ready, paper_reason = self._validate_paper_dispatch_readiness()
+                if not paper_ready:
+                    self.logger.critical(
+                        "❌ Paper dispatch readiness failed: %s",
+                        paper_reason,
+                    )
+                    return False
             # Inject the already-started and (if non-live) force-synced RiskManager so
             # D31's lazy resolver doesn't create a second fresh un-synced instance and
             # reject every signal with risk_state_cold.
@@ -797,6 +920,7 @@ class SessionSupervisor:
                         "orders will fall back to market through LiveEngine): %s",
                         om_exc,
                     )
+            self._wire_pair_executor()
             self.orchestrator.start_orchestration(
                 defer_initial_strategy_activation=(self.mode == "paper")
             )
@@ -829,6 +953,110 @@ class SessionSupervisor:
         except Exception as exc:
             self.logger.error("❌ StrategyOrchestrator failed: %s", exc)
             return False
+
+    def _validate_paper_dispatch_readiness(self) -> tuple[bool, str]:
+        """Fail fast if paper trading cannot reach the execution path."""
+        if self.mode != "paper":
+            return True, ""
+        if self.broker is None:
+            return False, "paper broker missing"
+        if self.engine is None:
+            return False, "paper execution engine missing"
+        execute_order = getattr(self.engine, "execute_order", None)
+        if not callable(execute_order):
+            return False, "paper execution engine lacks execute_order()"
+        if self.orchestrator is None:
+            return False, "strategy orchestrator missing"
+        return True, ""
+
+    @staticmethod
+    def _extract_order_id(result: Any) -> str | None:
+        if isinstance(result, str):
+            cleaned = result.strip()
+            return cleaned or None
+        if isinstance(result, dict):
+            order = result.get("order")
+            if isinstance(order, dict):
+                order_id = order.get("id") or order.get("order_id")
+                if order_id:
+                    return str(order_id)
+            order_id = result.get("order_id") or result.get("id")
+            if order_id:
+                return str(order_id)
+        return None
+
+    def _build_pair_order_manager_adapter(self) -> Any | None:
+        """Create a small adapter that satisfies PairOrderExecutor's order_manager API."""
+        source: Any | None = None
+        fallback: Any | None = None
+        if self.mode == "paper":
+            source = self.broker
+        else:
+            if self.orchestrator is not None:
+                source = getattr(self.orchestrator, "_order_manager", None)
+            if source is None:
+                source = self.broker
+            if source is not self.broker and self.broker is not None:
+                fallback = self.broker
+
+        if source is None and fallback is None:
+            return None
+
+        class _PairOrderManagerAdapter:
+            def __init__(self, primary: Any, fallback: Any | None = None) -> None:
+                self._primary = primary
+                self._fallback = fallback
+
+            def _submit_via(self, provider: Any, **kwargs: Any) -> str | None:
+                if provider is None:
+                    return None
+                if hasattr(provider, "place_equity_order"):
+                    result = provider.place_equity_order(**kwargs)
+                elif hasattr(provider, "place_order"):
+                    result = provider.place_order(**kwargs)
+                elif hasattr(provider, "submit_order"):
+                    result = provider.submit_order(kwargs)
+                else:
+                    return None
+                return SessionSupervisor._extract_order_id(result)
+
+            def place_equity_order(self, **kwargs: Any) -> str | None:
+                order_id = self._submit_via(self._primary, **kwargs)
+                if order_id is not None:
+                    return order_id
+                return self._submit_via(self._fallback, **kwargs)
+
+            def cancel_order(self, order_id: str) -> bool:
+                for provider in (self._primary, self._fallback):
+                    if provider is None or not hasattr(provider, "cancel_order"):
+                        continue
+                    try:
+                        return bool(provider.cancel_order(order_id))
+                    except Exception:
+                        continue
+                return False
+
+        return _PairOrderManagerAdapter(source, fallback)
+
+    def _wire_pair_executor(self) -> None:
+        """Instantiate and attach the pair executor when the broker path is available."""
+        if self.orchestrator is None:
+            return
+        if not hasattr(self.orchestrator, "set_pair_executor"):
+            return
+        try:
+            from Tradov.TradovB_Broker.TradovB02_PairOrderExecutor import PairOrderExecutor
+        except Exception as exc:
+            self.logger.debug("PairOrderExecutor unavailable: %s", exc)
+            return
+
+        order_manager = self._build_pair_order_manager_adapter()
+        if order_manager is None:
+            self.logger.warning("Pair executor wiring skipped: no compatible order manager")
+            return
+
+        self.pair_executor = PairOrderExecutor(order_manager=order_manager)
+        self.orchestrator.set_pair_executor(self.pair_executor)
 
     def _start_deferred_orchestrator_regime_engine_initialization(
         self,
@@ -897,7 +1125,9 @@ class SessionSupervisor:
             )
 
             self.liveness = create_liveness_monitor(
-                event_manager=self.em, engine=self.engine
+                event_manager=self.em,
+                engine=self.engine,
+                runtime_context=self.runtime_context,
             )
             self.liveness.start()
             self._components.append(self.liveness)

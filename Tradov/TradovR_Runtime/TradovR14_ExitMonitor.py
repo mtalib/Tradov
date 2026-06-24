@@ -269,7 +269,7 @@ class ExitMonitor:
             )
 
     def _reserve_pending_symbol_flatten(self, symbols: list[str]) -> None:
-        """Suppress duplicate symbol-level flatten requests while one is in flight."""
+        """Suppress duplicate symbol-level exit requests while one is in flight."""
         reservation_until = time.monotonic() + _PENDING_GROUP_FLATTEN_TTL_S
         with self._pending_group_flatten_lock:
             for symbol in symbols:

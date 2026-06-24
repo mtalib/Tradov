@@ -246,6 +246,9 @@ from Tradov.TradovG_GUI.TradovG120_SystemLogSuppressionHelper import (  # noqa: 
     should_suppress_after_hours_system_log_text,
     should_suppress_opening_warmup_system_log_text,
 )
+from Tradov.TradovU_Utilities.TradovU47_SingleInstance import (  # noqa: E402
+    try_acquire_tradov_instance_lock,
+)
 from Tradov.TradovG_GUI.TradovG121_AutomationLogRoutingHelper import (  # noqa: E402
     build_automation_log_routing_plan,
 )
@@ -576,6 +579,13 @@ from Tradov.TradovG_GUI.TradovG13_EnhancedWidgets import (  # noqa: E402
     TrafficLightButton,  # noqa: F401
     apply_tooltip_theme,
 )
+try:
+    from Tradov.TradovC_MarketData.TradovC09_NewsManager import NewsManager
+
+    NEWS_MANAGER_AVAILABLE = True
+except Exception:  # noqa: BLE001
+    NewsManager = None  # type: ignore
+    NEWS_MANAGER_AVAILABLE = False
 from Tradov.TradovG_GUI.TradovG20_DashboardBuilder import (  # noqa: E402
     build_center_panel,
     build_left_panel,
@@ -685,10 +695,10 @@ OPENING_DATA_WARMUP_END_TIME = dt_time(9, 33)
 MARKET_CLOSE_TIME = dt_time(16, 0)
 TRADIER_CONNECT_TIME = dt_time(9, 0)
 TRADIER_DISCONNECT_TIME = dt_time(16, 30)
-STARTUP_METRICS_ORCHESTRATOR_DELAY_MS = 250
-STARTUP_REAL_DATA_PATTERN_DELAY_MS = 250
-STARTUP_INITIAL_LIVE_FETCH_DELAY_MS = 250
-STARTUP_INITIAL_LIVE_FETCH_RETRY_DELAY_MS = 1000
+STARTUP_METRICS_ORCHESTRATOR_DELAY_MS = 2500
+STARTUP_REAL_DATA_PATTERN_DELAY_MS = 1000
+STARTUP_INITIAL_LIVE_FETCH_DELAY_MS = 3000
+STARTUP_INITIAL_LIVE_FETCH_RETRY_DELAY_MS = 1500
 
 
 @lru_cache(maxsize=1)
@@ -837,6 +847,7 @@ class TradovTradingDashboard(QMainWindow):
 
     manual_close_spread_requested = Signal(str)
     optional_metrics_refreshed = Signal(dict)
+    news_feed_ready = Signal(object, bool, str)
 
     # ------------------------------------------------------------------
     # S07 metric routing (audit §21 — display-unit adaptation layer)
@@ -1091,6 +1102,13 @@ class TradovTradingDashboard(QMainWindow):
         # Widget storage
         self.symbol_widgets = {}
         self._pmr_row_state: dict[str, object] | None = None
+        self.pair_trading_group = None
+        self.pair_trading_dashboard = None
+        self.pair_scanner_panel = None
+        self.pair_positions_panel = None
+        self.pair_risk_summary_panel = None
+        self.pair_breaking_news_panel = None
+        self.pair_breaking_news_container = None
 
         # Prometheus metrics attributes
         self.system_components = {}
@@ -1104,6 +1122,7 @@ class TradovTradingDashboard(QMainWindow):
         self._check_timer = None
         self._decision_flow_timer = None
         self._optional_signal_timer = None
+        self._pair_panel_refresh_timer = None
         self._optional_signal_refresh_inflight = False
         self._error_count = 0
         self._system_log_flush_pending = False
@@ -1226,6 +1245,10 @@ class TradovTradingDashboard(QMainWindow):
         self.chart_timer = None
         self._shutdown_snapshot_saved = False
         self._shutdown_in_progress = False
+        self.news_manager = None
+        self._news_feed_started = False
+        self._news_feed_starting = False
+        self.news_feed_ready.connect(self._on_news_feed_ready)
 
         # Try to connect to real Prometheus collector if available
         if prometheus_available:
@@ -1241,6 +1264,8 @@ class TradovTradingDashboard(QMainWindow):
         self.setup_timers()
         self.load_default_risk_parameters()
         self.optional_metrics_refreshed.connect(self._on_optional_metrics_refreshed)
+        if NEWS_MANAGER_AVAILABLE:
+            QTimer.singleShot(0, self._initialize_news_feed)
         launch_loading_hold_active = (
             not self._defer_opening_runtime_startup
             and self._is_market_hours_launch_loading_hold_active()
@@ -1256,20 +1281,20 @@ class TradovTradingDashboard(QMainWindow):
         else:
             # Subscribe after first paint so event-bus initialization does not
             # block the initial dashboard render.
-            QTimer.singleShot(150, self._subscribe_to_events)
+            QTimer.singleShot(1500, self._subscribe_to_events)
 
         # Restore previous session's symbol values (if any) — runs after the
         # event loop starts so all widgets are fully initialised.
         if launch_loading_hold_active:
             self._schedule_after_launch_loading_hold(self._restore_snapshot, 10)
         else:
-            QTimer.singleShot(0, self._restore_snapshot)
+            QTimer.singleShot(1000, self._restore_snapshot)
 
         if not self._defer_opening_runtime_startup:
             if not launch_loading_hold_active:
                 # Start market worker with fixed connection detection
-                QTimer.singleShot(100, self.start_market_worker)
-                QTimer.singleShot(250, self._init_h07_performance_analytics)
+                QTimer.singleShot(1000, self.start_market_worker)
+                QTimer.singleShot(2000, self._init_h07_performance_analytics)
                 self._start_decision_flow_timer()
 
         # Pre-populate account P&L fields and performance table so the dashboard
@@ -1280,7 +1305,7 @@ class TradovTradingDashboard(QMainWindow):
             QTimer.singleShot(0, self._init_account_display)
 
         # Start custom metrics orchestrator (DIX + Black Swan schedulers)
-        # Deferred 1 s so the Qt event loop is fully running before QTimer creation in S07
+        # Deferred so the Qt event loop is fully running before QTimer creation in S07.
         self._metrics_orchestrator = None
         if not self._defer_opening_runtime_startup and not launch_loading_hold_active:
             self._schedule_runtime_followup_startup_tasks()
@@ -1297,11 +1322,11 @@ class TradovTradingDashboard(QMainWindow):
         if launch_loading_hold_active:
             self._schedule_after_launch_loading_hold(
                 self._refresh_startup_readiness_state,
-                75,
+                2500,
             )
         else:
-            QTimer.singleShot(75, self._refresh_startup_readiness_state)
-        QTimer.singleShot(200, self.setup_white_tooltips)
+            QTimer.singleShot(2500, self._refresh_startup_readiness_state)
+        QTimer.singleShot(1000, self.setup_white_tooltips)
         # Re-emit once after startup burst so users can still see startup state
         # when the system log is rapidly populated by module initialization.
         _et_tz = _get_eastern_timezone()
@@ -1572,15 +1597,15 @@ class TradovTradingDashboard(QMainWindow):
             return
 
         QTimer.singleShot(
-            STARTUP_METRICS_ORCHESTRATOR_DELAY_MS,
+            max(STARTUP_METRICS_ORCHESTRATOR_DELAY_MS, 5000),
             self._start_metrics_orchestrator,
         )
         QTimer.singleShot(
-            STARTUP_REAL_DATA_PATTERN_DELAY_MS,
+            max(STARTUP_REAL_DATA_PATTERN_DELAY_MS, 2000),
             self.apply_proven_real_data_pattern,
         )
         QTimer.singleShot(
-            STARTUP_INITIAL_LIVE_FETCH_DELAY_MS,
+            max(STARTUP_INITIAL_LIVE_FETCH_DELAY_MS, 5000),
             self._trigger_initial_live_fetch,
         )
 
@@ -1592,7 +1617,9 @@ class TradovTradingDashboard(QMainWindow):
         """
         try:
             self.logger.info("🔄 Checking Tradier API connectivity...")
-            connected, mode = check_api_connection()
+            supervisor = getattr(self, "_session_supervisor", None)
+            runtime_context = getattr(supervisor, "runtime_context", None) if supervisor else None
+            connected, mode = check_api_connection(runtime_context)
 
             if connected:
                 self.logger.info("✅ Tradier API connected: %s", mode)
@@ -2222,7 +2249,65 @@ class TradovTradingDashboard(QMainWindow):
         for method_name in shutdown_sequence_plan.post_qthread_methods:
             getattr(self, method_name)()
 
+        self._shutdown_news_feed()
         event.accept()
+
+    def _initialize_news_feed(self) -> None:
+        """Start the shared news manager and attach it to the pair dashboard."""
+        if self._news_feed_started or self._news_feed_starting or not NEWS_MANAGER_AVAILABLE:
+            return
+        self._news_feed_starting = True
+        threading.Thread(
+            target=self._initialize_news_feed_background,
+            name="TradovNewsFeedInit",
+            daemon=True,
+        ).start()
+
+    def _initialize_news_feed_background(self) -> None:
+        """Prime the news manager off the GUI thread."""
+        try:
+            manager = NewsManager()
+            manager.initialize()
+            self.news_feed_ready.emit(manager, True, "")
+        except Exception as exc:  # noqa: BLE001
+            self.news_feed_ready.emit(None, False, str(exc))
+
+    def _on_news_feed_ready(self, manager: object, ok: bool, message: str) -> None:
+        """Attach a ready news manager back on the GUI thread."""
+        self._news_feed_starting = False
+        if not ok or manager is None:
+            self.news_manager = None
+            self._news_feed_started = False
+            if message:
+                self.logger.warning("Could not start news feed: %s", message)
+            return
+
+        self.news_manager = manager
+        self._news_feed_started = True
+
+        breaking_news_panel = getattr(self, "pair_breaking_news_panel", None)
+        if breaking_news_panel is not None and hasattr(breaking_news_panel, "set_news_manager"):
+            try:
+                breaking_news_panel.set_news_manager(manager)
+                breaking_news_panel.refresh_breaking_news()
+            except Exception as exc:  # noqa: BLE001
+                self.logger.debug("Could not attach news feed to dashboard: %s", exc)
+
+        self.logger.info("News feed wired into dashboard breaking-news panel")
+
+    def _shutdown_news_feed(self) -> None:
+        """Stop the shared news manager before the GUI exits."""
+        manager = getattr(self, "news_manager", None)
+        if manager is None:
+            return
+        try:
+            if hasattr(manager, "stop"):
+                manager.stop()
+        except Exception as exc:  # noqa: BLE001
+            self.logger.debug("News feed shutdown ignored: %s", exc)
+        finally:
+            self.news_manager = None
+            self._news_feed_started = False
 
     def _stop_qthread_for_shutdown(
         self,
@@ -2510,7 +2595,6 @@ class TradovTradingDashboard(QMainWindow):
             }}
             QLabel {{
                 color: {COLORS["text"]};
-                    market_open_delay_ms = max(0, int((loading_start_at - now_et).total_seconds() * 1000))
             }}
             QGroupBox {{
                 color: {COLORS["text"]};
@@ -2521,11 +2605,9 @@ class TradovTradingDashboard(QMainWindow):
                 background-color: {COLORS["background"]};
             }}
             QGroupBox::title {{
-                    if getattr(self, "_session_supervisor", None) is not None and not getattr(self, "trading_active", False):
-                        self._set_start_button_loading_live_data_state()
                 left: 10px;
                 padding: 0 5px 0 5px;
-                    "⏳ ENTRY gate remains blocked until 09:45 ET"
+            }}
             QPushButton {{
                 background-color: {COLORS["panel"]};
                 color: {COLORS["text"]};
@@ -3146,7 +3228,7 @@ class TradovTradingDashboard(QMainWindow):
         return build_pnl_table()
 
     def create_unified_prometheus_metrics(self) -> QWidget:
-        """Create the unified Prometheus Metrics table (8 clients in 4x2 grid + 2 empty rows)"""
+        """Create the pair-trading Prometheus Metrics table."""
         return build_unified_prometheus_metrics(self)
 
     # ==========================================================================
@@ -3271,6 +3353,25 @@ class TradovTradingDashboard(QMainWindow):
         try:
             client = create_tradier_client_from_env(environment=env)
             self.tradier_client = client
+            try:
+                account_id = getattr(client, "_resolved_account_id", None) or getattr(client, "account_id", "")
+                api_key_source = getattr(client, "_api_key_source", None)
+                profile_resolution_enabled = bool(getattr(client, "_should_resolve_account_id_from_profile", lambda: False)())
+                account_id_source = (
+                    "profile"
+                    if getattr(client, "_resolved_account_id", None)
+                    else "configured"
+                )
+                if api_key_source:
+                    self.add_system_log(
+                        f"Tradier credential source selected: api_key={api_key_source} account_id={account_id_source}"
+                    )
+                if profile_resolution_enabled:
+                    self.add_system_log("Tradier account discovery enabled via /user/profile")
+                if account_id:
+                    self.add_system_log(f"Tradier account resolved: {account_id}")
+            except Exception:
+                pass
             return client
         except Exception as exc:
             self.add_system_log(f"⚠️ Could not create Tradier client: {exc}")
@@ -3529,12 +3630,11 @@ class TradovTradingDashboard(QMainWindow):
         if not self.positions_table:
             return
 
-        # Update pair trading dashboard if visible
-        if getattr(self, "pair_trading_dashboard", None) is not None and self.pair_trading_dashboard.isVisible():
-            try:
-                self.pair_trading_dashboard.update_data()
-            except Exception:
-                pass
+        # Update visible pair-trading panels from the orchestrator state.
+        try:
+            self._refresh_pair_trading_panels()
+        except Exception:
+            pass
 
         # In paper trading mode the live account endpoints are not used;
         # paper positions are tracked internally by _PaperTradingWorker.
@@ -4727,19 +4827,14 @@ class TradovTradingDashboard(QMainWindow):
         self.add_system_log("PAPER trading enabled")
 
     def _sync_runtime_trading_mode_override(self) -> None:
-        """Keep runtime guard mode aligned with GUI mode + arming state.
-
-        ``TRADOV_TRADING_MODE`` is consumed by broker/runtime safety guards.
-        It is intentionally "paper" unless real trading is explicitly armed
-        (or currently active) in LIVE mode.
-        """
+        """Keep dashboard-local runtime mode aligned with GUI mode + arming state."""
         runtime_mode = "paper"
         if self.trading_active:
             runtime_mode = "live" if self.trading_mode == TradingMode.LIVE else "paper"
         elif self.trading_mode == TradingMode.LIVE and self._real_trading_armed:
             runtime_mode = "live"
 
-        os.environ["TRADOV_TRADING_MODE"] = runtime_mode
+        self._runtime_trading_mode = runtime_mode
 
     def _apply_mode_change(self, new_mode: TradingMode, arm_selected_mode: bool = False):
         """Internal: commit trading mode switch and refresh all dependent UI."""
@@ -4781,6 +4876,7 @@ class TradovTradingDashboard(QMainWindow):
 
         self._update_orders_title()
         self._update_pnl_title()
+        self._update_pair_trading_titles()
         self.add_system_log(f"Trading mode changed to {new_mode.value}")
 
         import os
@@ -4833,6 +4929,129 @@ class TradovTradingDashboard(QMainWindow):
             self.pnl_title_lbl.setFont(title_font)
 
         self.pnl_title_lbl.setStyleSheet(presentation.style)
+
+    def _update_pair_trading_titles(self):
+        """Update pair-trading section titles and colors based on trading mode."""
+        is_paper = getattr(self, "trading_mode", TradingMode.PAPER) == TradingMode.PAPER
+        for panel_name in (
+            "pair_scanner_panel",
+            "pair_positions_panel",
+            "pair_risk_summary_panel",
+            "pair_breaking_news_panel",
+        ):
+            panel = getattr(self, panel_name, None)
+            if panel is not None and hasattr(panel, "set_trading_mode"):
+                panel.set_trading_mode(is_paper)
+        pair_group = getattr(self, "pair_trading_group", None)
+        if pair_group is not None:
+            pair_group.setVisible(
+                str(os.getenv("TRADOV_ENABLE_PAIR_TRADING", "")).strip().lower() in {"1", "true", "yes", "on", "y"}
+                or not str(os.getenv("TRADOV_ENABLE_PAIR_TRADING", "")).strip()
+            )
+        pair_news_container = getattr(self, "pair_breaking_news_container", None)
+        if pair_news_container is not None:
+            pair_news_container.setVisible(
+                str(os.getenv("TRADOV_ENABLE_PAIR_TRADING", "")).strip().lower() in {"1", "true", "yes", "on", "y"}
+                or not str(os.getenv("TRADOV_ENABLE_PAIR_TRADING", "")).strip()
+            )
+
+        risk_panel = getattr(self, "pair_risk_summary_panel", None)
+        if risk_panel is not None and hasattr(risk_panel, "set_trading_mode"):
+            risk_panel.set_trading_mode(is_paper)
+
+    def _refresh_pair_trading_panels(self) -> None:
+        """Pull the latest pair scan and positions into the visible pair panels."""
+        supervisor = getattr(self, "_session_supervisor", None)
+        orchestrator = getattr(supervisor, "orchestrator", None) if supervisor is not None else None
+        if orchestrator is None:
+            return
+
+        positions: dict[str, Any] = {}
+        latest_scan: Any | None = getattr(orchestrator, "_latest_pair_scan", None)
+        active_strategies = getattr(orchestrator, "active_strategies", {})
+        if isinstance(active_strategies, dict):
+            for strategy in active_strategies.values():
+                if latest_scan is None and hasattr(strategy, "_latest_pair_scan"):
+                    latest_scan = getattr(strategy, "_latest_pair_scan", None)
+                if hasattr(strategy, "get_pair_positions"):
+                    try:
+                        strategy_positions = strategy.get_pair_positions() or {}
+                        if isinstance(strategy_positions, dict):
+                            positions.update(strategy_positions)
+                    except Exception:
+                        continue
+
+        positions_panel = getattr(self, "pair_positions_panel", None)
+        if positions_panel is not None and hasattr(positions_panel, "update_positions"):
+            try:
+                positions_panel.update_positions(positions)
+            except Exception:
+                pass
+
+        scanner_panel = getattr(self, "pair_scanner_panel", None)
+        if latest_scan is not None and scanner_panel is not None and hasattr(scanner_panel, "update_scan"):
+            try:
+                scanner_panel.update_scan(latest_scan)
+            except Exception:
+                pass
+
+        risk_panel = getattr(self, "pair_risk_summary_panel", None)
+        if risk_panel is not None and hasattr(risk_panel, "update_metrics"):
+            try:
+                total_notional = sum(
+                    abs(p.quantity_a * p.current_price_a) + abs(p.quantity_b * p.current_price_b)
+                    for p in positions.values()
+                )
+                total_cost = sum(
+                    abs(p.quantity_a * p.entry_price_a) + abs(p.quantity_b * p.entry_price_b)
+                    for p in positions.values()
+                )
+                funds_held = 0.0
+                for p in positions.values():
+                    metadata = getattr(p, "metadata", None) or {}
+                    for key in (
+                        "cash_held_dollars",
+                        "buying_power_held",
+                        "max_loss_dollars",
+                        "funds_held_dollars",
+                    ):
+                        value = metadata.get(key)
+                        if value in (None, ""):
+                            continue
+                        try:
+                            funds_held += abs(float(value))
+                            break
+                        except (TypeError, ValueError):
+                            continue
+                    else:
+                        funds_held += abs(p.quantity_a * p.entry_price_a) + abs(p.quantity_b * p.entry_price_b)
+
+                signed_notional = 0.0
+                for p in positions.values():
+                    gross = abs(p.quantity_a * p.current_price_a) + abs(p.quantity_b * p.current_price_b)
+                    side = getattr(p, "pair_side", None)
+                    side_value = getattr(side, "value", side)
+                    if str(side_value) == "short_long":
+                        signed_notional -= gross
+                    else:
+                        signed_notional += gross
+
+                risk_panel.update_metrics(
+                    open_pairs=len(positions),
+                    total_notional=total_notional,
+                    total_cost=total_cost,
+                    funds_held_by_broker=funds_held,
+                    net_exposure={"total": signed_notional},
+                )
+            except Exception:
+                pass
+
+        breaking_news_panel = getattr(self, "pair_breaking_news_panel", None)
+        if breaking_news_panel is not None and hasattr(breaking_news_panel, "refresh_breaking_news"):
+            try:
+                breaking_news_panel.refresh_breaking_news()
+            except Exception:
+                pass
 
     def _update_orders_title(self):
         """Update the ORDERS & POSITIONS title label text and color based on trading mode."""
@@ -5356,7 +5575,9 @@ class TradovTradingDashboard(QMainWindow):
         fresh_mode: str | None = None
         if not cached_api:
             try:
-                fresh_connected, fresh_mode = check_api_connection()
+                supervisor = getattr(self, "_session_supervisor", None)
+                runtime_context = getattr(supervisor, "runtime_context", None) if supervisor else None
+                fresh_connected, fresh_mode = check_api_connection(runtime_context)
             except Exception:
                 pass
 
@@ -5608,7 +5829,7 @@ class TradovTradingDashboard(QMainWindow):
             ).strip()
             raw_state = str(state_payload.get("state") or getattr(strategy, "state", "unknown") or "unknown")
             normalized_state = raw_state.strip().lower()
-            state_label = "PAUSED" if strategy_id in paused_snapshot or normalized_state == "paused" else normalized_state.upper()
+            state_label = "HALTED" if strategy_id in paused_snapshot or normalized_state == "paused" else normalized_state.upper()
 
             open_positions = state_payload.get("open_positions")
             if open_positions is None:
@@ -5879,6 +6100,8 @@ class TradovTradingDashboard(QMainWindow):
             self._refresh_positions_table()
         elif adoption_plan.follow_up_action == "start_live_pnl_poll":
             self._start_live_pnl_poll()
+
+        self._refresh_pair_trading_panels()
 
     def _stop_unified_session_supervisor(self, flatten: bool = False) -> None:
         """Stop SessionSupervisor when it is active."""
@@ -7130,7 +7353,7 @@ class TradovTradingDashboard(QMainWindow):
 
         self.add_system_log("Trading stopped - Orders and positions remain active")
         self.add_system_log("TRADING STOPPED - Existing positions maintained")
-        self.add_system_log("Automation session inactive")
+        self.add_system_log("Automation session halted")
 
     def emergency_close(self):
         """Handle emergency close button click - FIXED MESSAGES"""
@@ -7553,6 +7776,8 @@ class TradovTradingDashboard(QMainWindow):
         All of these are populated by S07 on every update cycle.
         Returns (label, colour_hex).
         """
+        if metrics.get("market_conditions_available") is False:
+            return "UNAVAILABLE", COLORS["warning"]
 
         def _val(key: str, default: float) -> float:
             entry = metrics.get(key)
@@ -7748,7 +7973,7 @@ class TradovTradingDashboard(QMainWindow):
         execution_regime = str(execution_truth.get("regime", "")).strip().lower()
         execution_gate_key = str(execution_truth.get("gate_key", "")).strip().lower()
         fallback_stress = None
-        if _s07_live:
+        if _s07_live and state_plan.regime != "UNAVAILABLE":
             pass
         else:
             try:
@@ -7853,7 +8078,12 @@ class TradovTradingDashboard(QMainWindow):
         try:
             self._market_worker_started = True
             self.market_thread = QThread()
-            self.market_worker = ThreadSafeMarketDataWorker(quiet_startup=quiet_startup)
+            supervisor = getattr(self, "_session_supervisor", None)
+            runtime_context = getattr(supervisor, "runtime_context", None) if supervisor else None
+            self.market_worker = ThreadSafeMarketDataWorker(
+                quiet_startup=quiet_startup,
+                runtime_context=runtime_context,
+            )
             self.market_worker.moveToThread(self.market_thread)
 
             # Connect all signals including new heartbeat signal
@@ -7913,6 +8143,14 @@ class TradovTradingDashboard(QMainWindow):
         self.chart_timer = QTimer()
         self.chart_timer.timeout.connect(self.update_chart)
         self.chart_timer.start(30000)
+
+        # Pair-trading panels do not receive push updates from the strategy
+        # layer, so poll the latest cached scan/positions periodically.
+        if self._pair_panel_refresh_timer is None:
+            self._pair_panel_refresh_timer = QTimer(self)
+            self._pair_panel_refresh_timer.timeout.connect(self._refresh_pair_trading_panels)
+            self._pair_panel_refresh_timer.start(5000)
+            QTimer.singleShot(1000, self._refresh_pair_trading_panels)
 
     def _start_decision_flow_timer(self) -> None:
         """Start the compact decision-flow timer once runtime warmup is complete."""
@@ -8471,7 +8709,11 @@ class TradovTradingDashboard(QMainWindow):
                 return
             widget.setUpdatesEnabled(False)
             widget.clear()
-            widget.append("\n".join(reversed(buffer[-display_count:])))
+            text = "\n".join(reversed(buffer[-display_count:]))
+            if hasattr(widget, "appendPlainText"):
+                widget.appendPlainText(text)
+            else:
+                widget.append(text)
             cursor = widget.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.Start)
             widget.setTextCursor(cursor)
@@ -8485,12 +8727,55 @@ class TradovTradingDashboard(QMainWindow):
 
     def add_system_log(self, message: str):
         """Add message to system log."""
+        if self._should_suppress_routine_system_log(message):
+            return
         if self._should_suppress_after_hours_system_log(message):
             return
         if self._should_suppress_opening_warmup_system_log(message):
             return
         self._append_to_ring_log(self.system_logs, self.system_log, message,
                                   max_buffer=200, display_count=200)
+
+    def _should_suppress_routine_system_log(self, message: str) -> bool:
+        """Hide routine status chatter from NORMAL/MINIMAL system-log modes."""
+        if str(getattr(self, "system_log_mode", "NORMAL")).upper() == "DEBUG":
+            return False
+
+        text = str(message or "").strip()
+        if not text:
+            return True
+
+        upper_text = text.upper()
+        actionable_markers = (
+            "❌",
+            "⚠️",
+            "ERROR",
+            "FAILED",
+            "FAILURE",
+            "EXCEPTION",
+            "AUTH FAILED",
+            "DISCONNECTED",
+            "BLOCKED",
+        )
+        if any(marker in upper_text for marker in actionable_markers):
+            return False
+
+        essential_status_markers = (
+            "TRADOV DASHBOARD LAUNCHED",
+            "CONNECTED TO TRADIER API",
+            "MARKET DATA LOADED",
+            "TRADING ACTIVE",
+            "TRADING STOPPED",
+            "PAPER TRADING ACTIVE",
+            "PAPER TRADING STOPPED",
+            "REAL TRADING ENABLED",
+            "PAPER TRADING ENABLED",
+            "SYSTEM LOG MODE",
+        )
+        if any(marker in upper_text for marker in essential_status_markers):
+            return False
+
+        return True
 
     def _is_opening_runtime_warmup_active(self) -> bool:
         """Return True while the pre-open quiet hydration window is active."""
@@ -9208,15 +9493,6 @@ class TradovTradingDashboard(QMainWindow):
             except (OSError, json.JSONDecodeError) as dix_err:
                 logger.debug("Could not read DIX fallback snapshot: %s", dix_err)
 
-        swan_files = sorted(Path("black_swan_reports").glob("daily_report_*.json"))
-        if swan_files:
-            try:
-                loaded_swan_payload = json.loads(swan_files[-1].read_text(encoding="utf-8"))
-                if isinstance(loaded_swan_payload, dict):
-                    swan_payload = loaded_swan_payload
-            except (OSError, json.JSONDecodeError) as swan_err:
-                logger.debug("Could not read SWAN fallback snapshot: %s", swan_err)
-
         nymo_cache_file = Path("data/cache/nymo_ema_state.json")
         if nymo_cache_file.exists():
             try:
@@ -9511,167 +9787,155 @@ def get_dashboard_with_real_data_integration():
 # ==============================================================================
 def main():
     """Main function for standalone testing"""
-    logger.info("=" * 70)
-    logger.info("🔥 TRADOV G05 - ENHANCED TRADING DASHBOARD")
-    logger.info("=" * 70)
-    logger.info("🔗 Tradier API integration")
-    logger.info("📡 Tradier market data feeds")
-    logger.info("💔💚💙 30-second heartbeat monitoring")
-    logger.info("📊 Clean 4-status data display")
-    logger.info("=" * 70)
+    instance_lock = try_acquire_tradov_instance_lock()
+    if instance_lock is None:
+        logger.error("Another Tradov instance is already running; refusing to start.")
+        return 1
 
-    # Create Qt application
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-
-    # CRITICAL: Set desktop file name for Wayland/GNOME integration
-    # This MUST match the .desktop file name (without .desktop extension)
-    # and StartupWMClass so the window appears under the launcher icon.
-    app.setDesktopFileName("tradov")
-
-    # Set application identity
-    app.setApplicationName("tradov")
-    app.setOrganizationName("Tradov Trading System")
-
-    # Implement qasync event loop integration for proper asyncio/Qt compatibility
     try:
-        import asyncio
+        logger.info("=" * 70)
+        logger.info("🔥 TRADOV G05 - ENHANCED TRADING DASHBOARD")
+        logger.info("=" * 70)
+        logger.info("🔗 Tradier API integration")
+        logger.info("📡 Tradier market data feeds")
+        logger.info("💔💚💙 30-second heartbeat monitoring")
+        logger.info("📊 Clean 4-status data display")
+        logger.info("=" * 70)
 
-        import qasync
+        from Tradov.TradovG_GUI.TradovG00_ApplicationManager import (
+            DisplayMode,
+            configure_qt_platform_environment,
+        )
 
-        # Create QEventLoop for asyncio integration
-        loop = qasync.QEventLoop(app)
-        asyncio.set_event_loop(loop)
+        configure_qt_platform_environment(DisplayMode.GUI)
 
-        logger.info("✅ qasync event loop integration enabled - preventing asyncio errors")
-        logger.info("🔗 Qt and asyncio event loops properly synchronized")
+        # Create Qt application
+        app = QApplication(sys.argv)
+        app.setStyle("Fusion")
 
-        # Create a simple event to signal when the app should close
-        app_close_event = asyncio.Event()
+        # CRITICAL: Set desktop file name for Wayland/GNOME integration
+        # This MUST match the .desktop file name (without .desktop extension)
+        # and StartupWMClass so the window appears under the launcher icon.
+        app.setDesktopFileName("tradov")
 
-        # Connect app aboutToQuit signal to our event
-        app.aboutToQuit.connect(app_close_event.set)
+        # Set application identity
+        app.setApplicationName("tradov")
+        app.setOrganizationName("Tradov Trading System")
 
+        # Implement qasync event loop integration for proper asyncio/Qt compatibility
         try:
-            # Create fixed dashboard
-            logger.info("🔧 Initializing fixed dashboard with heartbeat monitoring...")
-            dashboard = TradovTradingDashboard()
+            import asyncio
+            import qasync
 
-            # Show dashboard
-            dashboard.show()
+            loop = qasync.QEventLoop(app)
+            asyncio.set_event_loop(loop)
 
-            # Check real data status
-            data_file = Path.home() / "Projects/Tradov/market_data/live_data.json"
-            if data_file.exists():
-                try:
-                    with open(data_file) as f:
-                        data = json.load(f)
-                    spy_price = data.get("TRAD", {}).get("last", "N/A")
-                    logger.info("✅ Real data detected - TRAD: $%s", spy_price)
-                except Exception:
-                    logger.info("⚠️ Real data file exists but couldn't read it")
-            else:
-                logger.info("📊 No real data file detected yet - waiting for Tradier snapshots")
+            logger.info("✅ qasync event loop integration enabled - preventing asyncio errors")
+            logger.info("🔗 Qt and asyncio event loops properly synchronized")
 
-            logger.info("\n✅ STATUS BAR FEATURES:")
-            logger.info("   • TRADIER EXEC: green=connected, red=disconnected (label color only)")
-            logger.info("   • 30-second heartbeat background checks drive connection state")
-            logger.info(
-                "   • Clean data status: NO DATA, EOD, PRE-OPEN, AFTER-HOURS, LIVE",
-            )
-            logger.info("   • Market data source: TRADIER DATA")
-            logger.info("   • No synthetic market-data fallback is used")
-            logger.info("   • Fixed-width status containers (no UI jumping)")
+            app_close_event = asyncio.Event()
+            app.aboutToQuit.connect(app_close_event.set)
 
-            logger.info("\n🔥 Enhanced Trading Dashboard is ready!")
-            logger.info("   Heartbeat checks API connection every 30 seconds\n")
-            logger.info("🔄 Running with qasync event loop integration...")
-
-            # Run the event loop until the app closes
-            with loop:
-                loop.run_until_complete(app_close_event.wait())
-
-            return 0
-
-        except Exception as e:
-            logger.info("\n❌ Startup error: %s", e)
-            import traceback
-
-            traceback.print_exc()
-
-            # Show error dialog if possible
             try:
-                QMessageBox.critical(
-                    None,
-                    "Fixed Trading Dashboard Error",
-                    f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
-                    "Please check the console for detailed error information.",
-                )
-            except Exception as _dlg_err:
-                logger.debug("Could not show startup error dialog: %s", _dlg_err)
+                logger.info("🔧 Initializing fixed dashboard with heartbeat monitoring...")
+                dashboard = TradovTradingDashboard()
+                dashboard.show()
 
-            return 1
+                data_file = Path.home() / "Projects/Tradov/market_data/live_data.json"
+                if data_file.exists():
+                    try:
+                        with open(data_file) as f:
+                            data = json.load(f)
+                        spy_price = data.get("TRAD", {}).get("last", "N/A")
+                        logger.info("✅ Real data detected - TRAD: $%s", spy_price)
+                    except Exception:
+                        logger.info("⚠️ Real data file exists but couldn't read it")
+                else:
+                    logger.info("📊 No real data file detected yet - waiting for Tradier snapshots")
 
-    except ImportError:
-        # Fallback to standard event loop if qasync is not available
-        logger.info("⚠️ qasync not available - using standard event loop (may have asyncio issues)")
-        logger.info("   Install with: pip install qasync")
+                logger.info("\n✅ STATUS BAR FEATURES:")
+                logger.info("   • TRADIER EXEC: green=connected, red=disconnected (label color only)")
+                logger.info("   • 30-second heartbeat background checks drive connection state")
+                logger.info("   • Clean data status: NO DATA, EOD, PRE-OPEN, AFTER-HOURS, LIVE")
+                logger.info("   • Market data source: TRADIER DATA")
+                logger.info("   • No synthetic market-data fallback is used")
+                logger.info("   • Fixed-width status containers (no UI jumping)")
+                logger.info("\n🔥 Enhanced Trading Dashboard is ready!")
+                logger.info("   Heartbeat checks API connection every 30 seconds\n")
+                logger.info("🔄 Running with qasync event loop integration...")
 
+                with loop:
+                    loop.run_until_complete(app_close_event.wait())
+                return 0
+
+            except Exception as e:
+                logger.info("\n❌ Startup error: %s", e)
+                import traceback
+
+                traceback.print_exc()
+                try:
+                    QMessageBox.critical(
+                        None,
+                        "Fixed Trading Dashboard Error",
+                        f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
+                        "Please check the console for detailed error information.",
+                    )
+                except Exception as _dlg_err:
+                    logger.debug("Could not show startup error dialog: %s", _dlg_err)
+                return 1
+
+        except ImportError:
+            logger.info("⚠️ qasync not available - using standard event loop (may have asyncio issues)")
+            logger.info("   Install with: pip install qasync")
+
+            try:
+                logger.info("🔧 Initializing fixed dashboard with heartbeat monitoring...")
+                dashboard = TradovTradingDashboard()
+                dashboard.show()
+
+                data_file = Path.home() / "Projects/Tradov/market_data/live_data.json"
+                if data_file.exists():
+                    try:
+                        with open(data_file) as f:
+                            data = json.load(f)
+                        spy_price = data.get("TRAD", {}).get("last", "N/A")
+                        logger.info("✅ Real data detected - TRAD: $%s", spy_price)
+                    except Exception:
+                        logger.info("⚠️ Real data file exists but couldn't read it")
+                else:
+                    logger.info("📊 No real data file detected yet - waiting for Tradier snapshots")
+
+                logger.info("\n✅ STATUS BAR FEATURES:")
+                logger.info("   • TRADIER EXEC: green=connected, red=disconnected (label color only)")
+                logger.info("   • 30-second heartbeat background checks drive connection state")
+                logger.info("   • Clean data status: NO DATA, EOD, PRE-OPEN, AFTER-HOURS, LIVE")
+                logger.info("   • Market data source: TRADIER DATA")
+                logger.info("   • No synthetic market-data fallback is used")
+                logger.info("   • Fixed-width status containers (no UI jumping)")
+                logger.info("\n🔥 Enhanced Trading Dashboard is ready!")
+                logger.info("   Heartbeat checks API connection every 30 seconds\n")
+                return app.exec()
+
+            except Exception as e:
+                logger.info("\n❌ Startup error: %s", e)
+                import traceback
+
+                traceback.print_exc()
+                try:
+                    QMessageBox.critical(
+                        None,
+                        "Fixed Trading Dashboard Error",
+                        f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
+                        "Please check the console for detailed error information.",
+                    )
+                except Exception as _dlg_err:
+                    logger.debug("Could not show startup error dialog: %s", _dlg_err)
+                return 1
+    finally:
         try:
-            # Create fixed dashboard
-            logger.info("🔧 Initializing fixed dashboard with heartbeat monitoring...")
-            dashboard = TradovTradingDashboard()
-
-            # Show dashboard
-            dashboard.show()
-
-            # Check real data status
-            data_file = Path.home() / "Projects/Tradov/market_data/live_data.json"
-            if data_file.exists():
-                try:
-                    with open(data_file) as f:
-                        data = json.load(f)
-                    spy_price = data.get("TRAD", {}).get("last", "N/A")
-                    logger.info("✅ Real data detected - TRAD: $%s", spy_price)
-                except Exception:
-                    logger.info("⚠️ Real data file exists but couldn't read it")
-            else:
-                logger.info("📊 No real data file detected yet - waiting for Tradier snapshots")
-
-            logger.info("\n✅ STATUS BAR FEATURES:")
-            logger.info("   • TRADIER EXEC: green=connected, red=disconnected (label color only)")
-            logger.info("   • 30-second heartbeat background checks drive connection state")
-            logger.info(
-                "   • Clean data status: NO DATA, EOD, PRE-OPEN, AFTER-HOURS, LIVE",
-            )
-            logger.info("   • Market data source: TRADIER DATA")
-            logger.info("   • No synthetic market-data fallback is used")
-            logger.info("   • Fixed-width status containers (no UI jumping)")
-
-            logger.info("\n🔥 Enhanced Trading Dashboard is ready!")
-            logger.info("   Heartbeat checks API connection every 30 seconds\n")
-
-            # Run application with standard event loop
-            return app.exec()
-
-        except Exception as e:
-            logger.info("\n❌ Startup error: %s", e)
-            import traceback
-
-            traceback.print_exc()
-
-            # Show error dialog if possible
-            try:
-                QMessageBox.critical(
-                    None,
-                    "Fixed Trading Dashboard Error",
-                    f"Failed to start Fixed Trading Dashboard:\n\n{e}\n\n"
-                    "Please check the console for detailed error information.",
-                )
-            except Exception as _dlg_err:
-                logger.debug("Could not show startup error dialog: %s", _dlg_err)
-
-            return 1
+            instance_lock.release()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
