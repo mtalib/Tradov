@@ -181,18 +181,30 @@ receiver and, optionally later, the dashboard can share. This de-risks the whole
 
 1. ~~**Gate accessibility check.**~~ ✅ Done (see §5a) — readiness runs headless via the
    pure `build_trading_readiness_evaluation()`; only the snapshot builder needs lifting.
-2. **`ReadinessGateCoordinator` (headless).** Build a snapshot from
-   `R12_SessionSupervisor` + connection state, call `build_trading_readiness_evaluation()`,
-   apply the pure cache/decision helpers. Unit-test against canned snapshots.
-3. **Receiver skeleton.** `TradovZ10_InboundSignalReceiver` modeled on `M08`: threaded
-   HTTP server, `POST /signal/{secret}`, secret check, envelope parse, audit-on-receive.
-4. **Proposal → paper.** Map envelope → coordinator gate → risk stack → `OrderManager` in
-   **paper (TradovBox)** mode. End-to-end with audit. No live path yet.
-5. **Live path.** Gate behind `LIVE_TRADING_CONFIRMED` + dual-approval; idempotency tags.
+2. ~~**`ReadinessGateCoordinator` (headless).**~~ ✅ Done — `TradovR13_ReadinessGateCoordinator`
+   reuses the pure G63/G67/G70 helpers; snapshot scalars via `ReadinessSnapshotInputs`;
+   connection probe injected. Tests: T197 (11). Verified: imports load no Qt.
+3. ~~**Receiver skeleton.**~~ ✅ Done — `TradovZ10_InboundSignalReceiver` (threaded
+   `http.server`, `POST /signal/{secret}`, constant-time secret, self-contained
+   `SignalEnvelope`, audit-on-receive, injectable handler). Plus
+   `TradovC30_ConnectionProbe` (headless `check_api_connection`). Tests: T198, T199.
+4. ~~**Proposal → paper.**~~ ✅ Done — `TradovZ11_SignalOrderHandler` runs envelope →
+   readiness gate (R13+C30) → risk (`E01.check_trade`, injected) → **TradovBox paper**
+   (R02 PaperEngine). Risk clamps/sizes quantity; fail-closed. Tests: T200 (incl.
+   end-to-end POST). No live auto-fire.
+5. **Live path** (pending). Currently blocked unless `live_enabled`, and even then
+   returned as `pending_approval` (no auto-fire). To do: dual-approval loop (Telegram),
+   idempotency tags, persist audit to `H05_TradingSessionDB`.
 6. **Pair-leg support** (optional): `legs[]` → `B02_PairOrderExecutor` + `E26`.
+7. **Cleanup**: point `G18.check_api_connection` at `C30` to remove the temporary
+   probe duplication; wire `SignalOrderHandler` into `R12_SessionSupervisor` startup.
 
-## 8. Immediate next step
+## 8. Status & next step
 
-Phase 2 — build the headless `ReadinessGateCoordinator` (snapshot builder reusing the
-existing pure evaluator). This is the foundation the receiver hands off to; everything
-downstream (risk, OrderManager) is already headless.
+Phases 1–4 complete (50 tests passing, all headless — no Qt). The inbound pipeline is
+functional end-to-end in **paper mode**: `POST /signal/{secret}` → gate → risk →
+TradovBox fill.
+
+Next: **Phase 5 — live path**. Wire the dual-approval loop and idempotency, persist audit
+to `H05_TradingSessionDB`, and bootstrap the receiver+handler from `R12_SessionSupervisor`
+(passing the session's configured `RiskManager.check_trade` as the injected risk check).
