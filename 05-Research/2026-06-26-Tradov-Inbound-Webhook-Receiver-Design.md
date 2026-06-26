@@ -192,19 +192,28 @@ receiver and, optionally later, the dashboard can share. This de-risks the whole
    readiness gate (R13+C30) → risk (`E01.check_trade`, injected) → **TradovBox paper**
    (R02 PaperEngine). Risk clamps/sizes quantity; fail-closed. Tests: T200 (incl.
    end-to-end POST). No live auto-fire.
-5. **Live path** (pending). Currently blocked unless `live_enabled`, and even then
-   returned as `pending_approval` (no auto-fire). To do: dual-approval loop (Telegram),
-   idempotency tags, persist audit to `H05_TradingSessionDB`.
+5. ~~**Live path — internal machinery + manual approval.**~~ ✅ Done — `Z11` adds
+   idempotency (client_tag dedup), a `PendingProposalStore`, and a `ManualApprovalGate`;
+   live proposals fire ONLY via `submit_approved()` after explicit approval (never
+   auto-fired). `Z12` adds `TradierLiveExecutor` (B02), `make_trade_recorder` (H05
+   `record_trade`), and `bootstrap_inbound_receiver`. Tests: T201 (16).
 6. **Pair-leg support** (optional): `legs[]` → `B02_PairOrderExecutor` + `E26`.
-7. **Cleanup**: point `G18.check_api_connection` at `C30` to remove the temporary
-   probe duplication; wire `SignalOrderHandler` into `R12_SessionSupervisor` startup.
+7. **Cleanup / remaining live wiring**:
+   - Point `G18.check_api_connection` at `C30` to remove the temporary probe duplication.
+   - Call `bootstrap_inbound_receiver(...)` from `R12_SessionSupervisor.start()` (R12 has
+     in-flight WIP, so the bootstrap is provided as a function rather than edited in here).
+   - **Telegram dual-approval auto-fire** (deliberately NOT built): an external loop that
+     calls `approval_gate.approve(id)` + `handler.submit_approved(id)` on operator
+     confirmation. Real-money + outward-facing — left for an explicit decision.
 
 ## 8. Status & next step
 
-Phases 1–4 complete (50 tests passing, all headless — no Qt). The inbound pipeline is
-functional end-to-end in **paper mode**: `POST /signal/{secret}` → gate → risk →
-TradovBox fill.
+Phases 1–5 complete (62 tests passing, all headless — no Qt). The inbound pipeline is
+functional end-to-end in **paper mode** and has a **manual-approval live path** that never
+auto-fires: `POST /signal/{secret}` → idempotency → readiness gate → risk → (paper fill |
+pending_approval → `approve` → `submit_approved` → live B02 submit), with executed fills
+persisted via H05.
 
-Next: **Phase 5 — live path**. Wire the dual-approval loop and idempotency, persist audit
-to `H05_TradingSessionDB`, and bootstrap the receiver+handler from `R12_SessionSupervisor`
-(passing the session's configured `RiskManager.check_trade` as the injected risk check).
+Remaining (all optional / explicit-decision): the Telegram dual-approval auto-fire loop,
+pair-leg routing, the `R12.start()` call to `bootstrap_inbound_receiver`, and the G18→C30
+probe dedup.

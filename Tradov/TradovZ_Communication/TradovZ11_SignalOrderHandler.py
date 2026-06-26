@@ -38,7 +38,10 @@ Module Description:
 from __future__ import annotations
 
 import logging
+import time
+import uuid
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
@@ -56,7 +59,58 @@ _ORDER_TYPE_TO_PAPER = {"market": "MKT", "limit": "LMT", "stop": "STP"}
 # Type aliases for the injected collaborators.
 ReadinessCheck = Callable[[], tuple[bool, str]]
 RiskCheck = Callable[[dict[str, Any]], dict[str, Any]]
-PaperExecutor = Callable[[SignalEnvelope, int], dict[str, Any]]
+OrderExecutor = Callable[[SignalEnvelope, int], dict[str, Any]]
+PaperExecutor = OrderExecutor
+TradeRecorder = Callable[[SignalEnvelope, int, dict[str, Any]], None]
+
+
+@dataclass
+class PendingProposal:
+    """A risk-approved live order awaiting manual approval before submission."""
+
+    proposal_id: str
+    envelope: SignalEnvelope
+    quantity: int
+    created_at: float = field(default_factory=time.time)
+
+
+class PendingProposalStore:
+    """In-memory store of live proposals awaiting approval."""
+
+    def __init__(self) -> None:
+        self._items: dict[str, PendingProposal] = {}
+
+    def add(self, proposal: PendingProposal) -> None:
+        self._items[proposal.proposal_id] = proposal
+
+    def get(self, proposal_id: str) -> PendingProposal | None:
+        return self._items.get(proposal_id)
+
+    def pop(self, proposal_id: str) -> PendingProposal | None:
+        return self._items.pop(proposal_id, None)
+
+    def all(self) -> list[PendingProposal]:
+        return list(self._items.values())
+
+
+class ManualApprovalGate:
+    """Explicit approval record for live proposals — no auto-approval.
+
+    The operator (or a future Telegram dual-approval loop) calls ``approve`` with
+    a proposal id; only then will the handler submit that live order.
+    """
+
+    def __init__(self) -> None:
+        self._approved: set[str] = set()
+
+    def approve(self, proposal_id: str) -> None:
+        self._approved.add(proposal_id)
+
+    def revoke(self, proposal_id: str) -> None:
+        self._approved.discard(proposal_id)
+
+    def is_approved(self, proposal_id: str) -> bool:
+        return proposal_id in self._approved
 
 
 def _disposition(
@@ -144,18 +198,79 @@ class SignalOrderHandler:
         paper_executor: PaperExecutor,
         runtime_context: Any = None,
         live_enabled: bool = False,
+        live_executor: OrderExecutor | None = None,
+        approval_gate: ManualApprovalGate | None = None,
+        pending_store: PendingProposalStore | None = None,
+        trade_recorder: TradeRecorder | None = None,
     ) -> None:
         self._risk_check = risk_check
         self._readiness_check = readiness_check
         self._paper_executor = paper_executor
         self._runtime_context = runtime_context
         self._live_enabled = bool(live_enabled)
+        self._live_executor = live_executor
+        self._approval_gate = approval_gate if approval_gate is not None else ManualApprovalGate()
+        self._pending = pending_store if pending_store is not None else PendingProposalStore()
+        self._trade_recorder = trade_recorder
+        # Idempotency: client_tag -> prior disposition (prevents double-processing).
+        self._seen: dict[str, dict[str, Any]] = {}
+
+    @property
+    def approval_gate(self) -> ManualApprovalGate:
+        return self._approval_gate
+
+    @property
+    def pending(self) -> PendingProposalStore:
+        return self._pending
 
     def _is_live(self) -> bool:
         ctx = self._runtime_context
         return bool(getattr(ctx, "is_live", False)) if ctx is not None else False
 
+    def _record_trade(
+        self, envelope: SignalEnvelope, quantity: int, result: dict[str, Any]
+    ) -> None:
+        if self._trade_recorder is None:
+            return
+        try:
+            self._trade_recorder(envelope, quantity, result)
+        except Exception:  # audit persistence must not break execution
+            _logger.exception("trade recorder failed")
+
+    def _execute(
+        self, executor: OrderExecutor, envelope: SignalEnvelope, quantity: int, mode: str
+    ) -> dict[str, Any]:
+        try:
+            result = executor(envelope, quantity)
+        except Exception as exc:  # fail closed on executor error
+            _logger.exception("%s execution failed", mode)
+            return _disposition("error", "execute", False, str(exc))
+        if not result.get("order_id"):
+            return _disposition(
+                "rejected", "execute", False,
+                str(result.get("status") or "broker rejected order"),
+            )
+        self._record_trade(envelope, quantity, result)
+        return _disposition(
+            "accepted", "executed", True, "",
+            mode=mode,
+            order_id=result["order_id"],
+            quantity=quantity,
+            avg_fill_price=result.get("avg_fill_price"),
+        )
+
     def __call__(self, envelope: SignalEnvelope) -> dict[str, Any]:
+        # Idempotency: a repeated client_tag returns the original disposition
+        # rather than re-processing (prevents duplicate fills on retries).
+        tag = envelope.client_tag
+        if tag and tag in self._seen:
+            return {**self._seen[tag], "idempotent_replay": True}
+        out = self._process(envelope)
+        if tag:
+            self._seen[tag] = out
+        return out
+
+    def _process(self, envelope: SignalEnvelope) -> dict[str, Any]:
         # 1. System readiness gate.
         ready, reason = self._readiness_check()
         if not ready:
@@ -187,31 +302,44 @@ class SignalOrderHandler:
                     "blocked", "mode", False,
                     "live trading not confirmed", quantity=quantity,
                 )
-            # Even when enabled, never auto-fire live: hand to dual-approval.
+            # Register a pending proposal; fire only on explicit approval.
+            proposal_id = envelope.client_tag or uuid.uuid4().hex
+            self._pending.add(
+                PendingProposal(proposal_id=proposal_id, envelope=envelope, quantity=quantity)
+            )
+            if self._approval_gate.is_approved(proposal_id):
+                return self.submit_approved(proposal_id)
             return _disposition(
                 "pending_approval", "live", False,
-                "queued for dual-approval", quantity=quantity,
+                "awaiting manual approval",
+                quantity=quantity, proposal_id=proposal_id,
             )
 
         # 4. Paper execution via TradovBox.
-        try:
-            result = self._paper_executor(envelope, quantity)
-        except Exception as exc:  # fail closed on executor error
-            _logger.exception("paper execution failed")
-            return _disposition("error", "execute", False, str(exc))
+        return self._execute(self._paper_executor, envelope, quantity, mode="paper")
 
-        if not result.get("order_id"):
+    def submit_approved(self, proposal_id: str) -> dict[str, Any]:
+        """Submit a previously-registered live proposal — only if approved.
+
+        Called by the operator (or a future dual-approval loop) after approving.
+        Fails closed: unknown/unapproved proposals are rejected; no executor =>
+        error rather than silent skip.
+        """
+        if not self._approval_gate.is_approved(proposal_id):
+            return _disposition("rejected", "approval", False, "proposal not approved")
+        pending = self._pending.get(proposal_id)
+        if pending is None:
             return _disposition(
-                "rejected", "execute", False,
-                str(result.get("status") or "paper engine rejected order"),
+                "rejected", "approval", False, "unknown or already-submitted proposal"
             )
-        return _disposition(
-            "accepted", "executed", True, "",
-            mode="paper",
-            order_id=result["order_id"],
-            quantity=quantity,
-            avg_fill_price=result.get("avg_fill_price"),
+        if self._live_executor is None:
+            return _disposition("error", "execute", False, "no live executor configured")
+        result = self._execute(
+            self._live_executor, pending.envelope, pending.quantity, mode="live"
         )
+        if result.get("executed"):
+            self._pending.pop(proposal_id)
+        return result
 
 
 def build_default_handler(
