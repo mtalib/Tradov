@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovA_Core
 Module: TradovA03_Configuration.py
@@ -8,7 +8,7 @@ Purpose: TRADOV - Automated TRAD Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     TRADOV - Automated TRAD Options Trading System
@@ -41,8 +41,12 @@ from collections.abc import Callable
 # ==============================================================================
 import configparser
 import hashlib
-import toml
 import yaml
+
+try:
+    import toml
+except ImportError:  # pragma: no cover - optional dependency
+    toml = None
 
 try:
     import base64  # noqa: F401
@@ -320,6 +324,9 @@ class ConfigManager:
             # 2.6 Load repo-level agent handoff policy if present.
             self._load_repo_agent_handoff_policy()
 
+            # 2.7 Load repo-level pair corpus policy if present.
+            self._load_repo_pair_corpus_policy()
+
             # 3. Load environment variables
             self._load_environment_variables()
 
@@ -424,7 +431,7 @@ class ConfigManager:
                 "session_window": {
                     "primary_start_et": "09:30",
                     "primary_end_et": "16:15",
-                    "first_entry_not_before_et": "09:45",
+                    "first_entry_not_before_et": "09:35",
                     "zero_dte_no_new_risk_cutoff_et": "14:30",
                     "broker_cutoff_et": "16:00",
                     "broker_cutoff_buffer_minutes": 10,
@@ -615,6 +622,54 @@ class ConfigManager:
         except Exception as e:
             self.logger.warning("Failed to load repo agent handoff policy: %s", e)
 
+    def _load_repo_pair_corpus_policy(self):
+        """Load repository pair corpus policy JSON into autonomous_readiness namespace."""
+        try:
+            policy = self._read_repo_pair_corpus_policy()
+            if not policy:
+                return
+
+            self._merge_config(
+                {"autonomous_readiness": {"pair_corpus_policy": policy}},
+                ConfigSource.FILE,
+            )
+            self.watched_files.add(self._pair_corpus_policy_path())
+            self.logger.debug("Loaded pair corpus policy from: %s", self._pair_corpus_policy_path())
+        except Exception as e:
+            self.logger.warning("Failed to load repo pair corpus policy: %s", e)
+
+    def _pair_corpus_policy_path(self) -> Path:
+        """Return the configured pair corpus policy path."""
+        return Path(
+            os.environ.get(
+                "TRADOV_PAIR_CORPUS_POLICY_PATH",
+                str(Path(__file__).resolve().parents[2] / "config" / "pair_trading_corpus_v1.json"),
+            )
+        ).expanduser()
+
+    def _read_repo_pair_corpus_policy(self) -> dict[str, Any] | None:
+        """Read the repository pair corpus policy from disk."""
+        repo_policy_path = self._pair_corpus_policy_path()
+        if not repo_policy_path.exists():
+            return None
+
+        policy = self._load_json_file(repo_policy_path)
+        if not isinstance(policy, dict) or not policy:
+            return None
+        return policy
+
+    def _refresh_repo_pair_corpus_policy(self) -> None:
+        """Reload the pair corpus policy subtree in-place."""
+        policy = self._read_repo_pair_corpus_policy()
+        if not policy:
+            return
+
+        self._merge_config(
+            {"autonomous_readiness": {"pair_corpus_policy": policy}},
+            ConfigSource.FILE,
+        )
+        self._notify_callbacks("autonomous_readiness.pair_corpus_policy", None, policy)
+
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
         """Load YAML configuration file"""
         with open(file_path) as f:
@@ -627,6 +682,9 @@ class ConfigManager:
 
     def _load_toml_file(self, file_path: Path) -> dict[str, Any]:
         """Load TOML configuration file"""
+        if toml is None:
+            self.logger.warning("TOML support unavailable; skipping %s", file_path)
+            return {}
         with open(file_path) as f:
             return toml.load(f)
 
@@ -1265,7 +1323,7 @@ class ConfigManager:
                 start_et = datetime.strptime(str(session_cfg.get("primary_start_et", "09:30")), "%H:%M").time()
                 end_et = datetime.strptime(str(session_cfg.get("primary_end_et", "16:15")), "%H:%M").time()
                 first_entry_et = datetime.strptime(
-                    str(session_cfg.get("first_entry_not_before_et", "09:45")),
+                    str(session_cfg.get("first_entry_not_before_et", "09:35")),
                     "%H:%M",
                 ).time()
                 no_new_risk_et = datetime.strptime(
@@ -1667,10 +1725,17 @@ class ConfigManager:
     def _start_file_observer(self):
         """Start watching configuration files for changes"""
         try:
+            if self.file_observer is not None:
+                if self.file_observer.is_alive():
+                    return
+                self.file_observer = None
+
+            self.config_dir.mkdir(parents=True, exist_ok=True)
             self.file_observer = Observer()
             handler = ConfigFileHandler(self)
 
-            # Watch config directory
+            # Watch only the top-level config directory. Recursive watching is
+            # unnecessary here and can multiply file descriptors as backups grow.
             self.file_observer.schedule(handler, str(self.config_dir), recursive=False)
 
             self.file_observer.start()
@@ -1681,9 +1746,13 @@ class ConfigManager:
 
     def _stop_file_observer(self):
         """Stop watching configuration files"""
-        if self.file_observer and self.file_observer.is_alive():
-            self.file_observer.stop()
-            self.file_observer.join()
+        if self.file_observer:
+            try:
+                if self.file_observer.is_alive():
+                    self.file_observer.stop()
+                    self.file_observer.join(timeout=2.0)
+            finally:
+                self.file_observer = None
 
     def _on_config_file_changed(self, file_path: Path):
         """Handle configuration file change"""
@@ -1694,8 +1763,12 @@ class ConfigManager:
             # Create backup before reloading
             self._backup_configuration()
 
-            # Reload file
-            self._load_config_file(file_path)
+            pair_policy_path = self._pair_corpus_policy_path()
+            if file_path.expanduser().resolve() == pair_policy_path.expanduser().resolve():
+                self._refresh_repo_pair_corpus_policy()
+            else:
+                # Reload file
+                self._load_config_file(file_path)
 
             # Revalidate
             self._validate_configuration()
@@ -1929,6 +2002,9 @@ class ConfigManager:
                 with open(output_path, "w") as f:
                     toml.dump(export_data, f)
             else:
+                if format == "toml" and toml is None:
+                    self.logger.error("TOML export unavailable: install the toml package")
+                    return False
                 self.logger.error("Unsupported export format: %s", format)
                 return False
 
@@ -2027,4 +2103,3 @@ if __name__ == "__main__":
     # Test change history
     for _change in config.get_change_history(limit=5):
         pass
-

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovB_Broker
 Module: TradovB15_PrometheusMetrics.py
 Purpose: Comprehensive Prometheus metrics collection and monitoring
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-11 Time: 16:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Centralized Prometheus metrics collection and HTTP endpoint for the Tradov

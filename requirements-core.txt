@@ -12,6 +12,7 @@ toml>=0.10.2  # TOML config read/write (TradovA03, TradovC17, TradovI03)
 apscheduler>=3.10.0,<4.0.0  # job scheduler (TradovA_Core)
 psutil>=5.9.0,<7.0.0  # process/system utilities (MasterController, FSeriesOrchestrator)
 jsonschema>=4.0.0,<5.0.0  # config/schema validation (TradovA_Core Configuration)
+msgpack>=1.0.0,<2.0.0  # optional fast protocol serialization fallback
 pandas_market_calendars>=1.6.0  # market calendar for scheduler (TradovA_Core Scheduler)
 watchdog>=3.0.0  # config file watching (TradovA_Core Configuration)
 holidays>=0.13  # market holiday calendar (TradovA_Core Scheduler)

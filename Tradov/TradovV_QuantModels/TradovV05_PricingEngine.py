@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovV_QuantModels
 Module: TradovV05_PricingEngine.py
@@ -8,7 +8,7 @@ Purpose: Consolidated options pricing engine - single source of truth for all pr
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-31 Time: 17:15:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Unified options pricing engine that consolidates all pricing model duplications from V01, V06, V07, V08.
@@ -1337,7 +1337,7 @@ def create_pricing_engine(
 async def main():
     """Demonstration of consolidated pricing engine functionality."""
     logging.info("=" * 80)
-    logging.info("SPYDER V05 CONSOLIDATED PRICING ENGINE DEMONSTRATION")
+    logging.info("TRADOV V05 CONSOLIDATED PRICING ENGINE DEMONSTRATION")
     logging.info("=" * 80)
 
     # Initialize pricing engine

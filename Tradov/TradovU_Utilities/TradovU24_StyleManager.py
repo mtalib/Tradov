@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU24_StyleManager.py
 Purpose: Professional theme and styling management with QDarkStyleSheet integration
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-13 Time: 16:15:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     This module provides comprehensive styling and theme management for the Tradov

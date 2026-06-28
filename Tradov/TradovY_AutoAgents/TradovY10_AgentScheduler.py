@@ -2,14 +2,14 @@
 """
 TRADOV - Autonomous Options Trading System
 
-Spyder Version: 1.0
+Tradov Version: 1.0
 Module: TradovY10_AgentScheduler.py
 Group: Y (AutoAgents)
 Purpose: Central scheduler that manages lifecycle of all Y-series agents
 
 Author: Mohamed Talib
 Date Created: 2026-02-25
-Last Updated: 2026-02-25 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Manages starting, stopping, pausing, and monitoring all Y-series
@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 # ==============================================================================
-# SPYDER IMPORTS
+# TRADOV IMPORTS
 # ==============================================================================
 from .TradovY00_BaseAutoAgent import (
     BaseAutoAgent,

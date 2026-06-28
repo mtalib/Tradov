@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG42_PCADetailPresenter.py
@@ -414,7 +414,7 @@ def build_pca_iv_details_html(entry: dict) -> str:
     <h2 style='margin-bottom:4px;'>PCA-IV — Placeholder Signal</h2>
     <p style='color:#9bb;'>Producer: <code>TradovS14_PCASignals</code> &nbsp;·&nbsp;
                     "🟡 Establishing live connections",
-                    "⏳ ENTRY gate remains blocked until 09:45 ET",
+                    "⏳ ENTRY gate remains blocked until 09:35 ET",
     <p style='margin:8px 0 14px 0; padding:8px 10px; background:#10171d; border-left:3px solid #4db6ff;'>
     <b>Operator takeaway</b>: {takeaway}</p>
 

@@ -40,12 +40,12 @@ def build_start_button_active_state_plan(
         ),
         enabled=True,
         tooltip=(
-            "Paper session is connected and waiting for market open"
+            "Paper session is connected; scanning begins at 09:20 ET and trading auto-starts at 09:35 ET"
             if is_after_hours_paper
             else (
-                "Paper trading session is active"
+                "Paper trading session is active; scanning begins at 09:20 ET and trading auto-starts at 09:35 ET"
                 if is_paper_mode
-                else "Live trading session is active"
+                else "Live trading session is active; scanning begins at 09:20 ET and trading auto-starts at 09:35 ET"
             )
         ),
     )

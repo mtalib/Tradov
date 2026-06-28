@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG57_StartTradingPrecheckPresenter.py
@@ -46,14 +46,14 @@ def build_start_trading_precheck_presentation(
             dialog_title="Fresh Market Data Loading",
             dialog_text=(
                 "Fresh market data is still loading.\n\n"
-                "Trading will begin automatically after fresh market data is fetched "
-                "and all startup checks pass."
+                "Scanning starts at 09:20 ET. Trading auto-starts at 09:35 ET "
+                "after fresh market data is fetched and all startup checks pass."
             ),
             log_message=(
                 "⏳ Start request already queued — waiting for fresh market data"
                 if queued_start_requested
                 else (
-                    "⏳ Start requested — trading will begin automatically after fresh "
+                    "⏳ Start requested — trading will auto-start at 09:35 ET after fresh "
                     "market data is fetched and all startup checks pass"
                 )
             ),

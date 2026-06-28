@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG16_CircuitBreakerMonitor.py
 Purpose: Circuit Breaker Status Monitor Widget for Trading Dashboard
 Author: Claude (AI Assistant)
 Year Created: 2025
-Last Updated: 2025-11-25 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Real-time circuit breaker monitoring widget for the Tradov trading dashboard.

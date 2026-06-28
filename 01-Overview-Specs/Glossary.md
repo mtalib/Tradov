@@ -5,23 +5,18 @@ TradovProject/Glossary.md (Complete)
 
 ## Trading & Financial Terms
 
-### Options Trading
-- **ATM (At-The-Money)**: Option strike price equals current stock price
-- **Credit Spread**: Strategy that nets a credit when opened (sell higher premium, buy lower premium)
-- **Debit Spread**: Strategy that requires net payment when opened
-- **Delta**: Rate of change of option price relative to underlying price change
-- **Gamma**: Rate of change of delta relative to underlying price change
-- **Greeks**: Risk sensitivities (Delta, Gamma, Theta, Vega, Rho)
-- **Iron Condor**: Combination of put credit spread and call credit spread
-- **ITM (In-The-Money)**: Option with intrinsic value (calls above strike, puts below strike)
-- **OTM (Out-of-The-Money)**: Option with no intrinsic value
-- **Rho**: Sensitivity to interest rate changes
-- **SPY**: SPDR S&P 500 ETF Trust, primary trading instrument for Tradov
-- **Straddle**: Long call and long put with same strike and expiration
-- **Strangle**: Long call and long put with different strikes, same expiration
-- **Theta**: Time decay - rate of option value loss due to time passage
-- **Vega**: Sensitivity to implied volatility changes
-- **Zero-DTE**: Zero Days to Expiration options, expire same trading day
+### Pair Trading / Stat-Arb
+- **Cointegration**: Statistical relationship indicating two price series move together over time
+- **Hedge Ratio**: Relative sizing used to neutralize a spread between two assets
+- **Mean Reversion**: Tendency of a spread or residual to move back toward its historical average
+- **OU Process**: Ornstein-Uhlenbeck process, a mean-reverting stochastic model
+- **Pair Key**: Canonical identifier for a tradable pair, usually `AAA/BBB`
+- **Residual Spread**: Difference between observed spread and fitted fair-value spread
+- **SSD**: Sum of squared distances, used to rank candidate pairs by similarity
+- **Z-Score**: Standardized distance from the spread mean used for entries and exits
+- **PCA Eigenportfolio**: Portfolio extracted from principal components for stat-arb signal generation
+- **Stat-Arb**: Statistical arbitrage, trade signals derived from relative mispricing
+- **SPY**: SPDR S&P 500 ETF Trust, a benchmark asset in this repo
 
 ### Market Data & Analysis
 - **Ask**: Lowest price seller willing to accept
@@ -34,7 +29,7 @@ TradovProject/Glossary.md (Complete)
 - **Level II Data**: Market depth showing multiple bid/ask levels
 - **Market Making**: Providing liquidity by continuously quoting bid/ask
 - **Order Book**: List of buy and sell orders at different price levels
-- **SKEW**: CBOE Skew Index, measures tail risk in S&P 500 options
+- **SKEW**: CBOE Skew Index, measures tail risk in S&P 500 markets
 - **Tick**: Minimum price movement increment
 - **Volume**: Number of shares/contracts traded
 - **VIX**: CBOE Volatility Index, "fear gauge" of market
@@ -65,10 +60,10 @@ TradovProject/Glossary.md (Complete)
 - **Thread-Safe**: Code that functions correctly during simultaneous access
 
 ### Tradier & Databento Specific
-- **Tradier API**: RESTful API for options trading and market data
+- **Tradier API**: RESTful API used by Tradov for market data and execution connectivity
 - **Bearer Token**: Authentication method for Tradier API requests
 - **Databento**: Institutional-grade market data provider (OPRA feed)
-- **OPRA.PILLAR**: Options Price Reporting Authority data via Databento
+- **OPRA.PILLAR**: Historical market-data channel identifier retained for reference
 - **Paper Mode**: Simulated trading with the TradovBox local paper ledger while using live Tradier data
 - **Account ID**: Unique identifier for Tradier trading account
 - **Symbol**: Ticker symbol (e.g., SPY for S&P 500 ETF)
@@ -114,7 +109,7 @@ TradovProject/Glossary.md (Complete)
 - **K-Series (TradovK)**: Report modules - performance analytics and reporting
 - **L-Series (TradovL)**: Machine Learning modules - AI models and predictions
 - **M-Series (TradovM)**: Monitoring modules - system health and metrics
-- **N-Series (TradovN)**: Options Analytics modules - Greeks and pricing
+- **N-Series (TradovN)**: Historical analytics modules retained for reference
 - **O-Series (TradovO)**: Trading Intelligence modules - advanced analytics
 - **P-Series (TradovP)**: Portfolio Management modules - optimization and allocation
 - **Q-Series (TradovQ)**: Scripts - utility scripts and automation tools

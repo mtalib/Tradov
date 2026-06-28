@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU23_MemoryMonitor.py
 Purpose: Memory management and monitoring utilities for system stability
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-13 Time: 15:45:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     This module provides comprehensive memory monitoring and management utilities

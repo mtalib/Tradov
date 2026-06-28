@@ -2,14 +2,14 @@
 """
 TRADOV - Autonomous Options Trading System
 
-Spyder Version: 1.0
+Tradov Version: 1.0
 Module: TradovY02_StrategyPilotAgent.py
 Group: Y (AutoAgents)
 Purpose: Autonomous strategy selection, parameter tuning, and signal validation
 
 Author: Mohamed Talib
 Date Created: 2026-02-25
-Last Updated: 2026-02-25 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Active during market hours. Subscribes to signals from the signal pipeline
@@ -33,7 +33,7 @@ from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
-# SPYDER IMPORTS
+# TRADOV IMPORTS
 # ==============================================================================
 from .TradovY00_BaseAutoAgent import (
     BaseAutoAgent,

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovC_MarketData
 Module: TradovC30_ConnectionProbe.py
@@ -8,19 +8,19 @@ Purpose: Headless Tradier connectivity probe (no GUI dependency)
 
 Author: Mohamed Talib (with Claude)
 Year Created: 2026
-Last Updated: 2026-06-26
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Headless equivalent of G18.check_api_connection. The dashboard's probe lives
     in TradovG18_MarketDataWorker, which imports PySide6 — so non-GUI callers
     (the readiness coordinator R13, the inbound signal receiver Z10, scripts)
     cannot reuse it without dragging in Qt. This module provides the same
-    live-endpoint quote probe with zero GUI dependency, reusing the canonical
-    ``create_tradier_client_from_env`` factory (B40) so no credential-loading
-    logic is duplicated.
+    broker-auth connectivity check with zero GUI dependency, reusing the
+    canonical ``create_tradier_client_from_env`` factory (B40) so no
+    credential-loading logic is duplicated.
 
-    Market data is always read from the LIVE endpoint, for both paper and live
-    trading modes (paper execution still consumes real quotes).
+    The probe uses a market-independent profile request so connectivity stays
+    meaningful outside regular trading hours.
 
     Intended use: pass ``check_api_connection`` as the ``connection_probe`` to
     ``TradovR13_ReadinessGateCoordinator.gather_inputs``.
@@ -65,7 +65,7 @@ def runtime_trading_mode(runtime_context: RuntimeContext | None = None) -> str:
 
 
 def market_data_probe_succeeded(payload: Any) -> bool:
-    """Return True when a lightweight quote probe returns the probe symbol."""
+    """Retained for compatibility with older quote-probe tests."""
     quotes_raw = (
         payload.get("quotes", {}).get("quote", []) if isinstance(payload, dict) else []
     )
@@ -80,7 +80,7 @@ def market_data_probe_succeeded(payload: Any) -> bool:
 def check_api_connection(
     runtime_context: RuntimeContext | None = None,
 ) -> tuple[bool, str]:
-    """Probe the Tradier live market-data endpoint.
+    """Probe the Tradier API authentication path.
 
     Returns ``(connected, mode_label)`` — the same contract G18 exposes and the
     shape R13.gather_inputs expects from its ``connection_probe``.
@@ -99,12 +99,11 @@ def check_api_connection(
             environment=TradingEnvironment.LIVE,
             runtime_context=runtime_context,
         )
-        payload = client.get_quotes([PROBE_SYMBOL])
-        if market_data_probe_succeeded(payload):
+        if client.test_connection():
             mode = runtime_trading_mode(runtime_context)
             mode_label = "PAPER" if mode == "paper" else "LIVE"
             return True, f"Tradier API ({mode_label})"
-        return False, "Tradier API (no quote)"
+        return False, "Tradier API connection test failed"
     except Exception as exc:  # network/credential failure -> not connected
         _logger.warning("check_api_connection failed: %s", exc)
         return False, f"Tradier API error: {exc}"

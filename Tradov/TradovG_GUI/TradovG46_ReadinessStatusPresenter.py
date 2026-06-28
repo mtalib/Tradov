@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG46_ReadinessStatusPresenter.py
@@ -48,7 +48,7 @@ def build_readiness_status_presentation(
             button_text=button_text,
             button_style=button_style,
             start_enabled=True,
-            start_tooltip="Start automated trading",
+            start_tooltip="Scan begins at 09:20 ET; trading auto-starts at 09:35 ET",
         )
 
     decision = str(result.get("decision", "NOT RUN"))
@@ -92,9 +92,9 @@ def build_readiness_status_presentation(
 
     mode_key = str(getattr(trading_mode, "value", trading_mode) or "").strip().upper()
     start_tooltip = (
-        "Start paper trading with simulated fills"
+        "Scan begins at 09:20 ET; trading auto-starts at 09:35 ET. Start paper trading with simulated fills"
         if mode_key == "PAPER"
-        else "Start LIVE trading with real order execution"
+        else "Scan begins at 09:20 ET; trading auto-starts at 09:35 ET. Start LIVE trading with real order execution"
     )
     return ReadinessStatusPresentation(
         status_text=f"@ {ts_suffix} ET - YES READY FOR {trading_mode_text} TRADING",

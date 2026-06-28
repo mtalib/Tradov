@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG14_Dashboard.py
@@ -8,7 +8,7 @@ Purpose: TRADOV - Automated TRAD Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     TRADOV - Automated TRAD Options Trading System
@@ -60,7 +60,7 @@ def main():
 
         # Then try to import the dashboard
         try:
-            from TradovG_GUI.TradovG05_TradingDashboard import TradovTradingDashboard
+            from Tradov.TradovG_GUI.TradovG05_TradingDashboard import TradovTradingDashboard
         except ImportError as e:
             logging.info("Dashboard import error: %s", e)
             logging.info("This might be due to missing dependencies in the dashboard modules.")

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""TRADOV - Autonomous Options Trading System v1.0
+"""TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG20_DashboardBuilder.py
 Purpose: Extracted UI builder helpers for TradovG05_TradingDashboard
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-04-17 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 """
 
 # ==============================================================================
@@ -20,7 +20,7 @@ from typing import Any
 # THIRD-PARTY IMPORTS
 # ==============================================================================
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QCursor, QFont
+from PySide6.QtGui import QColor, QCursor, QFont, QKeySequence
 from PySide6.QtWidgets import (QToolTip,
     QButtonGroup,
     QFrame,
@@ -35,7 +35,6 @@ from PySide6.QtWidgets import (QToolTip,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
-    QTextEdit,
     QTreeWidget,
     QVBoxLayout,
     QWidget,
@@ -164,30 +163,64 @@ class _ClickablePillLabel(QLabel):
 
 
 class _ReadOnlyLogView(QPlainTextEdit):
-    """Display-only log widget that still allows selection and copy."""
+    """Display-only log widget.
 
-    def __init__(self, parent=None) -> None:
+    System log can be selectable for copy/paste; the autonomous activity pane
+    stays locked down because it is nonessential during startup pressure.
+    """
+
+    def __init__(self, parent=None, *, selectable: bool = False) -> None:
         super().__init__(parent)
+        self._selectable = selectable
         self.setReadOnly(True)
-        self.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard,
-        )
-        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        if selectable:
+            self.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            )
+            self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
+        else:
+            self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+            self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.setUndoRedoEnabled(False)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
-
-    def mousePressEvent(self, event) -> None:  # type: ignore[override]
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
-        super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event) -> None:  # type: ignore[override]
-        super().mouseDoubleClickEvent(event)
 
     def contextMenuEvent(self, event) -> None:  # type: ignore[override]
-        super().contextMenuEvent(event)
+        if self._selectable:
+            super().contextMenuEvent(event)
+            return
+        if event is not None:
+            event.accept()
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[override]
+        if self._selectable:
+            super().mousePressEvent(event)
+            return
+        if event is not None:
+            event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if self._selectable:
+            super().mouseReleaseEvent(event)
+            return
+        if event is not None:
+            event.accept()
+
+    def mouseDoubleClickEvent(self, event) -> None:  # type: ignore[override]
+        if self._selectable:
+            super().mouseDoubleClickEvent(event)
+            return
+        if event is not None:
+            event.accept()
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        if self._selectable:
+            super().keyPressEvent(event)
+            return
+        if event.matches(QKeySequence.StandardKey.SelectAll) or event.matches(QKeySequence.StandardKey.Copy):
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 def _regime_sep() -> "QLabel":
@@ -452,9 +485,9 @@ def build_center_panel(dashboard: Any) -> QWidget:
     dashboard.pair_breaking_news_container = None
     pair_container = QWidget()
     pair_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
-    pair_container.setMinimumHeight(478)
+    pair_container.setMinimumHeight(340)
     pair_container_layout = QVBoxLayout()
-    pair_container_layout.setContentsMargins(0, 6, 0, 0)
+    pair_container_layout.setContentsMargins(0, 4, 0, 2)
     pair_container_layout.setSpacing(3)
     pair_container.setLayout(pair_container_layout)
 
@@ -472,6 +505,9 @@ def build_center_panel(dashboard: Any) -> QWidget:
             PairRiskSummaryPanel as _PairRiskSummaryPanel,
             PairScannerPanel as _PairScannerPanel,
         )
+        from Tradov.TradovD_Strategies.TradovD59_PairCorpusPolicy import (
+            load_pair_trading_corpus_policy as _load_pair_trading_corpus_policy,
+        )
     except Exception:
         logger.exception("Pair trading widget module failed to import")
         if hasattr(dashboard, "add_system_log"):
@@ -485,10 +521,25 @@ def build_center_panel(dashboard: Any) -> QWidget:
             dashboard.pair_scanner_panel = _PairScannerPanel()
             dashboard.pair_scanner_panel.setSizePolicy(
                 QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.MinimumExpanding,
+                QSizePolicy.Policy.Fixed,
             )
-            dashboard.pair_scanner_panel.setMinimumHeight(160)
-            pair_container_layout.addWidget(dashboard.pair_scanner_panel)
+            dashboard.pair_scanner_panel.bundle_selection_changed.connect(
+                dashboard.set_manual_pair_bundle_name
+            )
+            try:
+                corpus_policy = _load_pair_trading_corpus_policy()
+                selected_bundle = getattr(dashboard, "_manual_pair_bundle_name", "")
+                dashboard.pair_scanner_panel.set_bundle_choices(
+                    corpus_policy.bundle_names,
+                    selected_bundle=selected_bundle,
+                )
+                dashboard.pair_scanner_panel.set_bundle_preview(
+                    selected_bundle,
+                    corpus_policy.get_bundle_pair_keys(selected_bundle),
+                )
+            except Exception:
+                logger.exception("Pair bundle choices failed to load")
+            pair_container_layout.addWidget(dashboard.pair_scanner_panel, 0)
             panels_loaded += 1
         except Exception:
             logger.exception("Pair scanner panel failed to initialize")
@@ -498,10 +549,9 @@ def build_center_panel(dashboard: Any) -> QWidget:
             dashboard.pair_positions_panel = _PairPositionsPanel()
             dashboard.pair_positions_panel.setSizePolicy(
                 QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.MinimumExpanding,
+                QSizePolicy.Policy.Fixed,
             )
-            dashboard.pair_positions_panel.setMinimumHeight(190)
-            pair_container_layout.addWidget(dashboard.pair_positions_panel)
+            pair_container_layout.addWidget(dashboard.pair_positions_panel, 0)
             panels_loaded += 1
         except Exception:
             logger.exception("Pair positions panel failed to initialize")
@@ -509,13 +559,12 @@ def build_center_panel(dashboard: Any) -> QWidget:
 
         try:
             dashboard.pair_risk_summary_panel = _PairRiskSummaryPanel()
-            dashboard.pair_risk_summary_panel.setFixedHeight(142)
             dashboard.pair_risk_summary_panel.setStyleSheet("background-color: #000000;")
             dashboard.pair_risk_summary_panel.setSizePolicy(
                 QSizePolicy.Policy.Expanding,
                 QSizePolicy.Policy.Fixed,
             )
-            pair_container_layout.addWidget(dashboard.pair_risk_summary_panel)
+            pair_container_layout.addWidget(dashboard.pair_risk_summary_panel, 0)
             panels_loaded += 1
         except Exception:
             logger.exception("Pair risk summary panel failed to initialize")
@@ -534,7 +583,7 @@ def build_center_panel(dashboard: Any) -> QWidget:
         pair_enabled = _pair_enabled_raw.strip().lower() in {"1", "true", "yes", "on", "y"}
     pair_container.setVisible(pair_enabled)
     dashboard.pair_trading_group = pair_container
-    layout.addWidget(pair_container, 5)
+    layout.addWidget(pair_container, 1)
 
     dashboard.positions_table = create_positions_table(dashboard)
     dashboard.positions_table.setMinimumHeight(228)
@@ -577,42 +626,36 @@ def build_center_panel(dashboard: Any) -> QWidget:
     dashboard.positions_group = positions_group
     dashboard.spreads_group = positions_group  # backwards-compat alias
     dashboard.directional_trading_group = directional_group
-    layout.addWidget(positions_group, 3)
-
-    dashboard.pair_breaking_news_container = QWidget()
-    dashboard.pair_breaking_news_container.setSizePolicy(
-        QSizePolicy.Policy.Expanding,
-        QSizePolicy.Policy.MinimumExpanding,
-    )
-    # Let the breaking-news area absorb the vertical slack that used to sit
-    # between the pair summary block and the news feed.
-    dashboard.pair_breaking_news_container.setMinimumHeight(118)
-    news_container_layout = QVBoxLayout()
-    news_container_layout.setContentsMargins(0, 0, 0, 0)
-    news_container_layout.setSpacing(0)
-    dashboard.pair_breaking_news_container.setLayout(news_container_layout)
+    # The directional group is not shown in this layout path, so keep the
+    # wrapper out of the live center stack instead of reserving vertical space.
+    positions_group.setVisible(False)
+    if directional_group.isVisible():
+        layout.addWidget(positions_group, 3)
 
     try:
         dashboard.pair_breaking_news_panel = _BreakingNewsPanel()
         dashboard.pair_breaking_news_panel.setSizePolicy(
             QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.MinimumExpanding,
+            QSizePolicy.Policy.Fixed,
         )
-        news_container_layout.addWidget(dashboard.pair_breaking_news_panel)
+        dashboard.pair_breaking_news_panel.setFixedHeight(128)
     except Exception:
         logger.exception("Breaking news panel failed to initialize")
         dashboard.pair_breaking_news_panel = None
         fallback = QLabel("BREAKING NEWS UNAVAILABLE")
         fallback.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; padding: 6px;")
-        news_container_layout.addWidget(fallback)
+        dashboard.pair_breaking_news_panel = fallback
 
     _news_enabled_raw = os.getenv("TRADOV_ENABLE_PAIR_TRADING")
     if _news_enabled_raw is None or not _news_enabled_raw.strip():
         news_enabled = True
     else:
         news_enabled = _news_enabled_raw.strip().lower() in {"1", "true", "yes", "on", "y"}
-    dashboard.pair_breaking_news_container.setVisible(news_enabled)
-    layout.addWidget(dashboard.pair_breaking_news_container, 1)
+    dashboard.pair_breaking_news_container = dashboard.pair_breaking_news_panel
+    if dashboard.pair_breaking_news_container is not None:
+        dashboard.pair_breaking_news_container.setVisible(news_enabled)
+    if dashboard.pair_breaking_news_panel is not None:
+        pair_container_layout.addWidget(dashboard.pair_breaking_news_panel, 1)
 
     try:
         if getattr(dashboard, "pair_breaking_news_panel", None) is not None and hasattr(dashboard, "news_manager"):
@@ -625,21 +668,27 @@ def build_center_panel(dashboard: Any) -> QWidget:
         dashboard._update_pair_trading_titles()
 
     logs_container = QWidget()
-    logs_container.setFixedHeight(190)
+    logs_container.setFixedHeight(170)
     logs_container_layout = QHBoxLayout()
     logs_container_layout.setSpacing(5)
     logs_container_layout.setContentsMargins(0, 0, 0, 0)
 
-    logs_group = QGroupBox("SYSTEM LOG")
-    logs_group.setStyleSheet(
-        f"QGroupBox {{ color: {COLORS['text']}; font-weight: normal; }}",
-    )
+    logs_group = QWidget()
+    logs_group.setStyleSheet(f"background-color: {COLORS['panel']};")
     logs_layout = QVBoxLayout()
     logs_layout.setContentsMargins(6, 6, 6, 6)
     logs_layout.setSpacing(3)
 
-    dashboard.system_log = _ReadOnlyLogView()
-    dashboard.system_log.setMaximumHeight(150)
+    log_header_row = QHBoxLayout()
+    log_header_row.setContentsMargins(0, 0, 0, 0)
+    log_header_row.setSpacing(4)
+    log_title = QLabel("SYSTEM LOG")
+    log_title.setStyleSheet(f"color: {COLORS['text']}; font-weight: normal;")
+    log_header_row.addWidget(log_title)
+    log_header_row.addStretch(1)
+    logs_layout.addLayout(log_header_row)
+    dashboard.system_log = _ReadOnlyLogView(selectable=True)
+    dashboard.system_log.setMaximumHeight(132)
     dashboard.system_log.setStyleSheet(
         f"""
             QPlainTextEdit {{
@@ -699,7 +748,9 @@ def build_right_panel(dashboard: Any) -> QWidget:
     dashboard.start_btn.setStyleSheet(
         f"background-color: {COLORS['positive']}; color: black;",
     )
-    dashboard.start_btn.setToolTip("Start automated trading")
+    dashboard.start_btn.setToolTip(
+        "Scan begins at 09:20 ET; trading auto-starts at 09:35 ET"
+    )
     dashboard.start_btn.clicked.connect(dashboard.start_trading)
     button_layout.addWidget(dashboard.start_btn)
 

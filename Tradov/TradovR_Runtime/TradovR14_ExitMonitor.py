@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovR_Runtime
 Module: TradovR14_ExitMonitor.py
@@ -8,7 +8,7 @@ Purpose: Periodic sweep of open positions; emits close signals and orphan alerts
 
 Author: TRADOV Trading System
 Year Created: 2026
-Last Updated: 2026-04-18 Time: 12:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     ExitMonitor runs a 1-second background sweep over all positions held in

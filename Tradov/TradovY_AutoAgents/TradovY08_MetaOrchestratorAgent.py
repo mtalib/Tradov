@@ -2,14 +2,14 @@
 """
 TRADOV - Autonomous Options Trading System
 
-Spyder Version: 1.0
+Tradov Version: 1.0
 Module: TradovY08_MetaOrchestratorAgent.py
 Group: Y (AutoAgents)
 Purpose: High-level orchestration — coordinates all Y-series agents
 
 Author: Mohamed Talib
 Date Created: 2026-02-25
-Last Updated: 2026-02-25 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Runs 24/7 as the "conductor" of the agent ensemble. Monitors the health
@@ -55,7 +55,7 @@ from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
-# SPYDER IMPORTS
+# TRADOV IMPORTS
 # ==============================================================================
 from .TradovY00_BaseAutoAgent import (
     BaseAutoAgent,

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovD_Strategies
 Module: TradovD50_PairTypes.py
@@ -8,7 +8,7 @@ Purpose: Data structures for statistical arbitrage / pair trading
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-06-03 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Canonical data classes for pair (stat-arb) trading:
@@ -29,8 +29,6 @@ from typing import Any
 
 from Tradov.TradovD_Strategies.TradovD01_BaseStrategy import (
     TradingSignal,
-    SignalType,
-    SignalStrength,
     PositionState,
 )
 
@@ -121,6 +119,9 @@ class PairScanResult:
     scan_age_seconds: float = 0.0
     decision_state: str = "hold"
     decision_reason: str = ""
+    bundle_name: str = ""
+    bundle_reason: str = ""
+    bundle_score: float = 0.0
     fdr_method: str = "benjamini_hochberg"
     fdr_alpha: float = 0.05
 
@@ -318,6 +319,10 @@ class PairPosition:
             "current_z": self.current_z,
             "unrealized_pnl": self.unrealized_pnl,
             "realized_pnl": self.realized_pnl,
+            "entry_time": self.entry_time.isoformat(),
+            "exit_time": self.exit_time.isoformat() if self.exit_time else None,
+            "opened_at": self.entry_time.isoformat(),
+            "closed_at": self.exit_time.isoformat() if self.exit_time else None,
             "duration_seconds": self.duration.total_seconds() if self.duration else None,
             "exit_reason": self.exit_reason,
             "strategy_name": self.strategy_name,

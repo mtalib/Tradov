@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovB_Broker
 Module: TradovB06_DashboardOrderManager.py
@@ -8,7 +8,7 @@ Purpose: Dashboard-facing order management (audit §5 extraction)
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-16
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Extracted from TradovG05_TradingDashboard per the 2026-04-15

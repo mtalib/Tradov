@@ -1,8 +1,8 @@
-# Research on Pair Trading Strategies for HEDGER Platform
+# Research on Pair Trading Strategies for Tradov Platform
 
 ## 1. Introduction
 
-This document presents a comprehensive overview of pair trading strategies, drawing insights from leading open-source GitHub repositories and commercial applications. The goal is to identify effective strategies, key concepts, and Python implementation patterns to inform the development of the HEDGER platform, a new pair trading system.
+This document presents a comprehensive overview of pair trading strategies, drawing insights from leading open-source GitHub repositories and commercial applications. The goal is to identify effective strategies, key concepts, and Python implementation patterns to inform the development of the Tradov platform, a new pair trading system.
 
 Pair trading is a market-neutral statistical arbitrage strategy that exploits temporary divergences in the prices of two historically correlated or cointegrated assets. The core idea involves simultaneously buying the underperforming asset and selling the overperforming asset, betting on the convergence of their prices back to their historical relationship. This approach aims to generate profits regardless of overall market direction, making it an attractive strategy for risk-averse traders.
 

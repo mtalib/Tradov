@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovQ_Scripts
 Module: TradovQ92_ResearchWorkflow.py
 Purpose: Qlib-inspired research workflow runner for repeatable ML experiments
 Author: Codex
 Year Created: 2026
-Last Updated: 2026-06-18 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides a compact, code-first research workflow for Tradov that mirrors the

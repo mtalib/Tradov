@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovL_ML
 Module: TradovL09_UnifiedRegimeEngine.py
 Purpose: Consolidated market regime detection and classification engine
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-02 Time: 15:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Unified market regime detection engine that consolidates regime classification

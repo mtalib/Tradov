@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovX_Template
 Module: TradovX01_ModuleTemplate.py
@@ -9,7 +9,7 @@ Purpose: Template module demonstrating standard formatting conventions
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: YYYY-MM-DD Time: 12:00:00  (Current date and time)
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     This template serves as a standard format for all Tradov modules. It demonstrates

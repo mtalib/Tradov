@@ -7,7 +7,7 @@ Purpose: Conservative risk debator agent arguing for capital preservation and ri
 
 Author: Tradov Team
 Year Created: 2026
-Last Updated: 2026-06-05
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Conservative Risk Debator agent inspired by TradingAgents architecture.

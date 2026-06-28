@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovD_Strategies
 Module: TradovD43_DistanceStrategy.py
@@ -8,7 +8,7 @@ Purpose: Distance-approach (SSD) pairs trading strategy
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-06-15 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     BaseStrategy wrapper around the Distance Approach engine (D55). Forms
@@ -57,6 +57,9 @@ from Tradov.TradovD_Strategies.TradovD50_PairTypes import (
 from Tradov.TradovD_Strategies.TradovD58_PairScanDecisionAdapter import (
     build_formed_pair_scan_context,
 )
+from Tradov.TradovD_Strategies.TradovD59_PairCorpusPolicy import (
+    load_pair_trading_corpus_policy,
+)
 from Tradov.TradovD_Strategies.TradovD55_DistanceEngine import (
     DistanceApproachEngine,
     DistancePair,
@@ -94,6 +97,7 @@ class DistanceTradingStrategy(BaseStrategy):
             top_n=self.top_n,
             same_sector_only=self.same_sector_only,
         )
+        self._corpus_policy = load_pair_trading_corpus_policy()
         self.sector_map: dict[str, str] = cfg.get("sector_map", {})
 
         self.formed_pairs: dict[str, DistancePair] = {}
@@ -152,6 +156,8 @@ class DistanceTradingStrategy(BaseStrategy):
         if frame is None:
             return
         pairs = self.engine.form_pairs(frame, sector_map=self.sector_map)
+        if self._corpus_policy.active_pair_keys:
+            pairs = [p for p in pairs if self._corpus_policy.allows_pair_key(p.key)]
         self.formed_pairs = {p.key: p for p in pairs}
         self._bars_since_formation = 0
 

@@ -56,7 +56,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'tradov=Tradov.TradovA_Core.TradovA01_Main:main',
+            'tradov=Tradov.TradovG_GUI.TradovG02_GUIEntry:main',
+            'tradov-core=Tradov.TradovA_Core.TradovA01_Main:main',
         ],
     },
     include_package_data=True,

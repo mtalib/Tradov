@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovE_Risk
 Module: TradovE07_ProbabilisticSharpe.py
@@ -8,7 +8,7 @@ Purpose: Probabilistic Sharpe Ratio and Advanced Sharpe Analytics
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-01-16
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Implements advanced Sharpe Ratio calculations including:

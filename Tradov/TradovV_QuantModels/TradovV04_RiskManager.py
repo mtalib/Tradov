@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovV_QuantModels
 Module: TradovV04_RiskManager.py
@@ -8,7 +8,7 @@ Purpose: Consolidated risk management engine - single source of truth for all ri
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-31 Time: 16:45:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Consolidated risk management system that eliminates duplications from V01 and original V04.

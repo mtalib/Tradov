@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovT_Testing
 Module: TradovT199_ConnectionProbe.py
@@ -59,9 +59,7 @@ def test_probe_succeeded(payload, expected):
 # check_api_connection (factory mocked — no network)
 # --------------------------------------------------------------------------- #
 def test_check_connection_success(monkeypatch):
-    fake_client = SimpleNamespace(
-        get_quotes=lambda symbols: {"quotes": {"quote": {"symbol": "TRAD", "last": 9.9}}}
-    )
+    fake_client = SimpleNamespace(test_connection=lambda: True)
     monkeypatch.setattr(probe, "TRADIER_AVAILABLE", True)
     monkeypatch.setattr(probe, "create_tradier_client_from_env", lambda **kw: fake_client)
 
@@ -73,9 +71,7 @@ def test_check_connection_success(monkeypatch):
 
 
 def test_check_connection_paper_label(monkeypatch):
-    fake_client = SimpleNamespace(
-        get_quotes=lambda symbols: {"quotes": {"quote": {"symbol": "TRAD"}}}
-    )
+    fake_client = SimpleNamespace(test_connection=lambda: True)
     monkeypatch.setattr(probe, "TRADIER_AVAILABLE", True)
     monkeypatch.setattr(probe, "create_tradier_client_from_env", lambda **kw: fake_client)
     monkeypatch.setattr(probe, "runtime_trading_mode", lambda ctx=None: "paper")
@@ -86,7 +82,7 @@ def test_check_connection_paper_label(monkeypatch):
 
 
 def test_check_connection_no_quote(monkeypatch):
-    fake_client = SimpleNamespace(get_quotes=lambda symbols: {"quotes": {"quote": []}})
+    fake_client = SimpleNamespace(test_connection=lambda: False)
     monkeypatch.setattr(probe, "TRADIER_AVAILABLE", True)
     monkeypatch.setattr(probe, "create_tradier_client_from_env", lambda **kw: fake_client)
 

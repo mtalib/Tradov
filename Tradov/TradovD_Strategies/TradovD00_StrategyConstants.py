@@ -8,7 +8,7 @@ Group: D (Strategies)
 Purpose: Strategy constants and configuration parameters
 Author: Mohamed Talib
 Date Created: 2025-08-14
-Last Updated: 2025-08-14 Time: 10:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     This module provides centralized constants for all trading strategies,

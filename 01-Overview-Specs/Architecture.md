@@ -102,7 +102,7 @@ python TradovM_Monitoring/check_status.py          # Check system health
 # Testing & Development
 pytest TradovT_Testing/                             # Run all tests
 pytest TradovT_Testing/test_specific_module.py     # Run specific tests
-tail -f logs/spyder_main.log                       # Monitor logs
+tail -f logs/tradov_main.log                       # Monitor logs
 
 # Gateway Management
 ps aux | grep -i gateway                            # Check if Gateway running
@@ -122,7 +122,7 @@ git commit -m "feat(TradovX): description of changes"
 - **Unit Tests**: `pytest TradovT_Testing/test_your_module.py`
 - **Paper Trading**: Test all market interactions in paper mode
 - **Integration**: Run system integration tests
-- **Log Review**: `tail -f logs/spyder_main.log`
+- **Log Review**: `tail -f logs/tradov_main.log`
 
 ### 3. Pre-Commit Checklist
 - ✅ No hardcoded credentials or API keys

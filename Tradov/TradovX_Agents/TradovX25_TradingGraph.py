@@ -7,7 +7,7 @@ Purpose: LangGraph StateGraph for multi-agent trading pipeline orchestration
 
 Author: Tradov Team
 Year Created: 2026
-Last Updated: 2026-06-05
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Main orchestrator that wires all TradingAgents-style agents into a

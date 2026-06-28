@@ -7,7 +7,7 @@ Module: TradovE22_KernelRegression.py
 Purpose: Kernel Regression for Non-Parametric Trend Estimation
 Author: TRADOV Team
 Date Created: 2025-01-04
-Last Updated: 2025-01-04
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Implements Kernel Regression (Nadaraya-Watson estimator) for

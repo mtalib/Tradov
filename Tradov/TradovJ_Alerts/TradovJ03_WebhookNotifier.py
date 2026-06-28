@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovJ_Alerts
 Module: TradovJ03_WebhookNotifier.py
@@ -8,7 +8,7 @@ Purpose: HTTP webhook notifications for Slack, Microsoft Teams, and Discord
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-01
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Generic HTTP webhook notifier that supports Slack incoming webhooks,

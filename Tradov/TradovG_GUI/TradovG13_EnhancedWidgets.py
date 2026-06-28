@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG13_EnhancedWidgets.py
 Purpose: Enhanced UI widgets with superqt integration for superior user experience
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-13 Time: 17:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     This module provides enhanced UI widgets using superqt for the Tradov trading

@@ -1,4 +1,4 @@
-# SPYDER - Automated SPY Options Trading System
+# TRADOV - Automated Options Trading System
 # Git Ignore File - Updated 2025-06-10
 # Platform: Ubuntu Linux
 
@@ -88,14 +88,14 @@ tramp
 logs/
 trading_logs/
 error_logs/
-robola_*.log
-spyder.log
+tradov_*.log
+tradov.log
 
 # Data files
 data/
 market_data/
 historical_data/
-Spyder-Backtest/
+Tradov-Backtest/
 backtest_results/
 paper_trading_results/
 live_trading_results/
@@ -110,7 +110,7 @@ intraday_data/
 *.db-journal
 *.db-wal
 *.db-shm
-spyder.db
+tradov.db
 
 # Position and trade files
 positions/
@@ -161,7 +161,7 @@ config/credentials.json
 config/api_keys.py
 config_live.py
 config_paper.py
-robola_config_corrected.py
+tradov_config_corrected.py
 config/secrets/
 secrets/
 
@@ -212,9 +212,7 @@ snap/
 # ==============================================================================
 # TEMPORARY FILES
 # ==============================================================================
-# Spyder temporary modules
-RobolaZ_Temp/
-RobolaZ*/
+# Tradov temporary modules
 temp_modules/
 
 # General temporary
@@ -296,7 +294,7 @@ conda-meta/
 *.deb
 
 # ==============================================================================
-# MACHINE LEARNING & AI (RobolaL_ML modules)
+# MACHINE LEARNING & AI (TradovL_ML modules)
 # ==============================================================================
 # Model files
 *.pkl
@@ -338,10 +336,10 @@ sklearn_cache/
 *.7z
 backups/
 archives/
-Spyder-v4_backup_*/
+Tradov-v4_backup_*/
 
 # ==============================================================================
-# SPYDER SPECIFIC IGNORES
+# TRADOV SPECIFIC IGNORES
 # ==============================================================================
 # Screenshots and charts
 screenshots/

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovZ_Communication
 Module: TradovZ12_SignalLiveAdapters.py
@@ -8,7 +8,7 @@ Purpose: Concrete live adapters + session bootstrap for the inbound signal path
 
 Author: Mohamed Talib (with Claude)
 Year Created: 2026
-Last Updated: 2026-06-26
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Phase-5 external adapters that wire the signal handler (Z11) to Tradov's real

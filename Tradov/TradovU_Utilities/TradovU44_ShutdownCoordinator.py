@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU44_ShutdownCoordinator.py
@@ -8,7 +8,7 @@ Purpose: Graceful shutdown coordination for daemon threads and background tasks
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-03-31
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides a process-wide ShutdownCoordinator that replaces raw daemon=True

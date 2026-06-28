@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovD_Strategies.TradovD50_PairDiscovery
 Module: TradovD54_KalmanHedgeRatio.py
@@ -8,7 +8,7 @@ Purpose: Dynamic hedge ratio estimation via Kalman filter
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-06-03 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Estimates a time-varying hedge ratio using a Kalman filter with

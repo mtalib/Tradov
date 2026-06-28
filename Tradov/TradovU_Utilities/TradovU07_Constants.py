@@ -2,14 +2,14 @@ from enum import Enum
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU07_Constants.py
 Purpose: System-wide constants and configuration values with research findings
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-27 Time: 17:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     This module defines all system-wide constants used throughout the Tradov trading

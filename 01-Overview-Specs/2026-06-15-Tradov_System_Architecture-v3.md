@@ -470,6 +470,48 @@ Output: regime label (BULL/BEAR/RANGE/VOLATILE/CRISIS/EVENT) with confidence sco
 | L17 FederatedLearning | Federated learning framework |
 | L19 RLTrainingPipeline | Reinforcement learning |
 
+### Research Workflow (Q92)
+
+Tradov now includes a Qlib-inspired offline research runner for repeatable ML experiments:
+
+- **Dataset contract**: explicit timestamp, feature, label, and optional realized-return columns
+- **Time-ordered splits**: train / validation / holdout test with no shuffle
+- **Walk-forward validation**: rolling time-series folds for robustness checks
+- **Holdout evaluation**: classification or regression metrics on the final test slice
+- **Backtest-style simulation**: simple long/short equity curve derived from model output
+- **JSON artifacts**: report output for downstream review, notebooks, or automation
+- **Model registry hook**: optional registration into `MLModelManager` with Tradov-native config/metadata
+- **CLI-driven runs**: `--register-model`, model naming, versioning, and registry labels from one entry point
+
+Implementation:
+
+- `TradovQ92_ResearchWorkflow.py` in `TradovQ_Scripts/`
+- `TradovQ93_ResearchLauncher.py` as the thin operator entry point
+- `TradovT405_Q92_ResearchWorkflow.py` in `TradovT_Testing/`
+- `TradovT406_Q92_ModelRegistry.py` and `TradovT407_Q93_ResearchLauncher.py` for regression coverage
+
+### Qlib Adoption Boundaries
+
+Qlib is being used in Tradov as a research-lifecycle pattern, not as the live trading brain.
+
+**Use Qlib-style ideas for:**
+
+- repeatable dataset contracts
+- walk-forward evaluation
+- model rolling and drift-aware retraining
+- experiment tracking and artifact management
+- portfolio-level research workflows
+
+**Keep Tradov-native for:**
+
+- pair-trading logic and cointegration detection
+- Kalman hedge ratios and spread execution
+- broker integration and fill reconciliation
+- capital ring-fencing and live risk gates
+- autonomous strategy orchestration
+
+This boundary matters because Tradov is an autonomous execution system. Qlib can help automate research and retraining, but it should not replace Tradov’s domain logic for trading, risk, or execution.
+
 ---
 
 ## 11. Market Data Pipeline
@@ -592,7 +634,7 @@ D51 PairScanner  →  D52 CointegrationEngine  →  D53 OUProcessFitter  →  D5
 - **Exit:** z-score ≤ 0.5 (mean reversion target)
 - **Stop:** z-score ≥ 3.5 (divergence stop)
 - **Time exit:** position age > 3× half-life
-- **Max positions:** 10 simultaneous pairs
+- **Max positions:** 3 simultaneous pairs
 
 Configuration via environment variables:
 
@@ -604,7 +646,7 @@ Configuration via environment variables:
 | `TRADOV_PAIR_LOOKBACK` | 60 | Lookback window (days) |
 | `TRADOV_PAIR_MAX_HALF_LIFE` | 30 | Max acceptable half-life (days) |
 | `TRADOV_PAIR_SIZE_PCT` | 0.02 | Position size as % of account |
-| `TRADOV_PAIR_MAX_OPEN` | 10 | Max simultaneous open pairs |
+| `TRADOV_PAIR_MAX_OPEN` | 3 | System-fixed max simultaneous open pairs |
 
 ### Execution Phase
 
@@ -629,7 +671,7 @@ Configuration via environment variables:
 | Max pair notional | $50,000 per pair |
 | Max total pair notional | $200,000 |
 | Max pairs per sector | 3 |
-| Max open pairs | 10 |
+| Max open pairs | 3 |
 | Beta neutrality | ±0.15 deviation |
 | Cointegration stability | p-value < 0.10 |
 
@@ -731,7 +773,7 @@ The conflict is logged as a warning and flagged as a `CROSS_STRATEGY_CONFLICT` v
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `TRADING_MODE` | `paper` | `paper` or `live` |
-| `TRADIER_API_KEY` | — | Tradier Bearer token (required) |
+| `TRADIER_LIVE_API_KEY` | — | Tradier Bearer token (required) |
 | `TRADIER_ENVIRONMENT` | `live` | Always live; paper uses internal ledger |
 | `TRADOV_ENABLE_PAIR_TRADING` | `false` | Enable pair trading dashboard and signals |
 | `TRADOV_MAX_LIVE_TRADES` | `3` | Max live trades across all strategies |
@@ -739,7 +781,7 @@ The conflict is logged as a warning and flagged as a `CROSS_STRATEGY_CONFLICT` v
 | `TRADOV_MAX_DIRECTIONAL_TRADES` | `1` | Max concurrent directional trades |
 | `TRADOV_PAIR_ENTRY_Z` | `2.0` | Pair z-score entry threshold |
 | `TRADOV_PAIR_EXIT_Z` | `0.5` | Pair z-score exit threshold |
-| `TRADOV_PAIR_MAX_OPEN` | `10` | Max simultaneous pair positions |
+| `TRADOV_PAIR_MAX_OPEN` | `3` | System-fixed max simultaneous pair positions |
 | `TRADOV_LLM_PROVIDER` | `openai` | LLM provider for X-agents |
 | `TRADOV_LLM_QUICK_MODEL` | `gpt-4o-mini` | Fast LLM for analysts/debators |
 | `TRADOV_LLM_DEEP_MODEL` | `gpt-4o` | Powerful LLM for managers |

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovC_MarketData
 Module: TradovC00_MarketDataProtocol.py
@@ -22,7 +22,7 @@ only deal with the Protocol surface.
 
 Author: Tradov Dev
 Year Created: 2026
-Last Updated: 2026-03-16 Time: 20:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 """
 
 # ==============================================================================

@@ -24,7 +24,7 @@ This runbook covers Telegram command/control incidents for Tradov when running f
 ## 3. Kill Lock Stuck ACTIVE
 1. Stop Tradov.
 2. Remove lock:
-   - `rm -f ~/.spyder_kill_lock`
+   - `rm -f ~/.tradov_kill_lock`
 3. Start Tradov again.
 4. Send `/status` and verify `Kill Lock: INACTIVE`.
 

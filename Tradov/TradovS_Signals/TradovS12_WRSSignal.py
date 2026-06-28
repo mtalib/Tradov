@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovS_Signals
 Module: TradovS12_WRSSignal.py
@@ -8,7 +8,7 @@ Purpose: Walmart Recession Signal (WRS) — macro regime overlay signal
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-20 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Implements the Walmart Recession Signal (WRS), a macro-economic ratio

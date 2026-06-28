@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovX_Unknown
 Module: config_template.py
@@ -8,7 +8,7 @@ Purpose: Configuration template for Tradov trading system (Tradier).
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-02-26 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Template configuration for Tradov trading system.
@@ -27,7 +27,7 @@ __all__ = ["TRADIER_CONFIG", "TRADING_CONFIG"]
 # TRADIER BROKER CONFIGURATION
 # ==============================================================================
 TRADIER_CONFIG = {
-    "api_key": os.environ.get("TRADIER_API_KEY", ""),
+    "api_key": os.environ.get("TRADIER_LIVE_API_KEY", ""),
     "account_id": os.environ.get("TRADIER_ACCOUNT_ID", ""),
     "environment": os.environ.get("TRADIER_ENVIRONMENT", "live"),  # live | production
     "live_url": "https://api.tradier.com/v1",

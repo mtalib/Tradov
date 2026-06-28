@@ -7,7 +7,7 @@ Purpose: Portfolio manager agent with final decision authority over trade approv
 
 Author: Tradov Team
 Year Created: 2026
-Last Updated: 2026-06-05
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Portfolio Manager agent inspired by TradingAgents architecture.

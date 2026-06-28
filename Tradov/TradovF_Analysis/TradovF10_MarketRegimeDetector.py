@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovF_Analysis
 Module: TradovF10_MarketRegimeDetector.py
@@ -8,7 +8,7 @@ Purpose: TRADOV - Automated TRAD Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-04-14
+Last Updated: 2026-06-26 Time: 13:25:07
 
 DEPRECATED (2026-04-14): L09 UnifiedRegimeEngine is the canonical regime
     detector for Tradov. This module is retained for legacy F-series callers

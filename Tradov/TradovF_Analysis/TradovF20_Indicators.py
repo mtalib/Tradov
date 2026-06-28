@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovF_Analysis
 Module: TradovF20_Indicators.py
@@ -8,7 +8,7 @@ Purpose: Drop-in TA-Lib replacement — pure numpy/pandas technical indicators
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-03-03 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides accurate implementations of the TA-Lib functions used across Tradov

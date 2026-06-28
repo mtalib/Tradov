@@ -2,14 +2,14 @@
 """
 TRADOV - Autonomous Options Trading System
 
-Spyder Version: 1.0
+Tradov Version: 1.0
 Module: TradovY03_RiskSentinelAgent.py
 Group: Y (AutoAgents)
 Purpose: 24/7 autonomous risk monitor with circuit breaker and veto authority
 
 Author: Mohamed Talib
 Date Created: 2026-02-25
-Last Updated: 2026-02-25 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Runs 24/7 with elevated priority. Monitors portfolio risk, position Greeks,
@@ -41,7 +41,7 @@ from enum import Enum
 from typing import Any
 
 # ==============================================================================
-# SPYDER IMPORTS
+# TRADOV IMPORTS
 # ==============================================================================
 from .TradovY00_BaseAutoAgent import (
     BaseAutoAgent,

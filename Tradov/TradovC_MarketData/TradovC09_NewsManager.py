@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovC_MarketData
 Module: TradovC09_NewsManager.py
@@ -8,7 +8,7 @@ Purpose: TRADOV - Automated TRAD Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     TRADOV - Automated TRAD Options Trading System
@@ -63,7 +63,7 @@ except ImportError:  # pragma: no cover - optional sentiment dependency
 # ==============================================================================
 from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
 from Tradov.TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler
-from Tradov.TradovA_Core.TradovA05_EventManager import Event, EventType, EventBus
+from Tradov.TradovA_Core.TradovA05_EventManager import EventType, EventBus
 
 NEWS_SOURCE_URLS: dict[str, list[str]] = {
     "reuters": [
@@ -389,6 +389,18 @@ class NewsManager:
             self.fetch_thread.join(timeout=0.5)
         if self.analysis_thread:
             self.analysis_thread.join(timeout=0.5)
+        for session_name in ("_newsfilter_session", "_finnhub_session"):
+            session = getattr(self, session_name, None)
+            close_session = getattr(session, "close", None)
+            if callable(close_session):
+                try:
+                    close_session()
+                except Exception:
+                    self.logger.debug(
+                        "Failed to close %s during NewsManager shutdown",
+                        session_name,
+                        exc_info=True,
+                    )
         self.logger.info("News monitoring stopped")
 
     def get_current_analysis(self) -> NewsAnalysis | None:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovS_Signals
 Module: TradovS13_PSRSignal.py
@@ -9,7 +9,7 @@ Purpose: Pawn Shop Ratio (PSR) — macro regime overlay signal (working-class
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-21 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Implements the Pawn Shop Ratio (PSR), a contrarian macro-economic ratio

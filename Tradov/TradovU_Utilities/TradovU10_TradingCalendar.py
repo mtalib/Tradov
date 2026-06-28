@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU10_TradingCalendar.py
@@ -8,7 +8,7 @@ Purpose: Trading calendar and market hours management with holiday support
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-01-24 Time: 10:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     This module manages trading calendars, market hours, and holiday schedules

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG17_PaperPositionResolver.py
@@ -8,7 +8,7 @@ Purpose: Pure data helpers for paper-position dashboard rendering
 
 Author: GitHub Copilot
 Year Created: 2026
-Last Updated: 2026-05-14 Time: 22:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Keeps paper-position loading and condor reconstruction out of the PySide6

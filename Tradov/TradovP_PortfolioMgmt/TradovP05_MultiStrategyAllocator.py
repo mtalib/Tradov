@@ -8,7 +8,7 @@ Group: P (Portfolio Management)
 Purpose: Dynamic capital allocation across multiple trading strategies
 Author: Mohamed Talib
 Date Created: 2025-01-27
-Last Updated: 2025-01-27 Time: 16:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     This module provides sophisticated capital allocation across all 26 trading

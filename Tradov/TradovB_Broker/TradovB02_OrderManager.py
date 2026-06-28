@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovB_Broker
 Module: TradovB02_OrderManager.py
@@ -8,7 +8,7 @@ Purpose: Order management orchestration via Tradier API
 
 Author: TRADOV Trading System
 Year Created: 2025
-Last Updated: 2026-02-25 Time: 18:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     High-level order management layer built on top of TradovB40_TradierClient.

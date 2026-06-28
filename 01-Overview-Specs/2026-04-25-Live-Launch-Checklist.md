@@ -71,7 +71,7 @@ Exit criteria:
 Required checks:
 
 1. ✅ Typed override flow exists for `CONDITIONAL GO` — G05 `_prompt_conditional_go_reason()` + `_append_go_no_go_bypass_audit()` (Stage 1).
-2. ✅ Kill switch and emergency flatten are tested weekly — `R04.record_kill_switch_drill()` writes `~/.spyder_kill_test.json`; Q14 preflight warns if > 7 days stale.
+2. ✅ Kill switch and emergency flatten are tested weekly — `R04.record_kill_switch_drill()` writes `~/.tradov_kill_test.json`; Q14 preflight warns if > 7 days stale.
 3. ✅ Startup validation blocks unsafe live starts every time — `Q14._check_go_no_go_cleared_today()` hard-blocks unless a GO/CONDITIONAL GO report exists for today.
 4. ✅ Restart and reconnect runbook documented and exercised — `R04.handle_broker_reconnect()` appends structured JSONL audit to `market_data/reconnect_log/`; kill-lock gate already handles restart safety.
 5. ✅ End-of-day review process covers rejects, slippage, policy blocks, and overrides — `K02.generate_eod_review()` saves `market_data/eod_reviews/eod_{date}.json`; A04 fires it automatically at close.

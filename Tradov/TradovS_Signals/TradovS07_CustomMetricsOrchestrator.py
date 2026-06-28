@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovS_Signals
 Module: TradovS07_CustomMetricsOrchestrator.py
 Purpose: Central orchestrator for all custom market metrics (Updated - Regime Detection Removed)
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-04 Time: 14:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Central orchestrator that coordinates all custom metric calculations.

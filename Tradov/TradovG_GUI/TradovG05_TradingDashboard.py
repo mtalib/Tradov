@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""TRADOV - Autonomous Options Trading System v1.0
+"""TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG05_TradingDashboard.py
 Purpose: Complete Trading Dashboard with Real Data Integration & Enhanced Features
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-03-18 Time: 02:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Data Sources:
     - Tradier API for account data and order execution (TradovB40_TradierClient)
@@ -47,14 +47,35 @@ CONNECTION MONITORING:
     • Real-time connection status updates
 """
 
+from pathlib import Path
+import os
+import sys
+
+
+def _bootstrap_project_venv() -> None:
+    """Re-exec under the project venv when launched with the wrong interpreter."""
+    project_root = Path(__file__).resolve().parent.parent.parent
+    venv_python = project_root / ".venv" / "bin" / "python"
+    try:
+        if Path(sys.executable).resolve() == venv_python.resolve():
+            return
+    except OSError:
+        pass
+
+    if venv_python.exists() and os.access(venv_python, os.X_OK):
+        os.execv(str(venv_python), [str(venv_python), *sys.argv])
+
+
+_bootstrap_project_venv()
+
 # ==============================================================================
 # STANDARD IMPORTS
 # ==============================================================================
 import html as _html
+import errno
 import json
 import math
-import os
-import sys
+import resource
 import threading
 import time
 from collections import deque
@@ -62,11 +83,10 @@ from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
 from datetime import tzinfo
 from functools import lru_cache
-from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
-import pytz
 from PySide6.QtCore import (
     QModelIndex,
     QMetaObject,
@@ -86,7 +106,7 @@ from PySide6.QtGui import (
     QFont,  # noqa: F401
     QPainter,  # noqa: F401
     QPen,  # noqa: F401
-    QTextCursor,
+    QDesktopServices,
 )
 
 # ==============================================================================
@@ -119,6 +139,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PySide6.QtCore import QUrl
 
 # ==============================================================================
 # BROKER/DATA IMPORTS (Tradier)
@@ -149,7 +170,7 @@ from Tradov.TradovG_GUI.TradovG25_DashboardSessionAdapter import (  # noqa: E402
     DashboardSessionAdapter,
 )
 from Tradov.TradovG_GUI.TradovG26_RecentTradeFormatter import (  # noqa: E402
-    build_recent_trade_banner_text,
+    build_recent_trade_banner_html,
     build_recent_trade_display,
 )
 from Tradov.TradovG_GUI.TradovG27_RecentTradesDialog import (  # noqa: E402
@@ -216,6 +237,10 @@ from Tradov.TradovG_GUI.TradovG55_ReadinessReportPresenter import (  # noqa: E40
     build_readiness_bypass_audit_entry,
     build_readiness_bypass_audit_filename,
     build_readiness_report_filename,
+)
+from Tradov.TradovD_Strategies.TradovD59_PairCorpusPolicy import (  # noqa: E402
+    build_pair_corpus_reload_log_message,
+    load_pair_trading_corpus_policy,
 )
 from Tradov.TradovG_GUI.TradovG112_CloseStrategyConfirmHelper import (  # noqa: E402
     build_close_strategy_confirm_plan,
@@ -516,6 +541,20 @@ _AUTONOMOUS_EVENT_TYPE_ALLOWLIST: set[str] = {
     "AGENT_OBSERVATION",
 }
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(str(os.getenv(name, str(default))).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+_FD_START_WARN_THRESHOLD = _int_env("TRADOV_FD_START_WARN_THRESHOLD", 256)
+_FD_START_BLOCK_THRESHOLD = _int_env("TRADOV_FD_START_BLOCK_THRESHOLD", 320)
+_REAL_DATA_TIMER_INTERVAL_MS = 10_000
+_RUNTIME_WARMUP_SECONDS = _int_env("TRADOV_RUNTIME_WARMUP_SECONDS", 12)
+_RUNTIME_WARMUP_STABLE_RANGE = _int_env("TRADOV_RUNTIME_WARMUP_STABLE_RANGE", 24)
+_RUNTIME_WARMUP_MAX_FD = _int_env("TRADOV_RUNTIME_WARMUP_MAX_FD", _FD_START_WARN_THRESHOLD)
+
 
 def _parse_chart_bar_timestamp(raw_timestamp: str) -> datetime:
     """Parse cached chart timestamps without importing pandas at module load."""
@@ -565,7 +604,11 @@ class _ReadinessCheckWorker(QObject):
 
 from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger  # noqa: E402
 from Tradov.TradovU_Utilities.TradovU03_DateTimeUtils import (  # noqa: E402
+    ET_TZ,
     get_previous_trading_day,
+)
+from Tradov.TradovU_Utilities.TradovU52_StartupSchedule import (  # noqa: E402
+    resolve_opening_runtime_start_times,
 )
 from Tradov.TradovG_GUI.TradovG13_EnhancedWidgets import (  # noqa: E402
     COLORS,
@@ -689,9 +732,9 @@ WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
 
 
-LIVE_DATA_LOADING_START_TIME = dt_time(9, 25)
+LIVE_DATA_LOADING_START_TIME = dt_time(9, 20)
 MARKET_OPEN_TIME = dt_time(9, 30)
-OPENING_DATA_WARMUP_END_TIME = dt_time(9, 33)
+OPENING_DATA_WARMUP_END_TIME = dt_time(9, 35)
 MARKET_CLOSE_TIME = dt_time(16, 0)
 TRADIER_CONNECT_TIME = dt_time(9, 0)
 TRADIER_DISCONNECT_TIME = dt_time(16, 30)
@@ -704,7 +747,7 @@ STARTUP_INITIAL_LIVE_FETCH_RETRY_DELAY_MS = 1500
 @lru_cache(maxsize=1)
 def _get_eastern_timezone() -> tzinfo:
     """Resolve the ET timezone once and reuse it across startup paths."""
-    return pytz.timezone("US/Eastern")
+    return ET_TZ
 
 
 def is_tradier_window(now_et: datetime | None = None) -> bool:
@@ -733,6 +776,15 @@ def _is_preconnect_idle_window(now_et: datetime | None = None) -> bool:
     if current_et.weekday() >= 5:
         return False
     return current_et.time() < LIVE_DATA_LOADING_START_TIME
+
+
+def _resolve_opening_runtime_start_times(now_et: datetime) -> tuple[datetime, datetime]:
+    """Return launch-time hydration and runtime warmup timestamps."""
+    return resolve_opening_runtime_start_times(
+        now_et,
+        live_data_loading_start_time=LIVE_DATA_LOADING_START_TIME,
+        opening_data_warmup_end_time=OPENING_DATA_WARMUP_END_TIME,
+    )
 
 
 def _next_weekday_time(target_time: dt_time, now_et: datetime | None = None) -> datetime:
@@ -781,8 +833,9 @@ from Tradov.TradovG_GUI.TradovG19_ChartIndicators import (  # noqa: E402
     compute_chart_indicators,
 )
 from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import (  # noqa: E402
-    get_symbol_catalog,
+    get_active_pair_corpus_symbols,
     get_market_overview_symbols,
+    get_quote_symbol_remap,
 )
 
 
@@ -821,11 +874,8 @@ MARKET_SYMBOLS: dict[str, list[str]] = get_market_overview_symbols()
 STARTUP_READY_REQUIRED_SYMBOLS: frozenset[str] = frozenset(
     set(REALTIME_SENTINEL_SYMBOLS)
     | {
-        definition.symbol
-        for definition in get_symbol_catalog()
-        if definition.visible
-        and not definition.optional
-        and definition.fetch_requirement in {"quote", "proxy"}
+        get_quote_symbol_remap().get(symbol, symbol)
+        for symbol in get_active_pair_corpus_symbols()
     }
 )
 START_BUTTON_LOADING_DELAY_MS = 0
@@ -848,6 +898,8 @@ class TradovTradingDashboard(QMainWindow):
     manual_close_spread_requested = Signal(str)
     optional_metrics_refreshed = Signal(dict)
     news_feed_ready = Signal(object, bool, str)
+    system_log_requested = Signal(str)
+    automation_log_requested = Signal(str)
 
     # ------------------------------------------------------------------
     # S07 metric routing (audit §21 — display-unit adaptation layer)
@@ -928,6 +980,8 @@ class TradovTradingDashboard(QMainWindow):
         self.market_thread = None
         self._market_data_initialized = False  # True after first data_updated signal
         self._queued_trading_start = False
+        self._auto_trading_start_pending = False
+        self._auto_trading_start_attempted = False
         self._start_button_loading_generation = 0
         self._start_button_loading_timer_active = False
         self._paper_session_start_pending = False
@@ -939,6 +993,8 @@ class TradovTradingDashboard(QMainWindow):
         self._paper_thread = None
         # Unified backend session (single code path for paper/live).
         self._session_supervisor = None
+        self._manual_pair_bundle_name = ""
+        self._last_pair_scan_log_key: tuple[str, str, str, str] | None = None
         # Live P&L poll timer — active only during a live trading session.
         self._live_pnl_timer = None
 
@@ -953,6 +1009,14 @@ class TradovTradingDashboard(QMainWindow):
         et_tz = _get_eastern_timezone()
         startup_time = datetime.now(et_tz).strftime("%Y-%m-%d %H:%M:%S ET")
         startup_hms  = datetime.now(et_tz).strftime("%H:%M:%S")
+        startup_stamp = datetime.now(et_tz).strftime("%Y%m%d-%H%M%S")
+        self._system_log_session_dir = project_root / "11-SYSTEM-LOG"
+        self._system_log_session_dir.mkdir(parents=True, exist_ok=True)
+        self._system_log_session_path = self._system_log_session_dir / f"system-log-{startup_stamp}.txt"
+        self._system_log_current_path = self._system_log_session_dir / "system-log-current.txt"
+        self._system_log_write_enabled = True
+        self._system_log_session_seeded = False
+        self._system_log_file_lock = threading.Lock()
         self.system_logs.extend([
             f"[{startup_hms}] {'=' * 56}",
             f"[{startup_hms}] 🚀TRADOV DASHBOARD LAUNCHED: {startup_time}",
@@ -981,6 +1045,7 @@ class TradovTradingDashboard(QMainWindow):
         self._readiness_worker = None
         self._readiness_reports_dir = project_root / "market_data" / "trading_readiness_reports"
         self._append_startup_readiness_banner(startup_hms)
+        self._seed_system_log_session_file()
 
         # Toolbar proxy multipliers start with safe defaults and are refreshed
         # from A03 once the first frame has rendered.
@@ -1011,6 +1076,8 @@ class TradovTradingDashboard(QMainWindow):
         )
         self._allowed_strategies_active: tuple[str, ...] = self._load_allowed_strategies_state()
         self._apply_allowed_strategies_override(self._allowed_strategies_active, announce=False)
+        self._pair_corpus_policy_callback_registered = False
+        self._register_pair_corpus_policy_callback()
         self._signal_noise_loggers = (
             "TradovS_Signals.TradovS01_DIXCalculator",
             "Tradov.TradovS_Signals.TradovS01_DIXCalculator",
@@ -1125,10 +1192,31 @@ class TradovTradingDashboard(QMainWindow):
         self._pair_panel_refresh_timer = None
         self._optional_signal_refresh_inflight = False
         self._error_count = 0
+        self._fd_warning_logged = False
+        self._fd_critical_logged = False
+        self._fd_error_logged = False
+        self._fd_runtime_stop_requested = False
+        self._runtime_warmup_started_at = time.monotonic()
+        self._runtime_warmup_ready = False
+        self._runtime_warmup_ready_logged = False
+        self._runtime_warmup_fd_samples = deque(maxlen=24)
         self._system_log_flush_pending = False
         self._automation_log_flush_pending = False
+        self._log_widgets_ready = False
+        self._system_log_refresh_timer = QTimer(self)
+        self._system_log_refresh_timer.setSingleShot(True)
+        self._system_log_refresh_timer.timeout.connect(self._flush_system_log_widget)
+        self._automation_log_refresh_timer = QTimer(self)
+        self._automation_log_refresh_timer.setSingleShot(True)
+        self._automation_log_refresh_timer.timeout.connect(self._flush_automation_log_widget)
+        QTimer.singleShot(3000, self._mark_log_widgets_ready)
+        self._fd_monitor_timer = QTimer(self)
+        self._fd_monitor_timer.timeout.connect(self._monitor_fd_pressure)
+        self._fd_monitor_timer.start(5000)
         self._last_dispatch_state_key = ""
         self._veto_controls_enabled = self._load_veto_controls_state()
+        self.system_log_requested.connect(self._append_system_log_from_signal)
+        self.automation_log_requested.connect(self._append_automation_log_from_signal)
 
         # Initialize UI elements that will be created in setup methods
         self.connection_status_label = None
@@ -1149,6 +1237,7 @@ class TradovTradingDashboard(QMainWindow):
         self.positions_table = None
         self.system_log = None
         self.signal_panel = None
+        self.boot_summary_label = None
         self.liquidity_candidates_value = None
         self.liquidity_pass_ratio_value = None
         self.liquidity_freshness_value = None
@@ -1304,6 +1393,8 @@ class TradovTradingDashboard(QMainWindow):
         else:
             QTimer.singleShot(0, self._init_account_display)
 
+        QTimer.singleShot(0, self._update_boot_summary)
+
         # Start custom metrics orchestrator (DIX + Black Swan schedulers)
         # Deferred so the Qt event loop is fully running before QTimer creation in S07.
         self._metrics_orchestrator = None
@@ -1326,6 +1417,7 @@ class TradovTradingDashboard(QMainWindow):
             )
         else:
             QTimer.singleShot(2500, self._refresh_startup_readiness_state)
+        QTimer.singleShot(0, self._attempt_auto_trading_start)
         QTimer.singleShot(1000, self.setup_white_tooltips)
         # Re-emit once after startup burst so users can still see startup state
         # when the system log is rapidly populated by module initialization.
@@ -1388,38 +1480,14 @@ class TradovTradingDashboard(QMainWindow):
     def _schedule_opening_runtime_startup(self) -> None:
         """Attempt launch-time data hydration immediately, then honor warmup timers."""
         now_et = datetime.now(_get_eastern_timezone())
-        current_time = now_et.time()
-        if now_et.weekday() < 5 and LIVE_DATA_LOADING_START_TIME <= current_time < OPENING_DATA_WARMUP_END_TIME:
-            loading_start_at = now_et
-            runtime_start_at = now_et.replace(
-                hour=OPENING_DATA_WARMUP_END_TIME.hour,
-                minute=OPENING_DATA_WARMUP_END_TIME.minute,
-                second=0,
-                microsecond=0,
-            )
-        elif now_et.weekday() < 5 and current_time < LIVE_DATA_LOADING_START_TIME:
-            loading_start_at = now_et.replace(
-                hour=LIVE_DATA_LOADING_START_TIME.hour,
-                minute=LIVE_DATA_LOADING_START_TIME.minute,
-                second=0,
-                microsecond=0,
-            )
-            runtime_start_at = now_et.replace(
-                hour=OPENING_DATA_WARMUP_END_TIME.hour,
-                minute=OPENING_DATA_WARMUP_END_TIME.minute,
-                second=0,
-                microsecond=0,
-            )
-        else:
-            loading_start_at = _next_weekday_time(LIVE_DATA_LOADING_START_TIME, now_et)
-            runtime_start_at = _next_weekday_time(OPENING_DATA_WARMUP_END_TIME, now_et)
+        loading_start_at, runtime_start_at = _resolve_opening_runtime_start_times(now_et)
         self._suppress_market_data_ready_log = True
 
         market_open_delay_ms = max(0, int((loading_start_at - now_et).total_seconds() * 1000))
         runtime_start_delay_ms = max(0, int((runtime_start_at - now_et).total_seconds() * 1000))
 
         if QTimer is not None:
-            QTimer.singleShot(0, self._begin_launch_live_data_prewarm)
+            QTimer.singleShot(market_open_delay_ms, self._begin_launch_live_data_prewarm)
             QTimer.singleShot(market_open_delay_ms, self._begin_opening_data_warmup_window)
             QTimer.singleShot(runtime_start_delay_ms, self._complete_opening_runtime_warmup)
         else:
@@ -1499,7 +1567,7 @@ class TradovTradingDashboard(QMainWindow):
 
     def _resolve_first_entry_not_before_et(self) -> str:
         """Return the configured first-entry embargo time in ET HH:MM format."""
-        fallback = "09:45"
+        fallback = "09:35"
         try:
             from Tradov.TradovA_Core.TradovA03_Configuration import get_config_manager
 
@@ -1517,6 +1585,34 @@ class TradovTradingDashboard(QMainWindow):
         except Exception:
             return fallback
 
+    def _register_pair_corpus_policy_callback(self) -> None:
+        """Mirror pair-corpus reloads into the system log."""
+        if getattr(self, "_pair_corpus_policy_callback_registered", False):
+            return
+
+        try:
+            from Tradov.TradovA_Core.TradovA03_Configuration import get_config_manager
+
+            cfg = get_config_manager()
+            cfg.register_callback(
+                "autonomous_readiness.pair_corpus_policy",
+                self._on_pair_corpus_policy_changed,
+            )
+            self._pair_corpus_policy_callback_registered = True
+        except Exception as exc:
+            self.logger.debug("Pair corpus policy callback registration failed: %s", exc)
+
+    def _on_pair_corpus_policy_changed(self, key: str, _old_value: object, _new_value: object) -> None:
+        """Append a pair-corpus reload notice to the system log."""
+        if key not in {"*", "autonomous_readiness.pair_corpus_policy"}:
+            return
+
+        try:
+            policy = load_pair_trading_corpus_policy()
+            self.add_system_log(build_pair_corpus_reload_log_message(policy))
+        except Exception as exc:
+            self.logger.debug("Pair corpus reload log failed: %s", exc)
+
     def _build_entry_gate_embargo_message(self, now_et: datetime | None = None) -> str | None:
         """Return operator copy when new entries are still embargoed."""
         current_et = now_et or datetime.now(_get_eastern_timezone())
@@ -1530,9 +1626,9 @@ class TradovTradingDashboard(QMainWindow):
         """Describe whether fresh data is ready for monitoring or entry execution."""
         embargo_message = self._build_entry_gate_embargo_message(now_et)
         if embargo_message is None:
-            return "✅ Market data loaded — system ready"
+            return "✅ Broker connected and market data loaded — system ready"
         embargo_text = embargo_message.removeprefix("⏳ ENTRY gate remains blocked until ")
-        return f"✅ Market data loaded — entry gate blocked until {embargo_text}"
+        return f"✅ Broker connected and market data loaded — entry gate blocked until {embargo_text}"
 
     def _begin_opening_data_warmup_window(self) -> None:
         """Start live-data connections and quiet market-data hydration."""
@@ -1544,7 +1640,7 @@ class TradovTradingDashboard(QMainWindow):
         self._opening_data_warmup_started = True
         if getattr(self, "_session_supervisor", None) is not None and not getattr(self, "trading_active", False):
             self._set_start_button_loading_live_data_state()
-        self.add_system_log("🟡 Establishing live connections and loading live data")
+        self.add_system_log("🟡 Establishing Tradier connection and loading market data")
         embargo_message = self._build_entry_gate_embargo_message()
         if embargo_message is not None:
             self.add_system_log(embargo_message)
@@ -1570,6 +1666,7 @@ class TradovTradingDashboard(QMainWindow):
         self._init_h07_performance_analytics()
         self._start_decision_flow_timer()
         self._schedule_runtime_followup_startup_tasks()
+        self._attempt_auto_trading_start()
 
     def _release_market_worker_quiet_startup(self) -> None:
         """Re-enable normal worker side effects after the quiet startup hold."""
@@ -1691,10 +1788,7 @@ class TradovTradingDashboard(QMainWindow):
                     # Start file-read timer so widgets populate immediately;
                     # skip fast-fetch (no Tradier polling outside trading hours).
                     self.real_data_active = True
-                    if not getattr(self, "_real_data_timer", None) or not self._real_data_timer.isActive():  # noqa: E501
-                        self._real_data_timer = QTimer()
-                        self._real_data_timer.timeout.connect(self.update_with_real_data)
-                        self._real_data_timer.start(1000)
+                    self._start_real_data_timer()
                     QTimer.singleShot(250, self.update_with_real_data)
                     self.update_data_status("EOD")
                 except Exception as e:
@@ -1744,10 +1838,9 @@ class TradovTradingDashboard(QMainWindow):
                 if self._invoke_market_worker_slot("pause_periodic_updates"):
                     self.logger.debug("Stopped worker standby timer")
 
-            # Start real data updates
-            self._real_data_timer = QTimer()
-            self._real_data_timer.timeout.connect(self.update_with_real_data)
-            self._real_data_timer.start(1000)  # Update every second
+            # Start file-backed data updates. G18 writes the file; the dashboard
+            # only reads it at a low cadence to avoid fd pressure during faults.
+            self._start_real_data_timer()
 
             # Fast quote refresh — polls Tradier for fresh prices every 10 s.
             # Runs in the market worker thread via fast_fetch_requested so it
@@ -1806,6 +1899,12 @@ class TradovTradingDashboard(QMainWindow):
         if not getattr(self, "_suppress_market_data_ready_log", False):
             self.add_system_log(self._build_market_data_ready_log_message())
 
+        if getattr(self, "_auto_trading_start_pending", False):
+            self._auto_trading_start_pending = False
+            self._queued_trading_start = False
+            self._start_trading_automatically()
+            return
+
         if getattr(self, "_queued_trading_start", False):
             if QTimer is not None:
                 QTimer.singleShot(0, self._process_queued_trading_start)
@@ -1823,6 +1922,60 @@ class TradovTradingDashboard(QMainWindow):
         )
         self.start_trading(from_queued=True)
 
+    def _attempt_auto_trading_start(self) -> None:
+        """Auto-enter trading once the session clock reaches the configured entry time."""
+        if getattr(self, "_shutdown_in_progress", False):
+            return
+        if getattr(self, "trading_active", False):
+            return
+        if self._auto_trading_start_attempted:
+            return
+        auto_runtime_enabled = os.environ.get(
+            "TRADOV_ENABLE_AUTO_TRADING_START", "0"
+        ).strip().lower() in ("1", "true", "yes", "on")
+        if not auto_runtime_enabled:
+            self._auto_trading_start_attempted = True
+            self.add_system_log(
+                "⚠️ Auto trading start disabled (set TRADOV_ENABLE_AUTO_TRADING_START=1 to enable)"
+            )
+            self.add_system_log(f"Startup resource snapshot: {self._fd_resource_snapshot()}")
+            return
+
+        now_et = datetime.now(_get_eastern_timezone())
+        if now_et.weekday() >= 5:
+            return
+        if now_et.time() < OPENING_DATA_WARMUP_END_TIME:
+            return
+
+        self._auto_trading_start_attempted = True
+        if not self._market_data_initialized:
+            self._auto_trading_start_pending = True
+            self._queued_trading_start = True
+            self._set_start_button_loading_live_data_state()
+            self.add_system_log("⏳ Auto-start armed — waiting for fresh market data (trading opens at 09:35 ET)")
+            return
+
+        self._start_trading_automatically()
+
+    def _start_trading_automatically(self) -> None:
+        """Start the selected trading mode without any user confirmation dialogs."""
+        if getattr(self, "_shutdown_in_progress", False):
+            return
+        if not self._can_start_runtime_without_fd_pressure(context="auto_start"):
+            return
+
+        if self.trading_mode == TradingMode.LIVE:
+            self._real_trading_armed = True
+            self._paper_trading_armed = False
+            self._paper_trading_enabled_this_session = False
+        else:
+            self._paper_trading_armed = True
+            self._paper_trading_enabled_this_session = True
+            self._paper_start_authorized = True
+
+        self.add_system_log("🤖 Auto-starting trading session")
+        self.start_trading(auto_start=True)
+
     def _set_start_button_loading_live_data_state(self) -> None:
         """Show that Start Trading is queued behind fresh market data hydration."""
         start_btn = getattr(self, "start_btn", None)
@@ -1836,7 +1989,250 @@ class TradovTradingDashboard(QMainWindow):
             set_enabled(True)
         set_tooltip = getattr(start_btn, "setToolTip", None)
         if callable(set_tooltip):
-            set_tooltip("Waiting for the live-data loading window to complete")
+            set_tooltip("Waiting for fresh market data; scanning begins at 09:20 ET and trading auto-starts at 09:35 ET")
+        self._update_boot_summary()
+
+    def _is_manual_runtime_warmup_window_open(self, now_et: datetime | None = None) -> bool:
+        """Allow manual runtime start during the pre-open warmup window."""
+        current_et = now_et or datetime.now(_get_eastern_timezone())
+        if current_et.weekday() >= 5:
+            return False
+        current_time = current_et.time()
+        return LIVE_DATA_LOADING_START_TIME <= current_time < MARKET_CLOSE_TIME
+
+    def _is_runtime_start_enabled(self) -> bool:
+        """Return True when runtime is explicitly enabled or warm-up is stable."""
+        if os.environ.get("TRADOV_ENABLE_RUNTIME_START", "0").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        ):
+            return True
+        if self._is_manual_runtime_warmup_window_open():
+            return True
+        return bool(getattr(self, "_runtime_warmup_ready", False))
+
+    def _is_fd_halt_active(self) -> bool:
+        """Return True after fd safety has already forced a runtime stop."""
+        if getattr(self, "_fd_runtime_stop_requested", False):
+            return True
+        fd_count = self._current_fd_count()
+        return fd_count is not None and fd_count >= _FD_START_BLOCK_THRESHOLD
+
+    def _clear_fd_halt_if_recovered(self) -> bool:
+        """Clear a stale fd-halt flag once the process is safely below the block threshold."""
+        if not getattr(self, "_fd_runtime_stop_requested", False):
+            return False
+        fd_count = self._current_fd_count()
+        if fd_count is None or fd_count >= _FD_START_BLOCK_THRESHOLD:
+            return False
+        self._fd_runtime_stop_requested = False
+        self._fd_critical_logged = False
+        if fd_count < _FD_START_WARN_THRESHOLD:
+            self._fd_warning_logged = False
+        self.add_system_log(f"✅ FD halt cleared — recovered below safety limit ({self._fd_resource_snapshot()})")
+        return True
+
+    def _runtime_warmup_status(self) -> str:
+        """Return a compact status string for operator logs and tooltips."""
+        elapsed = int(time.monotonic() - float(getattr(self, "_runtime_warmup_started_at", time.monotonic())))
+        samples = [int(sample[1]) for sample in getattr(self, "_runtime_warmup_fd_samples", [])]
+        if samples:
+            fd_min = min(samples)
+            fd_max = max(samples)
+            return (
+                f"elapsed={elapsed}s/{_RUNTIME_WARMUP_SECONDS}s "
+                f"fd_range={fd_min}-{fd_max} fd_span={fd_max - fd_min}"
+            )
+        return f"elapsed={elapsed}s/{_RUNTIME_WARMUP_SECONDS}s fd_range=unknown"
+
+    def _refresh_runtime_warmup_ready_state(self, fd_count: int) -> None:
+        """Mark runtime start ready only after fd usage stays stable."""
+        now = time.monotonic()
+        self._runtime_warmup_fd_samples.append((now, int(fd_count)))
+        elapsed = now - float(getattr(self, "_runtime_warmup_started_at", now))
+        recent_samples = [
+            int(sample_fd)
+            for sample_ts, sample_fd in self._runtime_warmup_fd_samples
+            if now - float(sample_ts) <= _RUNTIME_WARMUP_SECONDS
+        ]
+        if (
+            elapsed >= _RUNTIME_WARMUP_SECONDS
+            and len(recent_samples) >= 3
+            and max(recent_samples) <= _RUNTIME_WARMUP_MAX_FD
+            and (max(recent_samples) - min(recent_samples)) <= _RUNTIME_WARMUP_STABLE_RANGE
+        ):
+            self._runtime_warmup_ready = True
+            if not getattr(self, "_runtime_warmup_ready_logged", False):
+                self._runtime_warmup_ready_logged = True
+                self.add_system_log(
+                    f"✅ Runtime warm-up complete — {self._runtime_warmup_status()}"
+                )
+                self._set_pair_scanner_runtime_status("ACTIVE")
+                self._restore_start_button_ready_state()
+        else:
+            self._runtime_warmup_ready = False
+
+    def _set_start_button_runtime_warmup_state(self) -> None:
+        """Show that runtime start is waiting for fd stability."""
+        if self._is_fd_halt_active():
+            self._set_start_button_fd_halt_state()
+            return
+        if bool(getattr(self, "trading_active", False)):
+            return
+        if self._is_manual_runtime_warmup_window_open():
+            self._restore_start_button_ready_state()
+            return
+        start_btn = getattr(self, "start_btn", None)
+        if start_btn is None:
+            return
+        start_btn.setText("WARMING UP")
+        start_btn.setStyleSheet("background-color: #7a7a7a; color: black;")
+        start_btn.setEnabled(False)
+        start_btn.setToolTip(
+            "Runtime start is disabled until file-descriptor usage is stable. "
+            + self._runtime_warmup_status()
+        )
+        self._set_pair_scanner_runtime_status("WARMING")
+
+    def _set_start_button_fd_halt_state(self) -> None:
+        """Show that runtime start is blocked by fd pressure."""
+        if bool(getattr(self, "trading_active", False)):
+            return
+        start_btn = getattr(self, "start_btn", None)
+        if start_btn is None:
+            return
+        start_btn.setText("FD HALT")
+        start_btn.setStyleSheet("background-color: #7a1f1f; color: white;")
+        start_btn.setEnabled(False)
+        start_btn.setToolTip(
+            "Runtime start is blocked because open file descriptors exceeded the safety limit."
+        )
+        self._set_pair_scanner_runtime_status("HALTED")
+
+    def _set_pair_scanner_runtime_status(self, status: str) -> None:
+        """Reflect runtime readiness in the pair scanner header."""
+        panel = getattr(self, "pair_scanner_panel", None)
+        setter = getattr(panel, "set_scan_status", None)
+        if callable(setter):
+            setter(status)
+
+    def set_manual_pair_bundle_name(self, bundle_name: str | None) -> None:
+        """Set the manual pair bundle override and push it into the active supervisor."""
+        previous = getattr(self, "_manual_pair_bundle_name", "")
+        normalized = str(bundle_name or "").strip()
+        self._manual_pair_bundle_name = normalized
+        supervisor = getattr(self, "_session_supervisor", None)
+        orchestrator = getattr(supervisor, "orchestrator", None) if supervisor is not None else None
+        setter = getattr(orchestrator, "set_manual_pair_bundle_name", None)
+        if callable(setter):
+            try:
+                setter(normalized)
+            except Exception:
+                self.logger.debug("Unable to apply pair bundle override to orchestrator", exc_info=True)
+        activator = getattr(orchestrator, "activate_permitted_strategies", None)
+        if callable(activator):
+            try:
+                activator(["PairTrading"])
+            except Exception:
+                self.logger.debug("Unable to activate PairTradingStrategy", exc_info=True)
+        if normalized != previous:
+            if normalized:
+                self.add_system_log(f"Pair bundle override set to {normalized}")
+            else:
+                self.add_system_log("Pair bundle override set to AUTO")
+        panel = getattr(self, "pair_scanner_panel", None)
+        preview_setter = getattr(panel, "set_bundle_preview", None)
+        if callable(preview_setter):
+            try:
+                policy = load_pair_trading_corpus_policy()
+                preview_setter(normalized, policy.get_bundle_pair_keys(normalized))
+            except Exception:
+                self.logger.debug("Unable to refresh pair bundle preview", exc_info=True)
+        self._update_boot_summary()
+
+    def _start_real_data_timer(self) -> None:
+        """Start the single dashboard-owned live-data file polling timer."""
+        if getattr(self, "_real_data_timer", None) is None:
+            self._real_data_timer = QTimer(self)
+            self._real_data_timer.timeout.connect(self.update_with_real_data)
+        if not self._real_data_timer.isActive():
+            self._real_data_timer.start(_REAL_DATA_TIMER_INTERVAL_MS)
+
+    def _update_boot_summary(self) -> None:
+        """Refresh the compact boot status label."""
+        label = getattr(self, "boot_summary_label", None)
+        if label is None:
+            return
+
+        broker_state = "CONNECTED" if bool(getattr(self, "api_connected", False)) else "DISCONNECTED"
+        data_widget = getattr(self, "data_status_label", None)
+        data_state = str(data_widget.text() if data_widget is not None else "").strip() or "UNKNOWN"
+
+        embargo_message = self._build_entry_gate_embargo_message()
+        gate_state = "OPEN" if embargo_message is None else embargo_message.removeprefix("⏳ ")
+
+        scanner_state = "UNKNOWN"
+        scanner_panel = getattr(self, "pair_scanner_panel", None)
+        if scanner_panel is not None:
+            badge = getattr(scanner_panel, "_status_badge", None)
+            if badge is not None and hasattr(badge, "text"):
+                scanner_state = str(badge.text() or "").strip() or scanner_state
+            preview_keys = getattr(scanner_panel, "_bundle_preview_pair_keys", ())
+            if preview_keys and scanner_state in {"EMPTY", "LIVE"}:
+                scanner_state = "PREVIEW"
+
+        if scanner_state == "LIVE" and not getattr(self, "trading_active", False):
+            scanner_state = "ACTIVE"
+
+        label.setText(
+            f"BOOT: Broker {broker_state} | Data {data_state} | Gate {gate_state} | Scanner {scanner_state}"
+        )
+
+    def _stop_real_data_timer_for_fd_pressure(self) -> None:
+        """Stop file polling after fd exhaustion signals show up."""
+        timer = getattr(self, "_real_data_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+
+    @Slot()
+    def _monitor_fd_pressure(self) -> None:
+        """Log and contain file-descriptor pressure before the process destabilizes."""
+        fd_count = self._current_fd_count()
+        if fd_count is None:
+            return
+        self._refresh_runtime_warmup_ready_state(fd_count)
+        if fd_count >= _FD_START_BLOCK_THRESHOLD:
+            self._stop_real_data_timer_for_fd_pressure()
+            self.update_data_status("FD_HALT")
+            self._set_start_button_fd_halt_state()
+            if not getattr(self, "_fd_critical_logged", False):
+                self._fd_critical_logged = True
+                self.add_system_log(
+                    f"❌ FD pressure critical — stopped live-data polling ({self._fd_resource_snapshot()})"
+                )
+            if (
+                bool(getattr(self, "trading_active", False))
+                and not getattr(self, "_fd_runtime_stop_requested", False)
+            ):
+                self._fd_runtime_stop_requested = True
+                self.add_system_log("❌ FD pressure critical — stopping trading runtime")
+                try:
+                    self.stop_trading()
+                except Exception as exc:
+                    self.add_system_log(f"⚠️ Runtime stop after fd pressure failed: {exc}")
+            return
+        if fd_count >= _FD_START_WARN_THRESHOLD and not getattr(self, "_fd_warning_logged", False):
+            self._fd_warning_logged = True
+            self.add_system_log(
+                f"⚠️ FD pressure warning — elevated open files ({self._fd_resource_snapshot()})"
+            )
+        elif fd_count < _FD_START_WARN_THRESHOLD:
+            self._fd_warning_logged = False
+            self._fd_critical_logged = False
+        if not self._is_runtime_start_enabled():
+            self._set_start_button_runtime_warmup_state()
 
     def _set_start_button_active_state(self) -> None:
         """Render the steady-state active trading button."""
@@ -2189,6 +2585,7 @@ class TradovTradingDashboard(QMainWindow):
                     "_fast_quote_timer",
                     "_check_timer",
                     "_decision_flow_timer",
+                    "_fd_monitor_timer",
                 )
             }
         )
@@ -2376,6 +2773,17 @@ class TradovTradingDashboard(QMainWindow):
     def update_with_real_data(self):
         """Update dashboard with real market data"""
         try:
+            fd_count = self._current_fd_count()
+            if fd_count is not None and fd_count >= _FD_START_BLOCK_THRESHOLD:
+                self._stop_real_data_timer_for_fd_pressure()
+                self.update_data_status("FD_HALT")
+                self._set_start_button_fd_halt_state()
+                if not getattr(self, "_fd_error_logged", False):
+                    self._fd_error_logged = True
+                    self.add_system_log(
+                        f"❌ Live data polling stopped before read — too many open files ({self._fd_resource_snapshot()})"
+                    )
+                return
             if not self.data_file.exists():
                 return
 
@@ -2499,6 +2907,25 @@ class TradovTradingDashboard(QMainWindow):
             if _current_label != _target_label:
                 self.update_data_status(_correct_status)
                 self.connection_info.market_data_status = _correct_status
+
+        except OSError as e:
+            if getattr(e, "errno", None) == errno.EMFILE:
+                self._stop_real_data_timer_for_fd_pressure()
+                self.update_data_status("FD_HALT")
+                self._set_start_button_fd_halt_state()
+                if not getattr(self, "_fd_error_logged", False):
+                    self._fd_error_logged = True
+                    self.add_system_log(
+                        f"❌ Live data polling stopped — too many open files ({self._fd_resource_snapshot()})"
+                    )
+                return
+
+            if not hasattr(self, "_error_count"):
+                self._error_count = 0
+
+            self._error_count += 1
+            if self._error_count <= 5:
+                self.add_system_log(f"⚠️ Real data update error: {e}")
 
         except Exception as e:
             # Suppress frequent errors in logs
@@ -3223,6 +3650,83 @@ class TradovTradingDashboard(QMainWindow):
             name = strategy_item.data(0, Qt.ItemDataRole.UserRole) or "strategy"
             self.add_system_log(f"Copied {name} to clipboard")
 
+    def _get_system_log_text_snapshot(self) -> str:
+        """Return a stable snapshot of the current system log text."""
+        log_lines = getattr(self, "system_logs", None)
+        if isinstance(log_lines, list) and log_lines:
+            return "\n".join(str(line) for line in log_lines)
+
+        log_widget = getattr(self, "system_log", None)
+        if log_widget is None:
+            return ""
+
+        try:
+            return str(log_widget.toPlainText() or "")
+        except Exception:
+            return ""
+
+    def _copy_system_log_to_clipboard(self) -> None:
+        """Refresh a file-based system-log snapshot without using the clipboard."""
+        text = self._get_system_log_text_snapshot()
+
+        if not text.strip():
+            self.logger.info("System log file refresh requested but the log is empty")
+            return
+
+        try:
+            export_path = self._system_log_session_dir / "system-log-copy-latest.txt"
+            payload = text.rstrip("\n") + "\n"
+            with self._system_log_file_lock:
+                export_path.parent.mkdir(parents=True, exist_ok=True)
+                export_path.write_text(payload, encoding="utf-8")
+                current_path = getattr(self, "_system_log_current_path", None)
+                if current_path is not None:
+                    current_path.write_text(payload, encoding="utf-8")
+            self.add_system_log(f"System log file refreshed: {export_path}")
+            self.logger.info("Refreshed system log file at %s", export_path)
+        except Exception as exc:
+            self.logger.warning("System log file refresh failed: %s", exc)
+
+    def _open_system_log_file(self) -> None:
+        """Open the current session log file in the desktop file handler."""
+        current_path = getattr(self, "_system_log_current_path", None)
+        session_path = getattr(self, "_system_log_session_path", None)
+        target_path = current_path if current_path is not None else session_path
+        if target_path is None:
+            self.logger.warning("System log open requested but no log file path is configured")
+            return
+
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if not target_path.exists():
+                snapshot = self._get_system_log_text_snapshot()
+                if snapshot.strip():
+                    target_path.write_text(snapshot.rstrip("\n") + "\n", encoding="utf-8")
+            if QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_path))):
+                self.add_system_log(f"Opened system log file: {target_path}")
+                self.logger.info("Opened system log file at %s", target_path)
+            else:
+                self.logger.warning("System log file could not be opened: %s", target_path)
+        except Exception as exc:
+            self.logger.warning("System log open failed: %s", exc)
+
+    def _save_system_log_to_file(self) -> None:
+        """Write the current system log snapshot to a timestamped text file."""
+        text = self._get_system_log_text_snapshot()
+        if not text.strip():
+            self.logger.info("System log save requested but the log is empty")
+            return
+
+        try:
+            exports_dir = project_root / "logs" / "system_log_exports"
+            exports_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            export_path = exports_dir / f"system_log-{stamp}.txt"
+            export_path.write_text(text, encoding="utf-8")
+            self.logger.info("Saved system log to %s", export_path)
+        except Exception as exc:
+            self.logger.warning("Could not save system log export: %s", exc)
+
     def create_pnl_table(self) -> QTableWidget:
         """Create P&L performance table (UNCHANGED)"""
         return build_pnl_table()
@@ -3238,6 +3742,7 @@ class TradovTradingDashboard(QMainWindow):
     def on_connection_status_changed(self, connected: bool, status: str):
         """Handle connection status change and synchronize UI state."""
         handle_connection_status_changed(self, connected, status)
+        self._update_boot_summary()
 
     @Slot(str)
     def on_heartbeat_status_changed(self, status: str):
@@ -3248,11 +3753,17 @@ class TradovTradingDashboard(QMainWindow):
     def on_market_data_status_changed(self, status: str):
         """Handle market-data status transitions from the worker."""
         handle_market_data_status_changed(self, status)
+        self._update_boot_summary()
 
     @Slot(dict)
     def on_market_data_updated(self, data: dict):
         """Handle market data updates from the market worker."""
         handle_market_data_updated(self, data)
+        if (
+            not getattr(self, "_market_data_initialized", False)
+            and self._has_hydrated_live_market_data(data)
+        ):
+            self._mark_market_data_ready()
 
     @Slot(str)
     def on_market_error(self, error: str):
@@ -3296,20 +3807,15 @@ class TradovTradingDashboard(QMainWindow):
             self.api_connected = False
             self.add_system_log("Manually disconnected from API")
         else:
-            if not is_market_hours():
-                QMessageBox.information(
-                    self,
-                    "Market Closed",
-                    "Market is closed. Connection available during trading hours:\n"
-                    "4:00 AM - 4:30 PM ET",
-                )
-                return
-
             # Try to create a new API connection if we don't have a client
             if not hasattr(self, "tradier_client") or self.tradier_client is None:
                 self.add_system_log("🔄 Creating new Tradier API connection...")
                 if self.create_api_connection():
                     self.add_system_log("✅ Successfully connected to Tradier API!")
+                    if not is_market_hours():
+                        self.add_system_log(
+                            "ℹ️ Market is closed, but Tradier remains connected for after-hours access"
+                        )
                     return
                 self.add_system_log(
                     "❌ Failed to connect to Tradier API",
@@ -3326,6 +3832,10 @@ class TradovTradingDashboard(QMainWindow):
             if self.market_worker and self.market_worker.force_connect():
                 self.api_connected = True
                 self.add_system_log("Manually connected to API")
+                if not is_market_hours():
+                    self.add_system_log(
+                        "ℹ️ Market is closed, but Tradier remains connected for after-hours access"
+                    )
             else:
                 self.add_system_log("Failed to connect to API")
 
@@ -3721,22 +4231,65 @@ class TradovTradingDashboard(QMainWindow):
             log_error=getattr(self, "add_system_log", None),
         )
 
+    def _get_recent_pair_trades(self, limit: int = 30) -> list[dict]:
+        """Return recently closed pair trades from tracker or active strategy history."""
+        safe_limit = max(1, int(limit))
+        records: list[dict] = []
+
+        supervisor = getattr(self, "_session_supervisor", None)
+        orchestrator = getattr(supervisor, "orchestrator", None) if supervisor is not None else None
+
+        tracker = getattr(self, "_pair_tracker", None)
+        get_history = getattr(tracker, "get_history", None)
+        if callable(get_history):
+            try:
+                for position in reversed(list(get_history(limit=safe_limit))):
+                    if hasattr(position, "to_dict"):
+                        records.append(dict(position.to_dict()))
+                    elif isinstance(position, dict):
+                        records.append(dict(position))
+                if records:
+                    return records[:safe_limit]
+            except Exception:
+                pass
+
+        if orchestrator is not None:
+            active_strategies = getattr(orchestrator, "active_strategies", {})
+            if isinstance(active_strategies, dict):
+                for strategy in active_strategies.values():
+                    get_pair_history = getattr(strategy, "get_pair_history", None)
+                    if not callable(get_pair_history):
+                        continue
+                    try:
+                        history = list(get_pair_history(limit=safe_limit))
+                    except Exception:
+                        continue
+                    if not history:
+                        continue
+                    for position in reversed(history):
+                        if hasattr(position, "to_dict"):
+                            records.append(dict(position.to_dict()))
+                        elif isinstance(position, dict):
+                            records.append(dict(position))
+
+        return records
+
     def _get_recent_trade_history_records(self, limit: int = 30) -> list[dict]:
         """Return the records shown in the Trade History dialog."""
         safe_limit = max(1, int(limit))
 
-        if getattr(self, "trading_mode", None) == TradingMode.PAPER:
-            closed_trades = getattr(self, "_closed_trades_cache", None)
-            if isinstance(closed_trades, list) and closed_trades:
-                return sorted(
-                    closed_trades,
-                    key=lambda trade: coerce_timestamp(
-                        trade.get("closed_at") or trade.get("opened_at")
-                    )
-                    or 0.0,
-                    reverse=True,
-                )[:safe_limit]
+        pair_history = self._get_recent_pair_trades(limit=safe_limit)
+        if pair_history:
+            return sorted(
+                pair_history,
+                key=lambda trade: coerce_timestamp(
+                    trade.get("closed_at") or trade.get("exit_time") or trade.get("opened_at")
+                )
+                or 0.0,
+                reverse=True,
+            )[:safe_limit]
 
+        if getattr(self, "trading_mode", None) == TradingMode.PAPER:
             return []
 
         return self._get_recent_trades(limit=safe_limit)
@@ -3939,23 +4492,26 @@ class TradovTradingDashboard(QMainWindow):
         for trade in trades:
             try:
                 display = build_recent_trade_display(trade, symbol_placeholder="—")
+                trade_side = str(trade.get("side", "") or trade.get("trade_type", "") or "")
 
                 row = QTreeWidgetItem(self.positions_table)
-                row.setText(0, build_recent_trade_banner_text(display))
-
-                if display.realized_pnl_value > 0:
-                    color = QColor(COLORS["positive"])
-                elif display.realized_pnl_value < 0:
-                    color = QColor(COLORS["negative"])
-                else:
-                    color = QColor(COLORS["text"])
-
-                row.setForeground(0, color)
                 self.positions_table.setFirstColumnSpanned(
                     self.positions_table.indexOfTopLevelItem(row),
                     QModelIndex(),
                     True,
                 )
+                row_widget = QLabel(self.positions_table)
+                row_widget.setTextFormat(Qt.TextFormat.RichText)
+                row_widget.setText(
+                    build_recent_trade_banner_html(
+                        display,
+                        side=trade_side,
+                        colors=COLORS,
+                        symbol_placeholder="—",
+                    )
+                )
+                row_widget.setStyleSheet("background-color: transparent; font-weight: normal;")
+                self.positions_table.setItemWidget(row, 0, row_widget)
                 count += 1
             except Exception:
                 continue
@@ -4868,10 +5424,10 @@ class TradovTradingDashboard(QMainWindow):
 
         # Update START/STOP tooltips
         if is_paper:
-            self.start_btn.setToolTip("Start paper trading with simulated fills")
+            self.start_btn.setToolTip("Scan begins at 09:20 ET; trading auto-starts at 09:35 ET. Start paper trading with simulated fills")
             self.stop_btn.setToolTip("Stop paper trading but keep simulated positions")
         else:
-            self.start_btn.setToolTip("Start LIVE trading with real order execution")
+            self.start_btn.setToolTip("Scan begins at 09:20 ET; trading auto-starts at 09:35 ET. Start LIVE trading with real order execution")
             self.stop_btn.setToolTip("Stop live trading — open orders remain at Tradier")
 
         self._update_orders_title()
@@ -4961,25 +5517,25 @@ class TradovTradingDashboard(QMainWindow):
 
     def _refresh_pair_trading_panels(self) -> None:
         """Pull the latest pair scan and positions into the visible pair panels."""
+        market_hours_open = is_market_hours()
         supervisor = getattr(self, "_session_supervisor", None)
         orchestrator = getattr(supervisor, "orchestrator", None) if supervisor is not None else None
-        if orchestrator is None:
-            return
 
         positions: dict[str, Any] = {}
         latest_scan: Any | None = getattr(orchestrator, "_latest_pair_scan", None)
-        active_strategies = getattr(orchestrator, "active_strategies", {})
-        if isinstance(active_strategies, dict):
-            for strategy in active_strategies.values():
-                if latest_scan is None and hasattr(strategy, "_latest_pair_scan"):
-                    latest_scan = getattr(strategy, "_latest_pair_scan", None)
-                if hasattr(strategy, "get_pair_positions"):
-                    try:
-                        strategy_positions = strategy.get_pair_positions() or {}
-                        if isinstance(strategy_positions, dict):
-                            positions.update(strategy_positions)
-                    except Exception:
-                        continue
+        if orchestrator is not None:
+            active_strategies = getattr(orchestrator, "active_strategies", {})
+            if isinstance(active_strategies, dict):
+                for strategy in active_strategies.values():
+                    if latest_scan is None and hasattr(strategy, "_latest_pair_scan"):
+                        latest_scan = getattr(strategy, "_latest_pair_scan", None)
+                    if hasattr(strategy, "get_pair_positions"):
+                        try:
+                            strategy_positions = strategy.get_pair_positions() or {}
+                            if isinstance(strategy_positions, dict):
+                                positions.update(strategy_positions)
+                        except Exception:
+                            continue
 
         positions_panel = getattr(self, "pair_positions_panel", None)
         if positions_panel is not None and hasattr(positions_panel, "update_positions"):
@@ -4989,11 +5545,71 @@ class TradovTradingDashboard(QMainWindow):
                 pass
 
         scanner_panel = getattr(self, "pair_scanner_panel", None)
-        if latest_scan is not None and scanner_panel is not None and hasattr(scanner_panel, "update_scan"):
+        if scanner_panel is not None and hasattr(scanner_panel, "set_bundle_preview"):
             try:
-                scanner_panel.update_scan(latest_scan)
+                manual_bundle = str(getattr(self, "_manual_pair_bundle_name", "") or "").strip()
+                preview_bundle_name = manual_bundle
+                preview_pair_keys: tuple[str, ...] = ()
+                policy = load_pair_trading_corpus_policy()
+                if not preview_bundle_name:
+                    bundle_context_provider = getattr(orchestrator, "_build_pair_bundle_context", None)
+                    bundle_context = {}
+                    if callable(bundle_context_provider):
+                        try:
+                            bundle_context = bundle_context_provider() or {}
+                        except Exception:
+                            bundle_context = {}
+                    selection = policy.select_bundle(
+                        regime_name=str(bundle_context.get("regime_name") or "").strip(),
+                        liquidity_hint=bundle_context.get("liquidity_hint"),
+                        preferred_bundle_name=str(bundle_context.get("preferred_bundle_name") or "").strip() or None,
+                    )
+                    if selection is not None:
+                        preview_bundle_name = selection.bundle_name
+                        preview_pair_keys = tuple(selection.pair_keys)
+                else:
+                    preview_pair_keys = policy.get_bundle_pair_keys(preview_bundle_name)
+                scanner_panel.set_bundle_preview(preview_bundle_name, preview_pair_keys)
+            except Exception:
+                self.logger.debug("Pair bundle preview refresh failed", exc_info=True)
+
+        if orchestrator is not None:
+            activator = getattr(orchestrator, "activate_permitted_strategies", None)
+            if callable(activator):
+                try:
+                    activator(["PairTrading"])
+                except Exception:
+                    self.logger.debug("PairTradingStrategy activation refresh failed", exc_info=True)
+
+        if scanner_panel is not None and hasattr(scanner_panel, "update_scan"):
+            if not market_hours_open:
+                self._set_pair_scanner_runtime_status("HALTED")
+            # When no live scan is available yet, or when the market is
+            # closed, drive update_scan with a placeholder context so the
+            # panel never re-renders as live outside RTH.
+            scan_to_render = latest_scan if market_hours_open else None
+            if scan_to_render is None:
+                scan_to_render = SimpleNamespace(
+                    ranked_pairs=[],
+                    validated_pairs=[],
+                    total_candidates=0,
+                    tradeable_count=0,
+                    best_pair_key="",
+                    decision_state="hold",
+                    decision_reason="outside_trading_hours" if not market_hours_open else "awaiting_scan",
+                    bundle_name="",
+                    bundle_reason="",
+                    bundle_score=0.0,
+                    scan_age_seconds=0.0,
+                )
+            try:
+                scanner_panel.update_scan(scan_to_render, market_hours_open=market_hours_open)
             except Exception:
                 pass
+            try:
+                self._log_pair_scan_readiness(scan_to_render)
+            except Exception:
+                self.logger.debug("Pair scan readiness log refresh failed", exc_info=True)
 
         risk_panel = getattr(self, "pair_risk_summary_panel", None)
         if risk_panel is not None and hasattr(risk_panel, "update_metrics"):
@@ -5026,6 +5642,7 @@ class TradovTradingDashboard(QMainWindow):
                     else:
                         funds_held += abs(p.quantity_a * p.entry_price_a) + abs(p.quantity_b * p.entry_price_b)
 
+                unrealized_pnl = sum(float(getattr(p, "unrealized_pnl", 0.0) or 0.0) for p in positions.values())
                 signed_notional = 0.0
                 for p in positions.values():
                     gross = abs(p.quantity_a * p.current_price_a) + abs(p.quantity_b * p.current_price_b)
@@ -5042,6 +5659,7 @@ class TradovTradingDashboard(QMainWindow):
                     total_cost=total_cost,
                     funds_held_by_broker=funds_held,
                     net_exposure={"total": signed_notional},
+                    unrealized_pnl=unrealized_pnl,
                 )
             except Exception:
                 pass
@@ -5052,6 +5670,52 @@ class TradovTradingDashboard(QMainWindow):
                 breaking_news_panel.refresh_breaking_news()
             except Exception:
                 pass
+
+        self._update_boot_summary()
+
+    def _log_pair_scan_readiness(self, scan_result: Any | None) -> None:
+        """Emit a compact system log line when scan readiness changes."""
+        state = "PREVIEW"
+        reason = "awaiting_scan"
+        total_candidates = 0
+        tradeable_count = 0
+        best_pair = "-"
+        scan_age = 0.0
+        bundle_name = ""
+        bundle_reason = ""
+        bundle_score = 0.0
+
+        if scan_result is not None:
+            state = str(getattr(scan_result, "decision_state", state) or state).strip().upper() or state
+            reason = str(getattr(scan_result, "decision_reason", reason) or reason).strip() or reason
+            total_candidates = int(getattr(scan_result, "total_candidates", 0) or 0)
+            tradeable_count = int(getattr(scan_result, "tradeable_count", 0) or 0)
+            best_pair = str(getattr(scan_result, "best_pair_key", "") or "-").strip() or "-"
+            scan_age = float(getattr(scan_result, "scan_age_seconds", 0.0) or 0.0)
+            bundle_name = str(getattr(scan_result, "bundle_name", "") or "").strip()
+            bundle_reason = str(getattr(scan_result, "bundle_reason", "") or "").strip()
+            bundle_score = float(getattr(scan_result, "bundle_score", 0.0) or 0.0)
+
+        log_key = (
+            state,
+            reason,
+            best_pair,
+            bundle_name or f"{tradeable_count}:{total_candidates}",
+        )
+        if log_key == getattr(self, "_last_pair_scan_log_key", None):
+            return
+        self._last_pair_scan_log_key = log_key
+
+        bundle_text = ""
+        if bundle_name:
+            bundle_text = f" | bundle={bundle_name}"
+            if bundle_reason:
+                bundle_text += f" ({bundle_reason}, {bundle_score:.2f})"
+
+        self.add_system_log(
+            f"📡 Pair scan readiness: {state} ({reason}) | candidates={total_candidates} "
+            f"| tradeable={tradeable_count} | best={best_pair} | age={scan_age:.0f}s{bundle_text}"
+        )
 
     def _update_orders_title(self):
         """Update the ORDERS & POSITIONS title label text and color based on trading mode."""
@@ -5262,87 +5926,131 @@ class TradovTradingDashboard(QMainWindow):
             and getattr(self, "_paper_trading_enabled_this_session", False)
         )
 
-    def start_trading(self, from_queued: bool = False):
+    def start_trading(self, from_queued: bool = False, auto_start: bool = False):
         """Handle start trading button click via unified SessionSupervisor path."""
+        manual_warmup_window_open = self._is_manual_runtime_warmup_window_open()
         if self.trading_active:
             if from_queued:
                 self._adopt_running_session_supervisor_ui_state()
             self.add_system_log("Trading already active")
             return
 
-        if self.trading_mode == TradingMode.LIVE and not self._real_trading_armed:
-            presentation = build_start_trading_precheck_presentation(
-                guard="mode_not_armed",
-                mode_label="REAL",
+        self._clear_fd_halt_if_recovered()
+
+        if not self._is_runtime_start_enabled():
+            self._queued_trading_start = False
+            self._auto_trading_start_pending = False
+            self._paper_session_start_pending = False
+            self.add_system_log(
+                f"⏳ Runtime start warming up — {self._runtime_warmup_status()}"
             )
-            QMessageBox.warning(
-                self,
-                presentation.dialog_title,
-                presentation.dialog_text,
-            )
-            self.add_system_log(presentation.log_message)
-            if from_queued:
+            self.add_system_log(f"Runtime blocked resource snapshot: {self._fd_resource_snapshot()}")
+            if self._is_fd_halt_active():
+                self._set_start_button_fd_halt_state()
+            else:
+                self._set_start_button_runtime_warmup_state()
                 self._restore_start_button_ready_state()
+                self._set_start_button_runtime_warmup_state()
             return
+
+        if not self._market_data_initialized and self.data_file.exists():
+            try:
+                with open(self.data_file, encoding="utf-8") as _f:
+                    live_data_snapshot = json.load(_f)
+                if self._has_hydrated_live_market_data(live_data_snapshot):
+                    self._mark_market_data_ready()
+            except Exception:
+                pass
+
+        if self.trading_mode == TradingMode.LIVE and not self._real_trading_armed:
+            if auto_start:
+                self._real_trading_armed = True
+            else:
+                presentation = build_start_trading_precheck_presentation(
+                    guard="mode_not_armed",
+                    mode_label="REAL",
+                )
+                QMessageBox.warning(
+                    self,
+                    presentation.dialog_title,
+                    presentation.dialog_text,
+                )
+                self.add_system_log(presentation.log_message)
+                if from_queued:
+                    self._restore_start_button_ready_state()
+                return
 
         if (
             self.trading_mode == TradingMode.PAPER
             and not self._is_paper_trading_enabled_for_session()
         ):
-            presentation = build_start_trading_precheck_presentation(
-                guard="mode_not_armed",
-                mode_label="PAPER",
-            )
-            QMessageBox.warning(
-                self,
-                presentation.dialog_title,
-                presentation.dialog_text,
-            )
-            self.add_system_log(presentation.log_message)
-            if from_queued:
-                self._restore_start_button_ready_state()
-            return
+            if auto_start:
+                self._paper_trading_armed = True
+                self._paper_trading_enabled_this_session = True
+            else:
+                presentation = build_start_trading_precheck_presentation(
+                    guard="mode_not_armed",
+                    mode_label="PAPER",
+                )
+                QMessageBox.warning(
+                    self,
+                    presentation.dialog_title,
+                    presentation.dialog_text,
+                )
+                self.add_system_log(presentation.log_message)
+                if from_queued:
+                    self._restore_start_button_ready_state()
+                return
 
         if self.trading_mode == TradingMode.PAPER:
-            if from_queued and not bool(getattr(self, "_paper_start_authorized", False)):
+            if auto_start:
+                self._paper_start_authorized = True
+            elif from_queued and not bool(getattr(self, "_paper_start_authorized", False)):
                 self._restore_start_button_ready_state()
                 self.add_system_log("PAPER trading queued start blocked — confirmation missing")
                 return
-            if not from_queued and not self._confirm_paper_trading():
+            if not auto_start and not from_queued and not self._confirm_paper_trading():
                 self._paper_start_authorized = False
                 self.add_system_log("PAPER trading start cancelled by user")
                 return
-            if not from_queued:
+            if not from_queued and not auto_start:
                 self._paper_start_authorized = True
 
         if not self._market_data_initialized:
-            presentation = build_start_trading_precheck_presentation(
-                guard="market_data_loading",
-                queued_start_requested=bool(getattr(self, "_queued_trading_start", False)),
-            )
-            if getattr(self, "_queued_trading_start", False):
-                self.add_system_log(presentation.log_message)
-            else:
+            if auto_start:
                 self._queued_trading_start = True
+                self._auto_trading_start_pending = True
                 self._set_start_button_loading_live_data_state()
-                self.add_system_log(presentation.log_message)
-            QMessageBox.information(
-                self,
-                presentation.dialog_title,
-                presentation.dialog_text,
-            )
+                self.add_system_log("⏳ Auto-start queued until fresh market data is ready (trading opens at 09:35 ET)")
+            else:
+                presentation = build_start_trading_precheck_presentation(
+                    guard="market_data_loading",
+                    queued_start_requested=bool(getattr(self, "_queued_trading_start", False)),
+                )
+                if getattr(self, "_queued_trading_start", False):
+                    self.add_system_log(presentation.log_message)
+                else:
+                    self._queued_trading_start = True
+                    self._set_start_button_loading_live_data_state()
+                    self.add_system_log(presentation.log_message)
+                QMessageBox.information(
+                    self,
+                    presentation.dialog_title,
+                    presentation.dialog_text,
+                )
             return
 
-        if not is_market_hours():
-            presentation = build_start_trading_precheck_presentation(
-                guard="market_closed",
-            )
-            self.add_system_log(presentation.log_message)
-            QMessageBox.warning(
-                self,
-                presentation.dialog_title,
-                presentation.dialog_text,
-            )
+        if not is_market_hours() and not (not auto_start and manual_warmup_window_open):
+            if not auto_start:
+                presentation = build_start_trading_precheck_presentation(
+                    guard="market_closed",
+                )
+                self.add_system_log(presentation.log_message)
+                QMessageBox.warning(
+                    self,
+                    presentation.dialog_title,
+                    presentation.dialog_text,
+                )
             if from_queued:
                 self._restore_start_button_ready_state()
             return
@@ -5376,20 +6084,15 @@ class TradovTradingDashboard(QMainWindow):
                 )
             return
 
-        if gate_plan.requires_reason_prompt:
-            reason = self._prompt_conditional_readiness_reason()
-            if reason is None:
-                self.add_system_log(readiness_gate_presentation.cancelled_log)
-                if from_queued:
-                    self._restore_start_button_ready_state()
-                return
+        if bool(latest_result.get("conditional", False)):
             self.add_system_log(
-                build_start_trading_readiness_gate_presentation(
-                    mode_label=self.trading_mode.value,
-                    reason=reason,
-                ).override_log
+                "⚠️ OK-CONDITIONAL readiness accepted automatically — no manual bypass prompt"
             )
-            self._append_readiness_bypass_audit("override", "OK - CONDITIONAL", reason)
+            self._append_readiness_bypass_audit(
+                "override",
+                "OK - CONDITIONAL",
+                "AUTO-ACCEPTED CONDITIONAL READINESS",
+            )
 
         # Keep existing live-mode safety gates before backend start.
         if self.trading_mode == TradingMode.LIVE:
@@ -5986,6 +6689,9 @@ class TradovTradingDashboard(QMainWindow):
 
     def _start_unified_session_supervisor(self) -> bool:
         """Start SessionSupervisor using the currently selected trading mode."""
+        if not self._can_start_runtime_without_fd_pressure(context="session_supervisor"):
+            return False
+
         supervisor = self._session_supervisor
         local_paper_start_authorized = bool(
             self.trading_mode == TradingMode.PAPER
@@ -6014,6 +6720,7 @@ class TradovTradingDashboard(QMainWindow):
 
         if start_plan.action == "reuse_existing":
             try:
+                self.set_manual_pair_bundle_name(self._manual_pair_bundle_name)
                 if local_paper_start_authorized or injected_paper_start_authorized:
                     from Tradov.TradovR_Runtime.TradovR12_SessionSupervisor import (
                         authorize_paper_session_start,
@@ -6046,6 +6753,7 @@ class TradovTradingDashboard(QMainWindow):
             self._session_supervisor = create_session_supervisor(mode=mode)
             if local_paper_start_authorized:
                 authorize_paper_session_start(self._session_supervisor)
+            self.set_manual_pair_bundle_name(self._manual_pair_bundle_name)
             attempt_plan = build_session_supervisor_start_attempt_plan(
                 started=bool(self._session_supervisor.start()),
                 error_text=None,
@@ -6069,6 +6777,7 @@ class TradovTradingDashboard(QMainWindow):
             return
 
         was_active = bool(getattr(self, "trading_active", False))
+        self._fd_runtime_stop_requested = False
         self.trading_active = True
         if getattr(self, "connection_info", None) is not None:
             self.connection_info.trading_active = True
@@ -7412,6 +8121,8 @@ class TradovTradingDashboard(QMainWindow):
     # ==========================================================================
     def update_data_status(self, status_type: str):
         """Update data status display for live, extended-hours, EOD, and fallback states."""
+        if getattr(self, "data_status_label", None) is None or getattr(self, "data_status_container", None) is None:
+            return
         if status_type in ("LIVE", "REAL-TIME", "PAPER") and is_market_hours():
             self.data_status_label.setText("REAL-TIME")
             self.data_status_label.setStyleSheet(
@@ -7460,6 +8171,15 @@ class TradovTradingDashboard(QMainWindow):
             )
             self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
             self.data_status_container.setToolTip("Data frozen — waiting for API reconnection")
+        elif status_type == "FD_HALT":
+            self.data_status_label.setText("FD HALT")
+            self.data_status_label.setStyleSheet(
+                "color: " + COLORS["negative"] + "; font-size: 14px;",
+            )
+            self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
+            self.data_status_container.setToolTip(
+                "Live data polling halted because open file descriptors exceeded the safety limit"
+            )
         else:
             self.data_status_label.setText("NO DATA")
             self.data_status_label.setStyleSheet(
@@ -7467,6 +8187,7 @@ class TradovTradingDashboard(QMainWindow):
             )
             self.data_status_container.setCursor(Qt.CursorShape.ArrowCursor)
             self.data_status_container.setToolTip("No Tradier market snapshot is available yet")
+        self._update_boot_summary()
 
     def determine_data_status(self) -> str:
         """Determine appropriate data status based on current conditions."""
@@ -7539,6 +8260,7 @@ class TradovTradingDashboard(QMainWindow):
         # Update data status
         data_status = self.determine_data_status()
         self.update_data_status(data_status)
+        self._update_boot_summary()
 
     def toggle_market_data_provider(self, event):
         """Market data is always Tradier; this handler is a no-op."""
@@ -7641,6 +8363,11 @@ class TradovTradingDashboard(QMainWindow):
             self._custom_metrics_live_announced = start_plan.live_announced_after_start
             for message in start_plan.log_messages:
                 self.add_system_log(message)
+            # Warm the optional metrics immediately instead of waiting for the
+            # first 60-second S07 timer tick.
+            dispatch_update = getattr(self._metrics_orchestrator, "_dispatch_metrics_update", None)
+            if callable(dispatch_update):
+                QTimer.singleShot(250, dispatch_update)
         except Exception as e:
             self.logger.error("Failed to start metrics orchestrator: %s", e, exc_info=True)
             self.add_system_log(f"⚠️ Metrics orchestrator unavailable: {e}")
@@ -8692,38 +9419,183 @@ class TradovTradingDashboard(QMainWindow):
         if refresh_plan.set_automation_pending:
             self._automation_log_flush_pending = True
 
-        target = refresh_plan.target or "other"
-        if refresh_plan.action == "schedule":
-            QTimer.singleShot(
-                75,
-                lambda: self._flush_log_widget(buffer, widget, display_count, target),
-            )
+        if not getattr(self, "_log_widgets_ready", False) and (
+            widget is getattr(self, "system_log", None) or widget is getattr(self, "auto_log", None)
+        ):
             return
 
-        self._flush_log_widget(buffer, widget, display_count, target)
+        if refresh_plan.action == "schedule":
+            timer = (
+                self._system_log_refresh_timer
+                if widget is self.system_log
+                else self._automation_log_refresh_timer
+                if widget is self.auto_log
+                else None
+            )
+            if timer is not None:
+                timer.start(75)
+            else:
+                self._flush_log_widget(buffer, widget, display_count)
+            return
 
-    def _flush_log_widget(self, buffer: list, widget, display_count: int, target: str) -> None:
+        self._flush_log_widget(buffer, widget, display_count)
+
+    def _flush_log_widget(self, buffer: list, widget, display_count: int) -> None:
         """Render the latest slice of a buffered log widget."""
         try:
             if widget is None:
                 return
+            scrollbar = getattr(widget, "verticalScrollBar", None)
+            scroll_value = None
+            if callable(scrollbar):
+                try:
+                    scroll_value = widget.verticalScrollBar().value()
+                except Exception:
+                    scroll_value = None
             widget.setUpdatesEnabled(False)
-            widget.clear()
             text = "\n".join(reversed(buffer[-display_count:]))
-            if hasattr(widget, "appendPlainText"):
+            if hasattr(widget, "setPlainText"):
+                widget.setPlainText(text)
+            elif hasattr(widget, "appendPlainText"):
+                widget.clear()
                 widget.appendPlainText(text)
             else:
+                widget.clear()
                 widget.append(text)
-            cursor = widget.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.Start)
-            widget.setTextCursor(cursor)
+            if scroll_value is not None:
+                try:
+                    widget.verticalScrollBar().setValue(
+                        min(scroll_value, widget.verticalScrollBar().maximum())
+                    )
+                except Exception:
+                    pass
         finally:
             if widget is not None:
                 widget.setUpdatesEnabled(True)
-            if target == "system":
-                self._system_log_flush_pending = False
-            elif target == "automation":
-                self._automation_log_flush_pending = False
+
+    @Slot()
+    def _flush_system_log_widget(self) -> None:
+        """Flush the system log pane on the GUI thread."""
+        self._flush_log_widget(self.system_logs, self.system_log, 200)
+        self._system_log_flush_pending = False
+
+    @Slot()
+    def _flush_automation_log_widget(self) -> None:
+        """Flush the automation log pane on the GUI thread."""
+        self._flush_log_widget(self.automation_logs, self.auto_log, 100)
+        self._automation_log_flush_pending = False
+
+    @Slot()
+    def _mark_log_widgets_ready(self) -> None:
+        """Allow the on-screen log panes to paint after startup settles."""
+        self._log_widgets_ready = True
+        if self._system_log_flush_pending:
+            self._system_log_refresh_timer.start(0)
+        if self._automation_log_flush_pending:
+            self._automation_log_refresh_timer.start(0)
+
+    def _seed_system_log_session_file(self) -> None:
+        """Persist the initial startup buffer to the per-session log files."""
+        if not getattr(self, "_system_log_write_enabled", False):
+            return
+        if getattr(self, "_system_log_session_seeded", False):
+            return
+
+        text = "\n".join(str(line) for line in getattr(self, "system_logs", []) if str(line).strip())
+        if not text.strip():
+            self._system_log_session_seeded = True
+            return
+
+        payload = text.rstrip("\n") + "\n"
+        with self._system_log_file_lock:
+            for path in (
+                getattr(self, "_system_log_session_path", None),
+                getattr(self, "_system_log_current_path", None),
+            ):
+                if path is None:
+                    continue
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(payload, encoding="utf-8")
+                except Exception:
+                    self._system_log_write_enabled = False
+                    return
+        self._system_log_session_seeded = True
+
+    def _append_system_log_session_line(self, message: str) -> None:
+        """Append one system-log line to the current session files."""
+        if not getattr(self, "_system_log_write_enabled", False):
+            return
+        text = str(message or "").rstrip("\n")
+        if not text.strip():
+            return
+
+        line = text + "\n"
+        with self._system_log_file_lock:
+            for path in (
+                getattr(self, "_system_log_session_path", None),
+                getattr(self, "_system_log_current_path", None),
+            ):
+                if path is None:
+                    continue
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    with path.open("a", encoding="utf-8") as handle:
+                        handle.write(line)
+                except Exception:
+                    self._system_log_write_enabled = False
+                    return
+
+    def _current_fd_count(self) -> int | None:
+        """Return open file descriptor count for this process when available."""
+        try:
+            return len(os.listdir("/proc/self/fd"))
+        except Exception:
+            return None
+
+    def _fd_resource_snapshot(self) -> str:
+        """Build a compact fd usage snapshot for crash triage."""
+        fd_count = self._current_fd_count()
+        try:
+            soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+        except Exception:
+            soft_limit, hard_limit = None, None
+        return f"fd_count={fd_count if fd_count is not None else 'unknown'} soft_limit={soft_limit} hard_limit={hard_limit}"
+
+    def _can_start_runtime_without_fd_pressure(self, *, context: str) -> bool:
+        """Fail closed before starting backend threads if fd usage is abnormal."""
+        snapshot = self._fd_resource_snapshot()
+        self.add_system_log(f"Runtime resource check [{context}]: {snapshot}")
+        fd_count = self._current_fd_count()
+        if fd_count is None:
+            return True
+        if fd_count >= _FD_START_BLOCK_THRESHOLD:
+            self.add_system_log(
+                f"❌ Runtime start blocked — too many open files before start ({fd_count})"
+            )
+            return False
+        if fd_count >= _FD_START_WARN_THRESHOLD:
+            self.add_system_log(
+                f"⚠️ Runtime start warning — elevated open files before start ({fd_count})"
+            )
+        return True
+
+    @Slot(str)
+    def _append_system_log_from_signal(self, message: str) -> None:
+        """Apply a system-log update on the GUI thread."""
+        self._append_to_ring_log(self.system_logs, self.system_log, message,
+                                  max_buffer=200, display_count=200)
+
+    @Slot(str)
+    def _append_automation_log_from_signal(self, message: str) -> None:
+        """Apply an automation-log update on the GUI thread."""
+        self._append_to_ring_log(
+            self.automation_logs,
+            self.auto_log,
+            message,
+            max_buffer=100,
+            display_count=100,
+        )
 
     def add_system_log(self, message: str):
         """Add message to system log."""
@@ -8733,8 +9605,8 @@ class TradovTradingDashboard(QMainWindow):
             return
         if self._should_suppress_opening_warmup_system_log(message):
             return
-        self._append_to_ring_log(self.system_logs, self.system_log, message,
-                                  max_buffer=200, display_count=200)
+        self._append_system_log_session_line(message)
+        self.system_log_requested.emit(str(message))
 
     def _should_suppress_routine_system_log(self, message: str) -> bool:
         """Hide routine status chatter from NORMAL/MINIMAL system-log modes."""
@@ -8830,13 +9702,7 @@ class TradovTradingDashboard(QMainWindow):
             self.add_system_log(plan.formatted_message)
             return
 
-        self._append_to_ring_log(
-            self.automation_logs,
-            self.auto_log,
-            plan.formatted_message,
-            max_buffer=100,
-            display_count=100,
-        )
+        self.automation_log_requested.emit(plan.formatted_message)
 
     def log_autonomous_event(
         self,

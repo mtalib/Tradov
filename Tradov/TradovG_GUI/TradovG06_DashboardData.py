@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Module: TradovG06_DashboardData.py
 Purpose: Shared data models and types for Trading Dashboard
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-11-08
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Centralized data structures and types used across all dashboard components.

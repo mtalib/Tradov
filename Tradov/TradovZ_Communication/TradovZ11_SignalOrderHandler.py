@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovZ_Communication
 Module: TradovZ11_SignalOrderHandler.py
@@ -8,7 +8,7 @@ Purpose: Turn an inbound SignalEnvelope into a risk-checked order proposal
 
 Author: Mohamed Talib (with Claude)
 Year Created: 2026
-Last Updated: 2026-06-26
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     The Phase-4 handler injected into TradovZ10_InboundSignalReceiver. It runs an

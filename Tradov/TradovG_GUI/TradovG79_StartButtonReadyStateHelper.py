@@ -34,8 +34,10 @@ def build_start_button_ready_state_plan(
         text="START TRADING",
         enabled=True,
         tooltip=(
-            "Start paper trading with simulated fills"
+            "Scan begins at 09:20 ET; trading auto-starts at 09:35 ET."
+            " Click to start paper trading with simulated fills"
             if is_paper_mode
-            else "Start LIVE trading with real order execution"
+            else "Scan begins at 09:20 ET; trading auto-starts at 09:35 ET."
+            " Click to start LIVE trading with real order execution"
         ),
     )

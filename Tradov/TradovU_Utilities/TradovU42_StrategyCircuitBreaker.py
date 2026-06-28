@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU42_StrategyCircuitBreaker.py
@@ -10,7 +10,7 @@ Purpose: Strategy-level circuit breaker that automatically isolates misbehaving
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-03-28 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Implements a per-strategy circuit breaker pattern modelled on the

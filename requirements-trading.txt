@@ -34,6 +34,7 @@ orjson>=3.9.0,<4.0  # pinned upper bound for stability
 
 # Scientific computing — required for options Greeks (Black-Scholes) and GEX/DEX
 scipy>=1.7.0
+statsmodels>=0.13.0
 
 # HTML parsing — required by pandas.read_html() for S&P 500 constituent fetches (S01_DIXCalculator)
 lxml>=4.9.0

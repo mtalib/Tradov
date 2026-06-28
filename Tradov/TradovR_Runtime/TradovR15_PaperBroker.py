@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovR_Runtime
 Module: TradovR15_PaperBroker.py
@@ -10,7 +10,7 @@ Purpose: Paper broker that plugs into R04 LiveEngine in place of B40
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-18 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Implements the same ``place_order`` / ``get_order`` / ``cancel_order``

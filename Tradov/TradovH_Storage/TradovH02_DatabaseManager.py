@@ -8,7 +8,7 @@ Group: H (Storage)
 Purpose: Comprehensive SQLite database management for trading data
 Author: Mohamed Talib
 Date Created: 2025-08-07
-Last Updated: 2025-08-07 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     This module provides comprehensive database management for the Tradov trading

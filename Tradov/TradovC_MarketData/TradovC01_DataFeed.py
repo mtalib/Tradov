@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovC_MarketData
 Module: TradovC01_DataFeed.py
@@ -8,7 +8,7 @@ Purpose: Central market data feed orchestrator with provider abstraction layer
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-02-25 Time: 16:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Central data feed orchestrator for the Tradov trading system.  Manages all
@@ -70,8 +70,14 @@ from Tradov.TradovA_Core.TradovA05_EventManager import EventManager, EventType, 
 
 
 from Tradov.TradovC_MarketData.TradovC16_MarketDataCache import MarketDataCache, DataGranularity  # noqa: E402
-from Tradov.TradovC_MarketData.TradovC06_DataValidator import DataValidator  # noqa: E402
 from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_backend_symbol_groups
+
+try:
+    from Tradov.TradovC_MarketData.TradovC06_DataValidator import DataValidator  # noqa: E402
+    _DATA_VALIDATOR_AVAILABLE = True
+except Exception as _data_validator_exc:  # pragma: no cover - import fallback
+    DataValidator = None  # type: ignore
+    _DATA_VALIDATOR_AVAILABLE = False
 
 # ==============================================================================
 # CONFIGURATION DEFAULTS
@@ -375,7 +381,11 @@ class DataFeedManager:
 
         # Cache
         self.market_cache: MarketDataCache | None = None
-        self.data_validator = DataValidator()
+        self.data_validator = DataValidator() if _DATA_VALIDATOR_AVAILABLE else None
+        if self.data_validator is None:
+            self.logger.warning(
+                "Data validation disabled: TradovC06_DataValidator unavailable (SciPy/Sklearn fallback missing)"
+            )
 
         # State management
         self.status = DataFeedStatus.DISCONNECTED
@@ -582,6 +592,12 @@ class DataFeedManager:
                 self._update_thread.join(timeout=5)
             if self._monitor_thread:
                 self._monitor_thread.join(timeout=5)
+
+            quote_client = getattr(self, "_quote_client", None)
+            close_quote_client = getattr(quote_client, "close", None)
+            if callable(close_quote_client):
+                close_quote_client()
+            self._quote_client = None
 
             self.executor.shutdown(wait=True)
             self.status = DataFeedStatus.DISCONNECTED
@@ -930,7 +946,7 @@ class DataFeedManager:
             # checks are already enforced in _poll_quotes_fallback(), and indices
             # (SPX, VIX) return bid=0/ask=0 which would trip SpreadValidationRule.
             _skip_validation = tick.source == DataSource.TRADIER
-            if self.config.validation_enabled and not _skip_validation:
+            if self.config.validation_enabled and not _skip_validation and self.data_validator is not None:
                 validation_result = self.data_validator.validate_data(tick.to_dict())
                 if not getattr(validation_result, "is_valid", False):
                     self.logger.warning("Invalid tick data for %s", symbol)

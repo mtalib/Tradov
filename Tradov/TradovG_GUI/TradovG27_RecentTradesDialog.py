@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG27_RecentTradesDialog.py
@@ -9,9 +9,7 @@ Purpose: Dedicated recent-trades history dialog for dashboard trade-record views
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtGui import QColor
@@ -28,13 +26,11 @@ from PySide6.QtWidgets import (
 )
 
 from Tradov.TradovG_GUI.TradovG13_EnhancedWidgets import COLORS
-from Tradov.TradovG_GUI.TradovG26_RecentTradeFormatter import build_recent_trade_display
-from Tradov.TradovG_GUI.TradovG39_PaperPositionsTreePresenter import (
-    build_paper_spread_tree_presentation,
+from Tradov.TradovG_GUI.TradovG26_RecentTradeFormatter import (
+    build_pair_trade_banner_html,
+    build_pair_trade_history_display,
+    build_recent_trade_symbol_html,
 )
-
-
-_EASTERN_TIMEZONE = ZoneInfo("America/New_York")
 
 
 class RecentTradesDialog(QDialog):
@@ -62,7 +58,7 @@ class RecentTradesDialog(QDialog):
 
         self._table = QTreeWidget(self)
         self._table.setColumnCount(9)
-        self._table.setHeaderLabels(["ACTION", "LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""])
+        self._table.setHeaderLabels(["CLOSED", "PAIR", "SIDE", "QTY-A", "QTY-B", "ENTRY Z", "CLOSE Z", "P&L", "DURATION"])
         for column in range(self._table.columnCount()):
             self._table.headerItem().setTextAlignment(column, Qt.AlignmentFlag.AlignCenter)
 
@@ -120,17 +116,14 @@ class RecentTradesDialog(QDialog):
     def _populate_table(self) -> None:
         table = self._table
         table.clear()
-        table.setHeaderLabels(["ACTION", "LEG", "STRIKE", "QTY", "PRICE", "COST", "EXPIRY", "P&L", ""])
+        table.setHeaderLabels(["CLOSED", "PAIR", "SIDE", "QTY-A", "QTY-B", "ENTRY Z", "CLOSE Z", "P&L", "DURATION"])
 
         for trade in self._trades:
-            if self._is_grouped_trade(trade):
-                self._add_grouped_trade_rows(trade)
-            else:
-                self._add_flat_trade_rows(trade)
+            self._add_pair_trade_rows(trade)
 
         if table.topLevelItemCount() <= 0:
             empty = QTreeWidgetItem(table)
-            empty.setText(0, "No recent trade records found")
+            empty.setText(0, "No closed pair trades found")
             empty.setForeground(0, QColor(COLORS["text_dim"]))
             table.setFirstColumnSpanned(
                 table.indexOfTopLevelItem(empty),
@@ -144,114 +137,66 @@ class RecentTradesDialog(QDialog):
         item.setTextAlignment(1, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter))
         item.setTextAlignment(2, int(Qt.AlignmentFlag.AlignCenter))
         item.setTextAlignment(3, int(Qt.AlignmentFlag.AlignCenter))
-        item.setTextAlignment(4, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        item.setTextAlignment(4, int(Qt.AlignmentFlag.AlignCenter))
         item.setTextAlignment(5, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
-        item.setTextAlignment(6, int(Qt.AlignmentFlag.AlignCenter))
+        item.setTextAlignment(6, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
         item.setTextAlignment(7, int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        item.setTextAlignment(8, int(Qt.AlignmentFlag.AlignCenter))
 
     @staticmethod
-    def _is_grouped_trade(trade: dict[str, Any]) -> bool:
-        legs = trade.get("legs") if isinstance(trade, dict) else None
-        return isinstance(legs, list) and len(legs) > 0
+    def _pair_side_color(side_text: str) -> QColor:
+        normalized = str(side_text or "").strip().upper()
+        if normalized == "NEGATIVE":
+            return QColor(COLORS["negative"])
+        if normalized == "POSITIVE":
+            return QColor(COLORS["positive"])
+        return QColor(COLORS["text"])
 
-    def _add_grouped_trade_rows(self, trade: dict[str, Any]) -> None:
-        header, legs = build_paper_spread_tree_presentation(
-            trade,
-            date.today(),
-            _EASTERN_TIMEZONE,
-            COLORS,
-            "CLOSED",
-            closed=True,
-        )
-
-        header_row = QTreeWidgetItem(self._table)
-        self._table.setFirstColumnSpanned(
-            self._table.indexOfTopLevelItem(header_row),
-            QModelIndex(),
-            True,
-        )
-
-        row_widget = QWidget(self._table)
-        row_widget.setMinimumHeight(22)
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(6, 0, 6, 0)
-        row_layout.setSpacing(6)
-
-        if header.timestamp_text:
-            timestamp_label = QLabel(header.timestamp_text, row_widget)
-            timestamp_label.setStyleSheet("color: #a8a8a8; font-weight: normal;")
-            row_layout.addWidget(timestamp_label, 0)
-
-        summary_label = QLabel(header.summary_text, row_widget)
-        summary_label.setStyleSheet(
-            f"color: {COLORS.get('cyan', '#00ffff')}; font-weight: normal;"
-        )
-        row_layout.addWidget(summary_label, 1)
-
-        pnl_label = QLabel(header.pnl_text, row_widget)
-        pnl_label.setStyleSheet(f"color: {header.pnl_color}; font-weight: normal;")
-        row_layout.addWidget(pnl_label, 0, Qt.AlignmentFlag.AlignRight)
-        self._table.setItemWidget(header_row, 0, row_widget)
-
-        for spread_leg in legs:
-            leg_row = QTreeWidgetItem(self._table)
-            leg_row.setText(0, spread_leg.action_text)
-            leg_row.setText(1, spread_leg.leg_text)
-            leg_row.setText(2, spread_leg.strike_text)
-            leg_row.setText(3, spread_leg.quantity_text)
-            leg_row.setText(4, spread_leg.price_text)
-            leg_row.setText(6, spread_leg.expiry_text)
-            self._align_data_row(leg_row)
-            for col in range(8):
-                leg_row.setForeground(col, QColor("#ffffff"))
-            if spread_leg.action_color:
-                leg_row.setForeground(0, QColor(spread_leg.action_color))
-
-            if spread_leg.cost_text:
-                leg_row.setText(5, spread_leg.cost_text)
-                if spread_leg.cost_color:
-                    leg_row.setForeground(5, QColor(spread_leg.cost_color))
-            if spread_leg.pnl_text:
-                leg_row.setText(7, spread_leg.pnl_text)
-                if spread_leg.pnl_color:
-                    leg_row.setForeground(7, QColor(spread_leg.pnl_color))
-
-    def _add_flat_trade_rows(self, trade: dict[str, Any]) -> None:
-        display = build_recent_trade_display(trade, symbol_placeholder="-")
-        timestamp = display.timestamp_text
-        symbol = display.symbol
-        action = display.action.replace("_", " ")
+    def _add_pair_trade_rows(self, trade: dict[str, Any]) -> None:
+        display = build_pair_trade_history_display(trade, pair_placeholder="—")
 
         summary_row = QTreeWidgetItem(self._table)
-        summary_row.setText(0, f"{timestamp} PAIR TRADE RECORD : {symbol}  |  ACTION: {action}")
-        summary_row.setForeground(0, QColor(COLORS.get("cyan", "#00ffff")))
         self._table.setFirstColumnSpanned(
             self._table.indexOfTopLevelItem(summary_row),
             QModelIndex(),
             True,
         )
 
+        summary_widget = QLabel(self._table)
+        summary_widget.setTextFormat(Qt.TextFormat.RichText)
+        summary_widget.setStyleSheet("background-color: transparent; font-weight: normal;")
+        summary_widget.setText(build_pair_trade_banner_html(display, colors=COLORS, pair_placeholder="—"))
+        self._table.setItemWidget(summary_row, 0, summary_widget)
+
         detail_row = QTreeWidgetItem(self._table)
-        action_text = action.upper()
-        detail_row.setText(0, action_text)
-        detail_row.setText(1, symbol)
-        detail_row.setText(3, display.quantity_text)
-        detail_row.setText(4, display.price_text)
-        detail_row.setText(5, display.cost_text)
+        detail_row.setText(0, display.closed_text)
+        detail_row.setText(2, display.side_text)
+        detail_row.setText(3, display.qty_a_text)
+        detail_row.setText(4, display.qty_b_text)
+        detail_row.setText(5, display.entry_z_text)
+        detail_row.setText(6, display.close_z_text)
         detail_row.setText(7, display.realized_pnl_text)
+        detail_row.setText(8, display.duration_text)
         self._align_data_row(detail_row)
-        for col in range(8):
+
+        for col in range(self._table.columnCount()):
             detail_row.setForeground(col, QColor("#ffffff"))
-        if action_text.startswith("BUY"):
-            detail_row.setForeground(0, QColor(COLORS["positive"]))
-        elif action_text.startswith("SELL"):
-            detail_row.setForeground(0, QColor(COLORS["negative"]))
 
-        if display.cost_text.startswith("$+") or display.cost_text.startswith("+"):
-            detail_row.setForeground(5, QColor(COLORS["positive"]))
-        elif display.cost_text.startswith("$-") or display.cost_text.startswith("-"):
-            detail_row.setForeground(5, QColor(COLORS["negative"]))
+        pair_widget = QLabel(self._table)
+        pair_widget.setTextFormat(Qt.TextFormat.RichText)
+        pair_widget.setStyleSheet("background-color: transparent; font-weight: normal;")
+        pair_widget.setText(
+            build_recent_trade_symbol_html(
+                display.pair_text,
+                side=display.side_text,
+                colors=COLORS,
+                symbol_placeholder="—",
+            )
+        )
+        self._table.setItemWidget(detail_row, 1, pair_widget)
 
+        detail_row.setForeground(0, QColor("#a8a8a8"))
+        detail_row.setForeground(2, self._pair_side_color(display.side_text))
         if display.realized_pnl_value > 0:
             detail_row.setForeground(7, QColor(COLORS["positive"]))
         elif display.realized_pnl_value < 0:

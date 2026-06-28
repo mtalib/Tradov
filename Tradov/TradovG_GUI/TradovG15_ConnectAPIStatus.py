@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG15_ConnectAPIStatus.py
@@ -8,7 +8,7 @@ Purpose: Broker & data connection status display widget (Tradier + Massive)
 
 Author: TRADOV Trading System
 Year Created: 2025
-Last Updated: 2026-02-25 Time: 14:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     GUI widget for displaying Tradier broker and Massive data connection

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovL_ML
 Module: TradovL19_RLTrainingPipeline.py
@@ -8,7 +8,7 @@ Purpose: Unified RL training pipeline for all Tradov environments
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-02-26 Time: 14:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides a unified RL environment registry, training, inference, and model

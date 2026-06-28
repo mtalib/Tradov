@@ -314,7 +314,7 @@ from TradovB_Broker.TradovB40_TradierClient import (
 
 # Create client
 client = TradierClient(
-    api_key=os.getenv("TRADIER_API_KEY"),
+    api_key=os.getenv("TRADIER_LIVE_API_KEY"),
     account_id=os.getenv("TRADIER_ACCOUNT_ID"),
     environment=TradingEnvironment.SANDBOX
 )

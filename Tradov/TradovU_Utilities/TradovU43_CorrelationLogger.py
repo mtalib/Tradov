@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU43_CorrelationLogger.py
 Purpose: Structured logging with correlation IDs flowing through the full trade lifecycle
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-03-28 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides structured, correlation-aware logging for the Tradov trading system.

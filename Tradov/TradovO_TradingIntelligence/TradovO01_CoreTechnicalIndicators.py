@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovO_TechnicalIndicators
 Module: TradovO01_CoreTechnicalIndicators.py
 Purpose: Comprehensive technical indicators with signal generation for options trading
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-04 Time: 16:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Core technical indicators module providing pure Python implementations of essential

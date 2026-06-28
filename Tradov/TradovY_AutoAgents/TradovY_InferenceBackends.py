@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovY_AutoAgents
 Module: TradovY_InferenceBackends.py
@@ -8,7 +8,7 @@ Purpose: Pluggable inference backends for TradovY autonomous agents
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-04 Time: 18:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Defines an abstract InferenceBackend protocol and two concrete

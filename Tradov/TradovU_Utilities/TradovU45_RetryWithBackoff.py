@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU45_RetryWithBackoff.py
@@ -8,7 +8,7 @@ Purpose: Exponential-backoff retry decorator for sync and async callables
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-03-31
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides retry logic with configurable exponential back-off and jitter for
