@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovI_Integration
 Module: TradovI03_ConfigManager.py
@@ -8,7 +8,7 @@ Purpose: TRADOV - Automated TRAD Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     TRADOV - Automated TRAD Options Trading System
@@ -43,7 +43,11 @@ import shutil
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from jsonschema import validate, ValidationError
-import toml
+
+try:
+    import toml
+except ImportError:  # pragma: no cover - optional dependency
+    toml = None
 
 # ==============================================================================
 # LOCAL IMPORTS
@@ -798,6 +802,9 @@ class ConfigManager:
                 with open(metadata.file_path, 'w') as f:
                     yaml.dump(config_data, f, default_flow_style=False)
             elif metadata.format == ConfigFormat.TOML:
+                if toml is None:
+                    self.logger.error("TOML export unavailable: install the toml package")
+                    return
                 with open(metadata.file_path, 'w') as f:
                     toml.dump(config_data, f)
 
@@ -819,6 +826,9 @@ class ConfigManager:
                 elif format == ConfigFormat.YAML:
                     return yaml.safe_load(f)
                 elif format == ConfigFormat.TOML:
+                    if toml is None:
+                        self.logger.error("TOML load unavailable: install the toml package")
+                        return None
                     return toml.load(f)
 
             return None
@@ -882,12 +892,22 @@ class ConfigManager:
     def _start_file_watching(self) -> None:
         """Start file system watching"""
         try:
-            if self.file_observer:
+            if self._shutdown_event.is_set():
                 return
+
+            if self.file_observer is not None:
+                if self.file_observer.is_alive():
+                    return
+                self.file_observer = None
+
+            if not self.config_dir.exists():
+                self.config_dir.mkdir(parents=True, exist_ok=True)
 
             event_handler = ConfigFileHandler(self)
             self.file_observer = Observer()
-            self.file_observer.schedule(event_handler, str(self.config_dir), recursive=True)
+            # Watch only the top-level config directory. Recursive watching of
+            # backup trees can create a large number of inotify handles over time.
+            self.file_observer.schedule(event_handler, str(self.config_dir), recursive=False)
             self.file_observer.start()
 
         except Exception as e:
@@ -1202,8 +1222,11 @@ class ConfigManager:
         try:
             # Stop file watching
             if self.file_observer:
-                self.file_observer.stop()
-                self.file_observer.join(timeout=2.0)
+                try:
+                    self.file_observer.stop()
+                    self.file_observer.join(timeout=2.0)
+                finally:
+                    self.file_observer = None
 
             if (
                 self.sync_thread
@@ -1428,4 +1451,3 @@ if __name__ == "__main__":
 
         env_mgr = ConfigManager(environment=env)
         env_mgr.register_config("iron_condor_strategy", env_config)
-

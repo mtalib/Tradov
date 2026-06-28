@@ -8,7 +8,7 @@ Group: S (Signals)
 Purpose: Black Swan tail-risk indicator — data collection and composite score calculation
 Author: Mohamed Talib
 Date Created: 2025-01-31
-Last Updated: 2026-03-27 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Merged module combining market data collection with Black Swan risk score

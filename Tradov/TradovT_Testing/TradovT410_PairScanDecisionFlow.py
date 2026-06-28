@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 import sys
 from types import ModuleType
+import json
 
 import pandas as pd
 
@@ -20,10 +22,16 @@ from Tradov.TradovD_Strategies.TradovD01_BaseStrategy import RiskProfile
 from Tradov.TradovD_Strategies.TradovD42_PairTrading import PairTradingStrategy
 from Tradov.TradovD_Strategies.TradovD43_DistanceStrategy import DistanceTradingStrategy
 from Tradov.TradovD_Strategies.TradovD31_StrategyOrchestrator import StrategyOrchestrator
+from Tradov.TradovD_Strategies.TradovD51_PairScanner import PairScanner
 from Tradov.TradovD_Strategies.TradovD58_PairScanDecisionAdapter import (
     build_formed_pair_scan_context,
     normalize_pair_scan_context,
 )
+from Tradov.TradovD_Strategies.TradovD59_PairCorpusPolicy import (
+    build_pair_corpus_reload_log_message,
+    load_pair_trading_corpus_policy,
+)
+from Tradov.TradovA_Core.TradovA03_Configuration import reset_config_manager
 from Tradov.TradovD_Strategies.TradovD50_PairTypes import (
     CointegrationMethod,
     CointegrationResult,
@@ -50,7 +58,7 @@ class _FakeScanner:
         self.pair_defs = pair_defs
         self.scan_calls = 0
 
-    def scan(self, price_history=None):
+    def scan(self, price_history=None, **kwargs):
         self.scan_calls += 1
         return self.scan_result
 
@@ -100,6 +108,21 @@ def _scan_result(timestamp: datetime | None = None) -> PairScanResult:
     return scan
 
 
+def _allowed_scan_result(timestamp: datetime | None = None) -> PairScanResult:
+    scan = PairScanResult(
+        timestamp=timestamp or datetime.now(UTC),
+        total_candidates=1,
+        validated_pairs=[
+            _coint("SPY/IWM", 1.8, 1),
+        ],
+        ranked_pairs=[
+            _coint("SPY/IWM", 1.8, 1),
+        ],
+    )
+    scan.build_decision_context(max_age_seconds=300.0, min_rank_score=0.2)
+    return scan
+
+
 def test_scan_result_builds_ready_decision_context():
     scan = _scan_result()
 
@@ -109,6 +132,78 @@ def test_scan_result_builds_ready_decision_context():
     assert scan.best_ranking_score == 1.8
     assert scan.best_ranking_components["p_value"] == 0.8
     assert scan.scan_age_seconds >= 0.0
+
+
+def test_pair_corpus_policy_loads_minimal_allowlist():
+    policy = load_pair_trading_corpus_policy()
+
+    assert policy.allows_pair_key("SPY/IWM") is True
+    assert policy.allows_pair_key("KO/PEP") is True
+    assert policy.allows_pair_key("XOM/CVX") is True
+    assert policy.allows_pair_key("AAA/BBB") is False
+    assert policy.is_negative_control_pair_key("AAPL/XLU") is True
+    assert "Pair corpus policy reloaded" in build_pair_corpus_reload_log_message(policy)
+
+
+def test_repo_config_manager_exposes_pair_corpus_policy():
+    from Tradov.TradovA_Core.TradovA03_Configuration import ConfigManager
+
+    cfg = ConfigManager(environment="development")
+    policy = cfg.get("autonomous_readiness.pair_corpus_policy")
+
+    assert isinstance(policy, dict)
+    assert {f"{item['leg_a']}/{item['leg_b']}" for item in policy["active_pairs"]} == {
+        "SPY/IWM",
+        "KO/PEP",
+        "XOM/CVX",
+    }
+
+
+def test_pair_corpus_policy_hot_reload_updates_allowlist(tmp_path, monkeypatch):
+    source_path = Path("config/pair_trading_corpus_v1.json")
+    temp_path = tmp_path / "pair_trading_corpus_v1.json"
+    temp_path.write_text(source_path.read_text(), encoding="utf-8")
+
+    monkeypatch.setenv("TRADOV_PAIR_CORPUS_POLICY_PATH", str(temp_path))
+    reset_config_manager()
+
+    from Tradov.TradovA_Core.TradovA03_Configuration import ConfigManager
+
+    cfg = ConfigManager(environment="development")
+    notifications: list[str] = []
+    cfg.register_callback(
+        "autonomous_readiness.pair_corpus_policy",
+        lambda key, _old, _new: notifications.append(key),
+    )
+    initial_policy = cfg.get("autonomous_readiness.pair_corpus_policy")
+    assert {f"{item['leg_a']}/{item['leg_b']}" for item in initial_policy["active_pairs"]} == {
+        "SPY/IWM",
+        "KO/PEP",
+        "XOM/CVX",
+    }
+
+    modified = json.loads(temp_path.read_text(encoding="utf-8"))
+    modified["active_pairs"] = modified["active_pairs"][:1]
+    temp_path.write_text(json.dumps(modified, indent=2), encoding="utf-8")
+
+    cfg._on_config_file_changed(temp_path)
+    updated_policy = cfg.get("autonomous_readiness.pair_corpus_policy")
+    assert notifications == [
+        "autonomous_readiness.pair_corpus_policy",
+        "*",
+    ]
+    assert {f"{item['leg_a']}/{item['leg_b']}" for item in updated_policy["active_pairs"]} == {
+        "SPY/IWM",
+    }
+
+    reset_config_manager()
+
+
+def test_pair_scanner_limits_default_universe_to_three_active_pairs():
+    scanner = PairScanner(account_size=100000.0)
+
+    pair_keys = set(scanner.get_pair_definitions().keys())
+    assert {"SPY/IWM", "KO/PEP", "XOM/CVX"}.issubset(pair_keys)
 
 
 def test_scan_result_marks_stale_scan_hold():
@@ -158,7 +253,7 @@ def test_d31_pair_scan_routing_uses_scan_freshness_and_provenance():
         confidence=0.85,
     )
 
-    fresh_scan = _scan_result()
+    fresh_scan = _allowed_scan_result()
     strategy_name, reason = orch.select_strategy_for_pair_scan(scan_result=fresh_scan)
 
     assert strategy_name == "PCAStatArb"
@@ -168,11 +263,15 @@ def test_d31_pair_scan_routing_uses_scan_freshness_and_provenance():
     strategy_name, reason = orch.select_strategy_for_pair_scan(scan_result=stale_scan)
 
     assert strategy_name is None
-    assert reason == "scan_stale"
+    assert reason == "pair_not_in_corpus_v1_allowlist"
 
 
-def test_pair_trading_strategy_pushes_scan_context_to_sink_and_honours_hold_state():
-    coint = _coint("AAA/BBB", 1.8, 1)
+def test_pair_trading_strategy_pushes_scan_context_to_sink_and_honours_hold_state(monkeypatch):
+    monkeypatch.setattr(
+        "Tradov.TradovD_Strategies.TradovD42_PairTrading._is_market_hours",
+        lambda now=None: True,
+    )
+    coint = _coint("SPY/IWM", 1.8, 1)
     stale_scan = PairScanResult(
         timestamp=datetime.now(UTC) - timedelta(minutes=10),
         total_candidates=1,
@@ -182,10 +281,10 @@ def test_pair_trading_strategy_pushes_scan_context_to_sink_and_honours_hold_stat
     stale_scan.build_decision_context(max_age_seconds=60.0, min_rank_score=0.2)
 
     pair_def = PairDefinition(
-        symbol_a="AAA",
-        symbol_b="BBB",
-        sector="tech",
-        pair_type="stat_arb",
+        symbol_a="SPY",
+        symbol_b="IWM",
+        sector="ETF",
+        pair_type="cross_asset",
         status=PairStatus.VALIDATED,
     )
     strategy = PairTradingStrategy(
@@ -201,7 +300,7 @@ def test_pair_trading_strategy_pushes_scan_context_to_sink_and_honours_hold_stat
     seen: list[str] = []
     strategy.set_pair_scan_sink(lambda scan: seen.append(getattr(scan, "decision_state", "")))
 
-    signals = strategy.generate_signals(market_data=pd.DataFrame({"AAA": [100.0], "BBB": [95.0]}))
+    signals = strategy.generate_signals(market_data=pd.DataFrame({"SPY": [100.0], "IWM": [95.0]}))
 
     assert scanner.scan_calls == 1
     assert seen == ["hold"]
@@ -216,17 +315,71 @@ def test_pair_trading_strategy_pushes_scan_context_to_sink_and_honours_hold_stat
     fresh_scan.build_decision_context(max_age_seconds=60.0, min_rank_score=0.2)
     strategy.scanner = _FakeScanner(fresh_scan, {pair_def.key: pair_def})
     seen.clear()
-    signals = strategy.generate_signals(market_data=pd.DataFrame({"AAA": [100.0], "BBB": [95.0]}))
+    signals = strategy.generate_signals(market_data=pd.DataFrame({"SPY": [100.0], "IWM": [95.0]}))
 
     assert seen == ["ready"]
     assert len(signals) == 1
 
+    blocked_coint = _coint("AAA/BBB", 1.8, 1)
+    blocked_scan = PairScanResult(
+        timestamp=datetime.now(UTC),
+        total_candidates=1,
+        validated_pairs=[blocked_coint],
+        ranked_pairs=[blocked_coint],
+    )
+    blocked_scan.build_decision_context(max_age_seconds=60.0, min_rank_score=0.2)
+    blocked_pair_def = PairDefinition(
+        symbol_a="AAA",
+        symbol_b="BBB",
+        sector="tech",
+        pair_type="stat_arb",
+        status=PairStatus.VALIDATED,
+    )
+    strategy.scanner = _FakeScanner(blocked_scan, {blocked_pair_def.key: blocked_pair_def})
+    seen.clear()
+    signals = strategy.generate_signals(market_data=pd.DataFrame({"AAA": [100.0], "BBB": [95.0]}))
+
+    assert seen == ["ready"]
+    assert signals == []
+
+
+def test_pair_trading_strategy_halts_scanning_outside_market_hours(monkeypatch):
+    pair_def = PairDefinition(
+        symbol_a="SPY",
+        symbol_b="IWM",
+        sector="ETF",
+        pair_type="cross_asset",
+        status=PairStatus.VALIDATED,
+    )
+    strategy = PairTradingStrategy(
+        name="PairTradingStrategy_test",
+        event_manager=_StubEventManager(),
+        risk_profile=RiskProfile(account_size=100000.0),
+        config={},
+    )
+    scanner = _FakeScanner(_scan_result(), {pair_def.key: pair_def})
+    strategy.scanner = scanner
+    strategy._compute_z_score = lambda *args, **kwargs: 2.5  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "Tradov.TradovD_Strategies.TradovD42_PairTrading._is_market_hours",
+        lambda now=None: False,
+    )
+
+    seen: list[str] = []
+    strategy.set_pair_scan_sink(lambda scan: seen.append(getattr(scan, "decision_reason", "")))
+
+    signals = strategy.generate_signals(market_data=pd.DataFrame({"SPY": [100.0], "IWM": [95.0]}))
+
+    assert scanner.scan_calls == 0
+    assert seen == ["outside_trading_hours"]
+    assert signals == []
+
 
 def test_distance_strategy_pushes_scan_context_to_sink_and_honours_hold_state():
     pair = SimpleNamespace(
-        key="AAA/BBB",
-        symbol_a="AAA",
-        symbol_b="BBB",
+        key="SPY/IWM",
+        symbol_a="SPY",
+        symbol_b="IWM",
         ssd=1.5,
         z_score=lambda price_a, price_b: 2.5,
         spread=lambda price_a, price_b: price_a - price_b,
@@ -244,14 +397,14 @@ def test_distance_strategy_pushes_scan_context_to_sink_and_honours_hold_state():
     seen: list[str] = []
     strategy.set_pair_scan_sink(lambda scan: seen.append(getattr(scan, "decision_state", "")))
 
-    signals = strategy.generate_signals(market_data=pd.DataFrame({"AAA": [100.0], "BBB": [95.0]}))
+    signals = strategy.generate_signals(market_data=pd.DataFrame({"SPY": [100.0], "IWM": [95.0]}))
 
     assert seen == ["ready"]
     assert len(signals) == 1
 
     strategy.formed_pairs = {}
     seen.clear()
-    signals = strategy.generate_signals(market_data=pd.DataFrame({"AAA": [100.0], "BBB": [95.0]}))
+    signals = strategy.generate_signals(market_data=pd.DataFrame({"SPY": [100.0], "IWM": [95.0]}))
 
     assert seen == ["hold"]
     assert signals == []

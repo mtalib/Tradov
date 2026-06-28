@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovA_Core
 Module: TradovA04_Scheduler.py
@@ -8,7 +8,7 @@ Purpose: TRADOV - Automated TRAD Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     TRADOV - Automated TRAD Options Trading System
@@ -374,7 +374,7 @@ class Scheduler:
         self.session_window_config: dict[str, Any] = {
             "primary_start_et": "09:30",
             "primary_end_et": "16:15",
-            "first_entry_not_before_et": "09:45",
+            "first_entry_not_before_et": "09:35",
             "zero_dte_no_new_risk_cutoff_et": "14:30",
             "broker_cutoff_et": "16:00",
             "broker_cutoff_buffer_minutes": 10,

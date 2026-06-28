@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovA_Core
 Module: TradovA02_TradingEngine.py
@@ -8,7 +8,7 @@ Purpose: Complete trading engine with strategy orchestration and execution
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-01-24 Time: 11:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     This module serves as the core trading engine for the Tradov system. It manages

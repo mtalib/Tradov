@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG60_PairTradingWidgets.py
@@ -8,7 +8,7 @@ Purpose: Pair trading dashboard widgets — positions, spread chart, scanner, ri
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-06-03 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     GUI widgets for the pair trading subsystem:
@@ -21,18 +21,20 @@ Module Description:
 
 from __future__ import annotations
 
+import html
 from collections import deque
 from datetime import datetime, UTC
 import threading
 from typing import Any
 
-from PySide6.QtCore import Qt, QUrl, QTimer, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QFrame,
+    QComboBox,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -48,14 +50,18 @@ from matplotlib.figure import Figure
 
 from Tradov.TradovG_GUI.TradovG13_EnhancedWidgets import COLORS
 from Tradov.TradovD_Strategies.TradovD50_PairTypes import (
+    CointegrationResult,
     PairPosition,
     PairScanResult,
     PairSide,
 )
+import pytz
 
 _BODY_FONT_SIZE = 11
 _NEWS_BODY_FONT_SIZE = 14
 _TITLE_FONT_SIZE = 15
+_TABLE_HEADER_FONT_SIZE = 14
+_TABLE_HEADER_HEIGHT = 38
 _NEWS_PANEL_MAX_AGE_SECONDS = 24 * 60 * 60
 _TITLE_COLOR_PAPER = COLORS.get("warning", "#ff9800")
 _TITLE_COLOR_REAL = COLORS.get("positive", "#00ff41")
@@ -126,6 +132,16 @@ def _set_section_title_mode(label: QLabel, base_title: str, is_paper: bool) -> N
     )
 
 
+def _set_header_section_title_mode(label: QLabel, base_title: str, is_paper: bool) -> None:
+    suffix = "PAPER" if is_paper else "REAL"
+    color = _section_title_color(is_paper)
+    label.setText(f"{base_title} - {suffix}")
+    label.setStyleSheet(
+        f"QLabel#pairSectionTitle {{ color: {color}; background-color: #000000; "
+        f"padding: 6px 2px 6px 3px; font-size: {_TABLE_HEADER_FONT_SIZE}px; font-weight: 600; }}"
+    )
+
+
 def _set_news_title(label: QLabel) -> None:
     label.setText("BREAKING NEWS")
     label.setStyleSheet(
@@ -182,8 +198,34 @@ def _style_section_title(label: QLabel, base_title: str, is_paper: bool = True) 
     font.setBold(False)
     label.setFont(font)
     label.setObjectName("pairSectionTitle")
-    label.setFixedHeight(_TITLE_FONT_SIZE + 10)
+    label.setFixedHeight(_TITLE_FONT_SIZE + 6)
     _set_section_title_mode(label, base_title, is_paper)
+
+
+def _style_header_section_title(label: QLabel, base_title: str, is_paper: bool = True) -> None:
+    font = label.font()
+    font.setPixelSize(_TABLE_HEADER_FONT_SIZE)
+    font.setBold(True)
+    label.setFont(font)
+    label.setObjectName("pairSectionTitle")
+    label.setFixedHeight(_TABLE_HEADER_HEIGHT)
+    _set_header_section_title_mode(label, base_title, is_paper)
+
+
+def _style_compact_section_title(label: QLabel, base_title: str, is_paper: bool = True) -> None:
+    font = label.font()
+    font.setPixelSize(_TITLE_FONT_SIZE - 1)
+    font.setBold(False)
+    label.setFont(font)
+    label.setObjectName("pairSectionTitle")
+    label.setFixedHeight(_TITLE_FONT_SIZE + 1)
+    suffix = "PAPER" if is_paper else "REAL"
+    color = _section_title_color(is_paper)
+    label.setText(f"{base_title} - {suffix}")
+    label.setStyleSheet(
+        f"QLabel#pairSectionTitle {{ color: {color}; font-size: {_TITLE_FONT_SIZE - 1}px; font-weight: normal; "
+        "background-color: #000000; padding: 0; margin: 0; }}"
+    )
 
 
 def _pair_signed_notional(pos: PairPosition) -> float:
@@ -209,6 +251,39 @@ def _pair_side_color(pos: PairPosition) -> str:
     return COLORS.get("positive", "#00ff88")
 
 
+def _pair_leg_display_text(pos: PairPosition) -> str:
+    symbol_a = str(pos.symbol_a or "").strip()
+    symbol_b = str(pos.symbol_b or "").strip()
+    if symbol_a and symbol_b:
+        return f"{symbol_a} / {symbol_b}"
+
+    pair_key = str(pos.pair_key or "").strip()
+    if pair_key:
+        return pair_key
+    return "-"
+
+
+def _pair_leg_color(pos: PairPosition, leg: str) -> str:
+    if pos.pair_side == PairSide.SHORT_LONG:
+        return COLORS.get("negative", "#ff4444") if leg == "a" else COLORS.get("positive", "#00ff88")
+    return COLORS.get("positive", "#00ff88") if leg == "a" else COLORS.get("negative", "#ff4444")
+
+
+def _pair_leg_rich_text(pos: PairPosition) -> str:
+    symbol_a = str(pos.symbol_a or "").strip()
+    symbol_b = str(pos.symbol_b or "").strip()
+    if not (symbol_a and symbol_b):
+        return html.escape(_pair_leg_display_text(pos))
+
+    color_a = _pair_leg_color(pos, "a")
+    color_b = _pair_leg_color(pos, "b")
+    return (
+        f"<span style='color:{color_a}; font-weight:600;'>{html.escape(symbol_a)}</span>"
+        f"<span style='color:#808080;'> / </span>"
+        f"<span style='color:{color_b}; font-weight:600;'>{html.escape(symbol_b)}</span>"
+    )
+
+
 def _pair_entry_cost(pos: PairPosition) -> float:
     return abs(pos.quantity_a * pos.entry_price_a) + abs(pos.quantity_b * pos.entry_price_b)
 
@@ -228,6 +303,69 @@ def _pair_funds_held(pos: PairPosition) -> float:
         except (TypeError, ValueError):
             pass
     return _pair_entry_cost(pos)
+
+
+def _apply_pair_table_chrome(
+    table: QTableWidget,
+    row_height: int,
+    fixed_height_padding: int,
+    *,
+    cell_font_size: int = 13,
+) -> None:
+    table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+    table.verticalHeader().setDefaultSectionSize(row_height)
+    table.setAlternatingRowColors(True)
+    table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+    table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    table.setFixedHeight(table.horizontalHeader().sizeHint().height() + (row_height * 3) + fixed_height_padding)
+    font = table.font()
+    font.setPointSize(cell_font_size)
+    table.setFont(font)
+    table.setStyleSheet(
+        f"""
+            QTableWidget {{
+                background-color: #000000;
+                color: {COLORS.get('text', '#ffffff')};
+                gridline-color: #333333;
+                border: 1px solid #1f1f1f;
+                font-size: {cell_font_size}px;
+                selection-background-color: #111111;
+            }}
+            QTableWidget::item {{
+                background-color: #0a0a0a;
+                border-bottom: 1px solid #202020;
+                font-size: {cell_font_size}px;
+            }}
+            QTableWidget::item:alternate {{
+                background-color: #111111;
+            }}
+            QHeaderView::section {{
+                background-color: #000000;
+                color: {COLORS.get('text', '#ffffff')};
+                border: 1px solid #1f1f1f;
+                padding: 2px;
+                font-size: {_BODY_FONT_SIZE + 1}px;
+                font-weight: 600;
+            }}
+        """
+    )
+
+
+def _scanner_rank_label(rank: Any) -> str:
+    try:
+        rank_int = int(rank)
+    except (TypeError, ValueError):
+        return str(rank)
+    return {
+        1: "First",
+        2: "Second",
+        3: "Third",
+    }.get(rank_int, str(rank_int))
+
+
+def _style_scanner_pair_item(item: QTableWidgetItem) -> None:
+    item.setForeground(QColor(COLORS.get("cyan", "#00ffff")))
 
 
 def _scan_result_cost(result: CointegrationResult) -> float | None:
@@ -291,7 +429,7 @@ def _build_scaffold_widget(column_labels: list[str], row_height: int, row_labels
         header_layout.addWidget(label, 1)
     layout.addWidget(header)
 
-    for row_index, row_label in enumerate(row_labels, start=1):
+    for _row_index, row_label in enumerate(row_labels, start=1):
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -321,13 +459,14 @@ class PairPositionsPanel(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 4, 0, 6)
-        layout.setSpacing(5)
+        layout.setContentsMargins(0, 0, 0, 1)
+        layout.setSpacing(1)
         self.setStyleSheet("background-color: #000000;")
-        self.setMinimumHeight(230)
+        self.setMinimumHeight(130)
 
         header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 2)
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(4)
         self._title_label = QLabel()
         _style_section_title(self._title_label, "PAIR POSITIONS")
         header.addWidget(self._title_label)
@@ -337,15 +476,6 @@ class PairPositionsPanel(QWidget):
         header.addWidget(self._count_label)
         layout.addLayout(header)
 
-        self._empty_label = QLabel("No open pair positions")
-        self._empty_label.setStyleSheet(
-            f"color: {COLORS.get('text_dim', '#888888')}; font-size: {_BODY_FONT_SIZE}px; padding: 2px 0;"
-        )
-        layout.addWidget(self._empty_label)
-
-        summary = QHBoxLayout()
-        summary.setContentsMargins(2, 0, 2, 0)
-        summary.setSpacing(12)
         self._open_pairs_label = QLabel("Open Pair Count: 0")
         self._gross_notional_label = QLabel("Gross Notional: $0")
         self._cost_label = QLabel("Cost: $0")
@@ -359,52 +489,15 @@ class PairPositionsPanel(QWidget):
             self._net_exposure_label,
         ):
             label.setStyleSheet(f"color: {COLORS.get('text_dim', '#888888')}; font-size: {_BODY_FONT_SIZE}px;")
-            summary.addWidget(label)
-        summary.addStretch()
-        layout.addLayout(summary)
 
         self._table = QTableWidget(0, 10)
         self._table.setHorizontalHeaderLabels([
             "SIDE", "PAIR", "QTY-A", "QTY-B", "Z-SCORE",
             "SPREAD", "COST", "FUNDS-HELD", "P&L", "DURATION",
         ])
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self._table.verticalHeader().setDefaultSectionSize(self._ROW_HEIGHT)
+        _apply_pair_table_chrome(self._table, self._ROW_HEIGHT, 14, cell_font_size=13)
         self._table.verticalHeader().setSectionsClickable(True)
         self._table.verticalHeader().sectionClicked.connect(self._on_row_header_clicked)
-        self._table.setAlternatingRowColors(True)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._table.setFixedHeight(self._table.horizontalHeader().sizeHint().height() + (self._ROW_HEIGHT * 3) + 14)
-        self._table.setStyleSheet(
-            f"""
-                QTableWidget {{
-                    background-color: #000000;
-                    color: {COLORS.get('text', '#ffffff')};
-                    gridline-color: #333333;
-                    border: 1px solid #1f1f1f;
-                    font-size: {_BODY_FONT_SIZE}px;
-                    selection-background-color: #111111;
-                }}
-                QTableWidget::item {{
-                    background-color: #0a0a0a;
-                    border-bottom: 1px solid #202020;
-                    font-size: {_BODY_FONT_SIZE}px;
-                }}
-                QTableWidget::item:alternate {{
-                    background-color: #111111;
-                }}
-                QHeaderView::section {{
-                    background-color: #000000;
-                    color: {COLORS.get('text', '#ffffff')};
-                    border: 1px solid #1f1f1f;
-                    padding: 2px;
-                    font-size: {_BODY_FONT_SIZE + 1}px;
-                    font-weight: 600;
-                }}
-            """
-        )
         layout.addWidget(self._table)
 
         self._empty_scaffold = None
@@ -412,14 +505,8 @@ class PairPositionsPanel(QWidget):
         self._table.setVisible(True)
         self._set_placeholder_rows(0)
 
-        totals_layout = QHBoxLayout()
-        self._total_notional_label = QLabel("Notional: $0")
-        self._total_notional_label.setStyleSheet(f"color: {COLORS.get('text_dim', '#888888')}; font-size: {_BODY_FONT_SIZE}px;")
-        totals_layout.addStretch()
-        totals_layout.addWidget(self._total_notional_label)
-        layout.addLayout(totals_layout)
-
         self.setLayout(layout)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def set_trading_mode(self, is_paper: bool) -> None:
         _set_section_title_mode(self._title_label, "PAIR POSITIONS", is_paper)
@@ -430,6 +517,8 @@ class PairPositionsPanel(QWidget):
         self._table.setRowCount(visible_rows)
         for row in range(visible_rows):
             self._table.setRowHeight(row, self._ROW_HEIGHT)
+            if self._table.cellWidget(row, 1) is not None:
+                self._table.removeCellWidget(row, 1)
             for col in range(self._table.columnCount()):
                 item = self._table.item(row, col)
                 if item is None:
@@ -473,7 +562,6 @@ class PairPositionsPanel(QWidget):
 
     def update_positions(self, positions: dict[str, PairPosition]) -> None:
         has_positions = bool(positions)
-        self._empty_label.setVisible(not has_positions)
         self._table.setVisible(True)
         if self._empty_scaffold is not None:
             self._empty_scaffold.setVisible(False)
@@ -481,7 +569,6 @@ class PairPositionsPanel(QWidget):
         if not has_positions:
             self._set_placeholder_rows(0)
             self._count_label.setText("0 open")
-            self._total_notional_label.setText("Notional: $0")
             self._open_pairs_label.setText("Open Pair Count: 0")
             self._gross_notional_label.setText("Gross Notional: $0")
             self._cost_label.setText("Cost: $0")
@@ -494,10 +581,17 @@ class PairPositionsPanel(QWidget):
             self._table.setRowHeight(row, self._ROW_HEIGHT)
             side_item = QTableWidgetItem(_pair_side_label(pos))
             side_item.setForeground(QColor(_pair_side_color(pos)))
-            self._table.setItem(row, 1, side_item)
-            self._table.setItem(row, 0, QTableWidgetItem(pair_key))
+            self._table.setItem(row, 0, side_item)
             self._table.setItem(row, 2, QTableWidgetItem(str(pos.quantity_a)))
             self._table.setItem(row, 3, QTableWidgetItem(str(pos.quantity_b)))
+            pair_label = QLabel(_pair_leg_rich_text(pos))
+            pair_label.setTextFormat(Qt.TextFormat.RichText)
+            pair_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            pair_label.setToolTip(pair_key)
+            pair_label.setStyleSheet(
+                "background-color: transparent; color: #ffffff; font-size: 13px; font-weight: 600;"
+            )
+            self._table.setCellWidget(row, 1, pair_label)
 
             z_item = QTableWidgetItem(f"{pos.current_z:.2f}")
             z_color = _pnl_color(-pos.current_z) if pos.pair_side == PairSide.LONG_SHORT else _pnl_color(pos.current_z)
@@ -530,7 +624,6 @@ class PairPositionsPanel(QWidget):
         )
         total_cost = sum(_pair_entry_cost(p) for p in positions.values())
         total_funds_held = sum(_pair_funds_held(p) for p in positions.values())
-        self._total_notional_label.setText(f"Notional: {_money(total_notional)}")
 
         signed_notional = sum(_pair_signed_notional(p) for p in positions.values())
         self._open_pairs_label.setText(f"Open Pair Count: {len(positions)}")
@@ -612,87 +705,56 @@ class PairScannerPanel(QWidget):
     _ROW_HEIGHT = 20
     _SCAFFOLD_TEXT = "Waiting for scanner results..."
     _SCAN_IN_PROGRESS_TEXT = "SCANNING IN PROGRESS"
+    _SCAN_HALTED_TEXT = "SCANNING HALTED"
+    _SCAN_WARMING_TEXT = "SCANNING WARMING UP"
+    bundle_selection_changed = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 4, 0, 6)
-        layout.setSpacing(5)
+        layout.setContentsMargins(0, 0, 0, 2)
+        layout.setSpacing(1)
         self.setStyleSheet("background-color: #000000;")
-        self.setMinimumHeight(170)
+        self.setMinimumHeight(114)
 
         header = QHBoxLayout()
-        header.setContentsMargins(0, 0, 0, 2)
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(4)
         self._title_label = QLabel()
         _style_section_title(self._title_label, "SCANNER RESULTS")
         header.addWidget(self._title_label)
-        header.addStretch()
+        header.addWidget(QLabel(" | "))
         self._scan_label = QLabel(self._SCAN_IN_PROGRESS_TEXT)
         self._scan_label.setStyleSheet(f"color: {COLORS.get('text_dim', '#888888')}; font-size: {_BODY_FONT_SIZE}px;")
         header.addWidget(self._scan_label)
+        self._status_badge = QLabel("EMPTY")
+        self._status_badge.setMinimumWidth(54)
+        self._status_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._status_badge.setStyleSheet(
+            "background-color: #2a2a2a; color: #aaaaaa; border: 1px solid #3a3a3a; "
+            f"font-size: {_BODY_FONT_SIZE}px; padding: 1px 6px; font-weight: 700;"
+        )
+        header.addWidget(self._status_badge)
+        header.addStretch()
+        self._bundle_combo = QComboBox()
+        self._bundle_combo.setMinimumWidth(180)
+        self._bundle_combo.setStyleSheet(
+            "QComboBox { background-color: #101010; color: #ffffff; border: 1px solid #2a2a2a; padding: 2px 8px; }"
+            "QComboBox QAbstractItemView { background-color: #111111; color: #ffffff; selection-background-color: #333333; }"
+        )
+        self._bundle_combo.currentIndexChanged.connect(lambda *_: self._emit_bundle_selection_changed())
+        header.addWidget(self._bundle_combo)
         layout.addLayout(header)
-
-        summary = QHBoxLayout()
-        summary.setContentsMargins(2, 0, 2, 0)
-        summary.setSpacing(12)
-        self._summary_label = QLabel("Candidates: -")
-        self._summary_label.setStyleSheet(f"color: {COLORS.get('text_dim', '#888888')}; font-size: {_BODY_FONT_SIZE}px;")
-        self._tradeable_label = QLabel("Tradeable: -")
-        self._tradeable_label.setStyleSheet(f"color: {COLORS.get('positive', '#00ff88')}; font-size: {_BODY_FONT_SIZE}px;")
-        self._best_score_label = QLabel("Best score: -")
-        self._best_score_label.setStyleSheet(f"color: {COLORS.get('cyan', '#00ccff')}; font-size: {_BODY_FONT_SIZE}px;")
-        self._scan_state_label = QLabel("State: -")
-        self._scan_state_label.setStyleSheet(f"color: {COLORS.get('text_dim', '#888888')}; font-size: {_BODY_FONT_SIZE}px;")
-        self._best_pair_label = QLabel("Best pair: -")
-        self._best_pair_label.setStyleSheet(f"color: {COLORS.get('text_dim', '#888888')}; font-size: {_BODY_FONT_SIZE}px;")
-        summary.addWidget(self._summary_label)
-        summary.addWidget(self._tradeable_label)
-        summary.addWidget(self._best_score_label)
-        summary.addWidget(self._scan_state_label)
-        summary.addWidget(self._best_pair_label)
-        summary.addStretch()
-        layout.addLayout(summary)
+        layout.addSpacing(2)
 
         self._table = QTableWidget(0, 10)
         self._table.setHorizontalHeaderLabels([
             "RANK", "PAIR", "P-VALUE", "SCORE", "HALF-LIFE", "HEDGE RATIO",
             "COST", "FUNDS-HELD", "SPREAD STD", "TRADEABLE",
         ])
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self._table.verticalHeader().setDefaultSectionSize(self._ROW_HEIGHT)
-        self._table.setAlternatingRowColors(True)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._table.setFixedHeight(self._table.horizontalHeader().sizeHint().height() + (self._ROW_HEIGHT * 3) + 14)
-        self._table.setStyleSheet(
-            f"""
-                QTableWidget {{
-                    background-color: #000000;
-                    color: {COLORS.get('text', '#ffffff')};
-                    gridline-color: #333333;
-                    border: 1px solid #1f1f1f;
-                    font-size: {_BODY_FONT_SIZE}px;
-                    selection-background-color: #111111;
-                }}
-                QTableWidget::item {{
-                    background-color: #0a0a0a;
-                    border-bottom: 1px solid #202020;
-                    font-size: {_BODY_FONT_SIZE}px;
-                }}
-                QTableWidget::item:alternate {{
-                    background-color: #111111;
-                }}
-                QHeaderView::section {{
-                    background-color: #000000;
-                    color: {COLORS.get('text', '#ffffff')};
-                    border: 1px solid #1f1f1f;
-                    padding: 2px;
-                    font-size: {_BODY_FONT_SIZE + 1}px;
-                    font-weight: 600;
-                }}
-            """
-        )
+        self._table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        _apply_pair_table_chrome(self._table, self._ROW_HEIGHT, 14, cell_font_size=13)
         layout.addWidget(self._table)
 
         self._empty_scaffold = None
@@ -700,9 +762,82 @@ class PairScannerPanel(QWidget):
         self._set_placeholder_rows(0)
 
         self.setLayout(layout)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._bundle_combo.addItem("AUTO")
+        self._bundle_preview_name = ""
+        self._bundle_preview_pair_keys: tuple[str, ...] = ()
 
     def set_trading_mode(self, is_paper: bool) -> None:
         _set_section_title_mode(self._title_label, "SCANNER RESULTS", is_paper)
+
+    def set_bundle_choices(self, bundle_names: list[str] | tuple[str, ...], *, selected_bundle: str = "") -> None:
+        """Populate bundle choices and select the current override."""
+        current = str(selected_bundle or "").strip()
+        names = [str(name).strip() for name in bundle_names if str(name).strip()]
+        self._bundle_combo.blockSignals(True)
+        try:
+            self._bundle_combo.clear()
+            self._bundle_combo.addItem("AUTO")
+            for name in names:
+                self._bundle_combo.addItem(name)
+            index = 0
+            if current:
+                found = self._bundle_combo.findText(current)
+                if found >= 0:
+                    index = found
+            self._bundle_combo.setCurrentIndex(index)
+        finally:
+            self._bundle_combo.blockSignals(False)
+        self._emit_bundle_selection_changed()
+
+    def selected_bundle_name(self) -> str:
+        text = str(self._bundle_combo.currentText() or "").strip()
+        return "" if text.upper() == "AUTO" else text
+
+    def set_bundle_preview(self, bundle_name: str, pair_keys: list[str] | tuple[str, ...] | None = None) -> None:
+        """Store the bundle used for empty-state preview rows."""
+        self._bundle_preview_name = str(bundle_name or "").strip()
+        self._bundle_preview_pair_keys = tuple(
+            str(key or "").strip().upper()
+            for key in (pair_keys or ())
+            if str(key or "").strip()
+        )
+
+    def _emit_bundle_selection_changed(self) -> None:
+        self.bundle_selection_changed.emit(self.selected_bundle_name())
+
+    def set_scan_status(self, status: str) -> None:
+        """Set the scanner status label independently from scan results."""
+        normalized = str(status or "").strip().upper()
+        if normalized in {"WARMING", "WARMING_UP", "WARMUP"}:
+            self._scan_label.setText(self._SCAN_WARMING_TEXT)
+            self._set_status_badge("WARMING", "#7a5c00", "#ffd86b")
+        elif normalized in {"HALTED", "STOPPED", "PAUSED"}:
+            self._scan_label.setText(self._SCAN_HALTED_TEXT)
+            self._set_status_badge("HALTED", "#7a1f1f", "#ff8b8b")
+        elif normalized in {"PREVIEW", "PREVIEW_MODE"}:
+            self._scan_label.setText("SCANNER PREVIEW")
+            self._set_status_badge("PREVIEW", "#2e3a1d", "#c6ff7a")
+        elif normalized in {"ACTIVE", "RUNNING", "IN_PROGRESS"}:
+            self._scan_label.setText(self._SCAN_IN_PROGRESS_TEXT)
+            self._set_status_badge("LIVE", "#1f5f2a", "#8bffb1")
+
+    def _set_status_badge(self, text: str, background: str, foreground: str) -> None:
+        self._status_badge.setText(text)
+        self._status_badge.setStyleSheet(
+            f"background-color: {background}; color: {foreground}; border: 1px solid {foreground}; "
+            f"font-size: {_BODY_FONT_SIZE}px; padding: 2px 8px; font-weight: 700;"
+        )
+
+    @staticmethod
+    def _pair_score_color(result: PairScanResult, row_index: int) -> QColor:
+        if result.is_tradeable:
+            if result.p_value <= 0.05 or result.ranking_score >= 1.0:
+                return QColor(COLORS.get("positive", "#00ff88"))
+            return QColor(COLORS.get("orange", "#ff9800"))
+        if row_index == 0 and result.ranking_score > 0.0:
+            return QColor(COLORS.get("yellow", "#ffd000"))
+        return QColor(COLORS.get("negative", "#ff4444"))
 
     def _set_placeholder_rows(self, row_count: int) -> None:
         self._table.clearSpans()
@@ -743,25 +878,91 @@ class PairScannerPanel(QWidget):
         first_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         first_item.setForeground(QColor("#666666"))
 
-    def update_scan(self, scan_result: PairScanResult) -> None:
+    @staticmethod
+    def _format_decision_text(decision_state: str, decision_reason: str) -> str:
+        state = str(decision_state or "").strip().upper()
+        reason = str(decision_reason or "").strip()
+        if not state and not reason:
+            return "-"
+        if state and reason:
+            return f"{state} ({reason})"
+        return state or reason
+
+    def _set_scan_meta(
+        self,
+        *,
+        candidates: str,
+        tradeable: str,
+        best_score: str,
+        best_pair: str,
+        decision_state: str = "",
+        decision_reason: str = "",
+    ) -> None:
+        return
+
+    def update_scan(self, scan_result: PairScanResult, market_hours_open: bool | None = None) -> None:
         pairs = (scan_result.ranked_pairs or scan_result.validated_pairs)[:3]
+        preview_pairs = list(self._bundle_preview_pair_keys[:3])
+        scanner_active = bool(market_hours_open)
         self._set_placeholder_rows(len(pairs))
-        self._scan_label.setText(self._SCAN_IN_PROGRESS_TEXT)
+        if not scanner_active:
+            self._scan_label.setText(self._SCAN_HALTED_TEXT)
+        else:
+            self._scan_label.setText(self._SCAN_IN_PROGRESS_TEXT)
         self._table.setVisible(True)
         if self._empty_scaffold is not None:
             self._empty_scaffold.setVisible(False)
         if not pairs:
+            if preview_pairs:
+                if not scanner_active:
+                    self._set_status_badge("HALTED", "#7a1f1f", "#ff8b8b")
+                    self._scan_label.setText(self._SCAN_HALTED_TEXT)
+                else:
+                    self._set_status_badge("PREVIEW", "#2e3a1d", "#c6ff7a")
+                self._set_placeholder_rows(len(preview_pairs))
+                if scanner_active:
+                    self._scan_label.setText("SCANNER PREVIEW")
+                self._set_scan_meta(
+                    candidates=f"{len(preview_pairs)} (preview)",
+                    tradeable="-",
+                    best_score="-",
+                    best_pair=f"{self._bundle_preview_name or '-'} (preview)",
+                    decision_state="PREVIEW",
+                    decision_reason="awaiting_scan",
+                )
+                for row, pair_key in enumerate(preview_pairs):
+                    self._table.setRowHeight(row, self._ROW_HEIGHT)
+                    self._table.setItem(row, 0, QTableWidgetItem(_scanner_rank_label(row + 1)))
+                    pair_item = QTableWidgetItem(pair_key)
+                    _style_scanner_pair_item(pair_item)
+                    self._table.setItem(row, 1, pair_item)
+                    for col in range(2, 9):
+                        self._table.setItem(row, col, QTableWidgetItem("-"))
+                    tradeable_item = QTableWidgetItem("PREVIEW")
+                    tradeable_item.setForeground(QColor(COLORS.get("text_dim", "#888888")))
+                    self._table.setItem(row, 9, tradeable_item)
+                return
+            self._set_status_badge("EMPTY", "#2a2a2a", "#aaaaaa")
+            if not scanner_active:
+                self._scan_label.setText(self._SCAN_HALTED_TEXT)
             total_candidates = int(getattr(scan_result, "total_candidates", 0) or 0)
             decision_state = str(getattr(scan_result, "decision_state", "unknown") or "unknown").upper()
             decision_reason = str(getattr(scan_result, "decision_reason", "") or "").strip()
-            self._summary_label.setText(f"Candidates: {total_candidates}")
-            self._tradeable_label.setText("Tradeable: 0")
-            self._best_score_label.setText("Best score: -")
-            self._scan_state_label.setText(
-                f"State: {decision_state}"
-                + (f" ({decision_reason})" if decision_reason else "")
+            bundle_name = str(getattr(scan_result, "bundle_name", "") or "").strip()
+            bundle_reason = str(getattr(scan_result, "bundle_reason", "") or "").strip()
+            bundle_score = float(getattr(scan_result, "bundle_score", 0.0) or 0.0)
+            self._set_scan_meta(
+                candidates=str(total_candidates),
+                tradeable="0",
+                best_score="-",
+                best_pair=(
+                    f"{bundle_name or '-'}"
+                    + (f" ({bundle_reason}, {bundle_score:.2f})" if bundle_name else "")
+                    + (f" [{decision_state}{f' - {decision_reason}' if decision_reason else ''}]" if decision_state else "")
+                ),
+                decision_state=decision_state,
+                decision_reason=decision_reason,
             )
-            self._best_pair_label.setText("Best pair: -")
             return
         tradeable_count = 0
         best_score = None
@@ -769,17 +970,18 @@ class PairScannerPanel(QWidget):
             metadata = getattr(result, "metadata", {}) or {}
             rank = metadata.get("rank", row + 1)
             self._table.setRowHeight(row, self._ROW_HEIGHT)
-            self._table.setItem(row, 0, QTableWidgetItem(str(rank)))
-            self._table.setItem(row, 1, QTableWidgetItem(result.pair_key))
+            self._table.setItem(row, 0, QTableWidgetItem(_scanner_rank_label(rank)))
+            pair_item = QTableWidgetItem(result.pair_key)
+            _style_scanner_pair_item(pair_item)
+            self._table.setItem(row, 1, pair_item)
 
             p_item = QTableWidgetItem(f"{result.p_value:.4f}")
-            p_item.setForeground(QColor(
-                COLORS.get("positive", "#00ff88") if result.p_value < 0.05 else COLORS.get("text", "#ffffff")
-            ))
+            p_item.setForeground(self._pair_score_color(result, row))
             self._table.setItem(row, 2, p_item)
 
             score_item = QTableWidgetItem(f"{result.ranking_score:.3f}")
             score_item.setForeground(QColor(COLORS.get("cyan", "#00ccff")))
+            score_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self._table.setItem(row, 3, score_item)
             if best_score is None or result.ranking_score > best_score:
                 best_score = result.ranking_score
@@ -801,73 +1003,159 @@ class PairScannerPanel(QWidget):
             tradeable_item = QTableWidgetItem("YES" if result.is_tradeable else "NO")
             if result.is_tradeable:
                 tradeable_count += 1
-            tradeable_item.setForeground(QColor(
-                COLORS.get("positive", "#00ff88") if result.is_tradeable else COLORS.get("text_dim", "#888888")
-            ))
+            tradeable_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if result.is_tradeable:
+                tradeable_item.setForeground(QColor(COLORS.get("positive", "#00ff88")))
+                tradeable_item.setBackground(QColor("#123a25"))
+            else:
+                tradeable_item.setForeground(QColor(COLORS.get("text_dim", "#888888")))
+                tradeable_item.setBackground(QColor("#1b1b1b"))
             self._table.setItem(row, 9, tradeable_item)
 
         total_candidates = scan_result.total_candidates
-        self._summary_label.setText(f"Candidates: {total_candidates}")
-        self._tradeable_label.setText(f"Tradeable: {tradeable_count}")
-        self._best_score_label.setText(
-            f"Best score: {best_score:.3f}" if best_score is not None else "Best score: -"
-        )
-        self._scan_state_label.setText(
-            f"State: {getattr(scan_result, 'decision_state', 'unknown')} ({getattr(scan_result, 'decision_reason', '')})"
-        )
+        if scanner_active:
+            self._set_status_badge("LIVE", "#1f5f2a", "#8bffb1")
+            self._scan_label.setText(self._SCAN_IN_PROGRESS_TEXT)
+        else:
+            self._set_status_badge("HALTED", "#7a1f1f", "#ff8b8b")
+            self._scan_label.setText(self._SCAN_HALTED_TEXT)
+        bundle_name = str(getattr(scan_result, "bundle_name", "") or "").strip()
+        bundle_reason = str(getattr(scan_result, "bundle_reason", "") or "").strip()
+        bundle_score = float(getattr(scan_result, "bundle_score", 0.0) or 0.0)
         best_pair = getattr(scan_result, "best_pair_key", "") or "-"
         best_age = float(getattr(scan_result, "scan_age_seconds", 0.0) or 0.0)
-        self._best_pair_label.setText(f"Best pair: {best_pair} @ {best_age:.0f}s")
+        decision_state = str(getattr(scan_result, "decision_state", "unknown") or "unknown").upper()
+        decision_reason = str(getattr(scan_result, "decision_reason", "") or "").strip()
+        self._set_scan_meta(
+            candidates=str(total_candidates),
+            tradeable=str(tradeable_count),
+            best_score=f"{best_score:.3f}" if best_score is not None else "-",
+            best_pair=(
+                f"{best_pair} @ {best_age:.0f}s"
+                + (f" | {bundle_name}" if bundle_name else "")
+                + (f" ({bundle_reason}, {bundle_score:.2f})" if bundle_name else "")
+                + (f" [{decision_state}{f' - {decision_reason}' if decision_reason else ''}]" if decision_state else "")
+            ),
+            decision_state=decision_state,
+            decision_reason=decision_reason,
+        )
 
 
 class PairRiskSummaryPanel(QWidget):
+    _ROW_HEIGHT = 20
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        layout = QGridLayout()
-        layout.setContentsMargins(6, 12, 6, 12)
-        layout.setHorizontalSpacing(8)
-        layout.setVerticalSpacing(10)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 1)
+        layout.setSpacing(1)
         self.setStyleSheet("background-color: #000000;")
-        self.setMinimumHeight(142)
 
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(2)
         self._title_label = QLabel()
-        _style_section_title(self._title_label, "PAIR RISK SUMMARY")
-        layout.addWidget(self._title_label, 0, 0, 1, 4)
-        layout.setColumnStretch(0, 3)
-        layout.setColumnStretch(1, 1)
-        layout.setColumnStretch(2, 3)
-        layout.setColumnStretch(3, 1)
-        layout.setColumnStretch(4, 3)
-        layout.setColumnStretch(5, 1)
+        _style_compact_section_title(self._title_label, "PAIR RISK SUMMARY")
+        header.addWidget(self._title_label)
+        header.addStretch()
+        layout.addLayout(header)
 
-        risk_font_size = 13
-        label_style = f"color: #ffffff; font-size: {risk_font_size}px; font-weight: normal;"
-        value_style = f"color: #ffffff; font-size: {risk_font_size}px; font-weight: normal;"
+        self._table = QTableWidget(5, 3)
+        self._table.setHorizontalHeaderLabels([
+            "PORTFOLIO-LEVEL RISK METRICS",
+            "DESCRIPTION",
+            "VALUE",
+        ])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self._table.setColumnWidth(2, 220)
+        self._table.verticalHeader().setDefaultSectionSize(self._ROW_HEIGHT)
+        self._table.verticalHeader().setVisible(True)
+        self._table.verticalHeader().setSectionsClickable(False)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._table.setFixedHeight(self._table.horizontalHeader().sizeHint().height() + (self._ROW_HEIGHT * 6) + 14)
+        table_font = self._table.font()
+        table_font.setPointSize(13)
+        self._table.setFont(table_font)
+        self._table.setStyleSheet(
+            f"""
+                QTableWidget {{
+                    background-color: #000000;
+                    color: {COLORS.get('text', '#ffffff')};
+                    gridline-color: #333333;
+                    border: 1px solid #1f1f1f;
+                    font-size: 13px;
+                    selection-background-color: #111111;
+                }}
+                QTableWidget::item {{
+                    background-color: #0a0a0a;
+                    border-bottom: 1px solid #202020;
+                    font-size: 13px;
+                }}
+                QTableWidget::item:alternate {{
+                    background-color: #111111;
+                }}
+                QHeaderView::section {{
+                    background-color: #000000;
+                    color: {COLORS.get('text', '#ffffff')};
+                    border: 1px solid #1f1f1f;
+                    padding: 2px;
+                    font-size: {_BODY_FONT_SIZE + 1}px;
+                    font-weight: 600;
+                }}
+            """
+        )
+        layout.addWidget(self._table)
 
-        self._labels: dict[str, QLabel] = {}
-        metrics = [
-            ("Open Pair Count", 1, 0),
-            ("Gross Notional", 1, 2),
-            ("Cost", 1, 4),
-            ("Funds Held by Broker", 2, 0),
-            ("Net Dollar Exposure", 2, 2),
-            ("Max Sector Pair Count", 2, 4),
-            ("Cointegration Stability", 3, 0),
+        self._metric_rows = [
+            ("Gross Notional", "Total mark-to-market exposure across both legs", "total_notional"),
+            ("Total Cost", "Combined entry cost for the open pair book", "total_cost"),
+            ("Funds Held by Broker", "Capital currently reserved or tied up by the broker", "funds_held_by_broker"),
+            ("Unrealized P&L", "Open profit or loss across the pair portfolio", "unrealized_pnl"),
+            ("Net Dollar Exposure", "Directional net exposure after long and short offsets", "net_exposure"),
         ]
-        for name, row, col in metrics:
-            lbl = QLabel(name.upper() + ":")
-            lbl.setStyleSheet(label_style)
-            layout.addWidget(lbl, row, col)
-            val = QLabel("-")
-            val.setStyleSheet(value_style)
-            val.setMinimumWidth(84)
-            layout.addWidget(val, row, col + 1)
-            self._labels[name] = val
+        self._metric_values = [QTableWidgetItem("-") for _ in self._metric_rows]
+        for row, (metric_name, description, _value_key) in enumerate(self._metric_rows):
+            self._table.setVerticalHeaderItem(row, QTableWidgetItem(str(row + 1)))
+            metric_item = QTableWidgetItem(metric_name)
+            metric_item.setForeground(QColor(COLORS.get("text", "#ffffff")))
+            metric_item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            self._table.setItem(row, 0, metric_item)
+
+            description_item = QTableWidgetItem(description)
+            description_item.setForeground(QColor(COLORS.get("text", "#ffffff")))
+            description_item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            self._table.setItem(row, 1, description_item)
+
+            value_item = self._metric_values[row]
+            value_item.setForeground(QColor(COLORS.get("text", "#ffffff")))
+            value_item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+            self._table.setItem(row, 2, value_item)
+
+        self._table.setRowHeight(0, self._ROW_HEIGHT)
+        self._table.setRowHeight(1, self._ROW_HEIGHT)
+        self._table.setRowHeight(2, self._ROW_HEIGHT)
+        self._table.setRowHeight(3, self._ROW_HEIGHT)
+        self._table.setRowHeight(4, self._ROW_HEIGHT)
 
         self.setLayout(layout)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(186)
 
     def set_trading_mode(self, is_paper: bool) -> None:
         _set_section_title_mode(self._title_label, "PAIR RISK SUMMARY", is_paper)
+
+    def _set_metric_value(self, row: int, value: str, color: str) -> None:
+        item = self._table.item(row, 2)
+        if item is None:
+            item = QTableWidgetItem("")
+            self._table.setItem(row, 2, item)
+        item.setText(value)
+        item.setForeground(QColor(color))
+        item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
 
     def update_metrics(
         self,
@@ -880,17 +1168,18 @@ class PairRiskSummaryPanel(QWidget):
         max_sector_pairs: int = 0,
         coint_stable_pct: float = 0.0,
     ) -> None:
-        self._labels["Open Pair Count"].setText(str(open_pairs))
-        self._labels["Gross Notional"].setText(_money(total_notional))
-        self._labels["Cost"].setText(_money(total_cost))
-        self._labels["Funds Held by Broker"].setText(_money(funds_held_by_broker))
-        self._labels["Max Sector Pair Count"].setText(str(max_sector_pairs))
-        self._labels["Cointegration Stability"].setText(f"{coint_stable_pct:.0%}")
+        self._set_metric_value(0, _money(total_notional), COLORS.get("text", "#ffffff"))
+        self._set_metric_value(1, _money(total_cost), COLORS.get("text", "#ffffff"))
+        self._set_metric_value(2, _money(funds_held_by_broker), COLORS.get("text", "#ffffff"))
+        self._set_metric_value(3, _money(unrealized_pnl), COLORS.get("text", "#ffffff"))
 
         if net_exposure:
             long_exp = sum(v for v in net_exposure.values() if v > 0)
             short_exp = sum(v for v in net_exposure.values() if v < 0)
-            self._labels["Net Dollar Exposure"].setText(f"L:{_money(long_exp)} S:{_money(abs(short_exp))}")
+            exposure_text = f"Long {_money(long_exp)} | Short {_money(abs(short_exp))}"
+        else:
+            exposure_text = "Long $0.00 | Short $0.00"
+        self._set_metric_value(4, exposure_text, COLORS.get("text", "#ffffff"))
 
 
 class BreakingNewsPanel(QWidget):
@@ -901,9 +1190,9 @@ class BreakingNewsPanel(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
         self.setStyleSheet("background-color: #000000;")
-        self.setMinimumHeight(110)
+        self.setMinimumHeight(120)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
 
         title_row = QWidget()
@@ -987,7 +1276,7 @@ class BreakingNewsPanel(QWidget):
         self._scroll_area.setWidget(self._news_host)
 
         self._scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
-        self._scroll_area.setMinimumHeight(72)
+        self._scroll_area.setMinimumHeight(90)
         # Let the scroll region consume the extra height given by the parent.
         layout.addWidget(self._scroll_area, 1)
 
@@ -1131,6 +1420,21 @@ class BreakingNewsPanel(QWidget):
         while len(self._news_items) > self._max_rows:
             old_key, _old_item = self._news_items.pop()
             self._seen_ids.discard(old_key)
+        self._render()
+
+    def _replace_news_items(self, news_items: list[Any]) -> None:
+        self._news_items.clear()
+        self._seen_ids.clear()
+
+        for news_item in reversed(news_items or []):
+            if not _news_item_is_recent(news_item):
+                continue
+            key = self._news_key(news_item)
+            if key in self._seen_ids:
+                continue
+            self._news_items.appendleft((key, news_item))
+            self._seen_ids.add(key)
+
         self._render()
 
     def _render(self) -> None:
@@ -1281,7 +1585,7 @@ class BreakingNewsPanel(QWidget):
             if len(items_to_show) >= 3:
                 break
         self._empty_text = "NO HIGH-PRIORITY NEWS YET"
-        self.update_news(items_to_show[:3])
+        self._replace_news_items(items_to_show[:3])
 
     def clear(self) -> None:
         self._news_items.clear()
@@ -1301,7 +1605,7 @@ class PairTradingDashboard(QWidget):
 
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(4)
+        content_layout.setSpacing(2)
 
         self._scanner_panel = PairScannerPanel()
         content_layout.addWidget(self._scanner_panel)
@@ -1310,7 +1614,7 @@ class PairTradingDashboard(QWidget):
         content_layout.addWidget(self._positions_panel)
 
         self._risk_panel = PairRiskSummaryPanel()
-        self._risk_panel.setFixedHeight(108)
+        self._risk_panel.setFixedHeight(186)
         self._risk_panel.setStyleSheet("background-color: #000000;")
         content_layout.addWidget(self._risk_panel)
 
@@ -1471,8 +1775,8 @@ class PairTradingDashboard(QWidget):
             f"font-size: 11px; font-weight: bold;"
         )
 
-    def update_scan_results(self, scan_result: PairScanResult) -> None:
-        self._scanner_panel.update_scan(scan_result)
+    def update_scan_results(self, scan_result: PairScanResult, market_hours_open: bool | None = None) -> None:
+        self._scanner_panel.update_scan(scan_result, market_hours_open=market_hours_open)
 
 
 __all__ = [

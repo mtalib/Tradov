@@ -7,7 +7,7 @@ Module: TradovE14_KellyPositionSizer.py
 Purpose: Kelly Criterion for Optimal Position Sizing
 Author: TRADOV Team
 Date Created: 2025-01-04
-Last Updated: 2025-01-04
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Implements Kelly Criterion for optimal position sizing,

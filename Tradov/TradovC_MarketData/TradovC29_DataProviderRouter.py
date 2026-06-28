@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovC_MarketData
 Module: TradovC29_DataProviderRouter.py
@@ -16,7 +16,7 @@ from the underlying data source.
 
 Author: Tradov Dev
 Year Created: 2026
-Last Updated: 2026-04-01 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 """
 
 # ==============================================================================

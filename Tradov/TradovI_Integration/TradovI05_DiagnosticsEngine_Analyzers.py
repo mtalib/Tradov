@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovI_Integration
 Module: TradovI05_DiagnosticsEngine_Analyzers.py
@@ -8,7 +8,7 @@ Purpose: Performance analysis and advanced diagnostics for the DiagnosticsEngine
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-03-03 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides the AnalysisManager class used by TradovI04_DiagnosticsEngine_Core

@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovD_Strategies
 Module: TradovD31_StrategyOrchestrator.py
 Purpose: Master Strategy Coordination and Portfolio Management System
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-28 Time: 18:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Advanced strategy orchestration engine that coordinates multiple simultaneous
@@ -93,6 +93,12 @@ except ImportError:
 
 from Tradov.TradovD_Strategies.TradovD58_PairScanDecisionAdapter import (
     normalize_pair_scan_context,
+)
+from Tradov.TradovD_Strategies.TradovD59_PairCorpusPolicy import (
+    load_pair_trading_corpus_policy,
+)
+from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import (
+    get_active_pair_corpus_symbols,
 )
 
 # ==============================================================================
@@ -847,8 +853,9 @@ class StrategyOrchestrator:
                 "overlay risk gate before dispatch"
             )
         self._startup_cache_seed_enabled = str(
-            os.environ.get("TRADOV_ENABLE_STARTUP_CACHE_SEED", "0")
+            os.environ.get("TRADOV_ENABLE_STARTUP_CACHE_SEED", "1")
         ).strip().lower() in {"1", "true", "yes", "on"}
+        self._pair_history_seeded = False
         self._regime_source_symbol = (
             str(os.environ.get("TRADOV_UNDERLYING_SYMBOL", "SPX")).strip().upper() or "SPX"
         )
@@ -972,6 +979,9 @@ class StrategyOrchestrator:
         self._order_manager: Any = None
         # Pair executor reference for coordinated two-leg stat-arb dispatch.
         self._pair_executor: Any = None
+        # Pair risk manager (E26) for pair-specific entry gating (set via
+        # set_pair_risk_manager). When None, pair signals use the E01 gate only.
+        self._pair_risk_manager: Any = None
         # VIXAnalyzer for live VIX reads in regime detection (set via set_vix_analyzer)
         self._vix_analyzer: Any | None = None
         # RiskManager — resolved once and cached to avoid per-signal import overhead
@@ -983,6 +993,8 @@ class StrategyOrchestrator:
         self._live_options_metrics_snapshot: dict[str, float | None] = {}
         self._live_options_metrics_loaded_monotonic: float = 0.0
         self._latest_pair_scan: Any | None = None
+        self._pair_corpus_policy = load_pair_trading_corpus_policy()
+        self._manual_pair_bundle_name = ""
         self._last_pair_strategy_name: str | None = None
         self._last_pair_strategy_selected_at: datetime | None = None
         # S18 economic calendar — lazily resolved for eco stand-down gate
@@ -1122,8 +1134,8 @@ class StrategyOrchestrator:
         # Setup event subscriptions
         self._setup_event_subscriptions()
 
-        # Spec-aligned default is fail-closed on cold start. Warm-start cache
-        # seeding is available as an explicit opt-in.
+        # Warm-start cache seeding is enabled by default so the pair scanner has
+        # enough history to produce results even after a cold restart.
         if self._startup_cache_seed_enabled:
             self._seed_cache_from_disk()
 
@@ -1215,6 +1227,112 @@ class StrategyOrchestrator:
             _vix_bucket = deque(maxlen=_MARKET_TICK_BUFFER)
             _vix_bucket.append({"close": _vix_last, "price": _vix_last, "symbol": "VIX"})
             self.market_data_cache["VIX"] = _vix_bucket
+
+        self._seed_pair_history_from_tradier()
+
+    def _seed_pair_history_from_tradier(self) -> None:
+        """Backfill active pair symbols with daily history so the scanner has bars.
+
+        The pair scanner needs a real time series, not a single price snapshot.
+        Use a one-time historical pull for the active bundle symbols when the
+        cache is still sparse. This keeps the scanner usable after-hours and on
+        cold starts without widening the runtime universe.
+        """
+        if self._pair_history_seeded:
+            return
+        if not self._startup_cache_seed_enabled:
+            return
+
+        try:
+            from collections import deque as _deque
+            from datetime import date as _date, timedelta as _td
+            from Tradov.TradovB_Broker.TradovB40_TradierClient import (  # noqa: PLC0415
+                create_tradier_client_from_env,
+            )
+        except Exception as exc:
+            self.logger.debug("D31 pair history seeding unavailable: %s", exc)
+            return
+
+        symbols = get_active_pair_corpus_symbols()
+        if not symbols:
+            return
+
+        existing_cache = self.market_data_cache if isinstance(self.market_data_cache, dict) else {}
+        if all(
+            isinstance(existing_cache.get(symbol), _deque)
+            and len(existing_cache.get(symbol) or ()) >= 20
+            for symbol in symbols
+        ):
+            self._pair_history_seeded = True
+            return
+
+        try:
+            client = create_tradier_client_from_env(runtime_context=self.runtime_context)
+        except Exception as exc:
+            self.logger.debug("D31 pair history seed client unavailable: %s", exc)
+            return
+
+        end_date = _date.today() - _td(days=1)
+        start_date = end_date - _td(days=90)
+        seeded_symbols: list[str] = []
+
+        for symbol in symbols:
+            bucket = existing_cache.get(symbol)
+            if isinstance(bucket, _deque) and len(bucket) >= 20:
+                continue
+
+            try:
+                response = client.get_historical_quotes(
+                    symbol,
+                    interval="daily",
+                    start=start_date.isoformat(),
+                    end=end_date.isoformat(),
+                )
+            except Exception as exc:
+                self.logger.debug("D31 pair history fetch failed for %s: %s", symbol, exc)
+                continue
+
+            history = (response or {}).get("history", {}).get("day", [])
+            if isinstance(history, dict):
+                history = [history]
+            if not isinstance(history, list) or not history:
+                continue
+
+            rows: list[dict[str, Any]] = []
+            for bar in history:
+                if not isinstance(bar, dict):
+                    continue
+                close = self._coerce_float(bar.get("close") or bar.get("last"))
+                if close is None or close <= 0:
+                    continue
+                row = {
+                    "symbol": symbol,
+                    "open": self._coerce_float(bar.get("open")) or close,
+                    "high": self._coerce_float(bar.get("high")) or close,
+                    "low": self._coerce_float(bar.get("low")) or close,
+                    "close": close,
+                    "price": close,
+                    "last": close,
+                }
+                if bar.get("date"):
+                    row["date"] = bar.get("date")
+                rows.append(row)
+
+            if not rows:
+                continue
+
+            if not isinstance(self.market_data_cache, dict):
+                self.market_data_cache = {}
+            seeded_bucket = _deque(rows[-_MARKET_TICK_BUFFER:], maxlen=_MARKET_TICK_BUFFER)
+            self.market_data_cache[symbol] = seeded_bucket
+            seeded_symbols.append(symbol)
+
+        if seeded_symbols:
+            self._pair_history_seeded = True
+            self.logger.info(
+                "D31 pair history seeded for active bundle symbols: %s",
+                ", ".join(seeded_symbols),
+            )
 
     def _recover_cache_if_cold(self) -> None:
         """Re-seed market_data_cache from live_data.json when regime cache is cold.
@@ -2335,6 +2453,15 @@ class StrategyOrchestrator:
                 except Exception:
                     self.logger.debug(
                         "D31 could not attach pair scan sink to %s",
+                        getattr(strategy, "name", strategy_id),
+                        exc_info=True,
+                    )
+            if hasattr(strategy, "set_bundle_context_provider"):
+                try:
+                    strategy.set_bundle_context_provider(self._build_pair_bundle_context)
+                except Exception:
+                    self.logger.debug(
+                        "D31 could not attach bundle context provider to %s",
                         getattr(strategy, "name", strategy_id),
                         exc_info=True,
                     )
@@ -4284,6 +4411,41 @@ class StrategyOrchestrator:
         """Cache the most recent pair scan for post-scan strategy selection."""
         self._latest_pair_scan = scan_result
 
+    def _build_pair_bundle_context(self) -> dict[str, Any]:
+        """Provide regime/liquidity hints for pair-bundle selection."""
+        regime_name = str(getattr(self.market_regime.current_regime, "value", "") or "").strip()
+        liquidity_hint: float | None = None
+        try:
+            if self._metrics_orchestrator is not None:
+                market_conditions = self._metrics_orchestrator.get_current_market_conditions()
+                if isinstance(market_conditions, dict):
+                    regime_name = str(
+                        market_conditions.get("regime")
+                        or market_conditions.get("current_regime")
+                        or market_conditions.get("market_regime")
+                        or market_conditions.get("breadth_regime")
+                        or regime_name
+                    ).strip()
+                    stress_level = str(market_conditions.get("stress_level") or "").strip().lower()
+                    if stress_level in {"crisis", "high"}:
+                        liquidity_hint = 1.0
+                    elif stress_level in {"medium"}:
+                        liquidity_hint = 0.7
+                    elif stress_level in {"low"}:
+                        liquidity_hint = 0.55
+        except Exception:
+            pass
+
+        return {
+            "regime_name": regime_name,
+            "liquidity_hint": liquidity_hint,
+            "preferred_bundle_name": getattr(self, "_manual_pair_bundle_name", ""),
+        }
+
+    def set_manual_pair_bundle_name(self, bundle_name: str | None) -> None:
+        """Set or clear the runtime bundle override used by pair-trading strategies."""
+        self._manual_pair_bundle_name = str(bundle_name or "").strip()
+
     def _build_pair_scan_context(self, scan_result: Any | None = None) -> Any | None:
         scan = scan_result if scan_result is not None else self._latest_pair_scan
         if scan is None:
@@ -4304,6 +4466,9 @@ class StrategyOrchestrator:
         scan_context = self._build_pair_scan_context(scan_result)
         if scan_context is None:
             return None, "scan_unavailable"
+
+        if not self._pair_corpus_policy.allows_pair_key(getattr(scan_context, "best_pair_key", None)):
+            return None, "pair_not_in_corpus_v1_allowlist"
 
         selector = self._get_d30_selector()
         if selector is None:
@@ -6344,6 +6509,26 @@ class StrategyOrchestrator:
             strategy_id = signal.get("strategy_id", signal.get("strategy_name", ""))
             side = signal.get("action", signal.get("side", "buy"))
             symbol = str(signal.get("symbol") or "")
+            if self._is_pair_trade_payload(signal) and self._is_entry_action(side):
+                pair_risk_ok, pair_risk_reason = self._passes_pair_risk_gate(signal)
+                if not pair_risk_ok:
+                    self.logger.warning(
+                        "Pair signal rejected by pair risk gate: %s | pair_key=%s",
+                        pair_risk_reason,
+                        signal.get("pair_key"),
+                    )
+                    self._record_signal_drop(
+                        "pre_dispatch",
+                        "pair_risk_gate",
+                        signal=signal,
+                        detail=pair_risk_reason,
+                    )
+                    self._record_signal_dispatch_outcome_safe(
+                        "dispatch_rejected",
+                        signal=signal,
+                        detail=pair_risk_reason,
+                    )
+                    return
             if self._dispatch_pair_trade_signal(signal):
                 return
             if self._is_entry_action(side):
@@ -6716,6 +6901,17 @@ class StrategyOrchestrator:
         if self._is_closing_trade_signal(signal):
             return True, ""
 
+        # Pair / stat-arb signals are not SPY options and must not be subjected
+        # to the options-era structural trust filters (F09 vol-surface / dealer-
+        # flow / VIX-term-structure) or the options ``regime_policy.json`` gate,
+        # whose ``allowed_strategies`` lists contain only options strategies and
+        # would reject every pair entry in every regime. Pair admission is
+        # governed by its own regime/bundle selection (D30 + corpus policy) and
+        # the pair risk manager (E26); universal gates (session window, eco
+        # calendar, E01 stale-data / kill-switch) still apply upstream.
+        if self._is_pair_trade_payload(signal):
+            return True, ""
+
         entry_gate = self._get_entry_filter_gate()
         if entry_gate is None:
             if self._entry_gate_fail_closed():
@@ -6881,7 +7077,7 @@ class StrategyOrchestrator:
         policy: dict[str, Any] = {
             "primary_start_et": "09:30",
             "primary_end_et": "16:15",
-            "first_entry_not_before_et": "09:45",
+            "first_entry_not_before_et": "09:35",
             "zero_dte_no_new_risk_cutoff_et": "14:30",
             "broker_cutoff_et": "16:00",
             "broker_cutoff_buffer_minutes": 10,
@@ -7102,7 +7298,7 @@ class StrategyOrchestrator:
         if current_time < start_et or current_time >= end_et:
             return False, "session_window:outside_primary_window"
 
-        first_entry_not_before = self._session_time("first_entry_not_before_et", "09:45")
+        first_entry_not_before = self._session_time("first_entry_not_before_et", "09:35")
         if self._is_opening_trade_signal(signal) and current_time < first_entry_not_before:
             return False, "session_window:first_entry_embargo"
 
@@ -7257,8 +7453,8 @@ class StrategyOrchestrator:
             return None
 
         try:
-            from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_pair_universe
-            pair_universe = set(get_pair_universe())
+            from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_runtime_pair_universe
+            pair_universe = set(get_runtime_pair_universe())
         except Exception:
             pair_universe = set()
 
@@ -9515,6 +9711,36 @@ class StrategyOrchestrator:
         self._pair_executor = executor
         self.logger.info("Pair executor wired to StrategyOrchestrator")
 
+    def set_metrics_orchestrator(self, orchestrator: Any) -> None:
+        """Wire the S07 custom-metrics orchestrator for market-condition reads.
+
+        Without this, ``_passes_entry_trust_gate`` has no ``market_conditions``
+        source and (in live mode) fails closed with ``market_conditions_unavailable``
+        for every non-pair signal. Pair signals bypass that gate, but wiring S07
+        keeps the live options/entry-gate path and dashboard market-state reads
+        functional. Safe to call with ``None`` to detach.
+        """
+        self._metrics_orchestrator = orchestrator
+        self.logger.info(
+            "Metrics orchestrator %s StrategyOrchestrator",
+            "wired to" if orchestrator is not None else "detached from",
+        )
+
+    def set_pair_risk_manager(self, manager: Any) -> None:
+        """Wire the E26 pair risk manager used to gate pair-trading entries.
+
+        When wired, pair signals are validated against pair-specific limits
+        (per-pair / total notional, sector concentration, beta deviation,
+        cointegration stability, max open pairs) after the universal E01 gate
+        and before dispatch. When unwired, pair signals fall back to the E01
+        gate only (no pair-specific enforcement).
+        """
+        self._pair_risk_manager = manager
+        self.logger.info(
+            "Pair risk manager %s StrategyOrchestrator",
+            "wired to" if manager is not None else "detached from",
+        )
+
     def flatten_pair_position(self, pair_key: str, reason: str = "manual_pair_flatten") -> bool:
         """Flatten one open pair position by key using the pair executor or event fallback."""
         pair_key = str(pair_key or "").strip()
@@ -10029,6 +10255,66 @@ class StrategyOrchestrator:
             key in payload and str(payload.get(key) or "").strip()
             for key in ("pair_key", "symbol_a", "symbol_b")
         )
+
+    def _resolve_pair_strategy_for_signal(self, pair_key: str) -> Any | None:
+        """Find the hosted pair strategy that owns ``pair_key``'s context."""
+        with self._strategies_lock:
+            strategies = list(self.active_strategies.values())
+        fallback = None
+        for strategy in strategies:
+            if not (
+                hasattr(strategy, "coint_results")
+                and hasattr(strategy, "pair_positions")
+            ):
+                continue
+            fallback = fallback or strategy
+            try:
+                if pair_key and pair_key in getattr(strategy, "coint_results", {}):
+                    return strategy
+            except Exception:
+                continue
+        return fallback
+
+    def _passes_pair_risk_gate(self, signal: dict[str, Any]) -> tuple[bool, str]:
+        """Apply E26 pair-specific risk limits to a pair-trade signal.
+
+        Fails open (admits) when no pair risk manager is wired or the pair
+        context cannot be resolved, so it never becomes a spurious blocker;
+        only explicit pair-risk violations reject the entry.
+        """
+        manager = self._pair_risk_manager
+        if manager is None or not hasattr(manager, "validate_signal"):
+            return True, ""
+
+        pair_key = str(signal.get("pair_key") or "").strip()
+        try:
+            pair_signal = self._build_pair_trading_signal(signal)
+            if pair_signal is None:
+                return True, ""
+
+            strategy = self._resolve_pair_strategy_for_signal(pair_key)
+            if strategy is None:
+                return True, ""
+
+            open_positions = dict(getattr(strategy, "pair_positions", {}) or {})
+            coint_results = dict(getattr(strategy, "coint_results", {}) or {})
+            risk_profile = getattr(strategy, "risk_profile", None)
+            account_equity = float(getattr(risk_profile, "account_size", 0.0) or 0.0)
+
+            report = manager.validate_signal(
+                pair_signal,
+                open_positions,
+                coint_results,
+                account_equity,
+            )
+        except Exception as exc:
+            self.logger.debug("D31 pair risk gate evaluation failed (fail-open): %s", exc)
+            return True, ""
+
+        if getattr(report, "approved", True):
+            return True, ""
+        violations = getattr(report, "violations", []) or ["pair_risk_rejected"]
+        return False, "; ".join(str(v) for v in violations)
 
     def _build_pair_trading_signal(self, payload: dict[str, Any]) -> Any | None:
         try:

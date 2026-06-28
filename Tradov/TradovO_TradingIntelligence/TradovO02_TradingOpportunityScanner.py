@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovO_TradingIntelligence
 Module: TradovO02_TradingOpportunityScanner.py
 Purpose: Multi-strategy trading opportunity scanner and ranking engine
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-04 Time: 17:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Advanced trading opportunity scanner that synthesizes data from existing analytics
@@ -24,7 +24,7 @@ Key Features:
     • Multi-timeframe opportunity analysis (intraday, weekly, monthly)
     • Risk-adjusted opportunity scoring with position sizing recommendations
     • Strategy arbitrage detection across different approaches to same market view
-    • Integration with existing Spyder analytics ecosystem
+    • Integration with existing Tradov analytics ecosystem
     • Actionable trade recommendations with entry/exit criteria
 """
 
@@ -294,7 +294,7 @@ class TradingOpportunityScanner:
     """
     Advanced trading opportunity scanner and ranking engine.
 
-    Synthesizes data from existing Spyder analytics modules to identify,
+    Synthesizes data from existing Tradov analytics modules to identify,
     rank, and recommend optimal trading opportunities across multiple
     strategies with comprehensive risk assessment and context awareness.
     """

@@ -6,7 +6,7 @@ Module: TradovS05_GEXDEXCalculator.py
 Group: S (Signals)
 Purpose: GEX, DEX, VEX, and CHEX calculations from live SPY options chain data
 
-Last Updated: 2026-04-10 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Computes Net Gamma Exposure (GEX), Net Delta Exposure (DEX), Net Vanna

@@ -8,7 +8,7 @@ Group: G (GUI/User Interface)
 Purpose: Standardized popup dialogs for Signal Monitor panel
 Author: Mohamed Talib
 Date Created: 2025-08-13
-Last Updated: 2025-08-13 Time: 10:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Provides uniform popup dialogs for all 12 signal monitor buttons in the

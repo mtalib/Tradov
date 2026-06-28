@@ -23,10 +23,10 @@
 
 ```bash
 # Create virtual environment
-python3 -m venv ~/spyder_venv
+python3 -m venv ~/tradov_venv
 
 # Activate it
-source ~/spyder_venv/bin/activate
+source ~/tradov_venv/bin/activate
 
 # Install dependencies
 cd /home/adam/Projects/Tradov/TradovG_GUI
@@ -39,7 +39,7 @@ python TradovG08_IBKRLoginLauncher_OAuth.py
 To use this permanently:
 ```bash
 # Add to ~/.bashrc
-echo 'alias tradov-venv="source ~/spyder_venv/bin/activate"' >> ~/.bashrc
+echo 'alias tradov-venv="source ~/tradov_venv/bin/activate"' >> ~/.bashrc
 source ~/.bashrc
 
 # Then just run:
@@ -82,7 +82,7 @@ openssl genpkey -algorithm RSA -out private_key.pem -pkeyopt rsa_keygen_bits:204
 **Solution**:
 ```bash
 # Activate virtual environment first
-source ~/spyder_venv/bin/activate
+source ~/tradov_venv/bin/activate
 
 # Install GUI requirements
 pip install -r /home/adam/Projects/Tradov/requirements-gui.txt
@@ -157,7 +157,7 @@ This will create:
 
 ```bash
 # Make sure virtual environment is activated
-source ~/spyder_venv/bin/activate
+source ~/tradov_venv/bin/activate
 
 # Run the launcher
 cd /home/adam/Projects/Tradov/TradovG_GUI
@@ -211,8 +211,8 @@ sudo apt install openssl
 **Check**:
 ```bash
 # Make sure you're using 'source', not 'bash'
-source ~/spyder_venv/bin/activate  # Correct
-bash ~/spyder_venv/bin/activate    # Wrong!
+source ~/tradov_venv/bin/activate  # Correct
+bash ~/tradov_venv/bin/activate    # Wrong!
 
 # Verify activation
 echo $VIRTUAL_ENV  # Should show path to venv
@@ -223,7 +223,7 @@ which python       # Should show venv python
 
 **Check PySide6**:
 ```bash
-source ~/spyder_venv/bin/activate
+source ~/tradov_venv/bin/activate
 pip list | grep PySide6
 
 # If not installed:
@@ -242,7 +242,7 @@ If you still see this error:
 ```bash
 # Edit requirements-gui.txt and remove the qtwebengine line
 # Then reinstall
-source ~/spyder_venv/bin/activate
+source ~/tradov_venv/bin/activate
 pip install -r ~/Projects/Tradov/requirements-gui.txt
 ```
 
@@ -250,7 +250,7 @@ pip install -r ~/Projects/Tradov/requirements-gui.txt
 
 **Install OAuth dependencies**:
 ```bash
-source ~/spyder_venv/bin/activate
+source ~/tradov_venv/bin/activate
 pip install PyJWT cryptography requests
 ```
 
@@ -318,7 +318,7 @@ fi
 ## Support
 
 For issues:
-1. Check logs in `~/spyder_logs/`
+1. Check logs in `~/tradov_logs/`
 2. Review this setup guide
 3. See `OAUTH_LAUNCHER_README.md` for detailed usage
 4. Verify all dependencies are installed in venv

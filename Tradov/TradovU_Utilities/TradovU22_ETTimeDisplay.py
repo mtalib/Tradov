@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU22_ETTimeDisplay.py
 Purpose: Simple ET time display for dashboard (top-right time replacement)
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-19 Time: 17:15:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Simple utility to provide properly formatted Eastern Time string for the

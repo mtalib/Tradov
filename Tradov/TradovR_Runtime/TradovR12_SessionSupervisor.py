@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovR_Runtime
 Module: TradovR12_SessionSupervisor.py
@@ -8,7 +8,7 @@ Purpose: Single lifecycle owner for all backend components (S-12 / O-01)
 
 Author: Tradov Dev
 Year Created: 2025
-Last Updated: 2026-04-18 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     SessionSupervisor owns the ordered startup and shutdown of every backend
@@ -43,6 +43,7 @@ Usage::
 # ==============================================================================
 import logging  # noqa: F401
 import os
+import resource
 import re
 import signal
 import threading
@@ -59,7 +60,11 @@ from zoneinfo import ZoneInfo
 # ==============================================================================
 from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
 from Tradov.TradovU_Utilities.TradovU51_RuntimeContext import RuntimeContext
-from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_pair_quote_basket
+from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import (
+    get_runtime_pair_quote_basket,
+    get_runtime_pair_universe,
+    get_runtime_pair_universe_mode,
+)
 
 # ==============================================================================
 # CONSTANTS
@@ -75,6 +80,19 @@ _PAPER_ORCHESTRATOR_L09_DEFER_CONFIG = {
     "enable_hmm": False,
     "connect_metrics_orchestrator": False,
 }
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(str(os.getenv(name, str(default))).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+_FD_START_BLOCK_THRESHOLD = _int_env("TRADOV_RUNTIME_FD_BLOCK_THRESHOLD", 192)
+_DEFAULT_RUNTIME_FEED_MAX_SYMBOLS = _int_env("TRADOV_RUNTIME_FEED_MAX_SYMBOLS", 21)
+_FD_WARN_DELTA = 64
+_FD_WARN_ABSOLUTE = 256
 
 # ==============================================================================
 # TYPES
@@ -142,7 +160,21 @@ class SessionSupervisor:
                     if s.strip()
                 ]
             else:
-                self.symbols = get_pair_quote_basket()
+                self.symbols = get_runtime_pair_quote_basket()
+        runtime_pair_mode = get_runtime_pair_universe_mode()
+        runtime_feed_cap = _DEFAULT_RUNTIME_FEED_MAX_SYMBOLS
+        if "TRADOV_RUNTIME_FEED_MAX_SYMBOLS" not in os.environ:
+            runtime_feed_cap = 0 if runtime_pair_mode == "full" else _DEFAULT_RUNTIME_FEED_MAX_SYMBOLS
+
+        if runtime_feed_cap > 0 and len(self.symbols) > runtime_feed_cap:
+            original_count = len(self.symbols)
+            self.symbols = list(self.symbols[:runtime_feed_cap])
+            self.logger.warning(
+                "Runtime feed symbol basket capped for fd safety: %s -> %s "
+                "(set TRADOV_RUNTIME_FEED_MAX_SYMBOLS to override after fd leak is fixed)",
+                original_count,
+                len(self.symbols),
+            )
 
         # Ordered list of started components — stopped in reverse on shutdown.
         self._components: list[Any] = []
@@ -171,6 +203,59 @@ class SessionSupervisor:
         self._deferred_l09_cancel = threading.Event()
         self._deferred_l09_thread: threading.Thread | None = None
         self._tradov_paper_start_authorized: bool = False
+        self._last_fd_checkpoint: tuple[str, int | None] = ("init", None)
+
+    def _current_fd_count(self) -> int | None:
+        """Return this process' open file descriptor count when available."""
+        try:
+            return len(os.listdir("/proc/self/fd"))
+        except Exception:
+            return None
+
+    def _fd_limit_snapshot(self) -> str:
+        try:
+            soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+        except Exception:
+            soft_limit, hard_limit = None, None
+        return f"soft_limit={soft_limit} hard_limit={hard_limit}"
+
+    def _log_fd_checkpoint(self, label: str) -> None:
+        """Log fd usage around startup phases to locate descriptor leaks."""
+        fd_count = self._current_fd_count()
+        previous_label, previous_count = self._last_fd_checkpoint
+        if fd_count is None:
+            self.logger.info("R12_FD_CHECKPOINT %s fd_count=unknown", label)
+            self._last_fd_checkpoint = (label, None)
+            return
+
+        delta_text = "delta=unknown"
+        delta = None
+        if previous_count is not None:
+            delta = fd_count - previous_count
+            delta_text = f"delta={delta} since={previous_label}"
+
+        message = "R12_FD_CHECKPOINT %s fd_count=%s %s %s"
+        if fd_count >= _FD_WARN_ABSOLUTE or (delta is not None and delta >= _FD_WARN_DELTA):
+            self.logger.warning(message, label, fd_count, delta_text, self._fd_limit_snapshot())
+        else:
+            self.logger.info(message, label, fd_count, delta_text, self._fd_limit_snapshot())
+        self._last_fd_checkpoint = (label, fd_count)
+
+    def _fd_pressure_allows_startup(self, label: str) -> bool:
+        """Fail closed if startup has already opened too many descriptors."""
+        fd_count = self._current_fd_count()
+        if fd_count is None:
+            return True
+        if fd_count < _FD_START_BLOCK_THRESHOLD:
+            return True
+        self.logger.critical(
+            "R12_FD_STARTUP_ABORT %s fd_count=%s block_threshold=%s %s",
+            label,
+            fd_count,
+            _FD_START_BLOCK_THRESHOLD,
+            self._fd_limit_snapshot(),
+        )
+        return False
 
     # --------------------------------------------------------------------------
     # PUBLIC API
@@ -238,6 +323,8 @@ class SessionSupervisor:
         if not paper_start_authorized:
             return False
 
+        self._log_fd_checkpoint("start_begin")
+
         policy_ok, policy_violation = self._validate_live_only_tradier_policy()
         if not policy_ok:
             self.logger.critical(
@@ -245,18 +332,28 @@ class SessionSupervisor:
                 policy_violation,
             )
             return self._abort("LiveOnlyTradierPolicy")
+        self._log_fd_checkpoint("policy_validated")
 
         # 1. EventManager ── shared event bus
         if not self._start_event_manager():
             return self._abort("EventManager")
+        self._log_fd_checkpoint("event_manager_started")
+        if not self._fd_pressure_allows_startup("event_manager_started"):
+            return self._abort("FDPressure:event_manager_started")
 
         # 2. DataFeed ── market data → MARKET_DATA events
         if not self._start_data_feed():
             return self._abort("DataFeed")
+        self._log_fd_checkpoint("data_feed_started")
+        if not self._fd_pressure_allows_startup("data_feed_started"):
+            return self._abort("FDPressure:data_feed_started")
 
         # 3. DataFreshnessMonitor ── writes DATA_STALE / DATA_FRESH (fixes H-05)
         if not self._start_freshness_monitor():
             return self._abort("DataFreshnessMonitor")
+        self._log_fd_checkpoint("freshness_monitor_started")
+        if not self._fd_pressure_allows_startup("freshness_monitor_started"):
+            return self._abort("FDPressure:freshness_monitor_started")
 
         # 4. FillReconciler ── background fill poller (needs broker, built below)
         # Broker must exist first.
@@ -264,50 +361,77 @@ class SessionSupervisor:
         # 5. Broker
         if not self._start_broker():
             return self._abort("Broker")
+        self._log_fd_checkpoint("broker_started")
+        if not self._fd_pressure_allows_startup("broker_started"):
+            return self._abort("FDPressure:broker_started")
 
         # 6. FillReconciler (now broker is available)
         self._start_fill_reconciler()  # non-fatal
+        self._log_fd_checkpoint("fill_reconciler_started")
+        if not self._fd_pressure_allows_startup("fill_reconciler_started"):
+            return self._abort("FDPressure:fill_reconciler_started")
 
         # 6.5 PositionTracker — must exist before LiveEngine so fills are recorded
         self._start_position_tracker()  # non-fatal
+        self._log_fd_checkpoint("position_tracker_started")
+        if not self._fd_pressure_allows_startup("position_tracker_started"):
+            return self._abort("FDPressure:position_tracker_started")
 
         # 7. RiskManager ── mandatory fail-closed startup
         if not self._start_risk_manager():
             return self._abort("RiskManager")
+        self._log_fd_checkpoint("risk_manager_started")
+        if not self._fd_pressure_allows_startup("risk_manager_started"):
+            return self._abort("FDPressure:risk_manager_started")
         self._log_startup_profile("risk_manager_ready")
 
         # 8. LiveEngine
         if not self._start_live_engine():
             return self._abort("LiveEngine")
+        self._log_fd_checkpoint("live_engine_started")
+        if not self._fd_pressure_allows_startup("live_engine_started"):
+            return self._abort("FDPressure:live_engine_started")
         self._log_startup_profile("live_engine_ready")
 
         # 9. StrategyOrchestrator
         if not self._start_orchestrator():
             return self._abort("StrategyOrchestrator")
+        self._log_fd_checkpoint("strategy_orchestrator_started")
+        if not self._fd_pressure_allows_startup("strategy_orchestrator_started"):
+            return self._abort("FDPressure:strategy_orchestrator_started")
         self._log_startup_profile("strategy_orchestrator_ready")
 
         # 10. ExitMonitor — must come after orchestrator so strategy_map is populated
         self._start_exit_monitor()  # non-fatal
+        self._log_fd_checkpoint("exit_monitor_started")
+        if not self._fd_pressure_allows_startup("exit_monitor_started"):
+            return self._abort("FDPressure:exit_monitor_started")
         self._log_startup_profile("exit_monitor_ready")
 
         # 11. LivenessMonitor — heartbeat + /healthz + deadman (v14 O1/O9/A13)
         self._start_liveness_monitor()  # non-fatal
+        self._log_fd_checkpoint("liveness_monitor_started")
+        if not self._fd_pressure_allows_startup("liveness_monitor_started"):
+            return self._abort("FDPressure:liveness_monitor_started")
         self._log_startup_profile("liveness_monitor_ready")
 
         # O-2: One-shot orphan sweep immediately after boot to surface any
         # pre-existing broker positions not owned by a registered strategy
         # (e.g. left open after a crash).
         self._boot_orphan_sweep()
+        self._log_fd_checkpoint("boot_orphan_sweep_complete")
         self._log_startup_profile("boot_orphan_sweep_complete")
 
         # P1-13: Boot-time synthetic signal self-test. Fail closed if the
         # strategy signal path does not produce ORDER_REJECTED(reason=dry_run).
         if not self._run_boot_self_test(timeout_seconds=3.0):
             return self._abort("BootSelfTest")
+        self._log_fd_checkpoint("boot_self_test_complete")
         self._log_startup_profile("boot_self_test_complete")
 
         self._emit_startup_routing_receipt()
         self._running = True
+        self._log_fd_checkpoint("start_complete")
         self._log_startup_profile("start_complete")
         self._end_startup_profile()
         self.logger.debug("✅ SessionSupervisor fully started in %s mode", self.mode)
@@ -321,8 +445,7 @@ class SessionSupervisor:
         feed_class = type(self.feed).__name__ if self.feed is not None else None
         orchestrator_class = type(self.orchestrator).__name__ if self.orchestrator is not None else None
         try:
-            from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_pair_universe
-            pair_universe = set(get_pair_universe())
+            pair_universe = set(get_runtime_pair_universe())
         except Exception:
             pair_universe = set()
         pair_feed_symbols = sorted(
@@ -535,8 +658,7 @@ class SessionSupervisor:
                 provider=provider_name,
             )
             try:
-                from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import get_pair_universe
-                pair_universe = set(get_pair_universe())
+                pair_universe = set(get_runtime_pair_universe())
             except Exception:
                 pair_universe = set()
             pair_feed_symbols = [
@@ -921,6 +1043,8 @@ class SessionSupervisor:
                         om_exc,
                     )
             self._wire_pair_executor()
+            self._wire_pair_risk_manager()
+            self._wire_metrics_orchestrator()
             self.orchestrator.start_orchestration(
                 defer_initial_strategy_activation=(self.mode == "paper")
             )
@@ -943,6 +1067,17 @@ class SessionSupervisor:
                 except Exception as act_exc:
                     self.logger.error(
                         "❌ Permitted-strategy activation failed: %s", act_exc
+                    )
+                try:
+                    pair_activated = self.orchestrator.activate_permitted_strategies(["PairTrading"])
+                    if pair_activated:
+                        self.logger.info(
+                            "PairTrading forced active: %s",
+                            ", ".join(pair_activated),
+                        )
+                except Exception as pair_exc:
+                    self.logger.warning(
+                        "⚠️ Forced PairTrading activation failed: %s", pair_exc
                     )
             if self.mode == "paper" and not self.dry_run:
                 self._start_deferred_orchestrator_regime_engine_initialization(
@@ -1057,6 +1192,63 @@ class SessionSupervisor:
 
         self.pair_executor = PairOrderExecutor(order_manager=order_manager)
         self.orchestrator.set_pair_executor(self.pair_executor)
+
+    def _wire_pair_risk_manager(self) -> None:
+        """Instantiate and attach the E26 pair risk manager (non-fatal)."""
+        if self.orchestrator is None:
+            return
+        if not hasattr(self.orchestrator, "set_pair_risk_manager"):
+            return
+        try:
+            from Tradov.TradovE_Risk.TradovE26_PairRiskManager import PairRiskManager
+            from Tradov.TradovD_Strategies.TradovD59_PairCorpusPolicy import (
+                load_pair_trading_corpus_policy,
+            )
+        except Exception as exc:
+            self.logger.debug("PairRiskManager unavailable: %s", exc)
+            return
+
+        try:
+            pair_risk_manager = PairRiskManager()
+            policy = load_pair_trading_corpus_policy()
+            for entry in policy.active_pairs:
+                if entry.pair_key and entry.sector:
+                    pair_risk_manager.register_pair_sector(entry.pair_key, entry.sector)
+            self.orchestrator.set_pair_risk_manager(pair_risk_manager)
+        except Exception as exc:
+            self.logger.warning("⚠️ Pair risk manager wiring failed: %s", exc)
+
+    def _wire_metrics_orchestrator(self) -> None:
+        """Attach the S07 custom-metrics orchestrator to D31 when available.
+
+        In paper/lean mode S07 is intentionally not force-created (it pulls heavy
+        market-data sources), so only an already-constructed singleton is wired.
+        In live mode the singleton is created on demand so the entry-trust gate
+        has a market-condition source.
+        """
+        if self.orchestrator is None:
+            return
+        if not hasattr(self.orchestrator, "set_metrics_orchestrator"):
+            return
+        try:
+            import Tradov.TradovS_Signals.TradovS07_CustomMetricsOrchestrator as s07
+        except Exception as exc:
+            self.logger.debug("S07 metrics orchestrator unavailable: %s", exc)
+            return
+
+        try:
+            metrics = getattr(s07, "_orchestrator_instance", None)
+            if metrics is None and self.mode == "live":
+                metrics = s07.get_metrics_orchestrator()
+            if metrics is not None:
+                self.orchestrator.set_metrics_orchestrator(metrics)
+            else:
+                self.logger.debug(
+                    "S07 metrics orchestrator not yet constructed; D31 left unwired "
+                    "(pair signals bypass the entry-trust gate)."
+                )
+        except Exception as exc:
+            self.logger.warning("⚠️ Metrics orchestrator wiring failed: %s", exc)
 
     def _start_deferred_orchestrator_regime_engine_initialization(
         self,
@@ -1424,6 +1616,8 @@ class SessionSupervisor:
                 component.stop()
             except Exception:
                 pass
+        self._components.clear()
+        self._running = False
         # Note: EM singleton not stopped here — see stop().
         self._end_startup_profile()
         return False

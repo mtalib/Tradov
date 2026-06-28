@@ -396,7 +396,7 @@ class TestDatabaseIntegration(TradovTestBase):
     @pytest.fixture
     def test_database(self):
         """Create isolated test database."""
-        test_db_path = "test_spyder.db"
+        test_db_path = "test_tradov.db"
         db_manager = DatabaseManager(test_db_path)
         db_manager.initialize_schema()
         yield db_manager
@@ -715,7 +715,7 @@ def test_config():
             'client_id_base': 1000  # Use high client IDs for testing
         },
         'database': {
-            'test_db_prefix': 'test_spyder_',
+            'test_db_prefix': 'test_tradov_',
             'cleanup_on_exit': True
         },
         'timeouts': {
@@ -763,7 +763,7 @@ class TestEnvironment:
         # Set environment variables for testing
         os.environ['TRADING_MODE'] = 'PAPER'
         os.environ['LOG_LEVEL'] = 'DEBUG'
-        os.environ['DATABASE_PATH'] = 'test_spyder.db'
+        os.environ['DATABASE_PATH'] = 'test_tradov.db'
         
         # Initialize test database
         cls._initialize_test_database()

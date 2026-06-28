@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovD_Strategies
 Module: TradovD30_RegimeGatedSelector.py

@@ -2,14 +2,14 @@
 """
 TRADOV - Autonomous Options Trading System
 
-Spyder Version: 1.0
+Tradov Version: 1.0
 Module: TradovY00_BaseAutoAgent.py
 Group: Y (AutoAgents)
 Purpose: Base class for all autonomous 24/7 LLM-powered agents
 
 Author: Mohamed Talib
 Date Created: 2026-02-25
-Last Updated: 2026-02-25 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Abstract base class that all TradovY autonomous agents inherit from.
@@ -53,7 +53,7 @@ from .TradovY_InferenceBackends import (
 )
 
 # ==============================================================================
-# SPYDER IMPORTS
+# TRADOV IMPORTS
 # ==============================================================================
 try:
     from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger

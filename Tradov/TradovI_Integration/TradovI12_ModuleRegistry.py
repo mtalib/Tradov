@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovI_Integration
 Module: TradovI12_ModuleRegistry.py
@@ -10,7 +10,7 @@ Purpose: Central registry of all Tradov modules with series, class name, status,
 
 Author: GitHub Copilot
 Year Created: 2026
-Last Updated: 2026-04-04
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides a single authoritative dictionary ``REGISTERED_MODULES`` mapping

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovQ_Scripts
 Module: TradovQ93_ResearchLauncher.py
 Purpose: Thin operator launcher for the Q92 research workflow
 Author: Codex
 Year Created: 2026
-Last Updated: 2026-06-18 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides a stable operator-facing entry point for the Q92 research workflow.

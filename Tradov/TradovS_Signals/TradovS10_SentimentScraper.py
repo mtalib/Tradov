@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovS_Signals
 Module: TradovS10_SentimentScraper.py
@@ -8,7 +8,7 @@ Purpose: Weekly AAII and NAAIM sentiment data scrapers
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-10 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Downloads and parses weekly investor sentiment surveys from:

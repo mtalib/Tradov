@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovR_Runtime
 Module: TradovR08_PaperTradingQtWorker.py
@@ -8,7 +8,7 @@ Purpose: Qt-threaded paper trading worker (extracted from TradovG05)
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-04-15
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Background QThread worker that runs a simple paper trading loop against

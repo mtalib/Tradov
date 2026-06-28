@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI [Application Name] [Group Letter] [Group Name]
 Module: TradovG31_PlotlyTemplates.py [Application Name][Group Letter] [Module Number]_[Purpose].py
 Purpose: Templates for Plotly charts
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-10-15 Time: 22:24:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Templates for Plotly charts in the Tradov Trading Dashboard. Provides

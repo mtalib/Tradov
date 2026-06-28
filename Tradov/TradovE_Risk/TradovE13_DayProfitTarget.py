@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovE_Risk
 Module: TradovE13_DayProfitTarget.py
 Purpose: Daily Profit Target Engine with Algorithmic Slicing and Risk Integration
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-28 Time: 19:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 BROKER NOTE:
     Order execution uses TradovB40_TradierClient (Tradier REST API).

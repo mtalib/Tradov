@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovS_Signals
 Module: TradovS09_FREDClient.py
@@ -8,7 +8,7 @@ Purpose: FRED (Federal Reserve Economic Data) API client for macro/yield signals
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-10 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Fetches macro-economic time series from the St. Louis Federal Reserve FRED

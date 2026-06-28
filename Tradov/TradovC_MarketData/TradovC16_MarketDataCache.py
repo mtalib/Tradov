@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovC_MarketData
 Module: TradovC16_MarketDataCache.py
@@ -8,7 +8,7 @@ Purpose: TRADOV - Automated TRAD Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Multi-tier market data cache (memory → Redis → SQLite) designed for
@@ -30,6 +30,7 @@ Change Log:
 import os
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, UTC
 from typing import Any
 from dataclasses import dataclass
@@ -260,7 +261,7 @@ class MarketDataCache:
     def _init_database(self):
         """Initialize SQLite database"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._sqlite_connection() as conn:
                 conn.execute('''
                     CREATE TABLE IF NOT EXISTS market_data (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -292,13 +293,24 @@ class MarketDataCache:
                         PRIMARY KEY (symbol, timestamp)
                     )
                 ''')
-
-                conn.commit()
                 self.logger.debug("SQLite database initialized")
 
         except Exception as e:
             self.logger.error("Database initialization failed: %s", e, exc_info=True)
             raise
+
+    @contextmanager
+    def _sqlite_connection(self):
+        """Yield a SQLite connection and always release the file descriptor."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     # ==========================================================================
     # PUBLIC INTERFACE
@@ -471,7 +483,7 @@ class MarketDataCache:
             return pd.DataFrame()
 
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._sqlite_connection() as conn:
                 if granularity == DataGranularity.TICK:
                     query = '''
                         SELECT timestamp, bid, ask, last, bid_size, ask_size,
@@ -633,7 +645,7 @@ class MarketDataCache:
     def _store_tick_data(self, symbol: str, data: dict[str, Any]):
         """Store tick data in SQLite"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._sqlite_connection() as conn:
                 conn.execute('''
                     INSERT OR REPLACE INTO tick_data
                     (symbol, timestamp, bid, ask, last, bid_size, ask_size, last_size, volume)
@@ -656,7 +668,7 @@ class MarketDataCache:
     def _get_disk(self, symbol: str, max_age: float | None) -> CachedMarketData | None:
         """Get latest entry from disk"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._sqlite_connection() as conn:
                 query = '''
                     SELECT data, timestamp FROM market_data
                     WHERE symbol = ?
@@ -727,7 +739,7 @@ class MarketDataCache:
             retention_days = self.config['persistence']['retention_days']
             cutoff = datetime.now(UTC) - timedelta(days=retention_days)
 
-            with sqlite3.connect(self.db_path) as conn:
+            with self._sqlite_connection() as conn:
                 # Clean market_data table
                 conn.execute(
                     'DELETE FROM market_data WHERE created_at < ?',
@@ -779,7 +791,7 @@ class MarketDataCache:
             if not self.config['persistence']['enabled']:
                 return
 
-            with sqlite3.connect(self.db_path) as conn:
+            with self._sqlite_connection() as conn:
                 for key in self._l1_cache.get_keys():
                     entry = self._l1_cache.get(key)
                     if not isinstance(entry, CachedMarketData):
@@ -800,9 +812,6 @@ class MarketDataCache:
                             data_blob,
                             entry.priority
                         ))
-
-                conn.commit()
-
         except Exception as e:
             self.logger.error("Failed to persist critical data: %s", e, exc_info=True)
 

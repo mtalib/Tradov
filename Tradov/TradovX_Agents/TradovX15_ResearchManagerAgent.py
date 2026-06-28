@@ -7,7 +7,7 @@ Purpose: Research Manager agent for judging bull/bear debates and producing inve
 
 Author: Tradov Team
 Year Created: 2026
-Last Updated: 2026-06-05
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Research Manager agent inspired by TradingAgents debate architecture.

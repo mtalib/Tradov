@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovR_Runtime [Application Name] [Series Letter] [Series Name]
 Module: TradovR07_LiveDashboard.py [Application Name][Series Letter] [Module Number]_[Purpose].py
 Purpose: Enhanced Live Dashboard launcher optimized for new G05
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-21 Time: 21:15:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Professional runtime launcher for the enhanced TradovG05 Trading Dashboard.

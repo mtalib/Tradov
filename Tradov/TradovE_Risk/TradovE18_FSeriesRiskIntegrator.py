@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovE_Risk
 Module: TradovE18_FSeriesRiskIntegrator.py
 Purpose: F-Series Analytics Risk Management Integration Engine
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-31 Time: 00:15:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Institutional-grade risk management integration system that connects F13-F16

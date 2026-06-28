@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG32_AgentHealthDashboard.py
@@ -8,7 +8,7 @@ Purpose: Real-time agent health dashboard for X-series and Y-series agents
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-01
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     PySide6 dashboard panel showing real-time health, liveness status, and

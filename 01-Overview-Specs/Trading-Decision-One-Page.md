@@ -1,14 +1,18 @@
 # Tradov Trading Decision - One Page Visual
 
-Last Updated: 2026-05-10
-Scope: Current workflow snapshot (v19)
-Detailed Walkthrough: [Trading Decision Workflow](./2026-05-10-TRADING_DECISION_WORKFLOW-FULL-v19.md)
+Last Updated: 2026-06-23
+Scope: Current workflow snapshot (v49)
+Detailed Walkthrough: [Trading Decision Workflow](./2026-06-23-TRADING_DECISION_WORKFLOW-FULL-v50.md)
 
 ## At a Glance
 
 - Strategy-set decision owner: D31 StrategyOrchestrator.
-- Trade-level approval owner: E01 RiskManager (validate_signal).
-- Execution routing owner: D31 dispatch into B02/B40 (or LiveEngine fallback).
+- Signal approval owner: E26 PairRiskManager plus E01 validation gates.
+- Execution routing owner: D31 dispatch into B02/B40 pair execution.
+- Default session feed now falls back to the pair-quote basket when `FEED_SYMBOLS` is unset.
+- Startup routing now reports pair-feed coverage so operators can tell whether scans can actually form.
+- Pair-trading signals route through the coordinated pair executor before any single-leg fallback.
+- Distance-based stat-arb still needs its formation warmup before it emits actionable signals.
 - Agent role: X/Y agents are advisory and coordination-heavy; Y03 can veto via risk topics.
 - PCA-Proxy / PCA-IV role: S07/S14 custom-metric observability only; they are not hard regime triggers or execution gates in the current workflow.
 
@@ -17,14 +21,15 @@ Detailed Walkthrough: [Trading Decision Workflow](./2026-05-10-TRADING_DECISION_
 ```mermaid
 flowchart LR
     subgraph S1[State Formation]
-        A1[SPY + Options Quotes/Chain\nB40 TradierClient]
-        A2[VIX + Regime Inputs\nC10 + L09]
+        A1[Pair prices + market data\nC01/C29 + B40]
+        A2[Regime inputs + market context\nS07 + L09]
         A3[Custom Metrics / Trust Context\nS07 metrics + PCA observability + F09 checks]
+        A4[Startup routing receipt\nPair-feed coverage + session context]
     end
 
     subgraph S2[Portfolio Decision]
         B1[D31 Update Regime]
-        B2[D31 Select Strategy Mix\nRegime weight map]
+        B2[D31 Select Stat-Arb Family\nCompatibility selector]
         B3[D31 Allocate/Rebalance Capital]
     end
 
@@ -36,14 +41,15 @@ flowchart LR
     end
 
     subgraph S4[Execution Decision]
-        D1[Mid-walk route\nB02 submit_limit_with_walk]
-        D2[Fallback route\nR04 execute_order]
+        D1[Pair route\nB02 PairOrderExecutor]
+        D2[Recovery route\nB03 / E26 reconciliation]
         D3[B40 Broker API execution\norders/fills/status]
     end
 
     A1 --> B1
     A2 --> B1
     A3 --> C2
+    A4 -.-> B1
     B1 --> B2 --> B3 --> C1 --> C2 --> C3 --> C4
     C4 -->|Yes| D1 --> D3
     C4 -->|Yes, no quote/walk path| D2 --> D3
@@ -64,14 +70,13 @@ D31 StrategyOrchestrator decides active strategy set and allocation.
 Regime classification -> regime-to-strategy mapping -> trust gate -> E01 risk validation -> execution route selection.
 
 3. How many strategies can run simultaneously:
-- Hard orchestration cap in D31: MAX_CONCURRENT_STRATEGIES = 2 (override: TRADOV_MAX_CONCURRENT_STRATEGIES).
+- Hard orchestration cap in D31: MAX_CONCURRENT_STRATEGIES = 3 (override: TRADOV_MAX_CONCURRENT_STRATEGIES).
 - Hard horizon-bucket cap in D31: MAX_ACTIVE_HORIZON_BUCKETS = 2 (override: TRADOV_MAX_ACTIVE_HORIZON_BUCKETS).
-- Engine registration cap in A02 (default): max_strategies = 20.
-- Practical active count is at most 2 at once: one long-term/swing strategy and one intraday/0DTE strategy, still constrained further by regime map, capital, E01 risk gates, and runtime circuit-breakers.
+- Pair-trading open-pair cap: 3 (configurable via `PAIR_TRADING_MAX_OPEN`).
+- Practical active count is constrained by the global concurrency cap, the pair open-pair cap, risk gates, and runtime circuit-breakers.
 
 ## Current Branch Data-Provider Reality
 
-- OPRA-vetter toggle exists in B40 via TRADOV_OPRA_REQUIRE_VETTER.
 - C29 DataProviderRouter is currently Tradier-only in code.
 - Massive/C27 routing is not active at the expected path in this branch snapshot.
 

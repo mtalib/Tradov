@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovU_Utilities
 Module: TradovU50_RegimeOverrideStore.py
@@ -8,7 +8,7 @@ Purpose: Persistent store for the user-selectable market-regime override
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-06-15 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Tiny, dependency-free JSON store for the user's market-regime override.

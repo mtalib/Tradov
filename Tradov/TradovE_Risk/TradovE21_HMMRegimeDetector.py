@@ -7,7 +7,7 @@ Module: TradovE21_HMMRegimeDetector.py
 Purpose: Hidden Markov Model (HMM) for Market Regime Detection
 Author: TRADOV Team
 Date Created: 2025-01-04
-Last Updated: 2026-04-14
+Last Updated: 2026-06-26 Time: 13:25:07
 
 DEPRECATED (2026-04-14): L09 UnifiedRegimeEngine is the canonical regime
     detector for Tradov. This module is retained for research / legacy

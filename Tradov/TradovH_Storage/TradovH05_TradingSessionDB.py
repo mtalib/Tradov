@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovH_Storage
 Module: TradovH05_TradingSessionDB.py
@@ -8,7 +8,7 @@ Purpose: Dual-database session manager for live and paper trading records
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-24 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides two identically-schemed SQLite databases — one for live trading
@@ -41,6 +41,7 @@ import os
 import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, UTC
 from pathlib import Path
 from typing import Any
@@ -200,17 +201,29 @@ class TradingSessionDB:
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
+    @contextmanager
+    def _connection(self):
+        """Yield a SQLite connection and always close the file descriptor."""
+        conn = self._connect()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def _is_paper_db(self) -> bool:
         """Return True when this DB is the paper-trading ledger."""
         return "paper" in self.db_path.stem.lower()
 
     def _init_schema(self) -> None:
         """Create tables and indexes if they do not exist."""
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             conn.executescript(_SCHEMA_SQL)
             for idx_sql in _INDEXES_SQL:
                 conn.execute(idx_sql)
-            conn.commit()
 
     def _paper_state_path(self) -> Path:
         """Return the sidecar file storing paper DB audit state."""
@@ -242,7 +255,7 @@ class TradingSessionDB:
 
     def _get_primary_table_counts(self) -> dict[str, int]:
         """Return row counts for the primary paper-session tables."""
-        with self._connect() as conn:
+        with self._connection() as conn:
             return {
                 "trades": int(conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]),
                 "positions": int(conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0]),
@@ -659,7 +672,7 @@ class TradingSessionDB:
                 "session_id": session_id,
             }
 
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             conn.executemany(
                 "DELETE FROM positions WHERE position_id = ?",
                 [(position_id,) for position_id in stale_position_ids],
@@ -712,7 +725,7 @@ class TradingSessionDB:
             )
 
         with self._lock:
-            with self._connect() as conn:
+            with self._connection() as conn:
                 cleared_counts = {
                     "trades": int(conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]),
                     "positions": int(conn.execute("SELECT COUNT(*) FROM positions").fetchone()[0]),
@@ -833,7 +846,7 @@ class TradingSessionDB:
         """
         trade_id = str(uuid.uuid4())
         ts = (timestamp or datetime.now(UTC)).isoformat()
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             conn.execute(
                 """
                     INSERT INTO trades
@@ -883,7 +896,7 @@ class TradingSessionDB:
             timestamp:      UTC timestamp (defaults to utcnow).
         """
         ts = (timestamp or datetime.now(UTC)).isoformat()
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             conn.execute(
                 """
                     INSERT INTO account_snapshots
@@ -949,7 +962,7 @@ class TradingSessionDB:
         opened_ts = (opened_at or datetime.now(UTC)).isoformat()
         closed_ts = closed_at.isoformat() if closed_at else None
         now = datetime.now(UTC).isoformat()
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             conn.execute(
                 """
                     INSERT INTO positions
@@ -1018,7 +1031,7 @@ class TradingSessionDB:
             return False
 
         updated_at = datetime.now(UTC).isoformat()
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
                 existing = conn.execute(
                     "SELECT position_id FROM positions WHERE position_id = ? AND status = 'OPEN'",
                     (old_position_id,),
@@ -1068,7 +1081,7 @@ class TradingSessionDB:
         if not normalized_position_id:
             return False
 
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             cursor = conn.execute(
                 "DELETE FROM positions WHERE position_id = ? AND status = 'OPEN'",
                 (normalized_position_id,),
@@ -1090,7 +1103,7 @@ class TradingSessionDB:
         if not normalized_symbol:
             return 0
 
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             cursor = conn.execute(
                 "DELETE FROM positions WHERE symbol = ? AND status = 'OPEN'",
                 (normalized_symbol,),
@@ -1113,7 +1126,7 @@ class TradingSessionDB:
         Returns:
             Dict with all account_snapshots columns, or None.
         """
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             row = conn.execute(
                 "SELECT * FROM account_snapshots ORDER BY timestamp DESC LIMIT 1"
             ).fetchone()
@@ -1170,7 +1183,7 @@ class TradingSessionDB:
         """
         now_utc = self._normalize_reference_time()
         start_utc, _ = self._eastern_day_window_utc(now_utc)
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM trades "
                 "WHERE datetime(timestamp) >= datetime(?) "
@@ -1191,7 +1204,7 @@ class TradingSessionDB:
             List of trade dicts ordered by descending timestamp.
         """
         safe_limit = max(1, int(limit))
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM trades ORDER BY timestamp DESC LIMIT ?",
                 (safe_limit,),
@@ -1204,7 +1217,7 @@ class TradingSessionDB:
         if not normalized_symbol:
             return False
 
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             row = conn.execute(
                 "SELECT 1 FROM trades WHERE symbol = ? LIMIT 1",
                 (normalized_symbol,),
@@ -1217,7 +1230,7 @@ class TradingSessionDB:
         if not normalized_symbol:
             return None
 
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             row = conn.execute(
                 """
                 SELECT *
@@ -1238,7 +1251,7 @@ class TradingSessionDB:
         Returns:
             List of position dicts.
         """
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM positions WHERE status = 'OPEN' ORDER BY opened_at"
             ).fetchall()
@@ -1329,7 +1342,7 @@ class TradingSessionDB:
         month_start = self._eastern_period_start_utc("month", now_utc)
         year_start = self._eastern_period_start_utc("year", now_utc)
 
-        with self._lock, self._connect() as conn:
+        with self._lock, self._connection() as conn:
             def _sum(since: datetime) -> float:
                 row = conn.execute(
                     "SELECT COALESCE(SUM(realized_pnl), 0.0) FROM trades "

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG19_ChartIndicators.py
@@ -8,7 +8,7 @@ Purpose: Pure-function chart indicator computation (§3 audit extraction)
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-16
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Pure functions that compute chart overlay values from OHLCV data.

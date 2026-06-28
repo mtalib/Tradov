@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovB_Broker
 Module: TradovB03_PairPositionTracker.py
@@ -8,7 +8,7 @@ Purpose: Pair position group tracking with aggregated P&L and risk metrics
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-06-03 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Tracks pair positions as unified groups, maintaining both-leg state,

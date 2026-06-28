@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG00_ApplicationManager.py
 Purpose: Qt Application lifecycle management and initialization
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-09-14 Time: 00:45:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     This module manages Qt application initialization and lifecycle for the Tradov
@@ -108,8 +108,17 @@ def configure_qt_platform_environment(display_mode: DisplayMode = DisplayMode.GU
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
         return
 
-    os.environ["QT_QPA_PLATFORM"] = "wayland"
-    os.environ.pop("DISPLAY", None)
+    override = str(os.getenv("TRADOV_QT_QPA_PLATFORM", "")).strip()
+    if override:
+        os.environ["QT_QPA_PLATFORM"] = override
+        return
+
+    # Prefer Wayland when the session advertises it, otherwise leave Qt to
+    # use the native desktop backend (typically xcb on X11).
+    if os.getenv("WAYLAND_DISPLAY"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "wayland")
+    else:
+        os.environ.pop("QT_QPA_PLATFORM", None)
 
 # ==============================================================================
 # MAIN CLASS

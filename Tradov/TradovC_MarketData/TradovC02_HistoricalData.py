@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovC_MarketData
 Module: TradovC02_HistoricalData.py
@@ -8,7 +8,7 @@ Purpose: Historical data retrieval and storage (Tradier/Massive compatible)
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-03-08 Time: 02:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 BROKER NOTE:
     Historical data should be sourced from Tradier or Massive through the

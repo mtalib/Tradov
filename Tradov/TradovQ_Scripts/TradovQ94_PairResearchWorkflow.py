@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovQ_Scripts
 Module: TradovQ94_PairResearchWorkflow.py
 Purpose: Pair-trading research workflow with walk-forward validation
 Author: Codex
 Year Created: 2026
-Last Updated: 2026-06-18 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Research workflow for Tradov pair trading. This complements the live

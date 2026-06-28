@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovV_QuantModels
 Module: TradovV01_QuantEngine.py
@@ -8,7 +8,7 @@ Purpose: Quantitative models orchestrator - coordination and delegation only
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-31 Time: 18:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Pure orchestration engine for all quantitative models in the Tradov system.

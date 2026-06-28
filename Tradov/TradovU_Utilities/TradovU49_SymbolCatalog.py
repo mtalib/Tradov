@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: Tradov.TradovU_Utilities
 Module: TradovU49_SymbolCatalog.py
@@ -8,12 +8,13 @@ Purpose: Canonical market symbol catalog and derived symbol views
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-04-28 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Literal
 
 FetchRequirement = Literal["quote", "computed", "proxy", "event-only"]
@@ -271,6 +272,86 @@ def get_quote_symbol_basket(include_deprecated: bool = True) -> list[str]:
     return basket
 
 
+def get_active_pair_corpus_symbols() -> list[str]:
+    """Return ordered symbols from the active pair bundle or corpus policy.
+
+    Runtime hydration should stay narrow. Prefer the selected bundle if one is
+    configured, otherwise fall back to the best-fit bundle for the current
+    policy context, and only then fall back to the legacy active-pairs corpus.
+    """
+    try:
+        from Tradov.TradovD_Strategies.TradovD59_PairCorpusPolicy import (  # noqa: PLC0415
+            load_pair_trading_corpus_policy,
+        )
+    except Exception:
+        return []
+
+    try:
+        policy = load_pair_trading_corpus_policy()
+    except Exception:
+        return []
+
+    # Prefer the selected bundle, then the best bundle, before widening to the
+    # older active-pairs corpus. This keeps runtime hydration aligned with the
+    # small bundle set used by the scanner.
+    bundle_name = str(getattr(policy, "active_bundle_name", "") or "").strip()
+    bundle_keys: tuple[str, ...] = ()
+    if bundle_name:
+        bundle_keys = policy.get_bundle_pair_keys(bundle_name)
+    if not bundle_keys:
+        selection = policy.select_bundle()
+        if selection is not None:
+            bundle_keys = tuple(selection.pair_keys)
+
+    if bundle_keys:
+        seen: set[str] = set()
+        basket: list[str] = []
+        for pair_key in bundle_keys:
+            for symbol in pair_key.split("/", 1):
+                normalized = str(symbol or "").strip().upper()
+                if not normalized or normalized in seen:
+                    continue
+                basket.append(normalized)
+                seen.add(normalized)
+        if basket:
+            return basket
+
+    seen: set[str] = set()
+    basket: list[str] = []
+    for entry in getattr(policy, "active_pairs", ()) or ():
+        for symbol in (getattr(entry, "leg_a", None), getattr(entry, "leg_b", None)):
+            normalized = str(symbol or "").strip().upper()
+            if not normalized or normalized in seen:
+                continue
+            basket.append(normalized)
+            seen.add(normalized)
+    return basket
+
+
+def get_runtime_quote_symbol_basket(include_deprecated: bool = True) -> list[str]:
+    """Return the runtime hydration basket: core dashboard quotes plus active pairs."""
+    active_pair_symbols = set(get_active_pair_corpus_symbols())
+    if not active_pair_symbols:
+        active_pair_symbols = set(get_runtime_pair_quote_basket())
+
+    seen: set[str] = set()
+    basket: list[str] = []
+    for definition in SYMBOL_CATALOG:
+        if definition.fetch_requirement not in {"quote", "proxy"}:
+            continue
+        if definition.deprecated and not include_deprecated:
+            continue
+        provider_symbol = (definition.provider_symbol or definition.symbol).strip().upper()
+        if provider_symbol in seen:
+            continue
+
+        category = str(definition.display_category or "")
+        if category not in {"PAIR EQUITIES", "PAIR ETFS"} or provider_symbol in active_pair_symbols:
+            basket.append(provider_symbol)
+            seen.add(provider_symbol)
+    return basket
+
+
 def get_quote_symbol_remap() -> dict[str, str]:
     """Return provider-symbol to display-symbol remaps for proxy symbols."""
     remap: dict[str, str] = {}
@@ -503,6 +584,70 @@ def get_pair_universe() -> set[str]:
     return get_pair_equity_symbols() | get_pair_etf_symbols()
 
 
+def get_core_pair_equity_symbols() -> list[str]:
+    """Return the ordered symbol basket for the core equity pair set."""
+    seen: set[str] = set()
+    basket: list[str] = []
+    for sym_a, sym_b, _sector, pair_type in DEFAULT_PAIR_DEFINITIONS:
+        if pair_type != "equity":
+            continue
+        for symbol in (sym_a, sym_b):
+            if symbol not in seen:
+                basket.append(symbol)
+                seen.add(symbol)
+    return basket
+
+
+def get_core_pair_universe() -> set[str]:
+    """Return the reduced runtime pair universe used while fd stability is under review."""
+    return set(get_core_pair_equity_symbols())
+
+
+def get_core_pair_quote_basket() -> list[str]:
+    """Return the reduced runtime quote basket for the core pair universe."""
+    return get_core_pair_equity_symbols()
+
+
+def _runtime_pair_universe_mode() -> str:
+    """Return the configured runtime pair-universe mode."""
+    mode = str(os.environ.get("TRADOV_PAIR_UNIVERSE_MODE", "core")).strip().lower()
+    if mode in {"full", "all", "extended"}:
+        return "full"
+    return "core"
+
+
+def get_runtime_pair_universe_mode() -> str:
+    """Return the active runtime pair-universe mode."""
+    return _runtime_pair_universe_mode()
+
+
+def get_runtime_pair_equity_symbols() -> list[str]:
+    """Return the active runtime equity symbol basket."""
+    active_pair_symbols = get_active_pair_corpus_symbols()
+    if active_pair_symbols:
+        return active_pair_symbols
+    if _runtime_pair_universe_mode() == "full":
+        return sorted(get_pair_equity_symbols())
+    return get_core_pair_equity_symbols()
+
+
+def get_runtime_pair_universe() -> set[str]:
+    """Return the active runtime pair universe."""
+    active_pair_symbols = set(get_active_pair_corpus_symbols())
+    if active_pair_symbols:
+        return active_pair_symbols
+    if _runtime_pair_universe_mode() == "full":
+        return get_pair_universe()
+    return get_core_pair_universe()
+
+
+def get_runtime_pair_quote_basket() -> list[str]:
+    """Return the active runtime quote basket."""
+    if _runtime_pair_universe_mode() == "full":
+        return get_pair_quote_basket()
+    return get_core_pair_quote_basket()
+
+
 def get_pair_quote_basket() -> list[str]:
     seen: set[str] = set()
     basket: list[str] = []
@@ -538,6 +683,13 @@ __all__ = [
     "DEFAULT_PAIR_DEFINITIONS",
     "get_pair_equity_symbols",
     "get_pair_etf_symbols",
+    "get_core_pair_equity_symbols",
+    "get_core_pair_universe",
+    "get_core_pair_quote_basket",
+    "get_runtime_pair_universe_mode",
+    "get_runtime_pair_equity_symbols",
+    "get_runtime_pair_universe",
+    "get_runtime_pair_quote_basket",
     "get_pair_universe",
     "get_pair_quote_basket",
 ]

@@ -2,14 +2,14 @@
 """
 TRADOV - Autonomous Options Trading System
 
-Spyder Version: 1.0
+Tradov Version: 1.0
 Module: TradovY05_ExecutionOptimizerAgent.py
 Group: Y (AutoAgents)
 Purpose: Smart order execution — timing, sizing, and fill optimization
 
 Author: Mohamed Talib
 Date Created: 2026-02-25
-Last Updated: 2026-02-25 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Active during market hours. Receives validated signals and strategy
@@ -36,7 +36,7 @@ from datetime import datetime, UTC
 from typing import Any
 
 # ==============================================================================
-# SPYDER IMPORTS
+# TRADOV IMPORTS
 # ==============================================================================
 from .TradovY00_BaseAutoAgent import (
     BaseAutoAgent,

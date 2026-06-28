@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovC_MarketData
 Module: TradovC19_AfterHoursDataManager.py
 Purpose: After-hours market data management and closing price snapshots
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-19 Time: 16:45:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Specialized manager for after-hours market data handling. Provides closing price

@@ -8,7 +8,7 @@ Group: P (Portfolio Management)
 Purpose: Dynamic capital allocation across strategies using Kelly Criterion and risk parity
 Author: Mohamed Talib
 Date Created: 2025-08-07
-Last Updated: 2025-08-07 Time: 14:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     This module provides intelligent capital allocation across multiple trading

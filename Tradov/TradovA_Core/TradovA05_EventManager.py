@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovA_Core
 Module: TradovA05_EventManager.py
 Purpose: Centralized event management and message passing system
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-22 Time: 20:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     This module provides a comprehensive event management system for the Tradov

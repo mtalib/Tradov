@@ -2,18 +2,18 @@
 """
 TRADOV - Autonomous Options Trading System
 
-Spyder Version: 1.0
+Tradov Version: 1.0
 Module: TradovY09_CodeReviewerAgent.py
 Group: Y (AutoAgents)
 Purpose: Automated code quality auditing and improvement suggestions
 
 Author: Mohamed Talib
 Date Created: 2026-02-25
-Last Updated: 2026-02-25 Time: 12:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Description:
     Runs during off-hours (overnight + post-market). Uses the CODE LLM to
-    review Spyder source code for:
+    review Tradov source code for:
 
     - Bug detection (type errors, logic errors, edge cases)
     - Security vulnerabilities (credential exposure, injection)
@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Any
 
 # ==============================================================================
-# SPYDER IMPORTS
+# TRADOV IMPORTS
 # ==============================================================================
 from .TradovY00_BaseAutoAgent import (
     BaseAutoAgent,
@@ -83,7 +83,7 @@ class TradovY09_CodeReviewerAgent(BaseAutoAgent):
 
     NEVER modifies code directly. Produces reports only.
 
-    Active during overnight and post-market sessions only. Scans the Spyder
+    Active during overnight and post-market sessions only. Scans the Tradov
     codebase systematically, one module at a time, using the CODE LLM
     for deep analysis.
 
@@ -403,16 +403,16 @@ class TradovY09_CodeReviewerAgent(BaseAutoAgent):
     # HELPERS
     # ==========================================================================
     def _find_tradov_root(self) -> str | None:
-        """Find the Spyder source root directory."""
+        """Find the Tradov source root directory."""
         # Try relative to this file
         this_dir = Path(__file__).resolve().parent  # TradovY_AutoAgents/
-        tradov_dir = this_dir.parent                # Spyder/
+        tradov_dir = this_dir.parent                # Tradov/
         if tradov_dir.is_dir() and (tradov_dir / "__init__.py").exists():
             return str(tradov_dir)
 
         # Try common paths
         for candidate in [
-            Path.home() / "Projects" / "Spyder" / "Spyder",
+            Path.home() / "Projects" / "Tradov" / "Tradov",
         ]:
             if candidate.is_dir():
                 return str(candidate)

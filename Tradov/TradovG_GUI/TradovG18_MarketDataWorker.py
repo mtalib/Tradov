@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovG_GUI
 Module: TradovG18_MarketDataWorker.py
@@ -8,7 +8,7 @@ Purpose: Market data QThread worker (extracted from TradovG05)
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-04-15
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     QObject-based market data worker that runs on its own QThread and fans
@@ -43,7 +43,6 @@ from typing import Any
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-import pytz
 from PySide6.QtCore import QObject, QMutex, QMutexLocker, QTimer, Signal, Slot
 
 # ==============================================================================
@@ -55,20 +54,20 @@ from Tradov.TradovU_Utilities.TradovU51_RuntimeContext import (
     coerce_runtime_context,
 )
 from Tradov.TradovU_Utilities.TradovU03_DateTimeUtils import (
+    ET_TZ,
     LogThrottle,
     is_dashboard_session as _is_dashboard_session,
 )
 from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import (
-    get_quote_symbol_basket,
     get_quote_symbol_remap,
     get_realtime_sentinel_symbols,
+    get_runtime_quote_symbol_basket,
 )
 
 
 def is_market_hours(now_et: datetime | None = None) -> bool:
     """Return True only when ET time is in session and weekday is Mon-Fri."""
-    eastern = pytz.timezone("US/Eastern")
-    current_et = now_et or datetime.now(eastern)
+    current_et = now_et or datetime.now(ET_TZ)
     try:
         from Tradov.TradovU_Utilities.TradovU10_TradingCalendar import get_trading_calendar
 
@@ -143,6 +142,34 @@ TRAD_TIMESALES_FETCH_INTERVAL_SECONDS = 60.0
 CHART_UNDERLYING_SYMBOL = str(os.getenv("TRADOV_UNDERLYING_SYMBOL", "SPX") or "SPX").strip().upper() or "SPX"
 
 
+def _is_live_data_warmup_window(now_et: datetime | None = None) -> bool:
+    """Return True once the 09:20 ET live-data warmup window has opened."""
+    current_et = now_et or datetime.now(ET_TZ)
+    if current_et.weekday() >= 5:
+        return False
+    return current_et.time() >= datetime.strptime("09:20", "%H:%M").time()
+
+
+def _close_cached_tradier_clients() -> int:
+    """Close and clear shared Tradier clients held by the market-data worker."""
+    with _TRADIER_CLIENT_CACHE_LOCK:
+        cached_clients = list(_TRADIER_CLIENT_CACHE.values())
+        _TRADIER_CLIENT_CACHE.clear()
+
+    closed_count = 0
+    for client in cached_clients:
+        close_client = getattr(client, "close", None)
+        if not callable(close_client):
+            continue
+        try:
+            close_client()
+            closed_count += 1
+        except Exception:
+            logger.debug("Failed to close cached Tradier client", exc_info=True)
+
+    return closed_count
+
+
 def _get_cached_chain(
     client: "TradierClient",
 ) -> "tuple[list, float, float, str] | None":
@@ -204,7 +231,7 @@ def _get_cached_chain(
 # §1c: Consolidated from two inline dicts that previously lived independently
 # inside _fetch_live_data_from_tradier and _fetch_quotes_fast.
 _SYMBOL_REMAP: dict[str, str] = get_quote_symbol_remap()
-_QUOTE_SYMBOL_BASKET: tuple[str, ...] = tuple(get_quote_symbol_basket())
+_QUOTE_SYMBOL_BASKET: tuple[str, ...] = tuple(get_runtime_quote_symbol_basket())
 
 
 def _build_quote_symbol_basket() -> list[str]:
@@ -657,23 +684,11 @@ def _live_account_balance_reads_enabled(runtime_context: RuntimeContext | None =
     return _runtime_trading_mode(runtime_context) == "live"
 
 
-def _market_data_probe_succeeded(payload: dict) -> bool:
-    """Return True when a lightweight quote probe returns any TRAD quote payload."""
-    quotes_raw = payload.get("quotes", {}).get("quote", []) if isinstance(payload, dict) else []
-    if isinstance(quotes_raw, dict):
-        quotes_raw = [quotes_raw]
-
-    return any(
-        isinstance(quote, dict) and str(quote.get("symbol", "")).upper() == "TRAD"
-        for quote in quotes_raw
-    )
-
-
 def check_api_connection(runtime_context: RuntimeContext | None = None):
-    """Check if Tradier live market-data endpoint is reachable.
+    """Check whether the Tradier API is reachable and authenticated.
 
-    Always probes the same live endpoint used for quote/chain reads, regardless
-    of TRADING_MODE.
+    This probes a non-market-dependent broker endpoint so the result stays
+    meaningful outside regular trading hours.
 
     Returns:
         Tuple of (connected: bool, mode: str)
@@ -685,18 +700,14 @@ def check_api_connection(runtime_context: RuntimeContext | None = None):
                 load_dotenv(override=True)
             except ImportError:
                 pass
-            # Always use the live-only market-data client.
-            # Use the same lightweight quote endpoint the dashboard depends on,
-            # rather than the heavier account-profile connectivity check.
             client = _build_market_data_client()
             if client is not None:
-                quote_probe = client.get_quotes(["TRAD"])
-                if _market_data_probe_succeeded(quote_probe):
+                if client.test_connection():
                     trading_mode = _runtime_trading_mode(runtime_context)
                     mode_label = "PAPER" if trading_mode == "paper" else "LIVE"
                     return True, f"Tradier API ({mode_label})"
 
-                return False, "Tradier API probe returned no quotes"
+                return False, "Tradier API connection test failed"
 
         return False, "Tradier API not configured"
 
@@ -1147,9 +1158,8 @@ class ThreadSafeMarketDataWorker(QObject):
             # --- Fetch 5-min bars for the configured underlying chart symbol ---
             # Only fetch during regular trading hours (9:30-16:00 ET).
             try:
-                import pytz as _pytz
                 from datetime import datetime as _dt
-                _et_now = _dt.now(_pytz.timezone("US/Eastern"))
+                _et_now = _dt.now(ET_TZ)
                 if not is_market_hours(_et_now):
                     raise StopIteration  # skip fetch outside RTH
                 _last_chart_fetch = float(_TRAD_TIMESALES_FETCH_CACHE.get("last_fetch_mono", 0.0) or 0.0)
@@ -1426,7 +1436,7 @@ class ThreadSafeMarketDataWorker(QObject):
             # without generating any Tradier or yfinance traffic after hours.
             try:
                 from datetime import time as _dt_time  # noqa: PLC0415
-                _et_now_t = datetime.now(pytz.timezone("US/Eastern")).time()
+                _et_now_t = datetime.now(ET_TZ).time()
                 _in_quiet = _et_now_t >= _dt_time(17, 0) or _et_now_t < _dt_time(9, 0)
             except Exception:
                 _in_quiet = False
@@ -1718,11 +1728,8 @@ class ThreadSafeMarketDataWorker(QObject):
         return
 
     def force_connect(self):
-        """Manual connect - now checks actual connection"""
+        """Manual connect using the same read-only Tradier probe as startup."""
         logger.info("🔥 Manual connect requested")
-        if not is_market_hours():
-            logger.info("📊 Cannot connect - market is closed")
-            return False
 
         # Check actual connection
         connected, mode = check_api_connection(self.runtime_context)
@@ -1731,8 +1738,20 @@ class ThreadSafeMarketDataWorker(QObject):
         if connected:
             self.connection_status_changed.emit(True, f"API CONNECTED ({mode})")
             is_sandbox = "SANDBOX" in mode.upper() or "PAPER" in mode.upper()
-            self.market_data_status_changed.emit("PAPER" if is_sandbox else "LIVE")
+            market_status = "PAPER" if is_sandbox else "LIVE"
+            warmup_window = _is_live_data_warmup_window()
+            if not is_market_hours() and not warmup_window:
+                market_status = "EOD"
+            self.market_data_status_changed.emit(market_status)
+            self.heartbeat_status_changed.emit("connected")
+            # Hydrate the cached snapshot immediately after a successful manual probe.
+            if is_market_hours() or warmup_window:
+                self.fetch_requested.emit()
+            else:
+                self._fetch_eod_snapshot()
+                self._fetch_balance_only()
             return True
+        self.heartbeat_status_changed.emit("disconnected")
         self.connection_status_changed.emit(False, mode or "API DISCONNECTED")
         self.market_data_status_changed.emit("NONE")
         return False
@@ -1763,6 +1782,12 @@ class ThreadSafeMarketDataWorker(QObject):
             self.heartbeat_timer.stop()
         if self.heartbeat_warning_timer:
             self.heartbeat_warning_timer.stop()
+        closed_clients = _close_cached_tradier_clients()
+        if closed_clients:
+            logger.info(
+                "Closed %d cached Tradier market-data client(s) during worker shutdown",
+                closed_clients,
+            )
 
 
 __all__ = [
@@ -1781,6 +1806,5 @@ __all__ = [
     "_freshest_live_data_timestamp",
     "_freshest_quote_timestamp_ms",
     "_get_cached_chain",
-    "_market_data_probe_succeeded",
     "check_api_connection",
 ]

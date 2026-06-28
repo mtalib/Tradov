@@ -1,21 +1,21 @@
-# Coverage Configuration for Spyder Trading System
+# Coverage Configuration for Tradov Trading System
 
 [run]
 # Source code to measure
 source =
-    SpyderB_Broker/ClientPortalAPI
-    SpyderU_Utilities
-    SpyderA_Core
-    SpyderC_MarketData
-    SpyderD_Strategies
-    SpyderE_Risk
+    Tradov/TradovB_Broker
+    Tradov/TradovU_Utilities
+    Tradov/TradovA_Core
+    Tradov/TradovC_MarketData
+    Tradov/TradovD_Strategies
+    Tradov/TradovE_Risk
 
 # Omit these files/directories
 omit =
     */tests/*
     */test_*.py
     */*_test.py
-    */SpyderT_Testing/*
+    */TradovT_Testing/*
     */__init__.py
     */venv/*
     */.venv/*
@@ -27,10 +27,10 @@ omit =
     *_Old.py
     *_Fixed.py
     # Scripts and utilities
-    SpyderQ_Scripts/*
+    Tradov/TradovQ_Scripts/*
     setup.py
     # GUI (complex to test, low priority)
-    SpyderG_GUI/*
+    Tradov/TradovG_GUI/*
 
 # Branch coverage
 branch = True
@@ -97,7 +97,7 @@ ignore_errors = True
 directory = htmlcov
 
 # Title for HTML report
-title = Spyder Trading System - Test Coverage Report
+title = Tradov Trading System - Test Coverage Report
 
 [xml]
 # XML report output file
@@ -106,5 +106,5 @@ output = coverage.xml
 [paths]
 # Map paths for coverage combination
 source =
-    SpyderB_Broker/ClientPortalAPI
-    */SpyderB_Broker/ClientPortalAPI
+    Tradov/TradovB_Broker
+    */Tradov/TradovB_Broker

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovX_Unknown
 Module: config.py
@@ -8,7 +8,7 @@ Purpose: TRADOV - Tradier + Massive Configuration
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-03-03 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     TRADOV - Tradier + Massive Configuration
@@ -28,6 +28,7 @@ Change Log:
 # ==============================================================================
 import logging
 import os
+from pathlib import Path
 
 
 _LIVE_ONLY_TRADING_MODES = {"paper", "live"}
@@ -37,6 +38,17 @@ _TRADIER_ENVIRONMENT_ERROR = (
     "Tradov runs Tradier in live-only mode; paper trading uses the internal "
     "TradovBox ledger, not Tradier sandbox."
 )
+
+
+def _read_tradier_live_token() -> str:
+    return os.environ.get("TRADIER_LIVE_API_KEY", "")
+
+
+def _read_tradier_live_account_id() -> str:
+    return (
+        os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
+        or os.environ.get("TRADIER_ACCOUNT_ID", "")
+    )
 
 
 def _is_truthy_env(raw_value: str | None) -> bool:
@@ -62,27 +74,63 @@ class ConfigurationError(RuntimeError):
 # ==============================================================================
 # THIRD-PARTY IMPORTS
 # ==============================================================================
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional local-dev convenience
+    def load_dotenv(*_args, **_kwargs) -> bool:
+        return False
 
-load_dotenv()
+
+def _load_env_file_fallback(dotenv_path: Path, override: bool = True) -> bool:
+    """Load a simple ``.env`` file without depending on python-dotenv."""
+    if not dotenv_path.exists():
+        return False
+
+    loaded = False
+    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+
+        value = value.strip()
+        if "#" in value:
+            before_hash, _hash, after_hash = value.partition("#")
+            if before_hash.rstrip() != value:
+                value = before_hash.rstrip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+
+        if override or key not in os.environ:
+            os.environ[key] = value
+        loaded = True
+
+    return loaded
+
+
+_DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+if not load_dotenv(dotenv_path=_DOTENV_PATH, override=True):
+    _load_env_file_fallback(_DOTENV_PATH, override=True)
 
 # ==============================================================================
 # TRADIER API CONFIGURATION
 # ==============================================================================
 TRADIER_CONFIG = {
-    # Legacy single-pair fallback (used when environment-specific vars are absent)
-    "api_key": os.environ.get("TRADIER_API_KEY", ""),
-    "account_id": os.environ.get("TRADIER_ACCOUNT_ID", ""),
+    # Canonical live Tradier credentials.
+    "api_key": _read_tradier_live_token(),
+    "account_id": _read_tradier_live_account_id(),
 
     # Live / production credentials (api.tradier.com)
-    "live_api_key": (
-        os.environ.get("TRADIER_LIVE_API_KEY")
-        or os.environ.get("TRADIER_API_KEY", "")
-    ),
-    "live_account_id": (
-        os.environ.get("TRADIER_LIVE_ACCOUNT_ID")
-        or os.environ.get("TRADIER_ACCOUNT_ID", "")
-    ),
+    "live_api_key": _read_tradier_live_token(),
+    "live_account_id": _read_tradier_live_account_id(),
 
     # Environment URLs
     "live_url": os.environ.get("TRADIER_LIVE_URL", "https://api.tradier.com/v1"),
@@ -108,6 +156,9 @@ REQUIRE_LIVE_CONFIRMATION = os.environ.get("REQUIRE_LIVE_CONFIRMATION", "true").
 DATA_PROVIDER = os.environ.get("DATA_PROVIDER", "tradier")  # tradier
 ACTIVE_DATA_PROVIDER = os.environ.get("ACTIVE_DATA_PROVIDER", DATA_PROVIDER)  # overrides DATA_PROVIDER
 EXECUTION_PROVIDER = os.environ.get("EXECUTION_PROVIDER", "tradier")  # tradier
+
+# Pair-trading cap used as the system-wide upper bound for open pair trades.
+PAIR_TRADING_MAX_OPEN = 3
 
 # Tradier API environment — always live/production. Paper mode uses live
 # market data while keeping fills inside the local TradovBox paper ledger.
@@ -339,9 +390,9 @@ def validate_config():
 
     # Check Tradier configuration
     if not TRADIER_CONFIG["api_key"]:
-        errors.append("TRADIER_API_KEY not set in .env")
+        errors.append("TRADIER_LIVE_API_KEY not set in .env")
     if not TRADIER_CONFIG["account_id"]:
-        errors.append("TRADIER_ACCOUNT_ID not set in .env")
+        errors.append("TRADIER_LIVE_ACCOUNT_ID or TRADIER_ACCOUNT_ID not set in .env")
 
     # Check trading mode
     mode = str(os.environ.get("TRADING_MODE", "")).strip().lower()
@@ -392,7 +443,7 @@ def validate_startup_config() -> None:
     operator can fix them all at once.
 
     Required variables (always):
-        - ``TRADIER_API_KEY``       — broker authentication
+        - ``TRADIER_LIVE_API_KEY``  — broker authentication
         - ``TRADIER_ACCOUNT_ID``    — account to trade in
         - ``TRADING_MODE``          — must be ``paper`` or ``live``
         - ``TRADIER_ENVIRONMENT``   — ``live`` or ``production``
@@ -408,9 +459,9 @@ def validate_startup_config() -> None:
 
     # --- Broker credentials (always required) --------------------------------
     if not TRADIER_CONFIG["api_key"]:
-        problems.append("TRADIER_API_KEY is not set")
+        problems.append("TRADIER_LIVE_API_KEY is not set")
     if not TRADIER_CONFIG["account_id"]:
-        problems.append("TRADIER_ACCOUNT_ID is not set")
+        problems.append("TRADIER_LIVE_ACCOUNT_ID or TRADIER_ACCOUNT_ID is not set")
 
     # --- Trading mode --------------------------------------------------------
     mode = str(os.environ.get("TRADING_MODE", "")).strip().lower()

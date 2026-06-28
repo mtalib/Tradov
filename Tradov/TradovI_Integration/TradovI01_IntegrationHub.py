@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovI_Integration
 Module: TradovI01_IntegrationHub.py
@@ -8,7 +8,7 @@ Purpose: TRADOV - Automated TRAD Options Trading System
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2026-01-16 Time: 19:25:06
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     TRADOV - Automated TRAD Options Trading System

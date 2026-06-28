@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovV_QuantModels
 Module: TradovV03_DataInterface.py
@@ -8,7 +8,7 @@ Purpose: Data bridge between market data providers and quantitative models
 
 Author: Mohamed Talib
 Year Created: 2025
-Last Updated: 2025-08-20 Time: 12:30:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Provides seamless data integration between Tradier (TradovB40)

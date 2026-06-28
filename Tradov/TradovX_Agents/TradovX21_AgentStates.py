@@ -7,7 +7,7 @@ Purpose: TypedDict state schemas for the LangGraph trading pipeline
 
 Author: Tradov Team
 Year Created: 2026
-Last Updated: 2026-06-05
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Defines the state schemas used by the LangGraph StateGraph for multi-agent

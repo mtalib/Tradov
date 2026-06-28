@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovD_Strategies.TradovD50_PairDiscovery
 Module: TradovD51_PairScanner.py
@@ -8,7 +8,7 @@ Purpose: Universe scanner for cointegrated pairs with FDR correction
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-06-03 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Scans the symbol universe for cointegrated pairs using Engle-Granger
@@ -20,12 +20,10 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, UTC
 from dataclasses import replace
 from itertools import combinations
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
@@ -39,10 +37,13 @@ from Tradov.TradovD_Strategies.TradovD50_PairTypes import (
 from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import (
     DEFAULT_PAIR_DEFINITIONS,
     PAIR_EQUITY_SECTORS,
-    get_pair_universe,
+    get_runtime_pair_universe,
 )
 from Tradov.TradovD_Strategies.TradovD52_CointegrationEngine import (
     CointegrationEngine,
+)
+from Tradov.TradovD_Strategies.TradovD59_PairCorpusPolicy import (
+    load_pair_trading_corpus_policy,
 )
 
 
@@ -52,7 +53,7 @@ class PairScanner:
         price_history: pd.DataFrame | None = None,
         fdr_alpha: float = 0.05,
         fdr_method: str = "benjamini_hochberg",
-        min_sample_size: int = 60,
+        min_sample_size: int = 20,
         method: CointegrationMethod = CointegrationMethod.BOTH,
         use_ml_selection: bool = False,
         ml_selector: Any | None = None,
@@ -71,6 +72,7 @@ class PairScanner:
         self.account_size = float(account_size) if account_size is not None else None
         self.logger = logger or TradovLogger.get_logger("PairScanner")
         self.coint_engine = CointegrationEngine()
+        self._corpus_policy = load_pair_trading_corpus_policy()
         self._pair_defs: dict[str, PairDefinition] = {}
         self._last_scan: PairScanResult | None = None
         self._build_default_pairs()
@@ -101,6 +103,20 @@ class PairScanner:
             return []
 
     def _build_default_pairs(self) -> None:
+        if self._corpus_policy.active_pairs:
+            for entry in self._corpus_policy.active_pairs:
+                if not entry.pair_key:
+                    continue
+                pair = PairDefinition(
+                    symbol_a=str(entry.leg_a or "").strip().upper(),
+                    symbol_b=str(entry.leg_b or "").strip().upper(),
+                    sector=entry.sector or "policy",
+                    pair_type=entry.pair_type or "policy",
+                    status=PairStatus.CANDIDATE,
+                )
+                self._pair_defs[pair.key] = pair
+            return
+
         for sym_a, sym_b, sector, ptype in DEFAULT_PAIR_DEFINITIONS:
             pair = PairDefinition(
                 symbol_a=sym_a,
@@ -124,6 +140,10 @@ class PairScanner:
         self,
         price_history: pd.DataFrame | None = None,
         candidate_pairs: list[tuple[str, str]] | None = None,
+        *,
+        bundle_name: str = "",
+        bundle_reason: str = "",
+        bundle_score: float = 0.0,
     ) -> PairScanResult:
         prices = price_history if price_history is not None else self.price_history
         if prices is None or prices.empty:
@@ -213,6 +233,9 @@ class PairScanner:
             total_candidates=len(candidate_pairs),
             validated_pairs=validated,
             ranked_pairs=ranked,
+            bundle_name=str(bundle_name or ""),
+            bundle_reason=str(bundle_reason or ""),
+            bundle_score=float(bundle_score or 0.0),
             fdr_method=self.fdr_method,
             fdr_alpha=self.fdr_alpha,
         )
@@ -256,7 +279,15 @@ class PairScanner:
         return ranked_results
 
     def _generate_candidates(self, prices: pd.DataFrame) -> list[tuple[str, str]]:
-        universe = get_pair_universe()
+        if self._corpus_policy.active_pair_keys:
+            return [
+                tuple(key.split("/", 1))
+                for key in sorted(self._corpus_policy.active_pair_keys)
+                if "/" in key
+                and key.split("/", 1)[0] in prices.columns
+                and key.split("/", 1)[1] in prices.columns
+            ]
+        universe = get_runtime_pair_universe()
         available = [s for s in prices.columns if s in universe]
         candidates = []
         for sym_a, sym_b in combinations(sorted(available), 2):
