@@ -49,14 +49,6 @@ MAX_POSITION_SIZE = 0.10  # 10% max allocation per position
 MIN_POSITION_SIZE = 0.01  # 1% minimum position size
 MAX_LEVERAGE = 2.0  # Maximum leverage allowed
 
-# Options-Specific Limits
-MAX_OPTIONS_CONTRACTS = 50  # Maximum contracts per position
-MIN_OPTIONS_CONTRACTS = 1  # Minimum contracts per position
-MAX_DELTA_EXPOSURE = 100  # Maximum delta exposure
-MAX_GAMMA_EXPOSURE = 50  # Maximum gamma exposure
-MAX_VEGA_EXPOSURE = 1000  # Maximum vega exposure
-MAX_THETA_EXPOSURE = -500  # Maximum theta exposure (negative)
-
 # ==============================================================================
 # TRADING THRESHOLDS
 # ==============================================================================
@@ -87,35 +79,6 @@ EXTREME_VOLATILITY_THRESHOLD = 30  # VIX > 30
 TREND_STRENGTH_THRESHOLD = 0.7  # ADX threshold for trending
 MOMENTUM_THRESHOLD = 70  # RSI overbought/oversold levels
 VOLUME_SURGE_MULTIPLIER = 1.5  # Volume surge detection
-
-# ==============================================================================
-# STRATEGY-SPECIFIC PARAMETERS
-# ==============================================================================
-
-# Iron Condor Parameters
-IRON_CONDOR_CONFIG = {
-    "delta_short_strike": 0.20,  # 20 delta for short strikes
-    "delta_long_strike": 0.10,  # 10 delta for long strikes
-    "min_credit": 0.30,  # Minimum credit as % of width
-    "max_days_to_expiry": 45,  # Maximum DTE
-    "min_days_to_expiry": 21,  # Minimum DTE
-}
-
-# Credit Spread Parameters
-CREDIT_SPREAD_CONFIG = {
-    "delta_short_strike": 0.30,  # 30 delta for short strike
-    "min_credit": 0.33,  # Minimum 1/3 width credit
-    "max_days_to_expiry": 30,  # Maximum DTE
-    "min_days_to_expiry": 15,  # Minimum DTE
-}
-
-# Straddle/Strangle Parameters
-NEUTRAL_STRATEGY_CONFIG = {
-    "strangle_delta": 0.30,  # 30 delta for strangle strikes
-    "straddle_buffer": 0.02,  # 2% buffer for straddle entry
-    "max_days_to_expiry": 60,  # Maximum DTE
-    "volatility_threshold": 0.15,  # 15% implied volatility minimum
-}
 
 # ==============================================================================
 # TIMING CONSTANTS
@@ -328,20 +291,10 @@ __all__ = [
     "MAX_POSITIONS",
     "MAX_POSITION_SIZE",
     "MIN_POSITION_SIZE",
-    "MAX_OPTIONS_CONTRACTS",
-    # Greeks Limits
-    "MAX_DELTA_EXPOSURE",
-    "MAX_GAMMA_EXPOSURE",
-    "MAX_VEGA_EXPOSURE",
-    "MAX_THETA_EXPOSURE",
     # Trading Thresholds
     "MIN_PROBABILITY_OF_PROFIT",
     "MIN_RISK_REWARD_RATIO",
     "MIN_EXPECTED_VALUE",
-    # Strategy Configurations
-    "IRON_CONDOR_CONFIG",
-    "CREDIT_SPREAD_CONFIG",
-    "NEUTRAL_STRATEGY_CONFIG",
     # Enums
     "StrategyType",
     "MarketRegime",

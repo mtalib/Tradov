@@ -1299,15 +1299,6 @@ class OrderMessage:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
-class OptionOrderMessage(OrderMessage):
-    """Option-specific order message; extends OrderMessage with contract fields."""
-    underlying: str = ""
-    strike: float = 0.0
-    expiry: str = ""              # YYYYMMDD
-    option_type: str = "CALL"     # "CALL" | "PUT"
-
-
 # ==============================================================================
 # EXAMPLE USAGE
 # ==============================================================================
