@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-TRADOV - Autonomous Options Trading System v1.0
+TRADOV - Autonomous Arbitrage Trading System v1.0
 
 Series: TradovD_Strategies
 Module: TradovD42_PairTrading.py
@@ -8,7 +8,7 @@ Purpose: Statistical arbitrage / pair trading strategy
 
 Author: Mohamed Talib
 Year Created: 2026
-Last Updated: 2026-06-03 Time: 00:00:00
+Last Updated: 2026-06-26 Time: 13:25:07
 
 Module Description:
     Pair trading strategy that inherits from BaseStrategy. Generates
@@ -39,9 +39,7 @@ import pandas as pd
 from Tradov.TradovA_Core.TradovA05_EventManager import EventManager
 from Tradov.TradovD_Strategies.TradovD01_BaseStrategy import (
     BaseStrategy,
-    PerformanceMetrics,
     PositionState,
-    PositionType,
     RiskProfile,
     SignalStrength,
     SignalType,
@@ -49,8 +47,6 @@ from Tradov.TradovD_Strategies.TradovD01_BaseStrategy import (
     TradingSignal,
     SIGNAL_EXPIRY_SECONDS,
 )
-from Tradov.TradovU_Utilities.TradovU01_Logger import TradovLogger
-from Tradov.TradovU_Utilities.TradovU02_ErrorHandler import TradovErrorHandler
 from Tradov.TradovD_Strategies.TradovD50_PairTypes import (
     CointegrationResult,
     PairDefinition,
@@ -62,6 +58,9 @@ from Tradov.TradovD_Strategies.TradovD50_PairTypes import (
 )
 from Tradov.TradovD_Strategies.TradovD58_PairScanDecisionAdapter import (
     normalize_pair_scan_context,
+)
+from Tradov.TradovD_Strategies.TradovD59_PairCorpusPolicy import (
+    load_pair_trading_corpus_policy,
 )
 from Tradov.TradovD_Strategies.TradovD51_PairScanner import (
     PairScanner,
@@ -77,6 +76,20 @@ from config.config import PAIR_TRADING_MAX_OPEN
 
 def _env(key: str, default: str) -> str:
     return os.environ.get(key, default)
+
+
+def _is_market_hours(now: datetime | None = None) -> bool:
+    """Return True only during regular trading hours."""
+    current = now or datetime.now(UTC).astimezone()
+    try:
+        from Tradov.TradovU_Utilities.TradovU10_TradingCalendar import get_trading_calendar
+
+        return bool(get_trading_calendar().is_market_open(current))
+    except Exception:
+        if current.weekday() >= 5:
+            return False
+        current_time = current.time()
+        return (current.hour, current.minute) >= (9, 30) and (current.hour, current.minute) <= (16, 0)
 
 
 class PairTradingStrategy(BaseStrategy):
@@ -98,7 +111,12 @@ class PairTradingStrategy(BaseStrategy):
         self.size_pct = float(config.get("size_pct", _env("TRADOV_PAIR_SIZE_PCT", "0.02")))
         self.max_open_pairs = PAIR_TRADING_MAX_OPEN
 
-        self.scanner = PairScanner(account_size=self.risk_profile.account_size)
+        scan_min_sample_size = int(config.get("scan_min_sample_size", _env("TRADOV_PAIR_SCAN_MIN_SAMPLE_SIZE", "20")))
+        self.scanner = PairScanner(
+            account_size=self.risk_profile.account_size,
+            min_sample_size=max(10, scan_min_sample_size),
+        )
+        self._corpus_policy = load_pair_trading_corpus_policy()
         self.kalman_filters: dict[str, KalmanHedgeRatio] = {}
         self.ou_fitter = OUProcessFitter(
             entry_z=self.entry_z,
@@ -108,10 +126,12 @@ class PairTradingStrategy(BaseStrategy):
         )
 
         self.pair_positions: dict[str, PairPosition] = {}
+        self._pair_history: list[PairPosition] = []
         self.coint_results: dict[str, CointegrationResult] = {}
         self.price_history: dict[str, list[float]] = {}
         self._price_buffer_len = self.lookback * 2
         self._pair_scan_sink: Callable[[PairScanResult], None] | None = None
+        self._bundle_context_provider: Callable[[], dict[str, Any] | None] | None = None
 
     def _initialize_strategy(self) -> None:
         self.logger.info(
@@ -125,6 +145,13 @@ class PairTradingStrategy(BaseStrategy):
     def set_pair_scan_sink(self, sink: Callable[[PairScanResult], None] | None) -> None:
         """Receive the latest scan result from the orchestrator wiring."""
         self._pair_scan_sink = sink
+
+    def set_bundle_context_provider(
+        self,
+        provider: Callable[[], dict[str, Any] | None] | None,
+    ) -> None:
+        """Receive regime/liquidity context used to choose the active pair bundle."""
+        self._bundle_context_provider = provider
 
     def _refresh_pair_state(self) -> dict[str, PairDefinition]:
         """Refresh pair metadata and ensure adaptive hedge-ratio state exists."""
@@ -140,6 +167,8 @@ class PairTradingStrategy(BaseStrategy):
         pair_def: PairDefinition,
         coint: CointegrationResult,
     ) -> tuple[bool, str]:
+        if not self._corpus_policy.allows_pair_key(pair_key):
+            return False, "pair not in corpus v1 allowlist"
         if pair_def.status != PairStatus.VALIDATED:
             return False, "pair not validated"
         if pair_key in self.pair_positions:
@@ -218,16 +247,110 @@ class PairTradingStrategy(BaseStrategy):
         if len(buf) > self._price_buffer_len:
             del buf[: len(buf) - self._price_buffer_len]
 
+    def _ingest_market_data(self, market_data: pd.DataFrame) -> None:
+        """Seed the per-symbol price buffers from the wide scanner frame.
+
+        The frame supplied by the orchestrator already carries the full rolling
+        price history per symbol (up to ~120 points). Earlier this method only
+        appended the latest row, so the z-score buffers re-accumulated one point
+        per call and needed ``lookback`` (60) separate cycles to warm up even
+        though the history was already available. Rebuild each buffer directly
+        from the frame column so the z-score is computable as soon as the frame
+        holds ``lookback`` points.
+        """
+        if market_data is None or market_data.empty:
+            return
+        for symbol in market_data.columns:
+            series = pd.to_numeric(market_data[symbol], errors="coerce").dropna()
+            if series.empty:
+                continue
+            values = [float(v) for v in series.to_numpy()[-self._price_buffer_len:]]
+            if values:
+                self.price_history[str(symbol)] = values
+
+    def _bundle_selection_context(self) -> dict[str, Any]:
+        if self._bundle_context_provider is None:
+            return {}
+        try:
+            payload = self._bundle_context_provider()
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _resolve_active_bundle(self) -> tuple[str, str, float, tuple[str, ...]]:
+        """Resolve the active bundle for the current regime/liquidity context."""
+        context = self._bundle_selection_context()
+        regime_name = str(context.get("regime_name") or context.get("regime") or "").strip()
+        liquidity_hint = context.get("liquidity_hint")
+        preferred_bundle_name = context.get("bundle_name") or context.get("preferred_bundle_name")
+
+        selection = self._corpus_policy.select_bundle(
+            regime_name=regime_name,
+            liquidity_hint=float(liquidity_hint) if isinstance(liquidity_hint, (int, float)) else None,
+            preferred_bundle_name=str(preferred_bundle_name).strip() if preferred_bundle_name else None,
+        )
+        if selection is None:
+            return "", "no_bundle_policy", 0.0, ()
+        return (
+            selection.bundle_name,
+            selection.reason,
+            float(selection.score),
+            tuple(selection.pair_keys),
+        )
+
+    def _build_out_of_hours_scan_result(self) -> PairScanResult:
+        """Build a stable scan payload for periods when scanning is paused."""
+        return PairScanResult(
+            timestamp=datetime.now(UTC),
+            total_candidates=0,
+            validated_pairs=[],
+            ranked_pairs=[],
+            best_pair_key="",
+            best_ranking_score=0.0,
+            best_ranking_components={},
+            scan_age_seconds=0.0,
+            decision_state="hold",
+            decision_reason="outside_trading_hours",
+            bundle_name="",
+            bundle_reason="",
+            bundle_score=0.0,
+        )
+
     def update_cointegration(self, results: list[CointegrationResult]) -> None:
         for r in results:
+            if not self._corpus_policy.allows_pair_key(r.pair_key):
+                continue
             self.coint_results[r.pair_key] = r
             if r.is_tradeable and r.pair_key not in self.kalman_filters:
                 self.kalman_filters[r.pair_key] = KalmanHedgeRatio(lookback=self.lookback)
 
     def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
         signals: list[TradingSignal] = []
+        if not _is_market_hours():
+            halted_scan = self._build_out_of_hours_scan_result()
+            if self._pair_scan_sink is not None:
+                try:
+                    self._pair_scan_sink(halted_scan)
+                except Exception:
+                    self.logger.debug("Pair scan sink update failed for halted scan", exc_info=True)
+            self.logger.debug("Skipping pair scan generation outside trading hours")
+            return signals
 
-        raw_scan = self.scanner.scan(price_history=market_data)
+        self._ingest_market_data(market_data)
+
+        bundle_name, bundle_reason, bundle_score, bundle_pair_keys = self._resolve_active_bundle()
+        candidate_pairs = [
+            tuple(key.split("/", 1))
+            for key in bundle_pair_keys
+            if "/" in key
+        ]
+        raw_scan = self.scanner.scan(
+            price_history=market_data,
+            candidate_pairs=candidate_pairs or None,
+            bundle_name=bundle_name,
+            bundle_reason=bundle_reason,
+            bundle_score=bundle_score,
+        )
         scan_result = normalize_pair_scan_context(raw_scan)
         if self._pair_scan_sink is not None:
             try:
@@ -250,6 +373,8 @@ class PairTradingStrategy(BaseStrategy):
 
         pair_defs = self._refresh_pair_state()
         for pair_key, pair_def in pair_defs.items():
+            if not self._corpus_policy.allows_pair_key(pair_key):
+                continue
             if pair_key not in self.coint_results:
                 continue
 
@@ -323,7 +448,7 @@ class PairTradingStrategy(BaseStrategy):
     def should_exit_position(
         self, position: StrategyPosition, market_data: pd.DataFrame
     ) -> tuple[bool, str]:
-        for pair_key, pair_pos in self.pair_positions.items():
+        for _pair_key, pair_pos in self.pair_positions.items():
             if pair_pos.position_id == position.position_id:
                 return self._check_pair_exit(pair_pos, market_data)
         return False, ""
@@ -391,6 +516,7 @@ class PairTradingStrategy(BaseStrategy):
             self.performance.losing_trades += 1
         self.performance.total_pnl += pnl
 
+        self._pair_history.append(pair_pos)
         del self.pair_positions[pair_key]
         self.logger.info(
             "Closed pair %s: pnl=%.2f reason=%s", pair_key, pnl, reason
@@ -422,6 +548,14 @@ class PairTradingStrategy(BaseStrategy):
 
     def get_pair_positions(self) -> dict[str, PairPosition]:
         return dict(self.pair_positions)
+
+    def get_pair_history(self, limit: int | None = None) -> list[PairPosition]:
+        """Return recently closed pair positions in close order."""
+        history = list(self._pair_history)
+        if limit is None:
+            return history
+        safe_limit = max(1, int(limit))
+        return history[-safe_limit:]
 
     def stop(self) -> bool:
         for pair_key in list(self.pair_positions.keys()):
