@@ -1,7 +1,0 @@
-[14:43:44] ========================================================
-[14:43:44] 🚀TRADOV DASHBOARD LAUNCHED: 2026-06-28 14:43:44 ET
-[14:43:44] ========================================================
-⚠️ Auto trading start disabled (set TRADOV_ENABLE_AUTO_TRADING_START=1 to enable)
-✅ Connected to Tradier API
-✅ Broker connected and market data loaded — system ready
-✅ Startup readiness validated (mode=PAPER, warnings=0, errors=0)

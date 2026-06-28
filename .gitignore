@@ -91,6 +91,9 @@ error_logs/
 tradov_*.log
 tradov.log
 
+# System logs (auto-generated, rotated)
+11-SYSTEM-LOG/
+
 # Data files
 data/
 market_data/
