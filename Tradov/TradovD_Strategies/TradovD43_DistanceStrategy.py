@@ -103,6 +103,7 @@ class DistanceTradingStrategy(BaseStrategy):
         self.formed_pairs: dict[str, DistancePair] = {}
         self.pair_positions: dict[str, PairPosition] = {}
         self.price_history: dict[str, list[float]] = {}
+        self._formation_history_seeded = False
         self._buffer_len = self.formation
         self._bars_since_formation = 0
         self._reformation_interval = int(cfg.get("reformation_interval", self.formation))
@@ -167,7 +168,88 @@ class DistanceTradingStrategy(BaseStrategy):
     # ------------------------------------------------------------------ #
     # Signal generation
     # ------------------------------------------------------------------ #
+    def _seed_formation_history_from_tradier(self) -> None:
+        """Backfill price history with daily bars so pairs can form on cold start.
+
+        The distance approach needs a full ``formation``-bar window before it can
+        form pairs. Without a seed it never reaches that intraday (history fills
+        one bar per tick from empty), leaving the scanner stuck in preview.
+        Mirror D31's one-time Tradier daily backfill, populating this strategy's
+        own ``price_history`` for the active pair-corpus symbols.
+        """
+        if self._formation_history_seeded:
+            return
+        self._formation_history_seeded = True  # set first; never retry-storm
+        try:
+            from datetime import date as _date, timedelta as _td
+            from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import (
+                get_active_pair_corpus_symbols,
+            )
+            from Tradov.TradovB_Broker.TradovB40_TradierClient import (
+                create_tradier_client_from_env,
+            )
+        except Exception as exc:
+            self.logger.debug("Distance formation seed unavailable: %s", exc)
+            return
+
+        symbols = get_active_pair_corpus_symbols()
+        if not symbols:
+            return
+        if all(len(self.price_history.get(sym, [])) >= self.formation for sym in symbols):
+            return
+
+        try:
+            client = create_tradier_client_from_env()
+        except Exception as exc:
+            self.logger.debug("Distance formation seed client unavailable: %s", exc)
+            return
+
+        end_date = _date.today() - _td(days=1)
+        # Enough calendar span for >= formation trading days (~252/365), w/ headroom.
+        start_date = end_date - _td(days=int(self.formation * 1.6) + 30)
+        seeded: list[str] = []
+        for symbol in symbols:
+            if len(self.price_history.get(symbol, [])) >= self.formation:
+                continue
+            try:
+                response = client.get_historical_quotes(
+                    symbol,
+                    interval="daily",
+                    start=start_date.isoformat(),
+                    end=end_date.isoformat(),
+                )
+            except Exception as exc:
+                self.logger.debug("Distance seed fetch failed for %s: %s", symbol, exc)
+                continue
+            history = (response or {}).get("history", {}).get("day", [])
+            if isinstance(history, dict):
+                history = [history]
+            if not isinstance(history, list) or not history:
+                continue
+            closes: list[float] = []
+            for bar in history:
+                if not isinstance(bar, dict):
+                    continue
+                raw_close = bar.get("close", bar.get("last"))
+                try:
+                    close = float(raw_close)
+                except (TypeError, ValueError):
+                    continue
+                if close > 0:
+                    closes.append(close)
+            if closes:
+                self.price_history[symbol] = closes[-self._buffer_len:]
+                seeded.append(symbol)
+
+        if seeded:
+            self.logger.info(
+                "D43 distance formation history seeded (target %d bars) for: %s",
+                self.formation,
+                ", ".join(seeded),
+            )
+
     def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
+        self._seed_formation_history_from_tradier()
         self._ingest_market_data(market_data)
         self._bars_since_formation += 1
         self._maybe_form_pairs()
