@@ -1095,6 +1095,9 @@ class StrategyOrchestrator:
         # Market data cache (replaced entirely each update, not appended)
         self.market_data_cache = {}
         self.last_market_update = None
+        # Dashboard-mode market-data pump bridge state (see _market_data_pump_loop).
+        self._real_market_event_at: datetime | None = None
+        self._pumping = False
 
         # v27 SPEC-12: dedicated thread pool for non-blocking dispatch.
         # _on_strategy_signal runs on the EventManager dispatcher thread; the
@@ -2069,6 +2072,15 @@ class StrategyOrchestrator:
                 name="TradovD31ScheduledStrategyLoop",
             )
             self.scheduled_strategy_thread.start()
+
+            # Dashboard-mode bridge: drive the strategy-feed path from
+            # live_data.json when no MARKET_DATA events are published.
+            self.market_data_pump_thread = threading.Thread(
+                target=self._market_data_pump_loop,
+                daemon=True,
+                name="TradovD31MarketDataPump",
+            )
+            self.market_data_pump_thread.start()
 
             # Initial portfolio allocation
             if not defer_initial_strategy_activation:
@@ -3178,6 +3190,97 @@ class StrategyOrchestrator:
                 self.logger.error("Error in scheduled strategy loop: %s", exc, exc_info=True)
                 self._scheduled_strategy_wakeup.wait(timeout=1.0)
                 self._scheduled_strategy_wakeup.clear()
+
+    # ==========================================================================
+    # DASHBOARD-MODE MARKET-DATA BRIDGE
+    # ==========================================================================
+    def _market_data_pump_loop(self) -> None:
+        """Fallback market-data driver for dashboard mode.
+
+        G18 (MarketDataWorker) writes live_data.json every ~10 s but does NOT
+        publish EventType.MARKET_DATA on the A05 bus, so _on_market_data_event
+        never fires and strategies are never fed (the documented "no strategies
+        fire" pathology). When no real MARKET_DATA events are arriving, this loop
+        synthesizes one from live_data.json so the existing cache + strategy-feed
+        path runs and the pair scanner populates. Stands down automatically if
+        live events resume.
+        """
+        try:
+            interval = max(2.0, float(os.getenv("TRADOV_MARKET_DATA_PUMP_SECONDS", "10")))
+        except (TypeError, ValueError):
+            interval = 10.0
+        while not self.shutdown_event.is_set():
+            try:
+                real_at = self._real_market_event_at
+                events_flowing = (
+                    real_at is not None
+                    and (datetime.now(UTC) - real_at).total_seconds() < interval
+                )
+                if not events_flowing:
+                    self._pump_market_data_from_disk()
+            except Exception as exc:
+                self.logger.debug("D31 market-data pump tick failed: %s", exc)
+            self.shutdown_event.wait(interval)
+
+    def _pump_market_data_from_disk(self) -> None:
+        """Refresh the cache from live_data.json and trigger one feed cycle.
+
+        Updates the per-symbol cache with the latest live quote for each active
+        pair-corpus symbol, then drives _on_market_data_event via a synthetic
+        MARKET_DATA event for the regime symbol (so the existing strategy-feed
+        path runs without duplicating the regime tick).
+        """
+        if Event is None:
+            return
+        import json as _json
+        from pathlib import Path as _Path
+
+        ld_file = _Path.home() / "Projects" / "Tradov" / "market_data" / "live_data.json"
+        if not ld_file.exists():
+            return
+        try:
+            payload = _json.loads(ld_file.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+
+        try:
+            from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import (
+                get_active_pair_corpus_symbols,
+            )
+            corpus = set(get_active_pair_corpus_symbols() or [])
+        except Exception:
+            corpus = set()
+
+        regime_sym = self._regime_source_symbol
+
+        # Refresh cache for non-regime corpus symbols (regime symbol is appended
+        # by the handler below, so skip it here to avoid a duplicate tick).
+        for sym in corpus - {regime_sym}:
+            quote = payload.get(sym)
+            if not isinstance(quote, dict):
+                continue
+            price = self._coerce_float(quote.get("last", quote.get("price")))
+            if price is None or price <= 0:
+                continue
+            bucket = self.market_data_cache.get(sym)
+            if not isinstance(bucket, deque):
+                bucket = deque(maxlen=_MARKET_TICK_BUFFER)
+                self.market_data_cache[sym] = bucket
+            bucket.append({"symbol": sym, "price": price, "last": price, "close": price})
+
+        # Trigger the existing feed path with the regime symbol's quote.
+        rq = payload.get(regime_sym)
+        rprice = self._coerce_float(rq.get("last", rq.get("price"))) if isinstance(rq, dict) else None
+        tick: dict[str, Any] = {"symbol": regime_sym}
+        if rprice is not None and rprice > 0:
+            tick.update({"price": rprice, "last": rprice, "close": rprice})
+        self._pumping = True
+        try:
+            self._on_market_data_event(Event(EventType.MARKET_DATA, {"symbol": regime_sym, "tick": tick}))
+        finally:
+            self._pumping = False
 
     # ==========================================================================
     # PRIVATE METHODS - ALLOCATION AND REBALANCING
@@ -5884,6 +5987,10 @@ class StrategyOrchestrator:
             )
             return
         self.last_market_update = datetime.now(UTC)
+        if not self._pumping:
+            # Real (externally-published) MARKET_DATA event — used by the
+            # dashboard-mode pump to stand down when live events are flowing.
+            self._real_market_event_at = self.last_market_update
         try:
             self._emit_pin_risk_window_events()
         except Exception as _pin_exc:

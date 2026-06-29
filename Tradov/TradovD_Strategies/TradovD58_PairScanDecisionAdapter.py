@@ -107,7 +107,14 @@ def build_formed_pair_scan_context(
     *,
     decision_reason: str = "distance_pairs_ready",
 ) -> Any:
-    """Build a lightweight context from already-formed distance pairs."""
+    """Build a context from already-formed distance pairs.
+
+    Populates ``ranked_pairs``/``validated_pairs`` with lightweight per-pair rows
+    so the scanner table can render formed distance pairs. Distance metrics
+    (SSD-derived score, spread std) are real; p_value / half_life / hedge_ratio
+    are not applicable to the distance approach and are reported as neutral
+    placeholders.
+    """
     pairs = list(formed_pairs or [])
     if not pairs:
         return SimpleNamespace(
@@ -118,25 +125,51 @@ def build_formed_pair_scan_context(
             best_ranking_score=0.0,
             total_candidates=0,
             tradeable_count=0,
+            ranked_pairs=[],
+            validated_pairs=[],
         )
 
-    best_pair = min(
-        pairs,
-        key=lambda pair: float(_value(pair, "ssd", float("inf")) or float("inf")),
-    )
-    best_pair_key = _first_non_empty(
-        _value(best_pair, "key", None),
-        f"{_value(best_pair, 'symbol_a', '')}/{_value(best_pair, 'symbol_b', '')}".strip("/"),
-    )
-    best_score = float(max(0.0, 1.0 / (1.0 + float(_value(best_pair, "ssd", 0.0) or 0.0))))
+    def _ssd(pair: Any) -> float:
+        try:
+            value = float(_value(pair, "ssd", float("inf")))
+        except (TypeError, ValueError):
+            return float("inf")
+        return value
+
+    def _score_from_ssd(ssd: float) -> float:
+        base = 0.0 if ssd == float("inf") else ssd
+        return float(max(0.0, 1.0 / (1.0 + base)))
+
+    rows = []
+    for pair in pairs:
+        pair_key = _first_non_empty(
+            _value(pair, "key", None),
+            f"{_value(pair, 'symbol_a', '')}/{_value(pair, 'symbol_b', '')}".strip("/"),
+        )
+        rows.append(
+            SimpleNamespace(
+                pair_key=pair_key,
+                p_value=1.0,        # n/a for the distance approach
+                half_life=0.0,      # n/a for the distance approach
+                hedge_ratio=1.0,    # distance uses price normalisation, not a hedge ratio
+                ranking_score=_score_from_ssd(_ssd(pair)),
+                spread_std=float(_value(pair, "spread_std", 0.0) or 0.0),
+                is_tradeable=True,
+                metadata=_value(pair, "metadata", {}) or {},
+            )
+        )
+    rows.sort(key=lambda r: r.ranking_score, reverse=True)
+    best = rows[0]
     return SimpleNamespace(
         decision_state="ready",
         decision_reason=decision_reason,
         scan_age_seconds=0.0,
-        best_pair_key=best_pair_key,
-        best_ranking_score=best_score,
+        best_pair_key=best.pair_key,
+        best_ranking_score=best.ranking_score,
         total_candidates=len(pairs),
-        tradeable_count=len(pairs),
+        tradeable_count=len(rows),
+        ranked_pairs=rows,
+        validated_pairs=rows,
     )
 
 

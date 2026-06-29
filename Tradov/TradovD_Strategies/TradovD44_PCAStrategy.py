@@ -100,6 +100,7 @@ class PCAStatArbStrategy(BaseStrategy):
         )
 
         self.price_history: dict[str, list[float]] = {}
+        self._formation_history_seeded = False
         self._buffer_len = self.corr_window + 5
         # symbol -> current target sign (+1/-1) for names we hold.
         self.symbol_positions: dict[str, int] = {}
@@ -147,7 +148,87 @@ class PCAStatArbStrategy(BaseStrategy):
     # ------------------------------------------------------------------ #
     # Signal generation
     # ------------------------------------------------------------------ #
+    def _seed_formation_history_from_tradier(self) -> None:
+        """Backfill price history with daily bars so PCA can run on cold start.
+
+        PCA stat-arb needs a ``corr_window`` of returns before it produces
+        signals. Without a seed it never reaches that intraday (history fills one
+        bar per tick from empty). Mirror D31's one-time Tradier daily backfill,
+        populating this strategy's own ``price_history`` for the pair-corpus.
+        """
+        if self._formation_history_seeded:
+            return
+        self._formation_history_seeded = True  # set first; never retry-storm
+        try:
+            from datetime import date as _date, timedelta as _td
+            from Tradov.TradovU_Utilities.TradovU49_SymbolCatalog import (
+                get_active_pair_corpus_symbols,
+            )
+            from Tradov.TradovB_Broker.TradovB40_TradierClient import (
+                create_tradier_client_from_env,
+            )
+        except Exception as exc:
+            self.logger.debug("PCA formation seed unavailable: %s", exc)
+            return
+
+        symbols = get_active_pair_corpus_symbols()
+        if not symbols:
+            return
+        if all(len(self.price_history.get(sym, [])) >= self.corr_window for sym in symbols):
+            return
+
+        try:
+            client = create_tradier_client_from_env()
+        except Exception as exc:
+            self.logger.debug("PCA formation seed client unavailable: %s", exc)
+            return
+
+        end_date = _date.today() - _td(days=1)
+        # Enough calendar span for >= corr_window trading days (~252/365), w/ headroom.
+        start_date = end_date - _td(days=int(self.corr_window * 1.6) + 30)
+        seeded: list[str] = []
+        for symbol in symbols:
+            if len(self.price_history.get(symbol, [])) >= self.corr_window:
+                continue
+            try:
+                response = client.get_historical_quotes(
+                    symbol,
+                    interval="daily",
+                    start=start_date.isoformat(),
+                    end=end_date.isoformat(),
+                )
+            except Exception as exc:
+                self.logger.debug("PCA seed fetch failed for %s: %s", symbol, exc)
+                continue
+            history = (response or {}).get("history", {}).get("day", [])
+            if isinstance(history, dict):
+                history = [history]
+            if not isinstance(history, list) or not history:
+                continue
+            closes: list[float] = []
+            for bar in history:
+                if not isinstance(bar, dict):
+                    continue
+                raw_close = bar.get("close", bar.get("last"))
+                try:
+                    close = float(raw_close)
+                except (TypeError, ValueError):
+                    continue
+                if close > 0:
+                    closes.append(close)
+            if closes:
+                self.price_history[symbol] = closes[-self._buffer_len:]
+                seeded.append(symbol)
+
+        if seeded:
+            self.logger.info(
+                "D44 PCA formation history seeded (target %d bars) for: %s",
+                self.corr_window,
+                ", ".join(seeded),
+            )
+
     def generate_signals(self, market_data: pd.DataFrame) -> list[TradingSignal]:
+        self._seed_formation_history_from_tradier()
         self._ingest_market_data(market_data)
         returns = self._returns_frame()
         if returns is None or returns.empty:
