@@ -200,13 +200,6 @@ from Tradov.TradovG_GUI.TradovG35_PaperSummaryPresenter import (  # noqa: E402
 from Tradov.TradovG_GUI.TradovG36_StripMetricsPresenter import (  # noqa: E402
     build_atm_iv_label_presentation,
     build_iv_rank_label_presentation,
-    build_portfolio_greek_strip_presentations,
-)
-from Tradov.TradovG_GUI.TradovG37_GreekBarPresenter import (  # noqa: E402
-    build_greek_bar_updates,
-)
-from Tradov.TradovG_GUI.TradovG38_LegacySpreadsTablePresenter import (  # noqa: E402
-    build_legacy_spreads_table_rows,
 )
 from Tradov.TradovG_GUI.TradovG39_PaperPositionsTreePresenter import (  # noqa: E402
     build_paper_spread_tree_presentation,
@@ -1285,7 +1278,6 @@ class TradovTradingDashboard(QMainWindow):
         self.veto_toggle_btn = None
         self.readiness_btn = None
         self.readiness_status_label = None
-        self.greek_bars = None
         self.auto_log = None
         self.chart_widget = None
         self.chart_hidden_controls_panel = None
@@ -1302,8 +1294,6 @@ class TradovTradingDashboard(QMainWindow):
         self.event_clock_windows_label = None
         self.event_clock_strategies_label = None
         # Phase 2: spreads & volatility panel widgets.
-        self.spreads_table = None
-        self.spreads_group = None
         self.atm_iv_label = None
         self.iv_rank_label = None
         self.spreads_summary_label = None
@@ -1315,15 +1305,6 @@ class TradovTradingDashboard(QMainWindow):
         # Decision Log dialog singleton (None when closed).
         self._decision_log_dialog = None
         self._recent_trades_dialog = None
-        # Phase 3: portfolio-aggregate Greeks labels (all None — data lives in
-        # _portfolio_summary_cache and is surfaced via the popup dialog).
-        self.port_delta_label = None
-        self.port_gamma_label = None
-        self.port_theta_label = None
-        self.port_vega_label = None
-        # Phase 7: higher-order Greeks labels (charm/vanna) from N04.
-        self.port_charm_label = None
-        self.port_vanna_label = None
         # Portfolio Strip popup: cache of last-received data and dialog singleton.
         self._portfolio_summary_cache: dict = {}
         self._portfolio_summary_dialog = None
@@ -7468,44 +7449,6 @@ class TradovTradingDashboard(QMainWindow):
                 spreads_detail,
                 armed_candidate=payload.get("armed_candidate"),
             )
-
-        if self.spreads_table is not None:
-            from PySide6.QtGui import QColor
-            from PySide6.QtWidgets import QTableWidgetItem
-
-            legacy_rows = build_legacy_spreads_table_rows(spreads_detail, COLORS)
-            self.spreads_table.setRowCount(len(legacy_rows))
-            for row_index, row in enumerate(legacy_rows):
-                for column_index, text in enumerate(row.cells):
-                    item = QTableWidgetItem(text)
-                    if column_index == 6:
-                        item.setForeground(QColor(row.mtm_color))
-                    self.spreads_table.setItem(row_index, column_index, item)
-
-        greeks = payload.get("portfolio_greeks") or {}
-        greek_strip = build_portfolio_greek_strip_presentations(greeks, COLORS)
-        if self.port_delta_label is not None:
-            self.port_delta_label.setText(greek_strip.delta.text)
-            self.port_delta_label.setStyleSheet(greek_strip.delta.style)
-        if self.port_gamma_label is not None:
-            self.port_gamma_label.setText(greek_strip.gamma.text)
-            self.port_gamma_label.setStyleSheet(greek_strip.gamma.style)
-        if self.port_theta_label is not None:
-            self.port_theta_label.setText(greek_strip.theta.text)
-            self.port_theta_label.setStyleSheet(greek_strip.theta.style)
-        if self.port_vega_label is not None:
-            self.port_vega_label.setText(greek_strip.vega.text)
-            self.port_vega_label.setStyleSheet(greek_strip.vega.style)
-        if self.port_charm_label is not None:
-            self.port_charm_label.setText(greek_strip.charm_text)
-        if self.port_vanna_label is not None:
-            self.port_vanna_label.setText(greek_strip.vanna_text)
-
-        if self.greek_bars:
-            for update in build_greek_bar_updates(greeks):
-                bar = self.greek_bars.get(update.key)
-                if bar is not None:
-                    bar.set_value(update.value, update.status)
 
         dlg = self._portfolio_summary_dialog
         if dlg is not None and dlg.isVisible():
