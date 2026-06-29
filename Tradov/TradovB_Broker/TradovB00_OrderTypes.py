@@ -235,14 +235,6 @@ class SecType(Enum):
     def __str__(self) -> str:
         return self.value
 
-class OptionRight(Enum):
-    """Option rights (Call/Put)."""
-    CALL = "C"
-    PUT = "P"
-
-    def __str__(self) -> str:
-        return self.value
-
 class OrderOrigin(Enum):
     """Order origin for regulatory purposes."""
     CUSTOMER = 0
@@ -261,12 +253,6 @@ class ContractDetails:
     exchange: str = "SMART"
     currency: str = "USD"
 
-    # Options-specific
-    strike: float | None = None
-    expiry: str | None = None  # YYYYMMDD format
-    right: OptionRight | None = None
-    multiplier: str | None = None
-
     # Futures-specific
     last_trade_date: str | None = None
 
@@ -275,17 +261,9 @@ class ContractDetails:
     local_symbol: str | None = None
     trading_class: str | None = None
 
-    def __post_init__(self):
-        """Validate contract details."""
-        if self.sec_type == SecType.OPTION:
-            if not all([self.strike, self.expiry, self.right]):
-                raise ValueError("Options require strike, expiry, and right")
-
     @property
     def full_symbol(self) -> str:
         """Generate full symbol representation."""
-        if self.sec_type == SecType.OPTION:
-            return f"{self.symbol}_{self.expiry}_{self.right.value}{self.strike}"
         return self.symbol
 
     def to_broker_contract(self) -> dict[str, Any]:
@@ -297,34 +275,10 @@ class ContractDetails:
             'currency': self.currency
         }
 
-        if self.strike is not None:
-            contract_dict['strike'] = self.strike
-        if self.expiry:
-            contract_dict['lastTradeDateOrContractMonth'] = self.expiry
-        if self.right:
-            contract_dict['right'] = self.right.value
-        if self.multiplier:
-            contract_dict['multiplier'] = self.multiplier
         if self.con_id:
             contract_dict['conId'] = self.con_id
 
         return contract_dict
-
-@dataclass
-class ComboLeg:
-    """Combination leg for spread orders."""
-    con_id: int
-    ratio: int = 1
-    action: str = "BUY"  # BUY or SELL
-    exchange: str = "SMART"
-    open_close: int = 0  # 0=Same, 1=Open, 2=Close
-    short_sale_slot: int = 0
-    designated_location: str = ""
-    exempt_code: int = -1
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary format."""
-        return asdict(self)
 
 # ==============================================================================
 # CORE ORDER DATA STRUCTURES
@@ -398,10 +352,6 @@ class OrderRequest:
     short_sale_slot: int = 0  # 1=Broker, 2=Third party
     exempt_code: int = -1
 
-    # Combination orders
-    combo_legs: list[ComboLeg] = field(default_factory=list)
-    smart_combo_routing_params: list[tuple[str, str]] = field(default_factory=list)
-
     # Algorithmic orders
     algo_strategy: str | None = None
     algo_params: dict[str, str] = field(default_factory=dict)
@@ -453,10 +403,6 @@ class OrderRequest:
         if self.order_type == OrderType.TRAILING_STOP:
             if self.trail_stop_price is None and self.trailing_percent is None:
                 raise ValueError("Trailing stops require either trail price or trailing percent")
-
-        # Combination order validation
-        if self.combo_legs and self.contract.sec_type not in [SecType.OPTION, SecType.FUTURE]:
-            raise ValueError("Combination orders only supported for options and futures")
 
     def transition_to(self, new_status: OrderStatus) -> bool:
         """A14 (v14): Validated transition to a new OrderStatus.
@@ -515,11 +461,6 @@ class OrderRequest:
     def is_option(self) -> bool:
         """Check if order is for an option."""
         return self.contract.sec_type == SecType.OPTION
-
-    @property
-    def is_combo(self) -> bool:
-        """Check if order is a combination order."""
-        return len(self.combo_legs) > 0
 
     @property
     def notional_value(self) -> float | None:
@@ -663,40 +604,6 @@ class BracketOrder:
 
         return parent, profit_order, stop_order
 
-@dataclass
-class SpreadOrder:
-    """
-    Multi-leg spread order for options strategies (Iron Condor, Credit Spreads, etc.).
-    """
-    legs: list[OrderRequest]
-    net_premium: float | None = None
-    strategy_name: str | None = None
-
-    def __post_init__(self):
-        """Validate spread order."""
-        if len(self.legs) < 2:
-            raise ValueError("Spread orders require at least 2 legs")
-
-        # Ensure all legs are for options
-        for leg in self.legs:
-            if leg.contract.sec_type != SecType.OPTION:
-                raise ValueError("Spread orders are only for options")
-
-    @property
-    def total_legs(self) -> int:
-        """Get total number of legs."""
-        return len(self.legs)
-
-    @property
-    def is_credit_spread(self) -> bool:
-        """Check if this is a credit spread (net premium received)."""
-        return self.net_premium is not None and self.net_premium > 0
-
-    @property
-    def is_debit_spread(self) -> bool:
-        """Check if this is a debit spread (net premium paid)."""
-        return self.net_premium is not None and self.net_premium < 0
-
 # ==============================================================================
 # EXECUTION AND FILL DATA STRUCTURES
 # ==============================================================================
@@ -802,58 +709,6 @@ def create_stop_limit_order(contract: ContractDetails, action: OrderAction,
         **kwargs
     )
 
-def create_spy_option_contract(expiry: str, strike: float,
-                              right: OptionRight) -> ContractDetails:
-    """Create TRAD option contract."""
-    return ContractDetails(
-        symbol="TRAD",
-        sec_type=SecType.OPTION,
-        exchange="SMART",
-        currency="USD",
-        expiry=expiry,
-        strike=strike,
-        right=right,
-        multiplier="100"
-    )
-
-def create_iron_condor_spread(short_call_strike: float, long_call_strike: float,
-                             short_put_strike: float, long_put_strike: float,
-                             expiry: str, quantity: int = 1) -> SpreadOrder:
-    """Create an Iron Condor spread order."""
-    # Create the four legs
-    legs = [
-        # Short Call
-        OrderRequest(
-            contract=create_spy_option_contract(expiry, short_call_strike, OptionRight.CALL),
-            action=OrderAction.SELL,
-            total_quantity=quantity,
-            order_type=OrderType.LIMIT
-        ),
-        # Long Call
-        OrderRequest(
-            contract=create_spy_option_contract(expiry, long_call_strike, OptionRight.CALL),
-            action=OrderAction.BUY,
-            total_quantity=quantity,
-            order_type=OrderType.LIMIT
-        ),
-        # Short Put
-        OrderRequest(
-            contract=create_spy_option_contract(expiry, short_put_strike, OptionRight.PUT),
-            action=OrderAction.SELL,
-            total_quantity=quantity,
-            order_type=OrderType.LIMIT
-        ),
-        # Long Put
-        OrderRequest(
-            contract=create_spy_option_contract(expiry, long_put_strike, OptionRight.PUT),
-            action=OrderAction.BUY,
-            total_quantity=quantity,
-            order_type=OrderType.LIMIT
-        )
-    ]
-
-    return SpreadOrder(legs=legs, strategy_name="Iron Condor")
-
 # ==============================================================================
 # VALIDATION FUNCTIONS
 # ==============================================================================
@@ -893,20 +748,20 @@ def validate_order_request(order: OrderRequest) -> tuple[bool, list[str]]:
 __all__ = [
     # Enums
     'OrderAction', 'OrderType', 'OrderStatus', 'TimeInForce', 'TriggerMethod',
-    'OCAType', 'SecType', 'OptionRight', 'OrderOrigin',
+    'OCAType', 'SecType', 'OrderOrigin',
 
     # Core data structures
-    'ContractDetails', 'ComboLeg', 'OrderRequest',
+    'ContractDetails', 'OrderRequest',
 
     # Specialized orders
-    'BracketOrder', 'SpreadOrder',
+    'BracketOrder',
 
     # Execution data
     'Execution', 'Commission', 'Fill',
 
     # Factory functions
     'create_market_order', 'create_limit_order', 'create_stop_order',
-    'create_stop_limit_order', 'create_spy_option_contract', 'create_iron_condor_spread',
+    'create_stop_limit_order',
 
     # Validation
     'validate_order_request'
@@ -919,33 +774,26 @@ __all__ = [
 if __name__ == "__main__":
     # Example usage and testing
 
-    # Create a sample TRAD option contract
-    spy_contract = create_spy_option_contract("20250321", 580.0, OptionRight.CALL)
+    # Create a sample equity contract (pair leg)
+    equity_contract = ContractDetails(
+        symbol="TRAD",
+        sec_type=SecType.STOCK,
+        exchange="SMART",
+    )
 
     # Create a limit order
     order = create_limit_order(
-        contract=spy_contract,
+        contract=equity_contract,
         action=OrderAction.BUY,
         quantity=10,
         limit_price=2.50,
         strategy_name="Test Order"
     )
 
-
     # Validate order
     is_valid, errors = validate_order_request(order)
     if errors:
         for _error in errors:
             pass
-
-    # Create an Iron Condor
-    ic_spread = create_iron_condor_spread(
-        short_call_strike=590.0,
-        long_call_strike=595.0,
-        short_put_strike=570.0,
-        long_put_strike=565.0,
-        expiry="20250321",
-        quantity=5
-    )
 
 

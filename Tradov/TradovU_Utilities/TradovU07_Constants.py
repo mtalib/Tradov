@@ -161,17 +161,6 @@ MIN_DAILY_TRADES_OTHER = 0
 MAX_DAILY_TRADES_OTHER = 3
 
 # =============================================================================
-# STRATEGY NAMES
-# =============================================================================
-STRATEGY_IRON_CONDOR = "IronCondor"
-STRATEGY_IRON_BUTTERFLY = "IronButterfly"
-STRATEGY_BULL_PUT_SPREAD = "BullPutSpread"
-STRATEGY_BEAR_CALL_SPREAD = "BearCallSpread"
-STRATEGY_ZERO_DTE = "ZeroDTE"
-STRATEGY_CALENDAR_SPREAD = "CalendarSpread"
-STRATEGY_DIAGONAL_SPREAD = "DiagonalSpread"
-
-# =============================================================================
 # RISK MANAGEMENT CONSTANTS
 # =============================================================================
 # Risk limits (as decimal)
@@ -680,10 +669,6 @@ __all__ = [
 
     # Enums - CRITICAL FOR STRATEGIES
     "SignalType", "OptionType", "PositionSide",
-
-    # Strategy names
-    "STRATEGY_IRON_CONDOR", "STRATEGY_IRON_BUTTERFLY", "STRATEGY_BULL_PUT_SPREAD",
-    "STRATEGY_BEAR_CALL_SPREAD", "STRATEGY_ZERO_DTE", "STRATEGY_CALENDAR_SPREAD", "STRATEGY_DIAGONAL_SPREAD",  # noqa: E501
 
     # Feature flags
     "DEFAULT_FEATURE_FLAGS",

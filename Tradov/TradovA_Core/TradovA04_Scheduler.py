@@ -366,7 +366,6 @@ class Scheduler:
          # Task management
         self.tasks: dict[str, ScheduledTask] = {}
         self._task_lock = threading.RLock()
-        self._feature_flags = None  # Initialize to None for cleanup
 
         # Trading windows
         self.trading_windows: dict[str, TradingWindow] = {}
@@ -386,9 +385,6 @@ class Scheduler:
         # Market calendar
         self.market_calendar = MarketCalendar()
 
-        # Set up feature flag listener for event clock allowlist synchronization
-        self._setup_feature_flag_listener()
-
         # Task history database
         self.db_path = Path.home() / ".tradov" / "scheduler.db"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -402,109 +398,6 @@ class Scheduler:
         except Exception:
             self._data_update_interval = 5
             self._risk_check_interval = 15
-
-    def _setup_feature_flag_listener(self) -> None:
-        """Set up listener for feature flag changes to synchronize with event clock allowlist."""
-        try:
-            from Tradov.TradovU_Utilities.TradovU11_FeatureFlags import get_feature_flags
-
-            self._feature_flags = get_feature_flags()
-            self._feature_flags.add_listener(self._on_feature_flag_changed)
-
-            self.logger.debug("Feature flag listener registered for event clock allowlist synchronization")
-        except Exception as e:
-            self.logger.warning(f"Failed to set up feature flag listener: {e}")
-
-    def _on_feature_flag_changed(self, feature_name: str, action: str) -> None:
-        """Handle feature flag changes to update event clock allowlist."""
-        # Only handle specific feature flags that affect strategy allowlist
-        strategy_feature_flags = {
-            "TRADOV_ENABLE_BULL_CALL_SPREAD",
-            "TRADOV_ENABLE_BEAR_PUT_SPREAD",
-            "TRADOV_ENABLE_PIVOT_MEAN_REVERSION",
-            "TRADOV_ENABLE_PUT_CREDIT_SPREAD_7",
-            "TRADOV_ENABLE_BUTTERFLY",
-            "TRADOV_ENABLE_BULLISH_STRANGLE"
-        }
-
-        if feature_name not in strategy_feature_flags:
-            return
-
-        try:
-            # Get current feature flag states
-            bull_call_enabled = self._feature_flags.is_enabled("TRADOV_ENABLE_BULL_CALL_SPREAD")
-            bear_put_enabled = self._feature_flags.is_enabled("TRADOV_ENABLE_BEAR_PUT_SPREAD")
-            pivot_enabled = self._feature_flags.is_enabled("TRADOV_ENABLE_PIVOT_MEAN_REVERSION")
-            put_credit_spread_7_enabled = self._feature_flags.is_enabled("TRADOV_ENABLE_PUT_CREDIT_SPREAD_7")
-            butterfly_enabled = self._feature_flags.is_enabled("TRADOV_ENABLE_BUTTERFLY")
-            bullish_strangle_enabled = self._feature_flags.is_enabled("TRADOV_ENABLE_BULLISH_STRANGLE")
-
-            # Build the new allowlist based on enabled feature flags
-            # Start with the base strategies that are always allowed
-            new_allowlist = []
-
-            # Add Bull Call Spread if enabled
-            if bull_call_enabled:
-                new_allowlist.append("D15")
-
-            # Add Bear Put Spread if enabled
-            if bear_put_enabled:
-                new_allowlist.append("D16")
-
-            # Add Put Credit Spread 7 if enabled
-            if put_credit_spread_7_enabled:
-                new_allowlist.append("D39")
-
-            # Add Butterfly if enabled
-            if butterfly_enabled:
-                new_allowlist.append("D24")
-
-            # Add Bullish Strangle if enabled
-            if bullish_strangle_enabled:
-                new_allowlist.append("D37")
-
-            # Add Pivot Mean Reversion if enabled
-            if pivot_enabled:
-                new_allowlist.append("D34")
-
-            # Update the configuration if the allowlist has changed
-            self._update_event_clock_allowlist(new_allowlist)
-
-            self.logger.debug(
-                f"Updated event clock allowlist due to {feature_name} {action}: {new_allowlist}"
-            )
-        except Exception as e:
-            self.logger.error(f"Error handling feature flag change {feature_name} {action}: {e}")
-
-    def _update_event_clock_allowlist(self, new_allowlist: list[str]) -> None:
-        """Update the event clock allowlist in configuration."""
-        try:
-            from Tradov.TradovA_Core.TradovA03_Configuration import get_config_manager
-
-            cm = get_config_manager()
-
-            # Get the current config data
-            config_data = cm.config_data if isinstance(getattr(cm, "config_data", None), dict) else {}
-
-            # Ensure autonomous_readiness.event_clock.allowlist_strategies exists
-            if "autonomous_readiness" not in config_data:
-                config_data["autonomous_readiness"] = {}
-            if "event_clock" not in config_data["autonomous_readiness"]:
-                config_data["autonomous_readiness"]["event_clock"] = {}
-
-            # Update the allowlist
-            config_data["autonomous_readiness"]["event_clock"]["allowlist_strategies"] = new_allowlist
-
-            # Save the updated configuration
-            cm.config_data = config_data
-            cm._save_config()
-
-            # Reload the event clock configuration to pick up the changes
-            self._load_event_clock_config()
-
-            self.logger.debug(f"Event clock allowlist updated to: {new_allowlist}")
-        except Exception as e:
-            self.logger.error(f"Failed to update event clock allowlist: {e}")
 
     def _load_event_clock_config(self):
         """Load event-clock policy from validated A03 autonomous readiness config."""
@@ -2051,10 +1944,6 @@ class Scheduler:
                 return True
 
             self.scheduler.shutdown(wait=wait)
-
-            # Remove feature flag listener to prevent memory leaks
-            if getattr(self, "_feature_flags", None) is not None:
-                self._feature_flags.remove_listener(self._on_feature_flag_changed)
 
             self.logger.info("Scheduler stopped")
 

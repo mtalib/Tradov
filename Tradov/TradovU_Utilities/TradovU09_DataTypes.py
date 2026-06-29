@@ -42,10 +42,6 @@ MARKET_DATA_FIELDS = [
     "bid_size", "ask_size", "last_size", "open_interest"
 ]
 
-# Option constants
-OPTION_RIGHTS = ["CALL", "PUT"]
-OPTION_STYLES = ["AMERICAN", "EUROPEAN"]
-
 # Order constants
 ORDER_TYPES = ["MKT", "LMT", "STP", "STP_LMT", "TRAIL", "TRAIL_LIMIT"]
 ORDER_ACTIONS = ["BUY", "SELL"]
@@ -54,16 +50,6 @@ ORDER_STATUS = ["Submitted", "Filled", "Cancelled", "PendingSubmit", "PendingCan
 # ==============================================================================
 # ENUMS
 # ==============================================================================
-class OptionRight(Enum):
-    """Option contract right"""
-    CALL = "CALL"
-    PUT = "PUT"
-
-class OptionStyle(Enum):
-    """Option exercise style"""
-    AMERICAN = "AMERICAN"
-    EUROPEAN = "EUROPEAN"
-
 class OrderType(Enum):
     """Order types"""
     MARKET = "MKT"
@@ -194,55 +180,6 @@ class MarketData:
         }
 
 @dataclass
-class OptionContract:
-    """Option contract specification."""
-    symbol: str
-    underlying: str
-    expiry: date
-    strike: float
-    right: OptionRight
-    style: OptionStyle = OptionStyle.AMERICAN
-    multiplier: int = 100
-    exchange: str = "SMART"
-    currency: str = "USD"
-
-    def __post_init__(self):
-        """Post-initialization validation."""
-        if self.strike <= 0:
-            raise ValueError("Strike must be positive")
-        if self.multiplier <= 0:
-            raise ValueError("Multiplier must be positive")
-
-    @property
-    def option_symbol(self) -> str:
-        """Generate option symbol."""
-        expiry_str = self.expiry.strftime("%y%m%d")
-        right_str = "C" if self.right == OptionRight.CALL else "P"
-        strike_str = f"{int(self.strike * 1000):08d}"
-        return f"{self.underlying}{expiry_str}{right_str}{strike_str}"
-
-    @property
-    def days_to_expiry(self) -> int:
-        """Calculate days to expiry."""
-        return (self.expiry - date.today()).days
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "symbol": self.symbol,
-            "underlying": self.underlying,
-            "expiry": self.expiry.isoformat(),
-            "strike": self.strike,
-            "right": self.right.value,
-            "style": self.style.value,
-            "multiplier": self.multiplier,
-            "exchange": self.exchange,
-            "currency": self.currency,
-            "option_symbol": self.option_symbol,
-            "days_to_expiry": self.days_to_expiry
-        }
-
-@dataclass
 class OrderData:
     """Order information structure."""
     order_id: int
@@ -360,33 +297,6 @@ class Position:
         }
 
 @dataclass
-class GreeksData:
-    """Option Greeks data structure."""
-    symbol: str
-    delta: float = 0.0
-    gamma: float = 0.0
-    theta: float = 0.0
-    vega: float = 0.0
-    rho: float = 0.0
-    implied_volatility: float = 0.0
-    underlying_price: float = 0.0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "symbol": self.symbol,
-            "delta": self.delta,
-            "gamma": self.gamma,
-            "theta": self.theta,
-            "vega": self.vega,
-            "rho": self.rho,
-            "implied_volatility": self.implied_volatility,
-            "underlying_price": self.underlying_price,
-            "timestamp": self.timestamp.isoformat()
-        }
-
-@dataclass
 class TradeExecution:
     """Trade execution record."""
     execution_id: str
@@ -437,7 +347,6 @@ class TradovDataTypes:
     Example:
         >>> data_types = TradovDataTypes()
         >>> market_data = data_types.create_market_data("TRAD", 450.0, 450.1)
-        >>> option = data_types.create_option_contract("TRAD", "2024-12-20", 450.0, "CALL")
     """
 
     def __init__(self):
@@ -476,38 +385,6 @@ class TradovDataTypes:
             )
         except Exception as e:
             self.logger.error("Failed to create MarketData: %s", e)
-            raise
-
-    def create_option_contract(self, underlying: str, expiry: str, strike: float,
-                              right: str) -> OptionContract:
-        """
-        Create OptionContract instance.
-
-        Args:
-            underlying: Underlying symbol
-            expiry: Expiry date (YYYY-MM-DD)
-            strike: Strike price
-            right: CALL or PUT
-
-        Returns:
-            OptionContract instance
-        """
-        try:
-            expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
-            option_right = OptionRight(right.upper())
-
-            # Generate option symbol
-            symbol = f"{underlying}_{expiry}_{strike}_{right}"
-
-            return OptionContract(
-                symbol=symbol,
-                underlying=underlying,
-                expiry=expiry_date,
-                strike=strike,
-                right=option_right
-            )
-        except Exception as e:
-            self.logger.error("Failed to create OptionContract: %s", e)
             raise
 
     def create_order(self, symbol: str, action: str, order_type: str,
@@ -566,28 +443,6 @@ class TradovDataTypes:
             self.logger.error("MarketData validation failed: %s", e)
             return False
 
-    def validate_option_contract(self, contract: OptionContract) -> bool:
-        """
-        Validate OptionContract instance.
-
-        Args:
-            contract: OptionContract to validate
-
-        Returns:
-            bool: True if valid
-        """
-        try:
-            if not contract.symbol or not contract.underlying:
-                return False
-
-            if contract.strike <= 0:
-                return False
-
-            return not contract.expiry <= date.today()
-
-        except Exception as e:
-            self.logger.error("OptionContract validation failed: %s", e)
-            return False
 
 # ==============================================================================
 # MODULE FUNCTIONS
@@ -605,22 +460,6 @@ def create_market_data(symbol: str, **kwargs) -> MarketData:
     """
     data_types = TradovDataTypes()
     return data_types.create_market_data(symbol, **kwargs)
-
-def create_option_contract(underlying: str, expiry: str, strike: float, right: str) -> OptionContract:  # noqa: E501
-    """
-    Factory function for OptionContract.
-
-    Args:
-        underlying: Underlying symbol
-        expiry: Expiry date string
-        strike: Strike price
-        right: CALL or PUT
-
-    Returns:
-        OptionContract instance
-    """
-    data_types = TradovDataTypes()
-    return data_types.create_option_contract(underlying, expiry, strike, right)
 
 # ==============================================================================
 # MODULE INITIALIZATION
@@ -651,9 +490,6 @@ if __name__ == "__main__":
     # Test MarketData
     market_data = data_types.create_market_data("TRAD", 450.0, 450.1, 450.05, 1000)
 
-    # Test OptionContract
-    option = data_types.create_option_contract("TRAD", "2024-12-20", 450.0, "CALL")
-
     # Test OrderData
     order = data_types.create_order("TRAD", "BUY", "LMT", 100, 450.0)
 
@@ -671,27 +507,6 @@ class PositionData:
         self.current_price = 0.0
         self.pnl = 0.0
 
-
-@dataclass
-class OptionData:
-    """
-    Option contract data structure
-    """
-    symbol: str
-    expiration: datetime
-    strike: float
-    option_type: str  # 'call' or 'put'
-    bid: float = 0.0
-    ask: float = 0.0
-    last: float = 0.0
-    volume: int = 0
-    open_interest: int = 0
-    implied_volatility: float = 0.0
-    delta: float = 0.0
-    gamma: float = 0.0
-    theta: float = 0.0
-    vega: float = 0.0
-    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 class MarketDataType(Enum):
     """Market data type enumeration"""

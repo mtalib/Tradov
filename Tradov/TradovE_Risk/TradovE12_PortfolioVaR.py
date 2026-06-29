@@ -1370,23 +1370,14 @@ if __name__ == "__main__":
     # Add test positions
 
     positions = [
-        ('POS001', 'D02_IronCondor', 200000),
-        ('POS002', 'D05_Straddle', 150000),
-        ('POS003', 'D04_ZeroDTE', 100000),
-        ('POS004', 'D14_CalendarSpread', 250000),
-        ('POS005', 'D03_CreditSpread', 300000)
+        ('POS001', 'D42_PairTrading', 200000),
+        ('POS002', 'D43_DistanceStrategy', 150000),
+        ('POS003', 'D44_PCAStrategy', 100000),
     ]
 
     # Generate fake returns
     for pos_id, strategy, value in positions:
-        # Simulate returns with different risk profiles
-        if 'ZeroDTE' in strategy:
-            returns = np.random.normal(-0.001, 0.03, 252)  # Higher risk
-        elif 'Straddle' in strategy:
-            returns = np.random.normal(0.0005, 0.025, 252)
-        else:
-            returns = np.random.normal(0.001, 0.015, 252)  # Lower risk
-
+        returns = np.random.normal(0.001, 0.015, 252)
         var_system.update_position(pos_id, strategy, value, returns_history=list(returns))
 
     # Store portfolio returns for testing

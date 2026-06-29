@@ -399,10 +399,6 @@ class MasterController:
                 ["E11_MaxLossProtection", "E12_PortfolioVaR"],
                 5,
             ),
-            # Portfolio Management (Priority 6)
-            ("P05_MultiStrategyAllocator", "P", "Strategy Allocator", ["E01_RiskManager"], 6),
-            ("P06_StrategyRotation", "P", "Strategy Rotation", ["P05_MultiStrategyAllocator"], 6),
-            ("P01_PortfolioManager", "P", "Portfolio Manager", ["P05_MultiStrategyAllocator"], 6),
             # ML Engine (Priority 7)
             ("L18_EnhancedMLIntegration", "L", "ML Engine", ["C07_MarketDataHub"], 7),
             ("L01_MLPredictor", "L", "ML Predictor", ["L18_EnhancedMLIntegration"], 7),
@@ -420,10 +416,7 @@ class MasterController:
                 8,
             ),
             # Trading Strategies (Priority 9)
-            ("D01_BaseStrategy", "D", "Base Strategy", ["P01_PortfolioManager"], 9),
-            ("D02_IronCondor", "D", "Iron Condor", ["D01_BaseStrategy"], 9),
-            ("D04_ZeroDTE", "D", "Zero DTE", ["D01_BaseStrategy"], 9),
-            ("D05_Straddle", "D", "Straddle", ["D01_BaseStrategy"], 9),
+            ("D01_BaseStrategy", "D", "Base Strategy", [], 9),
             # Order Management (Priority 10)
             ("B02_OrderManager", "B", "Order Manager", ["B01_TradovClient", "E01_RiskManager"], 10),
             ("B03_PositionTracker", "B", "Position Tracker", ["B02_OrderManager"], 10),
@@ -572,17 +565,6 @@ class MasterController:
                 critical=True,
             ),
             StartupSequence(
-                phase="Portfolio Management",
-                modules=[
-                    "P05_MultiStrategyAllocator",
-                    "P06_StrategyRotation",
-                    "P01_PortfolioManager",
-                ],
-                parallel=False,
-                timeout=30,
-                critical=True,
-            ),
-            StartupSequence(
                 phase="ML Engine",
                 modules=["L18_EnhancedMLIntegration", "L01_MLPredictor", "L09_RegimeClassifier"],
                 parallel=False,
@@ -606,9 +588,6 @@ class MasterController:
                 phase="Trading Strategies",
                 modules=[
                     "D01_BaseStrategy",
-                    "D02_IronCondor",
-                    "D04_ZeroDTE",
-                    "D05_Straddle",
                     "D31_StrategyOrchestrator",
                 ],
                 parallel=True,
@@ -1146,7 +1125,7 @@ class MasterController:
             {"name": "Task Scheduler", "modules": ["A04_Scheduler"]},
             {"name": "Notifications", "modules": ["J05_TelegramBot"]},
             {"name": "Trading & Orders", "modules": ["B02_OrderManager", "B03_PositionTracker", "R04_LiveEngine"]},  # noqa: E501
-            {"name": "Strategies", "modules": ["D02_IronCondor", "D04_ZeroDTE", "D05_Straddle"]},
+            {"name": "Strategies", "modules": ["D31_StrategyOrchestrator", "D42_PairTrading", "D43_DistanceStrategy", "D44_PCAStrategy"]},  # noqa: E501
             {
                 "name": "AI Agents",
                 "modules": ["X01_GreeksAgent", "X02_FlowAgent", "X16_MetaCoordinator"],
