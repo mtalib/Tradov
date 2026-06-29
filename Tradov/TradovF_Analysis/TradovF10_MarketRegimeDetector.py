@@ -394,24 +394,6 @@ class MarketRegimeDetector:
             # Map regimes to optimal strategies
             strategy_map = self.strategy_mappings.get(regime, ["D01_BaseStrategy"])
 
-            # Consider additional factors
-            if self.current_regime:
-                # Adjust for trend
-                if self.current_regime.trend_regime == TrendRegime.STRONG_BULLISH:
-                    if "D13_DiagonalStrategy" not in strategy_map:
-                        strategy_map.append("D13_DiagonalStrategy")
-                elif self.current_regime.trend_regime == TrendRegime.STRONG_BEARISH:
-                    if "D07_BearCallSpread" not in strategy_map:
-                        strategy_map.append("D07_BearCallSpread")
-
-                # Consider volatility clustering
-                if (
-                    self.current_regime.clustering_regime
-                    == VolatilityCluster.HIGH_CLUSTER
-                ):
-                    if "D14_StraddleStrangle" not in strategy_map:
-                        strategy_map.append("D14_StraddleStrangle")
-
             return strategy_map
 
         except Exception as e:
@@ -1338,31 +1320,19 @@ class MarketRegimeDetector:
         return recommendations
 
     def _initialize_strategy_mapping(self) -> None:
-        """Initialize regime to strategy mapping."""
+        """Initialize regime to strategy mapping.
+
+        The legacy options-strategy catalog (Iron Condor, Calendar, etc.) was
+        removed in the pairs/stat-arb migration. Regimes now map to the base
+        strategy; pair-strategy selection is handled by the D30/D58 pipeline,
+        not by this recommendation map. Per-regime mappings can still be
+        injected via config (see _load_config / strategy_mappings.update).
+        """
         self.strategy_mappings = {
-            MarketRegime.LOW_VOLATILITY: [
-                "D02_IronCondor",
-                "D03_CreditSpread",
-                "D12_Butterfly",
-                "D15_JadeLizard",
-            ],
-            MarketRegime.NORMAL: [
-                "D03_CreditSpread",
-                "D04_IronButterfly",
-                "D05_BullPutSpread",
-                "D06_BullCallSpread",
-            ],
-            MarketRegime.HIGH_VOLATILITY: [
-                "D14_StraddleStrangle",
-                "D13_DiagonalStrategy",
-                "D11_SpecializedZeroDTE",
-                "D08_Calendar",
-            ],
-            MarketRegime.EXTREME_VOLATILITY: [
-                "D14_StraddleStrangle",
-                "D16_RatioSpreads",
-                "D09_Backspread",
-            ],
+            MarketRegime.LOW_VOLATILITY: ["D01_BaseStrategy"],
+            MarketRegime.NORMAL: ["D01_BaseStrategy"],
+            MarketRegime.HIGH_VOLATILITY: ["D01_BaseStrategy"],
+            MarketRegime.EXTREME_VOLATILITY: ["D01_BaseStrategy"],
         }
 
     def _update_strategy_recommendations(self, transition: RegimeTransition) -> None:

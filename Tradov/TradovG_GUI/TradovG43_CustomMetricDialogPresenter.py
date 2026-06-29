@@ -281,8 +281,7 @@ def build_pmr_details_html(state: dict) -> str:
 
     return f"""
     <h2 style='margin-bottom:4px;'>PMR — Pivot Mean-Reversion Signal</h2>
-    <p style='color:#9bb;'>Producer: <code>TradovS08_PivotMeanReversionSignal</code> &nbsp;·&nbsp;
-    Consumer: <code>TradovD25_UnifiedCreditSpreadEngine</code> (via R08 paper worker)</p>
+    <p style='color:#9bb;'>Producer: <code>TradovS08_PivotMeanReversionSignal</code></p>
 
     <h3>Live state</h3>
     <p>{status_line}</p>

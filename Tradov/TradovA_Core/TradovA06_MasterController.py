@@ -421,9 +421,6 @@ class MasterController:
             ),
             # Trading Strategies (Priority 9)
             ("D01_BaseStrategy", "D", "Base Strategy", ["P01_PortfolioManager"], 9),
-            ("D02_IronCondor", "D", "Iron Condor", ["D01_BaseStrategy"], 9),
-            ("D04_ZeroDTE", "D", "Zero DTE", ["D01_BaseStrategy"], 9),
-            ("D05_Straddle", "D", "Straddle", ["D01_BaseStrategy"], 9),
             # Order Management (Priority 10)
             ("B02_OrderManager", "B", "Order Manager", ["B01_TradovClient", "E01_RiskManager"], 10),
             ("B03_PositionTracker", "B", "Position Tracker", ["B02_OrderManager"], 10),
@@ -606,9 +603,6 @@ class MasterController:
                 phase="Trading Strategies",
                 modules=[
                     "D01_BaseStrategy",
-                    "D02_IronCondor",
-                    "D04_ZeroDTE",
-                    "D05_Straddle",
                     "D31_StrategyOrchestrator",
                 ],
                 parallel=True,
@@ -1146,7 +1140,7 @@ class MasterController:
             {"name": "Task Scheduler", "modules": ["A04_Scheduler"]},
             {"name": "Notifications", "modules": ["J05_TelegramBot"]},
             {"name": "Trading & Orders", "modules": ["B02_OrderManager", "B03_PositionTracker", "R04_LiveEngine"]},  # noqa: E501
-            {"name": "Strategies", "modules": ["D02_IronCondor", "D04_ZeroDTE", "D05_Straddle"]},
+            {"name": "Strategies", "modules": ["D31_StrategyOrchestrator", "D42_PairTrading", "D43_DistanceStrategy", "D44_PCAStrategy"]},  # noqa: E501
             {
                 "name": "AI Agents",
                 "modules": ["X01_GreeksAgent", "X02_FlowAgent", "X16_MetaCoordinator"],
