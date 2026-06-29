@@ -263,11 +263,6 @@ REGISTERED_MODULES: dict[str, ModuleRecord] = {
     "M08": ModuleRecord("M08", "TradovM_Monitoring", "TradovM08_HealthEndpoint", "HealthEndpoint",
                         "HTTP /health endpoint for readiness probes", "M",
                         tags=["monitoring", "health"]),
-    # ── P-Series: PortfolioMgmt ───────────────────────────────────────
-    "P01": ModuleRecord("P01", "TradovP_PortfolioMgmt", "TradovP01_PortfolioManager",
-                        "PortfolioManager",
-                        "Tracks all open positions and portfolio-level Greeks", "P",
-                        dependencies=["E01"]),
     # ── R-Series: Runtime ─────────────────────────────────────────────
     "R02": ModuleRecord("R02", "TradovR_Runtime", "TradovR02_PaperEngine", "PaperEngine",
                         "Paper trading engine — simulates live execution", "R",

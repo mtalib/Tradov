@@ -399,10 +399,6 @@ class MasterController:
                 ["E11_MaxLossProtection", "E12_PortfolioVaR"],
                 5,
             ),
-            # Portfolio Management (Priority 6)
-            ("P05_MultiStrategyAllocator", "P", "Strategy Allocator", ["E01_RiskManager"], 6),
-            ("P06_StrategyRotation", "P", "Strategy Rotation", ["P05_MultiStrategyAllocator"], 6),
-            ("P01_PortfolioManager", "P", "Portfolio Manager", ["P05_MultiStrategyAllocator"], 6),
             # ML Engine (Priority 7)
             ("L18_EnhancedMLIntegration", "L", "ML Engine", ["C07_MarketDataHub"], 7),
             ("L01_MLPredictor", "L", "ML Predictor", ["L18_EnhancedMLIntegration"], 7),
@@ -420,7 +416,7 @@ class MasterController:
                 8,
             ),
             # Trading Strategies (Priority 9)
-            ("D01_BaseStrategy", "D", "Base Strategy", ["P01_PortfolioManager"], 9),
+            ("D01_BaseStrategy", "D", "Base Strategy", [], 9),
             # Order Management (Priority 10)
             ("B02_OrderManager", "B", "Order Manager", ["B01_TradovClient", "E01_RiskManager"], 10),
             ("B03_PositionTracker", "B", "Position Tracker", ["B02_OrderManager"], 10),
@@ -565,17 +561,6 @@ class MasterController:
                     "E19_UnifiedRiskCoordinator",
                 ],
                 parallel=False,  # Sequential for proper initialization
-                timeout=30,
-                critical=True,
-            ),
-            StartupSequence(
-                phase="Portfolio Management",
-                modules=[
-                    "P05_MultiStrategyAllocator",
-                    "P06_StrategyRotation",
-                    "P01_PortfolioManager",
-                ],
-                parallel=False,
                 timeout=30,
                 critical=True,
             ),
